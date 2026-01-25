@@ -69,6 +69,8 @@ export interface Config {
   collections: {
     users: User;
     media: Media;
+    'dm-products': DmProduct;
+    'dm-crawls': DmCrawl;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -78,13 +80,15 @@ export interface Config {
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
+    'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
   };
   db: {
-    defaultIDType: string;
+    defaultIDType: number;
   };
   fallbackLocale: null;
   globals: {};
@@ -121,7 +125,7 @@ export interface UserAuthOperations {
  * via the `definition` "users".
  */
 export interface User {
-  id: string;
+  id: number;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -145,7 +149,7 @@ export interface User {
  * via the `definition` "media".
  */
 export interface Media {
-  id: string;
+  id: number;
   alt: string;
   updatedAt: string;
   createdAt: string;
@@ -160,11 +164,129 @@ export interface Media {
   focalY?: number | null;
 }
 /**
+ * Products crawled from dm.de
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-products".
+ */
+export interface DmProduct {
+  id: number;
+  /**
+   * Global Trade Item Number
+   */
+  gtin?: string | null;
+  /**
+   * Product brand name
+   */
+  brandName?: string | null;
+  name: string;
+  /**
+   * Product category (e.g., Make-up)
+   */
+  type?: string | null;
+  /**
+   * Product pricing information
+   */
+  pricing?: {
+    /**
+     * Price in smallest currency unit (cents)
+     */
+    amount?: number | null;
+    /**
+     * ISO 4217 currency code
+     */
+    currency?: string | null;
+    /**
+     * Base price per unit in cents
+     */
+    perUnitAmount?: number | null;
+    perUnitCurrency?: string | null;
+    /**
+     * Unit of measurement (e.g., l, kg)
+     */
+    unit?: string | null;
+  };
+  /**
+   * Average rating (0-5)
+   */
+  rating?: number | null;
+  /**
+   * Total number of reviews
+   */
+  ratingNum?: number | null;
+  /**
+   * Product labels (e.g., Neu, Limitiert, dm-Marke)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * URL from which this product was crawled
+   */
+  sourceUrl?: string | null;
+  /**
+   * When this product was last crawled
+   */
+  crawledAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * DM crawl sessions tracking discovery and crawl progress
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawls".
+ */
+export interface DmCrawl {
+  id: number;
+  /**
+   * The dm.de category URL being crawled
+   */
+  sourceUrl: string;
+  /**
+   * Current status of the crawl
+   */
+  status?: ('pending' | 'discovering' | 'discovered' | 'crawling' | 'completed' | 'failed') | null;
+  /**
+   * Total number of products reported by dm.de
+   */
+  totalCount?: number | null;
+  /**
+   * Number of items discovered during discovery phase
+   */
+  itemsDiscovered?: number | null;
+  /**
+   * Number of items successfully crawled
+   */
+  itemsCrawled?: number | null;
+  /**
+   * List of product GTINs discovered, pending crawl
+   */
+  items?:
+    | {
+        gtin: string;
+        status?: ('pending' | 'crawled' | 'failed') | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Error message if crawl failed
+   */
+  error?: string | null;
+  discoveredAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
-  id: string;
+  id: number;
   key: string;
   data:
     | {
@@ -181,20 +303,28 @@ export interface PayloadKv {
  * via the `definition` "payload-locked-documents".
  */
 export interface PayloadLockedDocument {
-  id: string;
+  id: number;
   document?:
     | ({
         relationTo: 'users';
-        value: string | User;
+        value: number | User;
       } | null)
     | ({
         relationTo: 'media';
-        value: string | Media;
+        value: number | Media;
+      } | null)
+    | ({
+        relationTo: 'dm-products';
+        value: number | DmProduct;
+      } | null)
+    | ({
+        relationTo: 'dm-crawls';
+        value: number | DmCrawl;
       } | null);
   globalSlug?: string | null;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   updatedAt: string;
   createdAt: string;
@@ -204,10 +334,10 @@ export interface PayloadLockedDocument {
  * via the `definition` "payload-preferences".
  */
 export interface PayloadPreference {
-  id: string;
+  id: number;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   key?: string | null;
   value?:
@@ -227,7 +357,7 @@ export interface PayloadPreference {
  * via the `definition` "payload-migrations".
  */
 export interface PayloadMigration {
-  id: string;
+  id: number;
   name?: string | null;
   batch?: number | null;
   updatedAt: string;
@@ -272,6 +402,60 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-products_select".
+ */
+export interface DmProductsSelect<T extends boolean = true> {
+  gtin?: T;
+  brandName?: T;
+  name?: T;
+  type?: T;
+  pricing?:
+    | T
+    | {
+        amount?: T;
+        currency?: T;
+        perUnitAmount?: T;
+        perUnitCurrency?: T;
+        unit?: T;
+      };
+  rating?: T;
+  ratingNum?: T;
+  labels?:
+    | T
+    | {
+        label?: T;
+        id?: T;
+      };
+  sourceUrl?: T;
+  crawledAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawls_select".
+ */
+export interface DmCrawlsSelect<T extends boolean = true> {
+  sourceUrl?: T;
+  status?: T;
+  totalCount?: T;
+  itemsDiscovered?: T;
+  itemsCrawled?: T;
+  items?:
+    | T
+    | {
+        gtin?: T;
+        status?: T;
+        id?: T;
+      };
+  error?: T;
+  discoveredAt?: T;
+  completedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
