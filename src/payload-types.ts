@@ -263,6 +263,12 @@ export interface DmCrawl {
    */
   itemsCrawled?: number | null;
   /**
+   * Error message if crawl failed
+   */
+  error?: string | null;
+  discoveredAt?: string | null;
+  completedAt?: string | null;
+  /**
    * List of product GTINs discovered, pending crawl
    */
   items?:
@@ -272,12 +278,6 @@ export interface DmCrawl {
         id?: string | null;
       }[]
     | null;
-  /**
-   * Error message if crawl failed
-   */
-  error?: string | null;
-  discoveredAt?: string | null;
-  completedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -444,6 +444,9 @@ export interface DmCrawlsSelect<T extends boolean = true> {
   totalCount?: T;
   itemsDiscovered?: T;
   itemsCrawled?: T;
+  error?: T;
+  discoveredAt?: T;
+  completedAt?: T;
   items?:
     | T
     | {
@@ -451,9 +454,6 @@ export interface DmCrawlsSelect<T extends boolean = true> {
         status?: T;
         id?: T;
       };
-  error?: T;
-  discoveredAt?: T;
-  completedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
