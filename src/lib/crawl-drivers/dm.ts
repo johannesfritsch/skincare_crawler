@@ -114,6 +114,9 @@ export const dmDriver: CrawlDriver = {
         const fullUrl = productUrl.startsWith('http') ? productUrl : `https://www.dm.de${productUrl}`
         await page.goto(fullUrl, { waitUntil: 'domcontentloaded' })
 
+        // Wait for the ingredients section to load (it may be dynamically rendered)
+        await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
+
         // Extract GTIN and ingredients from product page
         const pageData = await page.evaluate(() => {
           // Try to find GTIN in the page
@@ -238,6 +241,8 @@ export const dmDriver: CrawlDriver = {
       // If we didn't have a productUrl but now have sourceUrl, fetch ingredients from detail page
       if (ingredients.length === 0 && productData.sourceUrl) {
         await page.goto(productData.sourceUrl, { waitUntil: 'domcontentloaded' })
+        // Wait for the ingredients section to load (it may be dynamically rendered)
+        await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
         ingredients = await page.evaluate(() => {
           const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
           if (!ingredientsEl) return []
