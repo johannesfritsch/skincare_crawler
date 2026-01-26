@@ -126,15 +126,55 @@ export const DmCrawls: CollectionConfig = {
           ],
         },
         {
-          label: 'Items',
+          label: 'Pending',
           fields: [
             {
-              name: 'items',
+              name: 'pendingItems',
               type: 'join',
               collection: 'dm-crawl-items',
               on: 'crawl',
+              where: {
+                status: { equals: 'pending' },
+              },
               admin: {
-                defaultColumns: ['gtin', 'status'],
+                defaultColumns: ['gtin', 'status', 'productUrl'],
+                allowCreate: false,
+              },
+            },
+          ],
+        },
+        {
+          label: 'Crawled',
+          fields: [
+            {
+              name: 'crawledItems',
+              type: 'join',
+              collection: 'dm-crawl-items',
+              on: 'crawl',
+              where: {
+                status: { equals: 'crawled' },
+              },
+              admin: {
+                defaultColumns: ['gtin', 'status', 'productUrl'],
+                allowCreate: false,
+              },
+            },
+          ],
+        },
+        {
+          label: 'Failed',
+          fields: [
+            {
+              name: 'failedItems',
+              type: 'join',
+              collection: 'dm-crawl-items',
+              on: 'crawl',
+              where: {
+                status: { equals: 'failed' },
+              },
+              admin: {
+                defaultColumns: ['gtin', 'status', 'productUrl'],
+                allowCreate: false,
               },
             },
           ],

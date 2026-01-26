@@ -6,6 +6,7 @@ export const DmCrawlItems: CollectionConfig = {
     hidden: true,
     useAsTitle: 'gtin',
     defaultColumns: ['gtin', 'productUrl', 'status', 'createdAt'],
+    listSearchableFields: ['gtin', 'status'],
   },
   fields: [
     {

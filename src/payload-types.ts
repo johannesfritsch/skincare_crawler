@@ -79,7 +79,9 @@ export interface Config {
   };
   collectionsJoins: {
     'dm-crawls': {
-      items: 'dm-crawl-items';
+      pendingItems: 'dm-crawl-items';
+      crawledItems: 'dm-crawl-items';
+      failedItems: 'dm-crawl-items';
     };
   };
   collectionsSelect: {
@@ -274,7 +276,17 @@ export interface DmCrawl {
   error?: string | null;
   discoveredAt?: string | null;
   completedAt?: string | null;
-  items?: {
+  pendingItems?: {
+    docs?: (number | DmCrawlItem)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  crawledItems?: {
+    docs?: (number | DmCrawlItem)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  failedItems?: {
     docs?: (number | DmCrawlItem)[];
     hasNextPage?: boolean;
     totalDocs?: number;
@@ -465,7 +477,9 @@ export interface DmCrawlsSelect<T extends boolean = true> {
   error?: T;
   discoveredAt?: T;
   completedAt?: T;
-  items?: T;
+  pendingItems?: T;
+  crawledItems?: T;
+  failedItems?: T;
   updatedAt?: T;
   createdAt?: T;
 }
