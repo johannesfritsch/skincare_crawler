@@ -38,6 +38,11 @@ export const DmCrawlItems: CollectionConfig = {
         { label: 'Crawled', value: 'crawled' },
         { label: 'Failed', value: 'failed' },
       ],
+      admin: {
+        components: {
+          Cell: '/components/CrawlItemStatusCell',
+        },
+      },
     },
   ],
 }
