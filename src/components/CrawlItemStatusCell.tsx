@@ -23,7 +23,7 @@ export default function CrawlItemStatusCell({ rowData }: DefaultCellComponentPro
     setError(null)
 
     try {
-      const response = await fetch('/api/crawl/dm/crawl', {
+      const response = await fetch('/api/crawl/crawl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ crawlId, itemId }),

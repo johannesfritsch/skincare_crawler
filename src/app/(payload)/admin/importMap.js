@@ -1,9 +1,11 @@
+import { default as default_aedc5f335475d14dc6a9d50a6428ee5f } from '../../../components/AutoFillFromSourcesButton'
 import { default as default_ac2525d3740e9b1b342f6ad16ca03705 } from '../../../components/RecrawlProductButton'
 import { default as default_6fc9f3400cf0269b8334768fb8b55aef } from '../../../components/ItemsCountField'
 import { default as default_286c9213c0cdb53de79595295597ed4c } from '../../../components/CrawlItemStatusCell'
 import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } from '@payloadcms/ui/rsc'
 
 export const importMap = {
+  "/components/AutoFillFromSourcesButton#default": default_aedc5f335475d14dc6a9d50a6428ee5f,
   "/components/RecrawlProductButton#default": default_ac2525d3740e9b1b342f6ad16ca03705,
   "/components/ItemsCountField#default": default_6fc9f3400cf0269b8334768fb8b55aef,
   "/components/CrawlItemStatusCell#default": default_286c9213c0cdb53de79595295597ed4c,

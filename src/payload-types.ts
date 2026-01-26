@@ -218,14 +218,14 @@ export interface Product {
   brand?: (number | null) | Brand;
   category?: (number | null) | Category;
   /**
-   * Link to crawled DM product data
-   */
-  dmProduct?: (number | null) | DmProduct;
-  /**
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
   publishedAt?: string | null;
+  /**
+   * Link to crawled DM product data
+   */
+  dmProduct?: (number | null) | DmProduct;
   updatedAt: string;
   createdAt: string;
 }
@@ -534,9 +534,9 @@ export interface ProductsSelect<T extends boolean = true> {
   description?: T;
   brand?: T;
   category?: T;
-  dmProduct?: T;
   lastAggregatedAt?: T;
   publishedAt?: T;
+  dmProduct?: T;
   updatedAt?: T;
   createdAt?: T;
 }

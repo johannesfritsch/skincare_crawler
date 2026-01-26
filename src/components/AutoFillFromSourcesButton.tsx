@@ -2,19 +2,28 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useWatchForm } from '@payloadcms/ui'
+import { useDocumentInfo, useWatchForm } from '@payloadcms/ui'
 
-export default function RecrawlProductButton() {
+export default function AutoFillFromSourcesButton() {
   const router = useRouter()
+  const { id } = useDocumentInfo()
   const { getDataByPath } = useWatchForm()
-  const gtin = getDataByPath<string>('gtin')
+  const dmProduct = getDataByPath<number | null>('dmProduct')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleRecrawl = async () => {
-    if (!gtin) {
-      setError('No GTIN found')
+  const hasSource = !!dmProduct
+  // Add more source checks here: || !!otherSource
+
+  const handleAutoFill = async () => {
+    if (!id) {
+      setError('Product must be saved first')
+      return
+    }
+
+    if (!hasSource) {
+      setError('No source linked. Please link a DM Product in the Sources tab first.')
       return
     }
 
@@ -22,18 +31,18 @@ export default function RecrawlProductButton() {
     setError(null)
 
     try {
-      const response = await fetch('/api/crawl/crawl', {
+      const response = await fetch('/api/aggregate_products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gtins: [gtin], driver: 'dm' }),
+        body: JSON.stringify({ productIds: [id] }),
       })
 
       const data = await response.json()
 
-      if (data.success) {
+      if (data.success && data.results?.[0]?.success) {
         router.refresh()
       } else {
-        setError(data.error || 'Failed to recrawl')
+        setError(data.results?.[0]?.error || data.error || 'Failed to auto-fill')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -45,8 +54,8 @@ export default function RecrawlProductButton() {
   return (
     <div style={{ padding: '12px 0' }}>
       <button
-        onClick={handleRecrawl}
-        disabled={loading || !gtin}
+        onClick={handleAutoFill}
+        disabled={loading}
         style={{
           padding: '8px 16px',
           background: loading ? 'var(--theme-elevation-200)' : 'var(--theme-elevation-150)',
@@ -58,7 +67,7 @@ export default function RecrawlProductButton() {
           gap: '8px',
         }}
       >
-        {loading ? 'Recrawling...' : 'Recrawl Product Data'}
+        {loading ? 'Auto-filling...' : 'Auto-fill from Sources'}
       </button>
       {error && (
         <div style={{ color: 'var(--theme-error-500)', marginTop: '8px', fontSize: '14px' }}>
