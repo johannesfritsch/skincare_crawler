@@ -2,10 +2,14 @@ import type { CollectionConfig } from 'payload'
 
 export const DmCrawls: CollectionConfig = {
   slug: 'dm-crawls',
+  labels: {
+    singular: 'DM Crawl',
+    plural: 'DM Crawls',
+  },
   admin: {
     useAsTitle: 'sourceUrl',
     defaultColumns: ['sourceUrl', 'status', 'totalCount', 'itemsCrawled', 'createdAt'],
-    group: 'Crawled Data',
+    group: 'DM Data',
     description: 'DM crawl sessions tracking discovery and crawl progress',
   },
   fields: [
@@ -126,31 +130,12 @@ export const DmCrawls: CollectionConfig = {
           fields: [
             {
               name: 'items',
-              type: 'array',
-              label: 'Items to Crawl',
+              type: 'join',
+              collection: 'dm-crawl-items',
+              on: 'crawl',
               admin: {
-                description: 'List of product GTINs discovered, pending crawl',
-                initCollapsed: true,
+                defaultColumns: ['gtin', 'status'],
               },
-              fields: [
-                {
-                  name: 'gtin',
-                  type: 'text',
-                  label: 'GTIN',
-                  required: true,
-                },
-                {
-                  name: 'status',
-                  type: 'select',
-                  label: 'Status',
-                  defaultValue: 'pending',
-                  options: [
-                    { label: 'Pending', value: 'pending' },
-                    { label: 'Crawled', value: 'crawled' },
-                    { label: 'Failed', value: 'failed' },
-                  ],
-                },
-              ],
             },
           ],
         },

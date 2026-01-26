@@ -9,6 +9,7 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { DmProducts } from './collections/DmProducts'
 import { DmCrawls } from './collections/DmCrawls'
+import { DmCrawlItems } from './collections/DmCrawlItems'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -20,7 +21,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, DmProducts, DmCrawls],
+  collections: [Users, Media, DmProducts, DmCrawls, DmCrawlItems],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

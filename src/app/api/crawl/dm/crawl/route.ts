@@ -19,25 +19,23 @@ interface ProductData {
   sourceUrl: string | null
 }
 
-async function scrapeProductByGtin(page: Page, gtin: string): Promise<ProductData | null> {
+async function scrapeProductByUrl(page: Page, gtin: string, productUrl: string | null): Promise<ProductData | null> {
   try {
-    // Search for the product by GTIN
-    await page.goto(`https://www.dm.de/search?query=${gtin}`, { waitUntil: 'domcontentloaded' })
-
-    // Wait for search results and find the product tile with matching GTIN
-    await page.waitForSelector('[data-dmid="product-tile"]', { timeout: 5000 }).catch(() => null)
-
-    // Click on the product tile with matching GTIN
-    const productTile = page.locator(`[data-dmid="product-tile"][data-gtin="${gtin}"] a`).first()
-    const tileExists = await productTile.count()
-
-    if (tileExists === 0) {
-      console.log(`No product tile found for GTIN ${gtin}`)
-      return null
+    if (!productUrl) {
+      // Fallback: search for the product by GTIN
+      await page.goto(`https://www.dm.de/search?query=${gtin}`, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('[data-dmid="product-tile"]', { timeout: 5000 }).catch(() => null)
+      const productTile = page.locator(`[data-dmid="product-tile"][data-gtin="${gtin}"] a`).first()
+      if ((await productTile.count()) === 0) {
+        console.log(`No product tile found for GTIN ${gtin}`)
+        return null
+      }
+      await productTile.click()
+      await page.waitForLoadState('domcontentloaded')
+    } else {
+      // Navigate directly to product URL
+      await page.goto(`https://www.dm.de${productUrl}`, { waitUntil: 'domcontentloaded' })
     }
-
-    await productTile.click()
-    await page.waitForLoadState('domcontentloaded')
 
     const productData = await page.evaluate(() => {
       // Try to get data from structured data or page content
@@ -134,9 +132,17 @@ export const POST = async (request: Request) => {
       )
     }
 
-    // Get pending items
-    const items = crawl.items || []
-    const pendingItems = items.filter((item) => item.status === 'pending')
+    // Get pending items from the crawl items collection
+    const pendingItemsResult = await payload.find({
+      collection: 'dm-crawl-items',
+      where: {
+        crawl: { equals: crawlId },
+        status: { equals: 'pending' },
+      },
+      limit,
+    })
+
+    const pendingItems = pendingItemsResult.docs
 
     if (pendingItems.length === 0) {
       // Mark as completed if no more pending items
@@ -166,8 +172,8 @@ export const POST = async (request: Request) => {
       },
     })
 
-    // Get items to process (limited)
-    const itemsToProcess = pendingItems.slice(0, limit)
+    // Items to process
+    const itemsToProcess = pendingItems
 
     // Launch browser
     const isVercel = !!process.env.VERCEL
@@ -203,10 +209,11 @@ export const POST = async (request: Request) => {
     try {
       for (const item of itemsToProcess) {
         const gtin = item.gtin
+        const productUrl = item.productUrl || null
 
         console.log(`Crawling product ${gtin}...`)
 
-        const productData = await scrapeProductByGtin(page, gtin)
+        const productData = await scrapeProductByUrl(page, gtin, productUrl)
 
         if (productData && productData.name) {
           // Upsert into DmProducts
@@ -265,41 +272,50 @@ export const POST = async (request: Request) => {
             })
           }
 
+          // Update item status to crawled
+          await payload.update({
+            collection: 'dm-crawl-items',
+            id: item.id,
+            data: { status: 'crawled' },
+          })
+
           results.push({ gtin, success: true })
           crawledCount++
         } else {
+          // Update item status to failed
+          await payload.update({
+            collection: 'dm-crawl-items',
+            id: item.id,
+            data: { status: 'failed' },
+          })
+
           results.push({ gtin, success: false, error: 'Failed to scrape product data' })
         }
 
-        // Small delay between requests
-        await page.waitForTimeout(100)
+        // Random delay between requests (1000-1500ms)
+        await page.waitForTimeout(Math.floor(Math.random() * 500) + 1000)
       }
     } finally {
       await browser.close()
     }
 
-    // Update items status in the crawl session
-    type ItemStatus = 'pending' | 'crawled' | 'failed' | null | undefined
-    const updatedItems = items.map((item) => {
-      const result = results.find((r) => r.gtin === item.gtin)
-      if (result) {
-        return {
-          ...item,
-          status: (result.success ? 'crawled' : 'failed') as ItemStatus,
-        }
-      }
-      return item
+    // Check remaining pending items
+    const remainingResult = await payload.count({
+      collection: 'dm-crawl-items',
+      where: {
+        crawl: { equals: crawlId },
+        status: { equals: 'pending' },
+      },
     })
 
+    const remainingPending = remainingResult.totalDocs
     const newCrawledCount = (crawl.itemsCrawled || 0) + crawledCount
-    const remainingPending = updatedItems.filter((item) => item.status === 'pending').length
     const newStatus = remainingPending === 0 ? 'completed' : 'crawling'
 
     await payload.update({
       collection: 'dm-crawls',
       id: crawlId,
       data: {
-        items: updatedItems,
         itemsCrawled: newCrawledCount,
         status: newStatus,
         ...(newStatus === 'completed' ? { completedAt: new Date().toISOString() } : {}),

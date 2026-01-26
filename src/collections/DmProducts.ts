@@ -2,10 +2,14 @@ import type { CollectionConfig } from 'payload'
 
 export const DmProducts: CollectionConfig = {
   slug: 'dm-products',
+  labels: {
+    singular: 'DM Product',
+    plural: 'DM Products',
+  },
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'brandName', 'pricing.amount', 'rating', 'createdAt'],
-    group: 'Crawled Data',
+    group: 'DM Data',
     description: 'Products crawled from dm.de',
     listSearchableFields: ['name', 'brandName', 'gtin'],
   },

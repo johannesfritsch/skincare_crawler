@@ -95,8 +95,8 @@ async function discoverProducts(url: string): Promise<{
 
         if (isVisible) {
           await loadMoreButton.click()
-          // Random delay between 100-300ms
-          await page.waitForTimeout(randomDelay(100, 300))
+          // Random delay between 1000-1500ms
+          await page.waitForTimeout(randomDelay(1000, 1500))
         } else {
           console.log('Load more button not visible')
           noNewProductsCount++
@@ -164,8 +164,21 @@ export const POST = async (request: Request) => {
       const { totalCount, products } = await discoverProducts(url)
       console.log(`Discovered ${products.length} products (total reported: ${totalCount})`)
 
-      // Update the crawl with discovered items (only store GTINs for performance)
-      const updatedCrawl = await payload.update({
+      // Create crawl items in separate collection
+      for (const product of products) {
+        await payload.create({
+          collection: 'dm-crawl-items',
+          data: {
+            crawl: crawl.id,
+            gtin: product.gtin,
+            productUrl: product.productUrl,
+            status: 'pending',
+          },
+        })
+      }
+
+      // Update the crawl with counts
+      await payload.update({
         collection: 'dm-crawls',
         id: crawl.id,
         data: {
@@ -173,10 +186,6 @@ export const POST = async (request: Request) => {
           totalCount,
           itemsDiscovered: products.length,
           itemsCrawled: 0,
-          items: products.map((p) => ({
-            gtin: p.gtin,
-            status: 'pending',
-          })),
           discoveredAt: new Date().toISOString(),
         },
       })

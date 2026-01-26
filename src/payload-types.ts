@@ -71,17 +71,23 @@ export interface Config {
     media: Media;
     'dm-products': DmProduct;
     'dm-crawls': DmCrawl;
+    'dm-crawl-items': DmCrawlItem;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
-  collectionsJoins: {};
+  collectionsJoins: {
+    'dm-crawls': {
+      items: 'dm-crawl-items';
+    };
+  };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
+    'dm-crawl-items': DmCrawlItemsSelect<false> | DmCrawlItemsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -268,16 +274,24 @@ export interface DmCrawl {
   error?: string | null;
   discoveredAt?: string | null;
   completedAt?: string | null;
-  /**
-   * List of product GTINs discovered, pending crawl
-   */
-  items?:
-    | {
-        gtin: string;
-        status?: ('pending' | 'crawled' | 'failed') | null;
-        id?: string | null;
-      }[]
-    | null;
+  items?: {
+    docs?: (number | DmCrawlItem)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawl-items".
+ */
+export interface DmCrawlItem {
+  id: number;
+  crawl: number | DmCrawl;
+  gtin: string;
+  productUrl?: string | null;
+  status?: ('pending' | 'crawled' | 'failed') | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -320,6 +334,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'dm-crawls';
         value: number | DmCrawl;
+      } | null)
+    | ({
+        relationTo: 'dm-crawl-items';
+        value: number | DmCrawlItem;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -447,13 +465,19 @@ export interface DmCrawlsSelect<T extends boolean = true> {
   error?: T;
   discoveredAt?: T;
   completedAt?: T;
-  items?:
-    | T
-    | {
-        gtin?: T;
-        status?: T;
-        id?: T;
-      };
+  items?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawl-items_select".
+ */
+export interface DmCrawlItemsSelect<T extends boolean = true> {
+  crawl?: T;
+  gtin?: T;
+  productUrl?: T;
+  status?: T;
   updatedAt?: T;
   createdAt?: T;
 }
