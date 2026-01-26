@@ -7,6 +7,9 @@ import sharp from 'sharp'
 
 import { Users } from './collections/Users'
 import { Media } from './collections/Media'
+import { Brands } from './collections/Brands'
+import { Categories } from './collections/Categories'
+import { Products } from './collections/Products'
 import { DmProducts } from './collections/DmProducts'
 import { DmCrawls } from './collections/DmCrawls'
 import { DmCrawlItems } from './collections/DmCrawlItems'
@@ -21,7 +24,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, DmProducts, DmCrawls, DmCrawlItems],
+  collections: [Users, Media, Brands, Categories, Products, DmProducts, DmCrawls, DmCrawlItems],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
