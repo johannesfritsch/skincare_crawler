@@ -47,8 +47,8 @@ export interface CrawlDriver {
   // Discover products from a category/listing URL
   discoverProducts(page: Page, url: string): Promise<DiscoveryResult>
 
-  // Scrape a single product by GTIN
-  scrapeProduct(page: Page, gtin: string, productUrl: string | null): Promise<ProductData | null>
+  // Scrape a single product by URL (preferred) or GTIN fallback
+  scrapeProduct(page: Page, gtin: string | null, productUrl: string | null): Promise<ProductData | null>
 
   // Save product data to the database
   saveProduct(payload: Payload, data: ProductData): Promise<number>

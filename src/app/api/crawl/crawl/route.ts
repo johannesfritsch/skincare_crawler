@@ -7,10 +7,15 @@ import type { CrawlDriver } from '@/lib/crawl-drivers'
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
-async function crawlByGtins(
+interface CrawlItem {
+  gtin?: string | null
+  productUrl?: string | null
+}
+
+async function crawlItems(
   payload: Awaited<ReturnType<typeof getPayload>>,
   driver: CrawlDriver,
-  gtins: string[]
+  items: CrawlItem[]
 ) {
   const browser = await launchBrowser()
   const page = await browser.newPage()
@@ -20,22 +25,24 @@ async function crawlByGtins(
     await page.goto(`https://${driver.hostnames[0]}`, { waitUntil: 'domcontentloaded' })
     await driver.acceptCookies(page)
 
-    const results: { gtin: string; success: boolean; productId?: number; error?: string }[] = []
+    const results: { identifier: string; success: boolean; productId?: number; error?: string }[] = []
 
-    for (const gtin of gtins) {
-      console.log(`Crawling product ${gtin}...`)
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const identifier = item.productUrl || item.gtin || 'unknown'
+      console.log(`Crawling product ${identifier}...`)
 
-      const productData = await driver.scrapeProduct(page, gtin, null)
+      const productData = await driver.scrapeProduct(page, item.gtin || null, item.productUrl || null)
 
       if (productData && productData.name) {
         const productId = await driver.saveProduct(payload, productData)
-        results.push({ gtin, success: true, productId })
+        results.push({ identifier, success: true, productId })
       } else {
-        results.push({ gtin, success: false, error: 'Failed to scrape product data' })
+        results.push({ identifier, success: false, error: 'Failed to scrape product data' })
       }
 
       // Delay between requests
-      if (gtins.indexOf(gtin) < gtins.length - 1) {
+      if (i < items.length - 1) {
         await page.waitForTimeout(Math.floor(Math.random() * 500) + 1000)
       }
     }
@@ -60,32 +67,57 @@ export const POST = async (request: Request) => {
     const crawlId = body.crawlId as number | undefined
     const itemId = body.itemId as number | undefined
     const gtins = body.gtins as string[] | undefined
+    const productUrls = body.productUrls as string[] | undefined
     const driverId = body.driver as string | undefined
     const url = body.url as string | undefined
     const limit = (body.limit as number) || 10
 
-    // Mode 1: Direct GTIN crawl (needs driver or url to determine driver)
-    if (gtins && Array.isArray(gtins) && gtins.length > 0) {
+    // Mode 1: Direct crawl by productUrls or GTINs (needs driver or url to determine driver)
+    const hasDirectItems = (productUrls && Array.isArray(productUrls) && productUrls.length > 0) ||
+      (gtins && Array.isArray(gtins) && gtins.length > 0)
+
+    if (hasDirectItems) {
       let driver: CrawlDriver | null = null
 
       if (driverId) {
         driver = getDriverById(driverId)
       } else if (url) {
         driver = getDriverByUrl(url)
+      } else if (productUrls && productUrls.length > 0) {
+        // Try to determine driver from first productUrl
+        driver = getDriverByUrl(productUrls[0])
       }
 
       if (!driver) {
         return Response.json(
           {
             success: false,
-            error: 'For direct GTIN crawl, provide "driver" (e.g., "dm") or "url" to determine the driver.',
+            error: 'For direct crawl, provide "driver" (e.g., "dm") or "url" to determine the driver.',
             availableDrivers: getAllDrivers().map((d) => ({ id: d.id, name: d.name })),
           },
           { status: 400 }
         )
       }
 
-      return await crawlByGtins(payload, driver, gtins)
+      // Build items list from productUrls and/or gtins
+      const items: CrawlItem[] = []
+
+      if (productUrls) {
+        for (const productUrl of productUrls) {
+          items.push({ productUrl })
+        }
+      }
+
+      if (gtins) {
+        for (const gtin of gtins) {
+          // Only add if not already covered by a productUrl
+          if (!items.some((item) => item.gtin === gtin)) {
+            items.push({ gtin })
+          }
+        }
+      }
+
+      return await crawlItems(payload, driver, items)
     }
 
     // Mode 2: Crawl from a crawl session
@@ -293,15 +325,17 @@ export const GET = async () => {
     message: 'Crawl API',
     usage: 'POST /api/crawl/crawl',
     modes: {
-      directGtins: '{ "gtins": ["123", "456"], "driver": "dm" } - Crawl specific GTINs',
+      directUrls: '{ "productUrls": ["/product-p123.html"], "driver": "dm" } - Crawl by product URLs (preferred)',
+      directGtins: '{ "gtins": ["123", "456"], "driver": "dm" } - Crawl by GTINs (fallback)',
       fromSession: '{ "crawlId": "...", "limit": 10 } - Crawl pending items from a session',
       singleItem: '{ "crawlId": "...", "itemId": "..." } - Crawl a specific item from a session',
     },
     parameters: {
+      productUrls: 'Optional. Array of product URLs to crawl directly (preferred over gtins).',
       gtins: 'Optional. Array of GTINs to crawl directly.',
-      driver: 'Required with gtins. Driver ID (e.g., "dm").',
+      driver: 'Required with productUrls/gtins. Driver ID (e.g., "dm"). Auto-detected from URLs if possible.',
       url: 'Alternative to driver. URL to determine driver from hostname.',
-      crawlId: 'Required if gtins not provided. The crawl session ID.',
+      crawlId: 'Required if productUrls/gtins not provided. The crawl session ID.',
       itemId: 'Optional. Crawl a specific item by ID from a session.',
       limit: 'Optional. Number of items to crawl per request (default: 10).',
     },

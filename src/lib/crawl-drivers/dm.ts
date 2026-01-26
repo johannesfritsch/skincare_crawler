@@ -104,15 +104,63 @@ export const dmDriver: CrawlDriver = {
     return { totalCount, products }
   },
 
-  async scrapeProduct(page: Page, gtin: string, _productUrl: string | null): Promise<ProductData | null> {
+  async scrapeProduct(page: Page, gtin: string | null, productUrl: string | null): Promise<ProductData | null> {
     try {
+      let searchUrl: string
+
+      if (productUrl) {
+        // Use productUrl - navigate to product page and extract GTIN, then search
+        const fullUrl = productUrl.startsWith('http') ? productUrl : `https://www.dm.de${productUrl}`
+        await page.goto(fullUrl, { waitUntil: 'domcontentloaded' })
+
+        // Extract GTIN from product page
+        const pageGtin = await page.evaluate(() => {
+          // Try to find GTIN in the page
+          const gtinEl = document.querySelector('[data-gtin]')
+          if (gtinEl) return gtinEl.getAttribute('data-gtin')
+
+          // Try JSON-LD
+          const jsonLd = document.querySelector('script[type="application/ld+json"]')
+          if (jsonLd) {
+            try {
+              const data = JSON.parse(jsonLd.textContent || '')
+              if (data.gtin13) return data.gtin13
+              if (data.gtin) return data.gtin
+            } catch {
+              // ignore parse errors
+            }
+          }
+
+          return null
+        })
+
+        if (pageGtin) {
+          searchUrl = `https://www.dm.de/search?query=${pageGtin}`
+          gtin = pageGtin
+        } else if (gtin) {
+          searchUrl = `https://www.dm.de/search?query=${gtin}`
+        } else {
+          console.log(`Could not extract GTIN from product page: ${fullUrl}`)
+          return null
+        }
+      } else if (gtin) {
+        searchUrl = `https://www.dm.de/search?query=${gtin}`
+      } else {
+        console.log('No GTIN or productUrl provided')
+        return null
+      }
+
       // Search for the product by GTIN to get the product tile with structured data
-      await page.goto(`https://www.dm.de/search?query=${gtin}`, { waitUntil: 'domcontentloaded' })
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' })
       await page.waitForSelector('[data-dmid="product-tile"]', { timeout: 10000 }).catch(() => null)
 
       const productData = await page.evaluate((searchGtin) => {
-        const tile = document.querySelector(`[data-dmid="product-tile"][data-gtin="${searchGtin}"]`)
+        const tile = searchGtin
+          ? document.querySelector(`[data-dmid="product-tile"][data-gtin="${searchGtin}"]`)
+          : document.querySelector('[data-dmid="product-tile"]')
         if (!tile) return null
+
+        const tileGtin = tile.getAttribute('data-gtin')
 
         const srOnly = tile.querySelector('.sr-only')
         const srText = srOnly?.textContent || ''
@@ -151,6 +199,7 @@ export const dmDriver: CrawlDriver = {
         const tileProductUrl = link ? link.getAttribute('href') : null
 
         return {
+          gtin: tileGtin,
           brandName,
           name,
           price,
@@ -169,11 +218,19 @@ export const dmDriver: CrawlDriver = {
       }
 
       return {
-        gtin,
-        ...productData,
+        gtin: productData.gtin || gtin || '',
+        brandName: productData.brandName,
+        name: productData.name,
+        price: productData.price,
+        pricePerUnit: productData.pricePerUnit,
+        pricePerValue: productData.pricePerValue,
+        rating: productData.rating,
+        ratingNum: productData.ratingNum,
+        labels: productData.labels,
+        sourceUrl: productData.sourceUrl,
       }
     } catch (error) {
-      console.error(`Error scraping GTIN ${gtin}:`, error)
+      console.error(`Error scraping product (gtin: ${gtin}, url: ${productUrl}):`, error)
       return null
     }
   },
