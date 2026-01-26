@@ -172,6 +172,21 @@ export const DmProducts: CollectionConfig = {
       ],
     },
     {
+      name: 'ingredients',
+      type: 'array',
+      label: 'Ingredients',
+      admin: {
+        description: 'Raw ingredient strings as crawled from dm.de',
+      },
+      fields: [
+        {
+          name: 'name',
+          type: 'text',
+          required: true,
+        },
+      ],
+    },
+    {
       name: 'sourceUrl',
       type: 'text',
       label: 'Source URL',

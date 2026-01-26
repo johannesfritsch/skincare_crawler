@@ -9,6 +9,7 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Brands } from './collections/Brands'
 import { Categories } from './collections/Categories'
+import { Ingredients } from './collections/Ingredients'
 import { Products } from './collections/Products'
 import { DmProducts } from './collections/DmProducts'
 import { DmCrawls } from './collections/DmCrawls'
@@ -24,7 +25,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Products, DmProducts, DmCrawls, DmCrawlItems],
+  collections: [Users, Media, Brands, Categories, Ingredients, Products, DmProducts, DmCrawls, DmCrawlItems],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

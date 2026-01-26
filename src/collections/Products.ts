@@ -66,6 +66,16 @@ export const Products: CollectionConfig = {
               label: 'Category',
             },
             {
+              name: 'ingredients',
+              type: 'relationship',
+              relationTo: 'ingredients',
+              hasMany: true,
+              label: 'Ingredients',
+              admin: {
+                description: 'Product ingredients (aggregated from sources)',
+              },
+            },
+            {
               name: 'lastAggregatedAt',
               type: 'date',
               label: 'Last Aggregated At',

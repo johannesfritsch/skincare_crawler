@@ -71,6 +71,7 @@ export interface Config {
     media: Media;
     brands: Brand;
     categories: Category;
+    ingredients: Ingredient;
     products: Product;
     'dm-products': DmProduct;
     'dm-crawls': DmCrawl;
@@ -92,6 +93,7 @@ export interface Config {
     media: MediaSelect<false> | MediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
+    ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
@@ -205,6 +207,21 @@ export interface Category {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredients".
+ */
+export interface Ingredient {
+  id: number;
+  name: string;
+  /**
+   * Placeholder ingredients are auto-created and need enrichment
+   */
+  status?: ('placeholder' | 'crawled') | null;
+  description?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "products".
  */
 export interface Product {
@@ -217,6 +234,10 @@ export interface Product {
   description?: string | null;
   brand?: (number | null) | Brand;
   category?: (number | null) | Category;
+  /**
+   * Product ingredients (aggregated from sources)
+   */
+  ingredients?: (number | Ingredient)[] | null;
   /**
    * When data sources were last aggregated into name, category, and description
    */
@@ -286,6 +307,15 @@ export interface DmProduct {
   labels?:
     | {
         label: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Raw ingredient strings as crawled from dm.de
+   */
+  ingredients?:
+    | {
+        name: string;
         id?: string | null;
       }[]
     | null;
@@ -404,6 +434,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'categories';
         value: number | Category;
+      } | null)
+    | ({
+        relationTo: 'ingredients';
+        value: number | Ingredient;
       } | null)
     | ({
         relationTo: 'products';
@@ -526,6 +560,17 @@ export interface CategoriesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredients_select".
+ */
+export interface IngredientsSelect<T extends boolean = true> {
+  name?: T;
+  status?: T;
+  description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "products_select".
  */
 export interface ProductsSelect<T extends boolean = true> {
@@ -534,6 +579,7 @@ export interface ProductsSelect<T extends boolean = true> {
   description?: T;
   brand?: T;
   category?: T;
+  ingredients?: T;
   lastAggregatedAt?: T;
   publishedAt?: T;
   dmProduct?: T;
@@ -564,6 +610,12 @@ export interface DmProductsSelect<T extends boolean = true> {
     | T
     | {
         label?: T;
+        id?: T;
+      };
+  ingredients?:
+    | T
+    | {
+        name?: T;
         id?: T;
       };
   sourceUrl?: T;
