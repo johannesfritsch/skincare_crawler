@@ -21,6 +21,7 @@ export interface ProductData {
   rating: number | null
   ratingNum: number | null
   labels: string[]
+  ingredients: string[]
   sourceUrl: string | null
 }
 

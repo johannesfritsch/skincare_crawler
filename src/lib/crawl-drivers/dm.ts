@@ -107,36 +107,54 @@ export const dmDriver: CrawlDriver = {
   async scrapeProduct(page: Page, gtin: string | null, productUrl: string | null): Promise<ProductData | null> {
     try {
       let searchUrl: string
+      let ingredients: string[] = []
 
       if (productUrl) {
-        // Use productUrl - navigate to product page and extract GTIN, then search
+        // Use productUrl - navigate to product page and extract GTIN + ingredients
         const fullUrl = productUrl.startsWith('http') ? productUrl : `https://www.dm.de${productUrl}`
         await page.goto(fullUrl, { waitUntil: 'domcontentloaded' })
 
-        // Extract GTIN from product page
-        const pageGtin = await page.evaluate(() => {
+        // Extract GTIN and ingredients from product page
+        const pageData = await page.evaluate(() => {
           // Try to find GTIN in the page
+          let pageGtin: string | null = null
           const gtinEl = document.querySelector('[data-gtin]')
-          if (gtinEl) return gtinEl.getAttribute('data-gtin')
-
-          // Try JSON-LD
-          const jsonLd = document.querySelector('script[type="application/ld+json"]')
-          if (jsonLd) {
-            try {
-              const data = JSON.parse(jsonLd.textContent || '')
-              if (data.gtin13) return data.gtin13
-              if (data.gtin) return data.gtin
-            } catch {
-              // ignore parse errors
+          if (gtinEl) {
+            pageGtin = gtinEl.getAttribute('data-gtin')
+          } else {
+            // Try JSON-LD
+            const jsonLd = document.querySelector('script[type="application/ld+json"]')
+            if (jsonLd) {
+              try {
+                const data = JSON.parse(jsonLd.textContent || '')
+                if (data.gtin13) pageGtin = data.gtin13
+                else if (data.gtin) pageGtin = data.gtin
+              } catch {
+                // ignore parse errors
+              }
             }
           }
 
-          return null
+          // Extract ingredients from [data-dmid="Inhaltsstoffe-content"]
+          const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
+          let ingredientsList: string[] = []
+          if (ingredientsEl) {
+            const text = ingredientsEl.textContent || ''
+            // Remove "Ingredients:" prefix if present and split by comma
+            const cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
+            if (cleaned) {
+              ingredientsList = cleaned.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+            }
+          }
+
+          return { pageGtin, ingredients: ingredientsList }
         })
 
-        if (pageGtin) {
-          searchUrl = `https://www.dm.de/search?query=${pageGtin}`
-          gtin = pageGtin
+        ingredients = pageData.ingredients
+
+        if (pageData.pageGtin) {
+          searchUrl = `https://www.dm.de/search?query=${pageData.pageGtin}`
+          gtin = pageData.pageGtin
         } else if (gtin) {
           searchUrl = `https://www.dm.de/search?query=${gtin}`
         } else {
@@ -217,6 +235,19 @@ export const dmDriver: CrawlDriver = {
         return null
       }
 
+      // If we didn't have a productUrl but now have sourceUrl, fetch ingredients from detail page
+      if (ingredients.length === 0 && productData.sourceUrl) {
+        await page.goto(productData.sourceUrl, { waitUntil: 'domcontentloaded' })
+        ingredients = await page.evaluate(() => {
+          const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
+          if (!ingredientsEl) return []
+          const text = ingredientsEl.textContent || ''
+          const cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
+          if (!cleaned) return []
+          return cleaned.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+        })
+      }
+
       return {
         gtin: productData.gtin || gtin || '',
         brandName: productData.brandName,
@@ -227,6 +258,7 @@ export const dmDriver: CrawlDriver = {
         rating: productData.rating,
         ratingNum: productData.ratingNum,
         labels: productData.labels,
+        ingredients,
         sourceUrl: productData.sourceUrl,
       }
     } catch (error) {
@@ -260,6 +292,7 @@ export const dmDriver: CrawlDriver = {
           rating: data.rating,
           ratingNum: data.ratingNum,
           labels: data.labels.map((label) => ({ label })),
+          ingredients: data.ingredients.map((name) => ({ name })),
           sourceUrl: data.sourceUrl,
           crawledAt: new Date().toISOString(),
         },
@@ -283,6 +316,7 @@ export const dmDriver: CrawlDriver = {
           rating: data.rating,
           ratingNum: data.ratingNum,
           labels: data.labels.map((label) => ({ label })),
+          ingredients: data.ingredients.map((name) => ({ name })),
           sourceUrl: data.sourceUrl,
           crawledAt: new Date().toISOString(),
         },
