@@ -143,10 +143,14 @@ export const dmDriver: CrawlDriver = {
           let ingredientsList: string[] = []
           if (ingredientsEl) {
             const text = ingredientsEl.textContent || ''
-            // Remove "Ingredients:" prefix if present and split by comma
-            const cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
+            // Remove "Ingredients:" prefix if present, remove trailing dot, and split by comma
+            let cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
+            cleaned = cleaned.replace(/\.$/, '') // Remove final dot
             if (cleaned) {
-              ingredientsList = cleaned.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+              ingredientsList = cleaned.split(',').map((s) => {
+                // Remove content in parentheses and trim
+                return s.replace(/\([^)]*\)/g, '').trim()
+              }).filter((s) => s.length > 0)
             }
           }
 
@@ -247,9 +251,13 @@ export const dmDriver: CrawlDriver = {
           const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
           if (!ingredientsEl) return []
           const text = ingredientsEl.textContent || ''
-          const cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
+          let cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
+          cleaned = cleaned.replace(/\.$/, '') // Remove final dot
           if (!cleaned) return []
-          return cleaned.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+          return cleaned.split(',').map((s) => {
+            // Remove content in parentheses and trim
+            return s.replace(/\([^)]*\)/g, '').trim()
+          }).filter((s) => s.length > 0)
         })
       }
 
