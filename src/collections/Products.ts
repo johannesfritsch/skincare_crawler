@@ -16,7 +16,12 @@ export const Products: CollectionConfig = {
       name: 'name',
       type: 'text',
       label: 'Product Name',
-      required: true,
+      validate: (value: string | null | undefined, { siblingData }: { siblingData: Record<string, unknown> }) => {
+        if (siblingData?.publishedAt && !value) {
+          return 'Name is required for published products'
+        }
+        return true
+      },
     },
     {
       name: 'gtin',

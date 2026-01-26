@@ -209,7 +209,7 @@ export interface Category {
  */
 export interface Product {
   id: number;
-  name: string;
+  name?: string | null;
   /**
    * Global Trade Item Number
    */
