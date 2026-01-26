@@ -53,5 +53,16 @@ export const Products: CollectionConfig = {
         description: 'Link to crawled DM product data',
       },
     },
+    {
+      name: 'lastAggregatedAt',
+      type: 'date',
+      label: 'Last Aggregated At',
+      admin: {
+        description: 'When data sources were last aggregated into name, category, and description',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
   ],
 }

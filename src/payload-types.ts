@@ -221,6 +221,10 @@ export interface Product {
    * Link to crawled DM product data
    */
   dmProduct?: (number | null) | DmProduct;
+  /**
+   * When data sources were last aggregated into name, category, and description
+   */
+  lastAggregatedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -530,6 +534,7 @@ export interface ProductsSelect<T extends boolean = true> {
   brand?: T;
   category?: T;
   dmProduct?: T;
+  lastAggregatedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
