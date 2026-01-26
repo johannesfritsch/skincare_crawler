@@ -64,5 +64,15 @@ export const Products: CollectionConfig = {
         },
       },
     },
+    {
+      name: 'publishedAt',
+      type: 'date',
+      label: 'Published At',
+      admin: {
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
   ],
 }

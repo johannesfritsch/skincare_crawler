@@ -225,6 +225,7 @@ export interface Product {
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
+  publishedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -535,6 +536,7 @@ export interface ProductsSelect<T extends boolean = true> {
   category?: T;
   dmProduct?: T;
   lastAggregatedAt?: T;
+  publishedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
