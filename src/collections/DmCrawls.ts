@@ -46,6 +46,15 @@ export const DmCrawls: CollectionConfig = {
               },
             },
             {
+              name: 'discover',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '/components/DiscoverButton',
+                },
+              },
+            },
+            {
               type: 'row',
               fields: [
                 {
