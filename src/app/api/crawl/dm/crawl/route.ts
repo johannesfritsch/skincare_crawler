@@ -1,10 +1,27 @@
-import { getPayload } from 'payload'
+import { getPayload, type Payload } from 'payload'
 import configPromise from '@payload-config'
 import chromium from '@sparticuz/chromium'
 import { chromium as pwChromium, type Page } from 'playwright-core'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
+
+async function launchBrowser() {
+  const isVercel = !!process.env.VERCEL
+  if (isVercel) {
+    const executablePath = await chromium.executablePath()
+    return pwChromium.launch({
+      args: chromium.args,
+      executablePath,
+      headless: true,
+    })
+  } else {
+    return pwChromium.launch({
+      channel: 'chrome',
+      headless: true,
+    })
+  }
+}
 
 interface ProductData {
   gtin: string
@@ -107,19 +124,123 @@ async function scrapeProductByUrl(page: Page, gtin: string, productUrl: string |
   }
 }
 
+async function crawlByGtins(payload: Payload, gtins: string[]) {
+  const browser = await launchBrowser()
+  const page = await browser.newPage()
+
+  try {
+    // Accept cookies once
+    await page.goto('https://www.dm.de', { waitUntil: 'domcontentloaded' })
+    await page.click('button:has-text("Alles akzeptieren")', { timeout: 5000 }).catch(() => {})
+    await page.waitForTimeout(500)
+
+    const results: { gtin: string; success: boolean; productId?: number; error?: string }[] = []
+
+    for (const gtin of gtins) {
+      console.log(`Crawling product ${gtin}...`)
+
+      const productData = await scrapeProductByUrl(page, gtin, null)
+
+      if (productData && productData.name) {
+        // Upsert into DmProducts
+        const existing = await payload.find({
+          collection: 'dm-products',
+          where: { gtin: { equals: gtin } },
+          limit: 1,
+        })
+
+        let productId: number
+
+        if (existing.docs.length > 0) {
+          productId = existing.docs[0].id
+          await payload.update({
+            collection: 'dm-products',
+            id: productId,
+            data: {
+              brandName: productData.brandName,
+              name: productData.name,
+              pricing: {
+                amount: productData.price,
+                currency: 'EUR',
+                perUnitAmount: productData.pricePerValue,
+                perUnitCurrency: 'EUR',
+                unit: productData.pricePerUnit,
+              },
+              rating: productData.rating,
+              ratingNum: productData.ratingNum,
+              labels: productData.labels.map((label: string) => ({ label })),
+              sourceUrl: productData.sourceUrl,
+              crawledAt: new Date().toISOString(),
+            },
+          })
+        } else {
+          const newProduct = await payload.create({
+            collection: 'dm-products',
+            data: {
+              gtin,
+              brandName: productData.brandName,
+              name: productData.name,
+              type: 'Product',
+              pricing: {
+                amount: productData.price,
+                currency: 'EUR',
+                perUnitAmount: productData.pricePerValue,
+                perUnitCurrency: 'EUR',
+                unit: productData.pricePerUnit,
+              },
+              rating: productData.rating,
+              ratingNum: productData.ratingNum,
+              labels: productData.labels.map((label: string) => ({ label })),
+              sourceUrl: productData.sourceUrl,
+              crawledAt: new Date().toISOString(),
+            },
+          })
+          productId = newProduct.id
+        }
+
+        results.push({ gtin, success: true, productId })
+      } else {
+        results.push({ gtin, success: false, error: 'Failed to scrape product data' })
+      }
+
+      // Delay between requests
+      if (gtins.indexOf(gtin) < gtins.length - 1) {
+        await page.waitForTimeout(Math.floor(Math.random() * 500) + 1000)
+      }
+    }
+
+    return Response.json({
+      success: true,
+      processed: results.length,
+      successful: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
+      results,
+    })
+  } finally {
+    await browser.close()
+  }
+}
+
 export const POST = async (request: Request) => {
   try {
     const payload = await getPayload({ config: configPromise })
     const body = await request.json().catch(() => ({}))
     const crawlId = body.crawlId
     const itemId = body.itemId // Optional: crawl a specific item by its ID
+    const gtins = body.gtins as string[] | undefined // Optional: crawl specific GTINs directly
     const limit = body.limit || 10
 
+    // Mode 1: Direct GTIN crawl (no crawl session needed)
+    if (gtins && Array.isArray(gtins) && gtins.length > 0) {
+      return await crawlByGtins(payload, gtins)
+    }
+
+    // Mode 2: Crawl from a crawl session
     if (!crawlId) {
       return Response.json(
         {
           success: false,
-          error: 'crawlId is required. Use /api/crawl/dm/discover first to create a crawl session.',
+          error: 'Either gtins array or crawlId is required.',
         },
         { status: 400 }
       )
@@ -377,13 +498,19 @@ export const POST = async (request: Request) => {
 export const GET = async () => {
   return Response.json({
     message: 'DM Crawl API',
-    usage: 'POST /api/crawl/dm/crawl with { "crawlId": "...", "limit": 10 } or { "crawlId": "...", "itemId": "..." }',
+    usage: 'POST /api/crawl/dm/crawl',
+    modes: {
+      directGtins: '{ "gtins": ["123", "456"] } - Crawl specific GTINs directly without a crawl session',
+      fromSession: '{ "crawlId": "...", "limit": 10 } - Crawl pending items from a session',
+      singleItem: '{ "crawlId": "...", "itemId": "..." } - Crawl a specific item from a session',
+    },
     parameters: {
-      crawlId: 'Required. The crawl session ID from /api/crawl/dm/discover',
-      itemId: 'Optional. Crawl a specific item by ID. Returns productId for redirect.',
-      limit: 'Optional. Number of items to crawl per request (default: 10). Ignored if itemId is provided.',
+      gtins: 'Optional. Array of GTINs to crawl directly. Creates/updates products without a crawl session.',
+      crawlId: 'Required if gtins not provided. The crawl session ID from /api/crawl/dm/discover.',
+      itemId: 'Optional. Crawl a specific item by ID from a session.',
+      limit: 'Optional. Number of items to crawl per request (default: 10).',
     },
     description:
-      'Crawls pending items from a discovery session and upserts them into DmProducts. Use itemId to crawl a single item, or limit for batch processing.',
+      'Crawls products from dm.de and upserts them into DmProducts. Use gtins for direct crawl, or crawlId for session-based crawling.',
   })
 }

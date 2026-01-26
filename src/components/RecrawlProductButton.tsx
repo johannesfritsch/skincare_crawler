@@ -2,11 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useDocumentInfo, useWatchForm } from '@payloadcms/ui'
+import { useWatchForm } from '@payloadcms/ui'
 
 export default function RecrawlProductButton() {
   const router = useRouter()
-  const { id } = useDocumentInfo()
   const { getDataByPath } = useWatchForm()
   const gtin = getDataByPath<string>('gtin')
 
@@ -23,10 +22,10 @@ export default function RecrawlProductButton() {
     setError(null)
 
     try {
-      const response = await fetch('/api/crawl/dm/product', {
+      const response = await fetch('/api/crawl/dm/crawl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gtin, productId: id }),
+        body: JSON.stringify({ gtins: [gtin] }),
       })
 
       const data = await response.json()
