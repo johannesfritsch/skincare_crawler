@@ -24,6 +24,15 @@ export const DmProducts: CollectionConfig = {
       index: true,
     },
     {
+      name: 'recrawl',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '/components/RecrawlProductButton',
+        },
+      },
+    },
+    {
       name: 'brandName',
       type: 'text',
       label: 'Brand',
