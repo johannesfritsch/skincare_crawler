@@ -8,12 +8,13 @@ interface AggregatedData {
   name?: string
   description?: string
   brandName?: string
+  ingredientNames?: string[]
 }
 
 // Aggregate data from all available sources for a product
 async function aggregateFromSources(
   payload: Awaited<ReturnType<typeof getPayload>>,
-  product: { dmProduct?: number | { id: number } | null }
+  product: { dmProduct?: number | { id: number } | null },
 ): Promise<AggregatedData | null> {
   const aggregated: AggregatedData = {}
 
@@ -29,7 +30,13 @@ async function aggregateFromSources(
       if (dmProduct.gtin) aggregated.gtin = dmProduct.gtin
       if (dmProduct.name) aggregated.name = dmProduct.name
       if (dmProduct.brandName) aggregated.brandName = dmProduct.brandName
-      // DM products don't have description, but future sources might
+
+      // Collect ingredient names from DM product
+      if (dmProduct.ingredients && Array.isArray(dmProduct.ingredients) && dmProduct.ingredients.length > 0) {
+        aggregated.ingredientNames = dmProduct.ingredients
+          .map((i: { name?: string }) => i.name)
+          .filter((n): n is string => !!n)
+      }
     }
   }
 
@@ -44,6 +51,38 @@ async function aggregateFromSources(
   return aggregated
 }
 
+// Upsert ingredients by name, returning their IDs
+async function upsertIngredients(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  names: string[],
+): Promise<number[]> {
+  const ids: number[] = []
+
+  for (const name of names) {
+    // Try to find existing ingredient by name
+    const existing = await payload.find({
+      collection: 'ingredients',
+      where: { name: { equals: name } },
+      limit: 1,
+    })
+
+    if (existing.docs.length > 0) {
+      ids.push(existing.docs[0].id)
+    } else {
+      // Create placeholder ingredient
+      const created = await (payload.create as any)({
+        collection: 'ingredients',
+        data: {
+          name,
+        },
+      })
+      ids.push(created.id)
+    }
+  }
+
+  return ids
+}
+
 export const POST = async (request: Request) => {
   try {
     const payload = await getPayload({ config: configPromise })
@@ -53,7 +92,7 @@ export const POST = async (request: Request) => {
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
       return Response.json(
         { success: false, error: 'productIds array is required' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
@@ -61,10 +100,12 @@ export const POST = async (request: Request) => {
 
     for (const productId of productIds) {
       // Find product by ID
-      const product = await payload.findByID({
-        collection: 'products',
-        id: productId,
-      }).catch(() => null)
+      const product = await payload
+        .findByID({
+          collection: 'products',
+          id: productId,
+        })
+        .catch(() => null)
 
       if (!product) {
         results.push({ productId, success: false, error: 'Product not found' })
@@ -101,6 +142,12 @@ export const POST = async (request: Request) => {
         updateData.gtin = aggregated.gtin
       }
 
+      // Upsert ingredients and link them
+      if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
+        const ingredientIds = await upsertIngredients(payload, aggregated.ingredientNames)
+        updateData.ingredients = ingredientIds
+      }
+
       // Update the product
       await payload.update({
         collection: 'products',
@@ -122,7 +169,7 @@ export const POST = async (request: Request) => {
     console.error('Aggregate products error:', error)
     return Response.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
@@ -135,6 +182,6 @@ export const GET = async () => {
       productIds: 'Required. Array of Product IDs to aggregate.',
     },
     description:
-      'Aggregates data from linked sources (DM Products, etc.) into Product fields. Updates name and gtin if empty, and sets lastAggregatedAt.',
+      'Aggregates data from linked sources (DM Products, etc.) into Product fields. Updates name and gtin if empty, upserts ingredients, and sets lastAggregatedAt.',
   })
 }

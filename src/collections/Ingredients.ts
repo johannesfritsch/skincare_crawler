@@ -8,7 +8,7 @@ export const Ingredients: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'status', 'createdAt'],
+    defaultColumns: ['name', 'crawledAt', 'createdAt'],
     group: 'Content',
   },
   fields: [
@@ -21,24 +21,35 @@ export const Ingredients: CollectionConfig = {
       index: true,
     },
     {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'placeholder',
-      options: [
-        { label: 'Placeholder', value: 'placeholder' },
-        { label: 'Crawled', value: 'crawled' },
-      ],
+      name: 'recrawl',
+      type: 'ui',
       admin: {
-        description: 'Placeholder ingredients are auto-created and need enrichment',
+        components: {
+          Field: '/components/RecrawlIngredientButton',
+        },
       },
     },
     {
       name: 'description',
       type: 'textarea',
       label: 'Description',
+    },
+    {
+      name: 'sourceUrl',
+      type: 'text',
+      label: 'Source URL',
       admin: {
-        condition: (data) => data?.status === 'crawled',
+        description: 'SpecialChem INCI page URL',
+      },
+    },
+    {
+      name: 'crawledAt',
+      type: 'date',
+      label: 'Last Crawled At',
+      admin: {
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
       },
     },
   ],

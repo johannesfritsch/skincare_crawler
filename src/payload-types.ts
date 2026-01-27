@@ -212,11 +212,12 @@ export interface Category {
 export interface Ingredient {
   id: number;
   name: string;
-  /**
-   * Placeholder ingredients are auto-created and need enrichment
-   */
-  status?: ('placeholder' | 'crawled') | null;
   description?: string | null;
+  /**
+   * SpecialChem INCI page URL
+   */
+  sourceUrl?: string | null;
+  crawledAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -234,6 +235,7 @@ export interface Product {
   description?: string | null;
   brand?: (number | null) | Brand;
   category?: (number | null) | Category;
+  publishedAt?: string | null;
   /**
    * Product ingredients (aggregated from sources)
    */
@@ -242,7 +244,6 @@ export interface Product {
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
-  publishedAt?: string | null;
   /**
    * Link to crawled DM product data
    */
@@ -564,8 +565,9 @@ export interface CategoriesSelect<T extends boolean = true> {
  */
 export interface IngredientsSelect<T extends boolean = true> {
   name?: T;
-  status?: T;
   description?: T;
+  sourceUrl?: T;
+  crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -579,9 +581,9 @@ export interface ProductsSelect<T extends boolean = true> {
   description?: T;
   brand?: T;
   category?: T;
+  publishedAt?: T;
   ingredients?: T;
   lastAggregatedAt?: T;
-  publishedAt?: T;
   dmProduct?: T;
   updatedAt?: T;
   createdAt?: T;
