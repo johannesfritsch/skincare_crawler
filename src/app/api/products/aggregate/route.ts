@@ -130,7 +130,7 @@ export const POST = async (request: Request) => {
 export const GET = async () => {
   return Response.json({
     message: 'Aggregate Products API',
-    usage: 'POST /api/aggregate_products',
+    usage: 'POST /api/products/aggregate',
     body: {
       productIds: 'Required. Array of Product IDs to aggregate.',
     },

@@ -31,7 +31,7 @@ export default function AutoFillFromSourcesButton() {
     setError(null)
 
     try {
-      const response = await fetch('/api/aggregate_products', {
+      const response = await fetch('/api/products/aggregate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productIds: [id] }),
