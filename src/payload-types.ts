@@ -311,6 +311,14 @@ export interface DmProduct {
       }[]
     | null;
   /**
+   * URL from which this product was crawled
+   */
+  sourceUrl?: string | null;
+  /**
+   * When this product was last crawled
+   */
+  crawledAt?: string | null;
+  /**
    * Raw ingredient strings as crawled from dm.de
    */
   ingredients?:
@@ -319,14 +327,6 @@ export interface DmProduct {
         id?: string | null;
       }[]
     | null;
-  /**
-   * URL from which this product was crawled
-   */
-  sourceUrl?: string | null;
-  /**
-   * When this product was last crawled
-   */
-  crawledAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -612,14 +612,14 @@ export interface DmProductsSelect<T extends boolean = true> {
         label?: T;
         id?: T;
       };
+  sourceUrl?: T;
+  crawledAt?: T;
   ingredients?:
     | T
     | {
         name?: T;
         id?: T;
       };
-  sourceUrl?: T;
-  crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
