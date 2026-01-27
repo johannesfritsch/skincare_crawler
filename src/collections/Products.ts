@@ -19,15 +19,6 @@ export const Products: CollectionConfig = {
           label: 'Product',
           fields: [
             {
-              name: 'autoFill',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '/components/AutoFillFromSourcesButton',
-                },
-              },
-            },
-            {
               name: 'name',
               type: 'text',
               label: 'Product Name',
@@ -66,6 +57,21 @@ export const Products: CollectionConfig = {
               label: 'Category',
             },
             {
+              name: 'publishedAt',
+              type: 'date',
+              label: 'Published At',
+              admin: {
+                date: {
+                  pickerAppearance: 'dayAndTime',
+                },
+              },
+            },
+          ],
+        },
+        {
+          label: 'Ingredients',
+          fields: [
+            {
               name: 'ingredients',
               type: 'relationship',
               relationTo: 'ingredients',
@@ -73,6 +79,20 @@ export const Products: CollectionConfig = {
               label: 'Ingredients',
               admin: {
                 description: 'Product ingredients (aggregated from sources)',
+              },
+            },
+          ],
+        },
+        {
+          label: 'Sources',
+          fields: [
+            {
+              name: 'autoFill',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '/components/AutoFillFromSourcesButton',
+                },
               },
             },
             {
@@ -86,21 +106,6 @@ export const Products: CollectionConfig = {
                 },
               },
             },
-            {
-              name: 'publishedAt',
-              type: 'date',
-              label: 'Published At',
-              admin: {
-                date: {
-                  pickerAppearance: 'dayAndTime',
-                },
-              },
-            },
-          ],
-        },
-        {
-          label: 'Sources',
-          fields: [
             {
               name: 'dmProduct',
               type: 'relationship',
