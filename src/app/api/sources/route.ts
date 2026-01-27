@@ -5,13 +5,13 @@ export const GET = async () => {
     message: 'Crawl API',
     endpoints: {
       discover: {
-        url: '/api/crawl/discover',
+        url: '/api/sources/discover',
         method: 'POST',
         description: 'Discover products from a URL. Driver is auto-selected based on hostname.',
         body: { url: 'Required. The category/listing URL to discover products from.' },
       },
       crawl: {
-        url: '/api/crawl/crawl',
+        url: '/api/sources/crawl',
         method: 'POST',
         description: 'Crawl products. Use with crawlId for session-based crawling, or gtins for direct crawl.',
         body: {

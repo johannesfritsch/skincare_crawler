@@ -22,7 +22,7 @@ export default function RecrawlProductButton() {
     setError(null)
 
     try {
-      const response = await fetch('/api/crawl/crawl', {
+      const response = await fetch('/api/sources/crawl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gtins: [gtin], driver: 'dm' }),

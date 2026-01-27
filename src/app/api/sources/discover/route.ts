@@ -137,7 +137,7 @@ export const POST = async (request: Request) => {
         totalCount,
         itemsDiscovered: products.length,
         status: 'discovered',
-        message: `Discovered ${products.length} products. Use /api/crawl/crawl with crawlId=${crawl.id} to start crawling.`,
+        message: `Discovered ${products.length} products. Use /api/sources/crawl with crawlId=${crawl.id} to start crawling.`,
       })
     } catch (error) {
       // Update crawl as failed
@@ -166,7 +166,7 @@ export const POST = async (request: Request) => {
 export const GET = async () => {
   return Response.json({
     message: 'Discovery API',
-    usage: 'POST /api/crawl/discover',
+    usage: 'POST /api/sources/discover',
     modes: {
       newCrawl: '{ "url": "https://..." } - Create new crawl and discover',
       existingCrawl: '{ "crawlId": 123 } - Discover using existing crawl session',

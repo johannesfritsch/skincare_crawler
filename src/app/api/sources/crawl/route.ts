@@ -327,7 +327,7 @@ export const POST = async (request: Request) => {
 export const GET = async () => {
   return Response.json({
     message: 'Crawl API',
-    usage: 'POST /api/crawl/crawl',
+    usage: 'POST /api/sources/crawl',
     modes: {
       directUrls:
         '{ "productUrls": ["/product-p123.html"], "driver": "dm" } - Crawl by product URLs (preferred)',

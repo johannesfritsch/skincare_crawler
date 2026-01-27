@@ -26,7 +26,7 @@ export default function DiscoverButton() {
     setError(null)
 
     try {
-      const response = await fetch('/api/crawl/discover', {
+      const response = await fetch('/api/sources/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ crawlId: id }),
