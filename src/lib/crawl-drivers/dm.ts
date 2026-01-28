@@ -1,6 +1,7 @@
 import type { Payload } from 'payload'
 import type { Page } from 'playwright-core'
 import type { CrawlDriver, DiscoveryResult, ProductData } from './types'
+import { parseIngredients } from '../parse-ingredients'
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -117,7 +118,7 @@ export const dmDriver: CrawlDriver = {
         // Wait for the ingredients section to load (it may be dynamically rendered)
         await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
 
-        // Extract GTIN and ingredients from product page
+        // Extract GTIN and raw ingredients text from product page
         const pageData = await page.evaluate(() => {
           // Try to find GTIN in the page
           let pageGtin: string | null = null
@@ -138,26 +139,15 @@ export const dmDriver: CrawlDriver = {
             }
           }
 
-          // Extract ingredients from [data-dmid="Inhaltsstoffe-content"]
           const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
-          let ingredientsList: string[] = []
-          if (ingredientsEl) {
-            const text = ingredientsEl.textContent || ''
-            // Remove "Ingredients:" prefix if present, remove trailing dot, and split by comma
-            let cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
-            cleaned = cleaned.replace(/\.$/, '') // Remove final dot
-            if (cleaned) {
-              ingredientsList = cleaned.split(',').map((s) => {
-                // Remove content in parentheses and trim
-                return s.replace(/\([^)]*\)/g, '').trim()
-              }).filter((s) => s.length > 0)
-            }
-          }
+          const rawIngredients = ingredientsEl?.textContent?.trim() || null
 
-          return { pageGtin, ingredients: ingredientsList }
+          return { pageGtin, rawIngredients }
         })
 
-        ingredients = pageData.ingredients
+        if (pageData.rawIngredients) {
+          ingredients = await parseIngredients(pageData.rawIngredients)
+        }
 
         if (pageData.pageGtin) {
           searchUrl = `https://www.dm.de/search?query=${pageData.pageGtin}`
@@ -247,18 +237,13 @@ export const dmDriver: CrawlDriver = {
         await page.goto(productData.sourceUrl, { waitUntil: 'domcontentloaded' })
         // Wait for the ingredients section to load (it may be dynamically rendered)
         await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
-        ingredients = await page.evaluate(() => {
+        const rawText = await page.evaluate(() => {
           const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
-          if (!ingredientsEl) return []
-          const text = ingredientsEl.textContent || ''
-          let cleaned = text.replace(/^Ingredients:\s*/i, '').trim()
-          cleaned = cleaned.replace(/\.$/, '') // Remove final dot
-          if (!cleaned) return []
-          return cleaned.split(',').map((s) => {
-            // Remove content in parentheses and trim
-            return s.replace(/\([^)]*\)/g, '').trim()
-          }).filter((s) => s.length > 0)
+          return ingredientsEl?.textContent?.trim() || null
         })
+        if (rawText) {
+          ingredients = await parseIngredients(rawText)
+        }
       }
 
       return {

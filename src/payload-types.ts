@@ -212,6 +212,7 @@ export interface Category {
 export interface Ingredient {
   id: number;
   name: string;
+  status?: ('pending' | 'crawled' | 'crawl_failed' | 'crawl_not_found') | null;
   description?: string | null;
   /**
    * SpecialChem INCI page URL
@@ -565,6 +566,7 @@ export interface CategoriesSelect<T extends boolean = true> {
  */
 export interface IngredientsSelect<T extends boolean = true> {
   name?: T;
+  status?: T;
   description?: T;
   sourceUrl?: T;
   crawledAt?: T;

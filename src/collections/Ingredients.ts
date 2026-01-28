@@ -8,7 +8,7 @@ export const Ingredients: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'crawledAt', 'createdAt'],
+    defaultColumns: ['name', 'status', 'crawledAt', 'createdAt'],
     group: 'Content',
   },
   fields: [
@@ -28,6 +28,19 @@ export const Ingredients: CollectionConfig = {
           Field: '/components/RecrawlIngredientButton',
         },
       },
+    },
+    {
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      defaultValue: 'pending',
+      options: [
+        { label: 'Pending', value: 'pending' },
+        { label: 'Crawled', value: 'crawled' },
+        { label: 'Crawl Failed', value: 'crawl_failed' },
+        { label: 'Not Found', value: 'crawl_not_found' },
+      ],
+      index: true,
     },
     {
       name: 'description',
