@@ -10,7 +10,7 @@ const SPECIALCHEM_INCI_URL = 'https://www.specialchem.com/cosmetics/all-inci-ing
 export const POST = async () => {
   try {
     const payload = await getPayload({ config: configPromise })
-    const browser = await launchBrowser()
+    const browser = await launchBrowser({ headless: false })
 
     let ingredientNames: string[] = []
 
@@ -25,6 +25,7 @@ export const POST = async () => {
       // First request: load the page
       console.log('Loading SpecialChem INCI page...')
       await page.goto(SPECIALCHEM_INCI_URL, { waitUntil: 'networkidle' })
+      await page.waitForTimeout(2000) // Pause to see the page
 
       // Check for Cloudflare block
       const isBlocked = await page.evaluate(() => {
@@ -71,6 +72,7 @@ export const POST = async () => {
       }
 
       // Inject 10000 option into the select
+      console.log('Injecting 10000 option into select...')
       await page.evaluate((selector) => {
         const select = document.querySelector(selector) as HTMLSelectElement
         if (select) {
@@ -80,6 +82,7 @@ export const POST = async () => {
           select.appendChild(newOption)
         }
       }, selectSelector)
+      await page.waitForTimeout(1000) // Pause to see the injected option
 
       // Second request: select the 10000 value and wait for navigation
       console.log('Selecting 10000 items per page and waiting for reload...')
@@ -112,6 +115,7 @@ export const POST = async () => {
       })
 
       console.log(`Found ${ingredientNames.length} ingredients`)
+      await page.waitForTimeout(3000) // Pause to see the results before closing
     } finally {
       await browser.close()
     }
