@@ -22,6 +22,8 @@ export const POST = async () => {
       })
       const page = await context.newPage()
 
+      // First request: load the page
+      console.log('Loading SpecialChem INCI page...')
       await page.goto(SPECIALCHEM_INCI_URL, { waitUntil: 'networkidle' })
 
       // Check for Cloudflare block
@@ -38,72 +40,78 @@ export const POST = async () => {
         )
       }
 
-      // Wait for the page content to load
-      await page.waitForSelector('select', { timeout: 10000 }).catch(() => null)
+      // Wait for the select to be available
+      await page.waitForSelector('select', { timeout: 10000 })
 
-      // Inject a 10000 option into the per-page select and select it
-      await page.evaluate(() => {
-        // Find the per-page select (usually has options like 10, 20, 30)
+      // Find the per-page select and get its selector
+      const selectSelector = await page.evaluate(() => {
         const selects = document.querySelectorAll('select')
-        for (const select of selects) {
+        for (let i = 0; i < selects.length; i++) {
+          const select = selects[i]
           const options = Array.from(select.options)
           const hasPageSizeOptions = options.some(
             (o) => o.value === '10' || o.value === '20' || o.value === '30',
           )
           if (hasPageSizeOptions) {
-            // Add 10000 option
-            const newOption = document.createElement('option')
-            newOption.value = '10000'
-            newOption.text = '10000'
-            select.appendChild(newOption)
-            // Select it
-            select.value = '10000'
-            // Trigger change event
-            select.dispatchEvent(new Event('change', { bubbles: true }))
-            break
+            // Add an ID if it doesn't have one so we can select it
+            if (!select.id) {
+              select.id = '__perPageSelect'
+            }
+            return `#${select.id}`
           }
         }
+        return null
       })
 
-      // Wait for the page to reload/update with all ingredients
-      await page.waitForTimeout(3000)
-      await page.waitForLoadState('networkidle')
+      if (!selectSelector) {
+        return Response.json(
+          { success: false, error: 'Could not find per-page select on page' },
+          { status: 404 },
+        )
+      }
+
+      // Inject 10000 option into the select
+      await page.evaluate((selector) => {
+        const select = document.querySelector(selector) as HTMLSelectElement
+        if (select) {
+          const newOption = document.createElement('option')
+          newOption.value = '10000'
+          newOption.text = '10000'
+          select.appendChild(newOption)
+        }
+      }, selectSelector)
+
+      // Second request: select the 10000 value and wait for navigation
+      console.log('Selecting 10000 items per page and waiting for reload...')
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 60000 }),
+        page.selectOption(selectSelector, '10000'),
+      ])
+
+      // Wait a bit more for any dynamic content
+      await page.waitForTimeout(2000)
 
       // Extract all ingredient names from the page
+      console.log('Extracting ingredient names...')
       ingredientNames = await page.evaluate(() => {
         const names: string[] = []
         // Find all links to ingredient pages
         const links = document.querySelectorAll('a[href*="/inci-ingredients/"]')
         links.forEach((link) => {
+          const href = link.getAttribute('href') || ''
+          // Skip the main directory link itself
+          if (href === '/cosmetics/all-inci-ingredients' || href.endsWith('/all-inci-ingredients')) {
+            return
+          }
           const text = link.textContent?.trim()
-          if (text && text.length > 0 && !text.includes('/')) {
-            // Avoid duplicates and path-like text
-            if (!names.includes(text)) {
-              names.push(text)
-            }
+          if (text && text.length > 0 && !text.includes('/') && !names.includes(text)) {
+            names.push(text)
           }
         })
         return names
       })
 
-      if (ingredientNames.length === 0) {
-        // Try alternative extraction - maybe ingredients are in a table or list
-        ingredientNames = await page.evaluate(() => {
-          const names: string[] = []
-          // Try table cells
-          const cells = document.querySelectorAll('td a, li a')
-          cells.forEach((link) => {
-            const href = link.getAttribute('href') || ''
-            if (href.includes('/inci-ingredients/')) {
-              const text = link.textContent?.trim()
-              if (text && text.length > 0 && !names.includes(text)) {
-                names.push(text)
-              }
-            }
-          })
-          return names
-        })
-      }
+      console.log(`Found ${ingredientNames.length} ingredients`)
     } finally {
       await browser.close()
     }
@@ -119,6 +127,7 @@ export const POST = async () => {
     let created = 0
     let existing = 0
 
+    console.log('Upserting ingredients...')
     for (const name of ingredientNames) {
       const found = await payload.find({
         collection: 'ingredients',
@@ -139,6 +148,8 @@ export const POST = async () => {
         existing++
       }
     }
+
+    console.log(`Created ${created}, ${existing} already existed`)
 
     return Response.json({
       success: true,
