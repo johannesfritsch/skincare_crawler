@@ -24,13 +24,13 @@ export interface DmDiscoveryDriver {
   ): Promise<{ totalCount: number; products: DiscoveredProduct[] }>
 
   // Crawl a single product and save to database
-  // Returns true if successful, false if failed
+  // Returns the product ID if successful, null if failed
   crawlProduct(
     page: Page,
     gtin: string,
     productUrl: string | null,
     payload: Payload,
-  ): Promise<boolean>
+  ): Promise<number | null>
 
   // Accept cookies on the page
   acceptCookies(page: Page): Promise<void>

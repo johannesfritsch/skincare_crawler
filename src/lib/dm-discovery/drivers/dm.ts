@@ -118,7 +118,7 @@ export const dmDriver: DmDiscoveryDriver = {
     gtin: string,
     productUrl: string | null,
     payload: Payload,
-  ): Promise<boolean> {
+  ): Promise<number | null> {
     try {
       let searchUrl: string
       let ingredients: string[] = []
@@ -234,7 +234,7 @@ export const dmDriver: DmDiscoveryDriver = {
 
       if (!productData || !productData.name) {
         console.log(`[DM] No product data found for GTIN ${gtin}`)
-        return false
+        return null
       }
 
       // If we didn't have a productUrl but now have sourceUrl, fetch ingredients
@@ -276,14 +276,17 @@ export const dmDriver: DmDiscoveryDriver = {
         crawledAt: new Date().toISOString(),
       }
 
+      let productId: number
+
       if (existing.docs.length > 0) {
+        productId = existing.docs[0].id
         await payload.update({
           collection: 'dm-products',
-          id: existing.docs[0].id,
+          id: productId,
           data: productPayload,
         })
       } else {
-        await payload.create({
+        const newProduct = await payload.create({
           collection: 'dm-products',
           data: {
             gtin: finalGtin,
@@ -291,13 +294,14 @@ export const dmDriver: DmDiscoveryDriver = {
             ...productPayload,
           },
         })
+        productId = newProduct.id
       }
 
-      console.log(`[DM] Crawled product ${finalGtin}: ${productData.name}`)
-      return true
+      console.log(`[DM] Crawled product ${finalGtin}: ${productData.name} (id: ${productId})`)
+      return productId
     } catch (error) {
       console.error(`[DM] Error crawling product (gtin: ${gtin}, url: ${productUrl}):`, error)
-      return false
+      return null
     }
   },
 }

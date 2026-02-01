@@ -434,6 +434,10 @@ export interface DmDiscoveryItem {
   gtin: string;
   productUrl?: string | null;
   status?: ('pending' | 'crawled' | 'failed') | null;
+  /**
+   * The DM product created from this discovery item
+   */
+  product?: (number | null) | DmProduct;
   updatedAt: string;
   createdAt: string;
 }
@@ -733,6 +737,7 @@ export interface DmDiscoveryItemsSelect<T extends boolean = true> {
   gtin?: T;
   productUrl?: T;
   status?: T;
+  product?: T;
   updatedAt?: T;
   createdAt?: T;
 }

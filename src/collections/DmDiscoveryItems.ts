@@ -40,5 +40,13 @@ export const DmDiscoveryItems: CollectionConfig = {
         { label: 'Failed', value: 'failed' },
       ],
     },
+    {
+      name: 'product',
+      type: 'relationship',
+      relationTo: 'dm-products',
+      admin: {
+        description: 'The DM product created from this discovery item',
+      },
+    },
   ],
 }

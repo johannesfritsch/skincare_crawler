@@ -144,7 +144,7 @@ export const DmDiscoveries: CollectionConfig = {
                 status: { equals: 'crawled' },
               },
               admin: {
-                defaultColumns: ['gtin', 'status', 'productUrl'],
+                defaultColumns: ['gtin', 'product', 'productUrl'],
                 allowCreate: false,
               },
             },

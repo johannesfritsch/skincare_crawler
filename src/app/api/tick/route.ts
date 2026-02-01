@@ -8,7 +8,7 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 const TICK_DURATION_MS = 25_000 // Process for ~25 seconds
-const DM_ITEMS_PER_TICK = 5 // Number of DM products to crawl per tick
+const DM_ITEMS_PER_TICK = 20 // Number of DM products to crawl per tick
 
 type DiscoveryType = 'ingredients' | 'dm'
 
@@ -418,13 +418,13 @@ async function processDmDiscovery(
         }
 
         const item = pendingItems.docs[0]
-        const success = await driver.crawlProduct(page, item.gtin, item.productUrl || null, payload)
+        const productId = await driver.crawlProduct(page, item.gtin, item.productUrl || null, payload)
 
-        if (success) {
+        if (productId !== null) {
           await payload.update({
             collection: 'dm-discovery-items',
             id: item.id,
-            data: { status: 'crawled' },
+            data: { status: 'crawled', product: productId },
           })
           itemsCrawled++
         } else {
@@ -436,21 +436,21 @@ async function processDmDiscovery(
           itemsFailed++
         }
 
+        // Save progress after each item for real-time updates
+        await payload.update({
+          collection: 'dm-discoveries',
+          id: discoveryId,
+          data: {
+            itemsCrawled,
+            itemsFailed,
+          },
+        })
+
         processedThisTick++
 
         // Random delay between products
         await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
       }
-
-      // Save progress
-      await payload.update({
-        collection: 'dm-discoveries',
-        id: discoveryId,
-        data: {
-          itemsCrawled,
-          itemsFailed,
-        },
-      })
 
       await browser.close()
 
