@@ -1,21 +1,24 @@
 import type { Payload } from 'payload'
 import type { Page } from 'playwright-core'
-import type { CrawlDriver, DiscoveryResult, ProductData } from './types'
-import { parseIngredients } from '../parse-ingredients'
+import type { DmDiscoveryDriver, DiscoveredProduct } from '../types'
+import { parseIngredients } from '@/lib/parse-ingredients'
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
-export const dmDriver: CrawlDriver = {
-  id: 'dm',
-  name: 'dm.de',
-  hostnames: ['www.dm.de', 'dm.de'],
+export const dmDriver: DmDiscoveryDriver = {
+  matches(url: string): boolean {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase()
+      return hostname === 'www.dm.de' || hostname === 'dm.de'
+    } catch {
+      return false
+    }
+  },
 
-  collections: {
-    products: 'dm-products',
-    crawls: 'dm-crawls',
-    crawlItems: 'dm-crawl-items',
+  getBaseUrl(): string {
+    return 'https://www.dm.de'
   },
 
   async acceptCookies(page: Page): Promise<void> {
@@ -23,11 +26,15 @@ export const dmDriver: CrawlDriver = {
       await page.click('button:has-text("Alles akzeptieren")', { timeout: 5000 })
       await page.waitForTimeout(500)
     } catch {
-      console.log('No cookie banner found or already accepted')
+      console.log('[DM] No cookie banner found or already accepted')
     }
   },
 
-  async discoverProducts(page: Page, url: string): Promise<DiscoveryResult> {
+  async discoverProducts(
+    page: Page,
+    url: string,
+  ): Promise<{ totalCount: number; products: DiscoveredProduct[] }> {
+    console.log(`[DM] Starting discovery for ${url}`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await this.acceptCookies(page)
 
@@ -40,7 +47,7 @@ export const dmDriver: CrawlDriver = {
       return match ? parseInt(match[1], 10) : 0
     })
 
-    console.log(`Total products reported: ${totalCount}`)
+    console.log(`[DM] Total products reported: ${totalCount}`)
 
     // Click "Mehr laden" button repeatedly until all products are loaded
     let previousCount = 0
@@ -52,7 +59,7 @@ export const dmDriver: CrawlDriver = {
         return document.querySelectorAll('[data-dmid="product-tile"]').length
       })
 
-      console.log(`Current products loaded: ${currentCount}`)
+      console.log(`[DM] Products loaded: ${currentCount}`)
 
       if (currentCount === previousCount) {
         noNewProductsCount++
@@ -63,7 +70,7 @@ export const dmDriver: CrawlDriver = {
       previousCount = currentCount
 
       if (currentCount >= totalCount) {
-        console.log('All products loaded')
+        console.log('[DM] All products loaded')
         break
       }
 
@@ -75,11 +82,11 @@ export const dmDriver: CrawlDriver = {
           await loadMoreButton.click()
           await page.waitForTimeout(randomDelay(1000, 1500))
         } else {
-          console.log('Load more button not visible')
+          console.log('[DM] Load more button not visible')
           noNewProductsCount++
         }
       } catch (error) {
-        console.log('Could not click load more button:', error)
+        console.log('[DM] Could not click load more button:', error)
         noNewProductsCount++
       }
     }
@@ -102,10 +109,16 @@ export const dmDriver: CrawlDriver = {
       return items
     })
 
+    console.log(`[DM] Discovered ${products.length} products`)
     return { totalCount, products }
   },
 
-  async scrapeProduct(page: Page, gtin: string | null, productUrl: string | null): Promise<ProductData | null> {
+  async crawlProduct(
+    page: Page,
+    gtin: string,
+    productUrl: string | null,
+    payload: Payload,
+  ): Promise<boolean> {
     try {
       let searchUrl: string
       let ingredients: string[] = []
@@ -115,18 +128,16 @@ export const dmDriver: CrawlDriver = {
         const fullUrl = productUrl.startsWith('http') ? productUrl : `https://www.dm.de${productUrl}`
         await page.goto(fullUrl, { waitUntil: 'domcontentloaded' })
 
-        // Wait for the ingredients section to load (it may be dynamically rendered)
+        // Wait for the ingredients section to load
         await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
 
         // Extract GTIN and raw ingredients text from product page
         const pageData = await page.evaluate(() => {
-          // Try to find GTIN in the page
           let pageGtin: string | null = null
           const gtinEl = document.querySelector('[data-gtin]')
           if (gtinEl) {
             pageGtin = gtinEl.getAttribute('data-gtin')
           } else {
-            // Try JSON-LD
             const jsonLd = document.querySelector('script[type="application/ld+json"]')
             if (jsonLd) {
               try {
@@ -152,17 +163,11 @@ export const dmDriver: CrawlDriver = {
         if (pageData.pageGtin) {
           searchUrl = `https://www.dm.de/search?query=${pageData.pageGtin}`
           gtin = pageData.pageGtin
-        } else if (gtin) {
-          searchUrl = `https://www.dm.de/search?query=${gtin}`
         } else {
-          console.log(`Could not extract GTIN from product page: ${fullUrl}`)
-          return null
+          searchUrl = `https://www.dm.de/search?query=${gtin}`
         }
-      } else if (gtin) {
-        searchUrl = `https://www.dm.de/search?query=${gtin}`
       } else {
-        console.log('No GTIN or productUrl provided')
-        return null
+        searchUrl = `https://www.dm.de/search?query=${gtin}`
       }
 
       // Search for the product by GTIN to get the product tile with structured data
@@ -228,14 +233,13 @@ export const dmDriver: CrawlDriver = {
       }, gtin)
 
       if (!productData || !productData.name) {
-        console.log(`No product data found for GTIN ${gtin}`)
-        return null
+        console.log(`[DM] No product data found for GTIN ${gtin}`)
+        return false
       }
 
-      // If we didn't have a productUrl but now have sourceUrl, fetch ingredients from detail page
+      // If we didn't have a productUrl but now have sourceUrl, fetch ingredients
       if (ingredients.length === 0 && productData.sourceUrl) {
         await page.goto(productData.sourceUrl, { waitUntil: 'domcontentloaded' })
-        // Wait for the ingredients section to load (it may be dynamically rendered)
         await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
         const rawText = await page.evaluate(() => {
           const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
@@ -246,80 +250,54 @@ export const dmDriver: CrawlDriver = {
         }
       }
 
-      return {
-        gtin: productData.gtin || gtin || '',
+      // Save to database
+      const finalGtin = productData.gtin || gtin
+      const existing = await payload.find({
+        collection: 'dm-products',
+        where: { gtin: { equals: finalGtin } },
+        limit: 1,
+      })
+
+      const productPayload = {
         brandName: productData.brandName,
         name: productData.name,
-        price: productData.price,
-        pricePerUnit: productData.pricePerUnit,
-        pricePerValue: productData.pricePerValue,
+        pricing: {
+          amount: productData.price,
+          currency: 'EUR',
+          perUnitAmount: productData.pricePerValue,
+          perUnitCurrency: 'EUR',
+          unit: productData.pricePerUnit,
+        },
         rating: productData.rating,
         ratingNum: productData.ratingNum,
-        labels: productData.labels,
-        ingredients,
+        labels: productData.labels.map((label) => ({ label })),
+        ingredients: ingredients.map((name) => ({ name })),
         sourceUrl: productData.sourceUrl,
+        crawledAt: new Date().toISOString(),
       }
+
+      if (existing.docs.length > 0) {
+        await payload.update({
+          collection: 'dm-products',
+          id: existing.docs[0].id,
+          data: productPayload,
+        })
+      } else {
+        await payload.create({
+          collection: 'dm-products',
+          data: {
+            gtin: finalGtin,
+            type: 'Product',
+            ...productPayload,
+          },
+        })
+      }
+
+      console.log(`[DM] Crawled product ${finalGtin}: ${productData.name}`)
+      return true
     } catch (error) {
-      console.error(`Error scraping product (gtin: ${gtin}, url: ${productUrl}):`, error)
-      return null
-    }
-  },
-
-  async saveProduct(payload: Payload, data: ProductData): Promise<number> {
-    const existing = await payload.find({
-      collection: 'dm-products',
-      where: { gtin: { equals: data.gtin } },
-      limit: 1,
-    })
-
-    if (existing.docs.length > 0) {
-      const productId = existing.docs[0].id
-      await payload.update({
-        collection: 'dm-products',
-        id: productId,
-        data: {
-          brandName: data.brandName,
-          name: data.name,
-          pricing: {
-            amount: data.price,
-            currency: 'EUR',
-            perUnitAmount: data.pricePerValue,
-            perUnitCurrency: 'EUR',
-            unit: data.pricePerUnit,
-          },
-          rating: data.rating,
-          ratingNum: data.ratingNum,
-          labels: data.labels.map((label) => ({ label })),
-          ingredients: data.ingredients.map((name) => ({ name })),
-          sourceUrl: data.sourceUrl,
-          crawledAt: new Date().toISOString(),
-        },
-      })
-      return productId
-    } else {
-      const newProduct = await payload.create({
-        collection: 'dm-products',
-        data: {
-          gtin: data.gtin,
-          brandName: data.brandName,
-          name: data.name,
-          type: 'Product',
-          pricing: {
-            amount: data.price,
-            currency: 'EUR',
-            perUnitAmount: data.pricePerValue,
-            perUnitCurrency: 'EUR',
-            unit: data.pricePerUnit,
-          },
-          rating: data.rating,
-          ratingNum: data.ratingNum,
-          labels: data.labels.map((label) => ({ label })),
-          ingredients: data.ingredients.map((name) => ({ name })),
-          sourceUrl: data.sourceUrl,
-          crawledAt: new Date().toISOString(),
-        },
-      })
-      return newProduct.id
+      console.error(`[DM] Error crawling product (gtin: ${gtin}, url: ${productUrl}):`, error)
+      return false
     }
   },
 }

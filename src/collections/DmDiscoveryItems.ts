@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
-export const DmCrawlItems: CollectionConfig = {
-  slug: 'dm-crawl-items',
+export const DmDiscoveryItems: CollectionConfig = {
+  slug: 'dm-discovery-items',
   admin: {
     hidden: true,
     useAsTitle: 'gtin',
@@ -10,9 +10,9 @@ export const DmCrawlItems: CollectionConfig = {
   },
   fields: [
     {
-      name: 'crawl',
+      name: 'discovery',
       type: 'relationship',
-      relationTo: 'dm-crawls',
+      relationTo: 'dm-discoveries',
       required: true,
       index: true,
     },
@@ -39,11 +39,6 @@ export const DmCrawlItems: CollectionConfig = {
         { label: 'Crawled', value: 'crawled' },
         { label: 'Failed', value: 'failed' },
       ],
-      admin: {
-        components: {
-          Cell: '/components/CrawlItemStatusCell',
-        },
-      },
     },
   ],
 }
