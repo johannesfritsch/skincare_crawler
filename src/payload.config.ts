@@ -14,7 +14,6 @@ import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
 import { DmProducts } from './collections/DmProducts'
 import { DmDiscoveries } from './collections/DmDiscoveries'
-import { DmDiscoveryItems } from './collections/DmDiscoveryItems'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -26,7 +25,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, DmProducts, DmDiscoveries, DmDiscoveryItems],
+  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, DmProducts, DmDiscoveries],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

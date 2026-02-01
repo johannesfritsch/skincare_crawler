@@ -38,7 +38,7 @@ export const POST = async () => {
     }),
     payload.find({
       collection: 'dm-discoveries',
-      where: { status: { in: ['discovering', 'discovered', 'crawling'] } },
+      where: { status: { in: ['discovering', 'crawling'] } },
       limit: 10,
     }),
     payload.find({
@@ -283,12 +283,17 @@ async function processIngredientsDiscovery(
   }
 }
 
+interface ProductQueueItem {
+  gtin: string
+  productUrl: string | null
+}
+
 async function processDmDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
   startTime: number,
 ) {
-  const discovery = await payload.findByID({
+  let discovery = await payload.findByID({
     collection: 'dm-discoveries',
     id: discoveryId,
   })
@@ -315,162 +320,132 @@ async function processDmDiscovery(
   const page = await browser.newPage()
 
   try {
-    // Phase 1: Discovery (pending -> discovering -> discovered)
+    // Phase 1: Discovery (pending -> discovering -> crawling)
     if (discovery.status === 'pending' || discovery.status === 'discovering') {
       await payload.update({
         collection: 'dm-discoveries',
         id: discoveryId,
-        data: { status: 'discovering' },
+        data: {
+          status: 'discovering',
+          startedAt: new Date().toISOString(),
+        },
       })
 
-      const { totalCount, products } = await driver.discoverProducts(page, discovery.sourceUrl)
+      const { products } = await driver.discoverProducts(page, discovery.sourceUrl)
 
-      // Create discovery items
-      for (const product of products) {
-        await payload.create({
-          collection: 'dm-discovery-items',
-          data: {
-            discovery: discoveryId,
-            gtin: product.gtin,
-            productUrl: product.productUrl,
-            status: 'pending',
-          },
-        })
-      }
-
+      // Store products in queue and transition to crawling
       await payload.update({
         collection: 'dm-discoveries',
         id: discoveryId,
         data: {
-          status: 'discovered',
-          totalCount,
-          itemsDiscovered: products.length,
-          itemsCrawled: 0,
-          itemsFailed: 0,
-          discoveredAt: new Date().toISOString(),
+          status: 'crawling',
+          productQueue: products,
+          discovered: products.length,
+          created: 0,
+          existing: 0,
+          errors: 0,
         },
       })
 
-      await browser.close()
-
-      return Response.json({
-        message: 'Discovery phase completed',
-        discoveryId,
-        type: 'dm',
-        totalCount,
-        itemsDiscovered: products.length,
+      // Refresh discovery to get updated state
+      discovery = await payload.findByID({
+        collection: 'dm-discoveries',
+        id: discoveryId,
       })
     }
 
-    // Phase 2: Crawling (discovered/crawling -> crawling -> completed)
-    if (discovery.status === 'discovered' || discovery.status === 'crawling') {
-      await payload.update({
-        collection: 'dm-discoveries',
-        id: discoveryId,
-        data: { status: 'crawling' },
-      })
-
+    // Phase 2: Crawling (crawling -> completed)
+    if (discovery.status === 'crawling') {
       // Navigate to site and accept cookies
       await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
       await driver.acceptCookies(page)
 
-      let itemsCrawled = discovery.itemsCrawled || 0
-      let itemsFailed = discovery.itemsFailed || 0
+      let productQueue: ProductQueueItem[] = (discovery.productQueue as ProductQueueItem[]) || []
+      let created = discovery.created || 0
+      let existing = discovery.existing || 0
+      let errors = discovery.errors || 0
       let processedThisTick = 0
 
       // Process items until time limit or batch limit
       while (
         Date.now() - startTime < TICK_DURATION_MS &&
-        processedThisTick < DM_ITEMS_PER_TICK
+        processedThisTick < DM_ITEMS_PER_TICK &&
+        productQueue.length > 0
       ) {
-        // Get next pending item
-        const pendingItems = await payload.find({
-          collection: 'dm-discovery-items',
-          where: {
-            discovery: { equals: discoveryId },
-            status: { equals: 'pending' },
-          },
-          limit: 1,
-        })
-
-        if (pendingItems.docs.length === 0) {
-          // All items processed
-          await payload.update({
-            collection: 'dm-discoveries',
-            id: discoveryId,
-            data: {
-              status: 'completed',
-              itemsCrawled,
-              itemsFailed,
-              completedAt: new Date().toISOString(),
-            },
-          })
-
-          await browser.close()
-
-          return Response.json({
-            message: 'Crawling completed',
-            discoveryId,
-            type: 'dm',
-            itemsCrawled,
-            itemsFailed,
-          })
-        }
-
-        const item = pendingItems.docs[0]
-        const productId = await driver.crawlProduct(page, item.gtin, item.productUrl || null, payload)
+        const item = productQueue.shift()!
+        const productId = await driver.crawlProduct(page, item.gtin, item.productUrl, payload)
 
         if (productId !== null) {
-          await payload.update({
-            collection: 'dm-discovery-items',
-            id: item.id,
-            data: { status: 'crawled', product: productId },
+          // Check if it was a new product or existing
+          const product = await payload.findByID({
+            collection: 'dm-products',
+            id: productId,
           })
-          itemsCrawled++
+          // If crawledAt is very recent (within last minute), it was just created/updated
+          const crawledAt = product.crawledAt ? new Date(product.crawledAt) : null
+          const isNew = crawledAt && (Date.now() - crawledAt.getTime() < 60000)
+          if (isNew) {
+            created++
+          } else {
+            existing++
+          }
         } else {
-          await payload.update({
-            collection: 'dm-discovery-items',
-            id: item.id,
-            data: { status: 'failed' },
-          })
-          itemsFailed++
+          errors++
         }
 
-        // Save progress after each item for real-time updates
+        // Save progress after each item
         await payload.update({
           collection: 'dm-discoveries',
           id: discoveryId,
           data: {
-            itemsCrawled,
-            itemsFailed,
+            productQueue,
+            created,
+            existing,
+            errors,
           },
         })
 
         processedThisTick++
 
         // Random delay between products
-        await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
+        if (productQueue.length > 0) {
+          await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
+        }
       }
 
       await browser.close()
 
-      // Check remaining
-      const remaining = await payload.count({
-        collection: 'dm-discovery-items',
-        where: {
-          discovery: { equals: discoveryId },
-          status: { equals: 'pending' },
-        },
-      })
+      // Check if done
+      if (productQueue.length === 0) {
+        await payload.update({
+          collection: 'dm-discoveries',
+          id: discoveryId,
+          data: {
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+          },
+        })
+
+        return Response.json({
+          message: 'Discovery completed',
+          discoveryId,
+          type: 'dm',
+          discovered: discovery.discovered,
+          created,
+          existing,
+          errors,
+        })
+      }
 
       return Response.json({
         message: 'Tick completed',
         discoveryId,
         type: 'dm',
         processedThisTick,
-        itemsCrawled,
-        itemsFailed,
-        remainingPending: remaining.totalDocs,
+        remaining: productQueue.length,
+        created,
+        existing,
+        errors,
       })
     }
 

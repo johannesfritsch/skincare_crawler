@@ -76,19 +76,12 @@ export interface Config {
     products: Product;
     'dm-products': DmProduct;
     'dm-discoveries': DmDiscovery;
-    'dm-discovery-items': DmDiscoveryItem;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
-  collectionsJoins: {
-    'dm-discoveries': {
-      pendingItems: 'dm-discovery-items';
-      crawledItems: 'dm-discovery-items';
-      failedItems: 'dm-discovery-items';
-    };
-  };
+  collectionsJoins: {};
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
@@ -99,7 +92,6 @@ export interface Config {
     products: ProductsSelect<false> | ProductsSelect<true>;
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'dm-discoveries': DmDiscoveriesSelect<false> | DmDiscoveriesSelect<true>;
-    'dm-discovery-items': DmDiscoveryItemsSelect<false> | DmDiscoveryItemsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -395,49 +387,35 @@ export interface DmDiscovery {
    * The dm.de category URL to discover products from
    */
   sourceUrl: string;
-  status?: ('pending' | 'discovering' | 'discovered' | 'crawling' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'discovering' | 'crawling' | 'completed' | 'failed') | null;
   /**
-   * Total products reported by dm.de
+   * Products found on the page
    */
-  totalCount?: number | null;
-  itemsDiscovered?: number | null;
-  itemsCrawled?: number | null;
-  itemsFailed?: number | null;
-  discoveredAt?: string | null;
+  discovered?: number | null;
+  /**
+   * New products created
+   */
+  created?: number | null;
+  /**
+   * Products already in database
+   */
+  existing?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
   completedAt?: string | null;
-  pendingItems?: {
-    docs?: (number | DmDiscoveryItem)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  crawledItems?: {
-    docs?: (number | DmDiscoveryItem)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  failedItems?: {
-    docs?: (number | DmDiscoveryItem)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   error?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-discovery-items".
- */
-export interface DmDiscoveryItem {
-  id: number;
-  discovery: number | DmDiscovery;
-  gtin: string;
-  productUrl?: string | null;
-  status?: ('pending' | 'crawled' | 'failed') | null;
   /**
-   * The DM product created from this discovery item
+   * Remaining products to crawl (GTIN + URL pairs)
    */
-  product?: (number | null) | DmProduct;
+  productQueue?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -500,10 +478,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'dm-discoveries';
         value: number | DmDiscovery;
-      } | null)
-    | ({
-        relationTo: 'dm-discovery-items';
-        value: number | DmDiscoveryItem;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -715,29 +689,14 @@ export interface DmProductsSelect<T extends boolean = true> {
 export interface DmDiscoveriesSelect<T extends boolean = true> {
   sourceUrl?: T;
   status?: T;
-  totalCount?: T;
-  itemsDiscovered?: T;
-  itemsCrawled?: T;
-  itemsFailed?: T;
-  discoveredAt?: T;
+  discovered?: T;
+  created?: T;
+  existing?: T;
+  errors?: T;
+  startedAt?: T;
   completedAt?: T;
-  pendingItems?: T;
-  crawledItems?: T;
-  failedItems?: T;
   error?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-discovery-items_select".
- */
-export interface DmDiscoveryItemsSelect<T extends boolean = true> {
-  discovery?: T;
-  gtin?: T;
-  productUrl?: T;
-  status?: T;
-  product?: T;
+  productQueue?: T;
   updatedAt?: T;
   createdAt?: T;
 }

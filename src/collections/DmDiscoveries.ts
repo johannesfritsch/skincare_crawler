@@ -8,7 +8,7 @@ export const DmDiscoveries: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'sourceUrl',
-    defaultColumns: ['sourceUrl', 'status', 'itemsDiscovered', 'itemsCrawled', 'createdAt'],
+    defaultColumns: ['sourceUrl', 'status', 'discovered', 'created', 'startedAt'],
     group: 'Jobs',
   },
   fields: [
@@ -30,11 +30,11 @@ export const DmDiscoveries: CollectionConfig = {
       options: [
         { label: 'Pending', value: 'pending' },
         { label: 'Discovering', value: 'discovering' },
-        { label: 'Discovered', value: 'discovered' },
         { label: 'Crawling', value: 'crawling' },
         { label: 'Completed', value: 'completed' },
         { label: 'Failed', value: 'failed' },
       ],
+      // Flow: pending → discovering → crawling → completed
       index: true,
     },
     // Everything below only shows after creation
@@ -48,38 +48,42 @@ export const DmDiscoveries: CollectionConfig = {
               type: 'row',
               fields: [
                 {
-                  name: 'totalCount',
-                  type: 'number',
-                  label: 'Total Products',
-                  admin: {
-                    readOnly: true,
-                    description: 'Total products reported by dm.de',
-                    width: '25%',
-                  },
-                },
-                {
-                  name: 'itemsDiscovered',
+                  name: 'discovered',
                   type: 'number',
                   label: 'Discovered',
-                  admin: {
-                    readOnly: true,
-                    width: '25%',
-                  },
-                },
-                {
-                  name: 'itemsCrawled',
-                  type: 'number',
-                  label: 'Crawled',
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
+                    description: 'Products found on the page',
                     width: '25%',
                   },
                 },
                 {
-                  name: 'itemsFailed',
+                  name: 'created',
                   type: 'number',
-                  label: 'Failed',
+                  label: 'Created',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'New products created',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'existing',
+                  type: 'number',
+                  label: 'Existing',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'Products already in database',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'errors',
+                  type: 'number',
+                  label: 'Errors',
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
@@ -92,9 +96,9 @@ export const DmDiscoveries: CollectionConfig = {
               type: 'row',
               fields: [
                 {
-                  name: 'discoveredAt',
+                  name: 'startedAt',
                   type: 'date',
-                  label: 'Discovered At',
+                  label: 'Started At',
                   admin: {
                     readOnly: true,
                     width: '50%',
@@ -120,50 +124,6 @@ export const DmDiscoveries: CollectionConfig = {
           ],
         },
         {
-          label: 'Items',
-          fields: [
-            {
-              name: 'pendingItems',
-              type: 'join',
-              collection: 'dm-discovery-items',
-              on: 'discovery',
-              where: {
-                status: { equals: 'pending' },
-              },
-              admin: {
-                defaultColumns: ['gtin', 'status', 'productUrl'],
-                allowCreate: false,
-              },
-            },
-            {
-              name: 'crawledItems',
-              type: 'join',
-              collection: 'dm-discovery-items',
-              on: 'discovery',
-              where: {
-                status: { equals: 'crawled' },
-              },
-              admin: {
-                defaultColumns: ['gtin', 'product', 'productUrl'],
-                allowCreate: false,
-              },
-            },
-            {
-              name: 'failedItems',
-              type: 'join',
-              collection: 'dm-discovery-items',
-              on: 'discovery',
-              where: {
-                status: { equals: 'failed' },
-              },
-              admin: {
-                defaultColumns: ['gtin', 'status', 'productUrl'],
-                allowCreate: false,
-              },
-            },
-          ],
-        },
-        {
           label: 'Details',
           fields: [
             {
@@ -173,6 +133,15 @@ export const DmDiscoveries: CollectionConfig = {
               admin: {
                 readOnly: true,
                 condition: (data) => data?.status === 'failed',
+              },
+            },
+            {
+              name: 'productQueue',
+              type: 'json',
+              label: 'Product Queue',
+              admin: {
+                readOnly: true,
+                description: 'Remaining products to crawl (GTIN + URL pairs)',
               },
             },
           ],
