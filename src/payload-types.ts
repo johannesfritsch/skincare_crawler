@@ -214,8 +214,23 @@ export interface Ingredient {
   name: string;
   status?: ('pending' | 'crawled' | 'crawl_failed' | 'crawl_not_found') | null;
   description?: string | null;
+  casNumber?: string | null;
+  ecNumber?: string | null;
   /**
-   * SpecialChem INCI page URL
+   * Substance ID from CosIng database
+   */
+  cosIngId?: string | null;
+  chemicalDescription?: string | null;
+  functions?:
+    | {
+        function?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  itemType?: ('ingredient' | 'substance') | null;
+  restrictions?: string | null;
+  /**
+   * CosIng page URL
    */
   sourceUrl?: string | null;
   crawledAt?: string | null;
@@ -568,6 +583,18 @@ export interface IngredientsSelect<T extends boolean = true> {
   name?: T;
   status?: T;
   description?: T;
+  casNumber?: T;
+  ecNumber?: T;
+  cosIngId?: T;
+  chemicalDescription?: T;
+  functions?:
+    | T
+    | {
+        function?: T;
+        id?: T;
+      };
+  itemType?: T;
+  restrictions?: T;
   sourceUrl?: T;
   crawledAt?: T;
   updatedAt?: T;

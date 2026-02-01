@@ -57,11 +57,62 @@ export const Ingredients: CollectionConfig = {
       label: 'Description',
     },
     {
+      name: 'casNumber',
+      type: 'text',
+      label: 'CAS Number',
+      index: true,
+    },
+    {
+      name: 'ecNumber',
+      type: 'text',
+      label: 'EC Number',
+      index: true,
+    },
+    {
+      name: 'cosIngId',
+      type: 'text',
+      label: 'CosIng ID',
+      index: true,
+      admin: {
+        description: 'Substance ID from CosIng database',
+      },
+    },
+    {
+      name: 'chemicalDescription',
+      type: 'textarea',
+      label: 'Chemical Description',
+    },
+    {
+      name: 'functions',
+      type: 'array',
+      label: 'Functions',
+      fields: [
+        {
+          name: 'function',
+          type: 'text',
+        },
+      ],
+    },
+    {
+      name: 'itemType',
+      type: 'select',
+      label: 'Item Type',
+      options: [
+        { label: 'Ingredient', value: 'ingredient' },
+        { label: 'Substance', value: 'substance' },
+      ],
+    },
+    {
+      name: 'restrictions',
+      type: 'textarea',
+      label: 'Restrictions',
+    },
+    {
       name: 'sourceUrl',
       type: 'text',
       label: 'Source URL',
       admin: {
-        description: 'SpecialChem INCI page URL',
+        description: 'CosIng page URL',
       },
     },
     {
