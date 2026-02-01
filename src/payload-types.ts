@@ -72,6 +72,7 @@ export interface Config {
     brands: Brand;
     categories: Category;
     ingredients: Ingredient;
+    'ingredients-discoveries': IngredientsDiscovery;
     products: Product;
     'dm-products': DmProduct;
     'dm-crawls': DmCrawl;
@@ -94,6 +95,7 @@ export interface Config {
     brands: BrandsSelect<false> | BrandsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
+    'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
@@ -234,6 +236,42 @@ export interface Ingredient {
    */
   sourceUrl?: string | null;
   crawledAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredients-discoveries".
+ */
+export interface IngredientsDiscovery {
+  id: number;
+  /**
+   * URL that determines which driver to use (e.g., "https://ec.europa.eu/growth/tools-databases/cosing/")
+   */
+  sourceUrl: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  discovered?: number | null;
+  created?: number | null;
+  existing?: number | null;
+  errors?: number | null;
+  currentTerm?: string | null;
+  currentPage?: number | null;
+  totalPagesForTerm?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  error?: string | null;
+  /**
+   * Remaining search terms to process
+   */
+  termQueue?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -457,6 +495,10 @@ export interface PayloadLockedDocument {
         value: number | Ingredient;
       } | null)
     | ({
+        relationTo: 'ingredients-discoveries';
+        value: number | IngredientsDiscovery;
+      } | null)
+    | ({
         relationTo: 'products';
         value: number | Product;
       } | null)
@@ -597,6 +639,27 @@ export interface IngredientsSelect<T extends boolean = true> {
   restrictions?: T;
   sourceUrl?: T;
   crawledAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredients-discoveries_select".
+ */
+export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
+  sourceUrl?: T;
+  status?: T;
+  discovered?: T;
+  created?: T;
+  existing?: T;
+  errors?: T;
+  currentTerm?: T;
+  currentPage?: T;
+  totalPagesForTerm?: T;
+  startedAt?: T;
+  completedAt?: T;
+  error?: T;
+  termQueue?: T;
   updatedAt?: T;
   createdAt?: T;
 }

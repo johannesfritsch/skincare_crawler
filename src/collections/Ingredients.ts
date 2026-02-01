@@ -13,15 +13,6 @@ export const Ingredients: CollectionConfig = {
   },
   fields: [
     {
-      name: 'discover',
-      type: 'ui',
-      admin: {
-        components: {
-          Field: '/components/DiscoverIngredientsButton',
-        },
-      },
-    },
-    {
       name: 'name',
       type: 'text',
       label: 'Ingredient Name',
