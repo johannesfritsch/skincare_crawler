@@ -8,7 +8,7 @@ export const DmProducts: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'brandName', 'pricing.amount', 'rating', 'createdAt'],
+    defaultColumns: ['name', 'brandName', 'status', 'crawledAt', 'createdAt'],
     group: 'DM Data',
     description: 'Products crawled from dm.de',
     listSearchableFields: ['name', 'brandName', 'gtin'],
@@ -21,6 +21,21 @@ export const DmProducts: CollectionConfig = {
           label: 'Product',
           fields: [
             {
+              name: 'status',
+              type: 'select',
+              label: 'Status',
+              defaultValue: 'uncrawled',
+              options: [
+                { label: 'Uncrawled', value: 'uncrawled' },
+                { label: 'Crawled', value: 'crawled' },
+                { label: 'Failed', value: 'failed' },
+              ],
+              index: true,
+              admin: {
+                position: 'sidebar',
+              },
+            },
+            {
               name: 'gtin',
               type: 'text',
               label: 'GTIN',
@@ -28,6 +43,7 @@ export const DmProducts: CollectionConfig = {
                 description: 'Global Trade Item Number',
               },
               index: true,
+              unique: true,
             },
             {
               name: 'recrawl',
@@ -51,7 +67,6 @@ export const DmProducts: CollectionConfig = {
               name: 'name',
               type: 'text',
               label: 'Product Name',
-              required: true,
             },
             {
               name: 'type',

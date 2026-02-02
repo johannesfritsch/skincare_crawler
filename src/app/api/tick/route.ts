@@ -8,86 +8,200 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 const TICK_DURATION_MS = 25_000 // Process for ~25 seconds
-const DM_ITEMS_PER_TICK = 20 // Number of DM products to crawl per tick
 
-type DiscoveryType = 'ingredients' | 'dm'
+// Job types
+type JobType = 'ingredients-discovery' | 'dm-discovery' | 'dm-crawl'
+const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'dm-discovery', 'dm-crawl']
 
-interface ActiveDiscovery {
-  type: DiscoveryType
+// Settings interfaces for each job type
+interface IngredientsDiscoverySettings {
+  // No specific settings yet
+}
+
+interface DmDiscoverySettings {
+  // No specific settings yet
+}
+
+interface DmCrawlSettings {
+  itemsPerTick?: number // Default: 10
+}
+
+type JobSettings = {
+  'ingredients-discovery': IngredientsDiscoverySettings
+  'dm-discovery': DmDiscoverySettings
+  'dm-crawl': DmCrawlSettings
+}
+
+// Default settings
+const DEFAULT_SETTINGS: JobSettings = {
+  'ingredients-discovery': {},
+  'dm-discovery': {},
+  'dm-crawl': { itemsPerTick: 10 },
+}
+
+interface ActiveJob {
+  type: JobType
   id: number
-  sourceUrl: string
   status: string
 }
 
-export const POST = async () => {
+// Parse and validate settings from request body
+function parseSettings(body: Record<string, unknown>): {
+  enabledTypes: JobType[]
+  settings: JobSettings
+} {
+  // If no types specified, enable all with defaults
+  if (!body.types || typeof body.types !== 'object') {
+    return { enabledTypes: ALL_JOB_TYPES, settings: DEFAULT_SETTINGS }
+  }
+
+  const typesObj = body.types as Record<string, unknown>
+  const enabledTypes: JobType[] = []
+  const settings: JobSettings = { ...DEFAULT_SETTINGS }
+
+  for (const type of ALL_JOB_TYPES) {
+    if (type in typesObj) {
+      enabledTypes.push(type)
+      const typeSettings = typesObj[type]
+      if (typeSettings && typeof typeSettings === 'object') {
+        settings[type] = { ...DEFAULT_SETTINGS[type], ...typeSettings } as JobSettings[typeof type]
+      }
+    }
+  }
+
+  // If types object was provided but empty or had no valid types, return empty
+  if (enabledTypes.length === 0 && Object.keys(typesObj).length > 0) {
+    return { enabledTypes: [], settings }
+  }
+
+  // If types object was empty {}, enable all
+  if (enabledTypes.length === 0) {
+    return { enabledTypes: ALL_JOB_TYPES, settings: DEFAULT_SETTINGS }
+  }
+
+  return { enabledTypes, settings }
+}
+
+export const POST = async (request: Request) => {
   const startTime = Date.now()
   const payload = await getPayload({ config: configPromise })
 
-  // Find all active discoveries (in_progress or pending)
-  const [ingredientsInProgress, ingredientsPending, dmInProgress, dmPending] = await Promise.all([
-    payload.find({
-      collection: 'ingredients-discoveries',
-      where: { status: { in: ['in_progress'] } },
-      limit: 10,
-    }),
-    payload.find({
-      collection: 'ingredients-discoveries',
-      where: { status: { equals: 'pending' } },
-      limit: 10,
-      sort: 'createdAt',
-    }),
-    payload.find({
-      collection: 'dm-discoveries',
-      where: { status: { in: ['discovering', 'crawling'] } },
-      limit: 10,
-    }),
-    payload.find({
-      collection: 'dm-discoveries',
-      where: { status: { equals: 'pending' } },
-      limit: 10,
-      sort: 'createdAt',
-    }),
-  ])
+  // Parse request body for types and settings
+  let enabledTypes: JobType[] = ALL_JOB_TYPES
+  let settings: JobSettings = DEFAULT_SETTINGS
 
-  // Collect all active discoveries
-  const activeDiscoveries: ActiveDiscovery[] = [
-    ...ingredientsInProgress.docs.map((d) => ({
-      type: 'ingredients' as const,
-      id: d.id,
-      sourceUrl: d.sourceUrl,
-      status: d.status!,
-    })),
-    ...ingredientsPending.docs.map((d) => ({
-      type: 'ingredients' as const,
-      id: d.id,
-      sourceUrl: d.sourceUrl,
-      status: d.status!,
-    })),
-    ...dmInProgress.docs.map((d) => ({
-      type: 'dm' as const,
-      id: d.id,
-      sourceUrl: d.sourceUrl,
-      status: d.status!,
-    })),
-    ...dmPending.docs.map((d) => ({
-      type: 'dm' as const,
-      id: d.id,
-      sourceUrl: d.sourceUrl,
-      status: d.status!,
-    })),
-  ]
-
-  if (activeDiscoveries.length === 0) {
-    return Response.json({ message: 'No pending discoveries' })
+  try {
+    const body = await request.json().catch(() => ({}))
+    const parsed = parseSettings(body)
+    enabledTypes = parsed.enabledTypes
+    settings = parsed.settings
+  } catch {
+    // No body or invalid JSON, use all types with defaults
   }
 
-  // Randomly select one discovery to process
-  const selected = activeDiscoveries[Math.floor(Math.random() * activeDiscoveries.length)]
+  // Find active jobs only for enabled types
+  const activeJobs: ActiveJob[] = []
 
-  if (selected.type === 'ingredients') {
-    return processIngredientsDiscovery(payload, selected.id, startTime)
+  if (enabledTypes.includes('ingredients-discovery')) {
+    const [inProgress, pending] = await Promise.all([
+      payload.find({
+        collection: 'ingredients-discoveries',
+        where: { status: { equals: 'in_progress' } },
+        limit: 10,
+      }),
+      payload.find({
+        collection: 'ingredients-discoveries',
+        where: { status: { equals: 'pending' } },
+        limit: 10,
+        sort: 'createdAt',
+      }),
+    ])
+    activeJobs.push(
+      ...inProgress.docs.map((d) => ({
+        type: 'ingredients-discovery' as const,
+        id: d.id,
+        status: d.status!,
+      })),
+      ...pending.docs.map((d) => ({
+        type: 'ingredients-discovery' as const,
+        id: d.id,
+        status: d.status!,
+      })),
+    )
+  }
+
+  if (enabledTypes.includes('dm-discovery')) {
+    const [inProgress, pending] = await Promise.all([
+      payload.find({
+        collection: 'dm-discoveries',
+        where: { status: { equals: 'in_progress' } },
+        limit: 10,
+      }),
+      payload.find({
+        collection: 'dm-discoveries',
+        where: { status: { equals: 'pending' } },
+        limit: 10,
+        sort: 'createdAt',
+      }),
+    ])
+    activeJobs.push(
+      ...inProgress.docs.map((d) => ({
+        type: 'dm-discovery' as const,
+        id: d.id,
+        status: d.status!,
+      })),
+      ...pending.docs.map((d) => ({
+        type: 'dm-discovery' as const,
+        id: d.id,
+        status: d.status!,
+      })),
+    )
+  }
+
+  if (enabledTypes.includes('dm-crawl')) {
+    const [inProgress, pending] = await Promise.all([
+      payload.find({
+        collection: 'dm-crawls',
+        where: { status: { equals: 'in_progress' } },
+        limit: 10,
+      }),
+      payload.find({
+        collection: 'dm-crawls',
+        where: { status: { equals: 'pending' } },
+        limit: 10,
+        sort: 'createdAt',
+      }),
+    ])
+    activeJobs.push(
+      ...inProgress.docs.map((d) => ({
+        type: 'dm-crawl' as const,
+        id: d.id,
+        status: d.status!,
+      })),
+      ...pending.docs.map((d) => ({
+        type: 'dm-crawl' as const,
+        id: d.id,
+        status: d.status!,
+      })),
+    )
+  }
+
+  if (activeJobs.length === 0) {
+    return Response.json({
+      message: 'No pending jobs',
+      enabledTypes: enabledTypes.length < ALL_JOB_TYPES.length ? enabledTypes : undefined,
+    })
+  }
+
+  // Randomly select one job to process
+  const selected = activeJobs[Math.floor(Math.random() * activeJobs.length)]
+
+  if (selected.type === 'ingredients-discovery') {
+    return processIngredientsDiscovery(payload, selected.id, startTime, settings['ingredients-discovery'])
+  } else if (selected.type === 'dm-discovery') {
+    return processDmDiscovery(payload, selected.id, settings['dm-discovery'])
   } else {
-    return processDmDiscovery(payload, selected.id, startTime)
+    return processDmCrawl(payload, selected.id, startTime, settings['dm-crawl'])
   }
 }
 
@@ -95,6 +209,7 @@ async function processIngredientsDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
   startTime: number,
+  _settings: IngredientsDiscoverySettings,
 ) {
   let discovery = await payload.findByID({
     collection: 'ingredients-discoveries',
@@ -114,8 +229,8 @@ async function processIngredientsDiscovery(
     })
     return Response.json({
       error: `No driver found for URL: ${discovery.sourceUrl}`,
-      discoveryId,
-      type: 'ingredients',
+      jobId: discoveryId,
+      type: 'ingredients-discovery',
     }, { status: 400 })
   }
 
@@ -168,8 +283,8 @@ async function processIngredientsDiscovery(
           })
           return Response.json({
             message: 'Discovery completed',
-            discoveryId,
-            type: 'ingredients',
+            jobId: discoveryId,
+            type: 'ingredients-discovery',
             discovered,
             created,
             existing,
@@ -251,8 +366,8 @@ async function processIngredientsDiscovery(
 
     return Response.json({
       message: 'Tick completed',
-      discoveryId,
-      type: 'ingredients',
+      jobId: discoveryId,
+      type: 'ingredients-discovery',
       currentTerm,
       currentPage,
       totalPagesForTerm,
@@ -277,23 +392,18 @@ async function processIngredientsDiscovery(
 
     return Response.json({
       error: error instanceof Error ? error.message : 'Unknown error',
-      discoveryId,
-      type: 'ingredients',
+      jobId: discoveryId,
+      type: 'ingredients-discovery',
     }, { status: 500 })
   }
-}
-
-interface ProductQueueItem {
-  gtin: string
-  productUrl: string | null
 }
 
 async function processDmDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
-  startTime: number,
+  _settings: DmDiscoverySettings,
 ) {
-  let discovery = await payload.findByID({
+  const discovery = await payload.findByID({
     collection: 'dm-discoveries',
     id: discoveryId,
   })
@@ -311,150 +421,93 @@ async function processDmDiscovery(
     })
     return Response.json({
       error: `No driver found for URL: ${discovery.sourceUrl}`,
-      discoveryId,
-      type: 'dm',
+      jobId: discoveryId,
+      type: 'dm-discovery',
     }, { status: 400 })
   }
+
+  // Mark as in_progress
+  await payload.update({
+    collection: 'dm-discoveries',
+    id: discoveryId,
+    data: {
+      status: 'in_progress',
+      startedAt: new Date().toISOString(),
+    },
+  })
 
   const browser = await launchBrowser()
   const page = await browser.newPage()
 
   try {
-    // Phase 1: Discovery (pending -> discovering -> crawling)
-    if (discovery.status === 'pending' || discovery.status === 'discovering') {
-      await payload.update({
-        collection: 'dm-discoveries',
-        id: discoveryId,
-        data: {
-          status: 'discovering',
-          startedAt: new Date().toISOString(),
-        },
+    // Discover all products from the category page
+    const { products } = await driver.discoverProducts(page, discovery.sourceUrl)
+    await browser.close()
+
+    // Update discovered count immediately
+    await payload.update({
+      collection: 'dm-discoveries',
+      id: discoveryId,
+      data: {
+        discovered: products.length,
+      },
+    })
+
+    // Create DmProducts with status "uncrawled"
+    let created = 0
+    let existing = 0
+
+    for (const product of products) {
+      const existingProduct = await payload.find({
+        collection: 'dm-products',
+        where: { gtin: { equals: product.gtin } },
+        limit: 1,
       })
 
-      const { products } = await driver.discoverProducts(page, discovery.sourceUrl)
-
-      // Store products in queue and transition to crawling
-      await payload.update({
-        collection: 'dm-discoveries',
-        id: discoveryId,
-        data: {
-          status: 'crawling',
-          productQueue: products,
-          discovered: products.length,
-          created: 0,
-          existing: 0,
-          errors: 0,
-        },
-      })
-
-      // Refresh discovery to get updated state
-      discovery = await payload.findByID({
-        collection: 'dm-discoveries',
-        id: discoveryId,
-      })
-    }
-
-    // Phase 2: Crawling (crawling -> completed)
-    if (discovery.status === 'crawling') {
-      // Navigate to site and accept cookies
-      await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
-      await driver.acceptCookies(page)
-
-      let productQueue: ProductQueueItem[] = (discovery.productQueue as ProductQueueItem[]) || []
-      let created = discovery.created || 0
-      let existing = discovery.existing || 0
-      let errors = discovery.errors || 0
-      let processedThisTick = 0
-
-      // Process items until time limit or batch limit
-      while (
-        Date.now() - startTime < TICK_DURATION_MS &&
-        processedThisTick < DM_ITEMS_PER_TICK &&
-        productQueue.length > 0
-      ) {
-        const item = productQueue.shift()!
-        const productId = await driver.crawlProduct(page, item.gtin, item.productUrl, payload)
-
-        if (productId !== null) {
-          // Check if it was a new product or existing
-          const product = await payload.findByID({
-            collection: 'dm-products',
-            id: productId,
-          })
-          // If crawledAt is very recent (within last minute), it was just created/updated
-          const crawledAt = product.crawledAt ? new Date(product.crawledAt) : null
-          const isNew = crawledAt && (Date.now() - crawledAt.getTime() < 60000)
-          if (isNew) {
-            created++
-          } else {
-            existing++
-          }
-        } else {
-          errors++
-        }
-
-        // Save progress after each item
-        await payload.update({
-          collection: 'dm-discoveries',
-          id: discoveryId,
+      if (existingProduct.docs.length === 0) {
+        await payload.create({
+          collection: 'dm-products',
           data: {
-            productQueue,
-            created,
-            existing,
-            errors,
+            gtin: product.gtin,
+            sourceUrl: product.productUrl
+              ? (product.productUrl.startsWith('http') ? product.productUrl : `https://www.dm.de${product.productUrl}`)
+              : null,
+            status: 'uncrawled',
           },
         })
-
-        processedThisTick++
-
-        // Random delay between products
-        if (productQueue.length > 0) {
-          await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
-        }
+        created++
+      } else {
+        existing++
       }
 
-      await browser.close()
-
-      // Check if done
-      if (productQueue.length === 0) {
-        await payload.update({
-          collection: 'dm-discoveries',
-          id: discoveryId,
-          data: {
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-          },
-        })
-
-        return Response.json({
-          message: 'Discovery completed',
-          discoveryId,
-          type: 'dm',
-          discovered: discovery.discovered,
+      // Update stats after each product
+      await payload.update({
+        collection: 'dm-discoveries',
+        id: discoveryId,
+        data: {
           created,
           existing,
-          errors,
-        })
-      }
-
-      return Response.json({
-        message: 'Tick completed',
-        discoveryId,
-        type: 'dm',
-        processedThisTick,
-        remaining: productQueue.length,
-        created,
-        existing,
-        errors,
+        },
       })
     }
 
-    await browser.close()
+    // Mark as completed
+    await payload.update({
+      collection: 'dm-discoveries',
+      id: discoveryId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+
     return Response.json({
-      message: 'Discovery already completed or failed',
-      discoveryId,
-      type: 'dm',
-      status: discovery.status,
+      message: 'Discovery completed',
+      jobId: discoveryId,
+      type: 'dm-discovery',
+      discovered: products.length,
+      created,
+      existing,
     })
   } catch (error) {
     console.error('DM discovery error:', error)
@@ -472,8 +525,192 @@ async function processDmDiscovery(
 
     return Response.json({
       error: error instanceof Error ? error.message : 'Unknown error',
-      discoveryId,
-      type: 'dm',
+      jobId: discoveryId,
+      type: 'dm-discovery',
+    }, { status: 500 })
+  }
+}
+
+async function processDmCrawl(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  crawlId: number,
+  startTime: number,
+  settings: DmCrawlSettings,
+) {
+  const itemsPerTick = settings.itemsPerTick ?? 10
+
+  let crawl = await payload.findByID({
+    collection: 'dm-crawls',
+    id: crawlId,
+  })
+
+  // Initialize if pending
+  if (crawl.status === 'pending') {
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    crawl = await payload.findByID({
+      collection: 'dm-crawls',
+      id: crawlId,
+    })
+  }
+
+  // Find uncrawled DmProducts
+  const uncrawledProducts = await payload.find({
+    collection: 'dm-products',
+    where: { status: { equals: 'uncrawled' } },
+    limit: itemsPerTick,
+  })
+
+  if (uncrawledProducts.docs.length === 0) {
+    // No more products to crawl
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+
+    return Response.json({
+      message: 'Crawl completed - no uncrawled products',
+      jobId: crawlId,
+      type: 'dm-crawl',
+      crawled: crawl.crawled || 0,
+      errors: crawl.errors || 0,
+    })
+  }
+
+  const driver = getDmDriver('https://www.dm.de')
+  if (!driver) {
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'failed',
+        error: 'No DM driver found',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    return Response.json({
+      error: 'No DM driver found',
+      jobId: crawlId,
+      type: 'dm-crawl',
+    }, { status: 400 })
+  }
+
+  const browser = await launchBrowser()
+  const page = await browser.newPage()
+
+  // Accept cookies once
+  await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
+  await driver.acceptCookies(page)
+
+  let crawled = crawl.crawled || 0
+  let errors = crawl.errors || 0
+  let processedThisTick = 0
+
+  try {
+    for (const product of uncrawledProducts.docs) {
+      if (Date.now() - startTime >= TICK_DURATION_MS) {
+        break
+      }
+
+      const productId = await driver.crawlProduct(
+        page,
+        product.gtin!,
+        product.sourceUrl || null,
+        payload,
+      )
+
+      if (productId !== null) {
+        // Product was crawled successfully (crawlProduct updates the product)
+        crawled++
+      } else {
+        // Mark as failed
+        await payload.update({
+          collection: 'dm-products',
+          id: product.id,
+          data: { status: 'failed' },
+        })
+        errors++
+      }
+
+      processedThisTick++
+
+      // Update crawl progress
+      await payload.update({
+        collection: 'dm-crawls',
+        id: crawlId,
+        data: { crawled, errors },
+      })
+
+      // Random delay between products
+      if (processedThisTick < uncrawledProducts.docs.length) {
+        await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
+      }
+    }
+
+    await browser.close()
+
+    // Check if there are more uncrawled products
+    const remaining = await payload.count({
+      collection: 'dm-products',
+      where: { status: { equals: 'uncrawled' } },
+    })
+
+    if (remaining.totalDocs === 0) {
+      await payload.update({
+        collection: 'dm-crawls',
+        id: crawlId,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        },
+      })
+
+      return Response.json({
+        message: 'Crawl completed',
+        jobId: crawlId,
+        type: 'dm-crawl',
+        crawled,
+        errors,
+      })
+    }
+
+    return Response.json({
+      message: 'Tick completed',
+      jobId: crawlId,
+      type: 'dm-crawl',
+      processedThisTick,
+      crawled,
+      errors,
+      remaining: remaining.totalDocs,
+    })
+  } catch (error) {
+    console.error('DM crawl error:', error)
+    await browser.close()
+
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        completedAt: new Date().toISOString(),
+      },
+    })
+
+    return Response.json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+      jobId: crawlId,
+      type: 'dm-crawl',
     }, { status: 500 })
   }
 }
@@ -482,17 +719,66 @@ export const GET = async () => {
   return Response.json({
     message: 'Tick API',
     usage: 'POST /api/tick',
-    description: 'Processes pending discovery jobs incrementally. Call repeatedly via cron. Randomly selects between ingredients and DM discoveries.',
-    supportedDiscoveries: [
-      {
-        type: 'ingredients',
+    description: 'Processes pending jobs incrementally. Call repeatedly via cron.',
+    parameters: {
+      types: {
+        type: 'object',
+        optional: true,
+        description: 'Object where keys are job types to enable, and values are settings for that type. If omitted, all types run with default settings.',
+      },
+    },
+    jobTypes: {
+      'ingredients-discovery': {
         collection: 'ingredients-discoveries',
         description: 'Discovers ingredients from CosIng API',
+        settings: {},
+      },
+      'dm-discovery': {
+        collection: 'dm-discoveries',
+        description: 'Discovers products from dm.de category pages, creates DmProducts with status "uncrawled"',
+        settings: {},
+      },
+      'dm-crawl': {
+        collection: 'dm-crawls',
+        description: 'Crawls uncrawled DmProducts, adds full details (price, ingredients, etc.)',
+        settings: {
+          itemsPerTick: {
+            type: 'number',
+            default: 10,
+            description: 'Number of products to crawl per tick',
+          },
+        },
+      },
+    },
+    examples: [
+      {
+        description: 'Process any pending job with defaults',
+        body: {},
       },
       {
-        type: 'dm',
-        collection: 'dm-discoveries',
-        description: 'Discovers and crawls products from dm.de',
+        description: 'Process only dm-discovery',
+        body: {
+          types: {
+            'dm-discovery': {},
+          },
+        },
+      },
+      {
+        description: 'Process only dm-crawl with custom items per tick',
+        body: {
+          types: {
+            'dm-crawl': { itemsPerTick: 20 },
+          },
+        },
+      },
+      {
+        description: 'Process multiple types with mixed settings',
+        body: {
+          types: {
+            'dm-discovery': {},
+            'dm-crawl': { itemsPerTick: 5 },
+          },
+        },
       },
     ],
   })

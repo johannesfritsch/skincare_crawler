@@ -76,6 +76,7 @@ export interface Config {
     products: Product;
     'dm-products': DmProduct;
     'dm-discoveries': DmDiscovery;
+    'dm-crawls': DmCrawl;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -92,6 +93,7 @@ export interface Config {
     products: ProductsSelect<false> | ProductsSelect<true>;
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'dm-discoveries': DmDiscoveriesSelect<false> | DmDiscoveriesSelect<true>;
+    'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -305,6 +307,7 @@ export interface Product {
  */
 export interface DmProduct {
   id: number;
+  status?: ('uncrawled' | 'crawled' | 'failed') | null;
   /**
    * Global Trade Item Number
    */
@@ -313,7 +316,7 @@ export interface DmProduct {
    * Product brand name
    */
   brandName?: string | null;
-  name: string;
+  name?: string | null;
   /**
    * Product category (e.g., Make-up)
    */
@@ -387,7 +390,7 @@ export interface DmDiscovery {
    * The dm.de category URL to discover products from
    */
   sourceUrl: string;
-  status?: ('pending' | 'discovering' | 'crawling' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Products found on the page
    */
@@ -400,22 +403,30 @@ export interface DmDiscovery {
    * Products already in database
    */
   existing?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  error?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawls".
+ */
+export interface DmCrawl {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Products successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Products that failed to crawl
+   */
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
   error?: string | null;
-  /**
-   * Remaining products to crawl (GTIN + URL pairs)
-   */
-  productQueue?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -478,6 +489,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'dm-discoveries';
         value: number | DmDiscovery;
+      } | null)
+    | ({
+        relationTo: 'dm-crawls';
+        value: number | DmCrawl;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -650,6 +665,7 @@ export interface ProductsSelect<T extends boolean = true> {
  * via the `definition` "dm-products_select".
  */
 export interface DmProductsSelect<T extends boolean = true> {
+  status?: T;
   gtin?: T;
   brandName?: T;
   name?: T;
@@ -692,11 +708,23 @@ export interface DmDiscoveriesSelect<T extends boolean = true> {
   discovered?: T;
   created?: T;
   existing?: T;
+  startedAt?: T;
+  completedAt?: T;
+  error?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawls_select".
+ */
+export interface DmCrawlsSelect<T extends boolean = true> {
+  status?: T;
+  crawled?: T;
   errors?: T;
   startedAt?: T;
   completedAt?: T;
   error?: T;
-  productQueue?: T;
   updatedAt?: T;
   createdAt?: T;
 }

@@ -1,27 +1,17 @@
 import type { CollectionConfig } from 'payload'
 
-export const DmDiscoveries: CollectionConfig = {
-  slug: 'dm-discoveries',
+export const DmCrawls: CollectionConfig = {
+  slug: 'dm-crawls',
   labels: {
-    singular: 'DM Discovery',
-    plural: 'DM Discoveries',
+    singular: 'DM Crawl',
+    plural: 'DM Crawls',
   },
   admin: {
-    useAsTitle: 'sourceUrl',
-    defaultColumns: ['sourceUrl', 'status', 'discovered', 'created', 'startedAt'],
+    useAsTitle: 'id',
+    defaultColumns: ['id', 'status', 'crawled', 'errors', 'startedAt'],
     group: 'Jobs',
   },
   fields: [
-    // Main configuration - always visible
-    {
-      name: 'sourceUrl',
-      type: 'text',
-      label: 'Source URL',
-      required: true,
-      admin: {
-        description: 'The dm.de category URL to discover products from',
-      },
-    },
     {
       name: 'status',
       type: 'select',
@@ -46,36 +36,25 @@ export const DmDiscoveries: CollectionConfig = {
               type: 'row',
               fields: [
                 {
-                  name: 'discovered',
+                  name: 'crawled',
                   type: 'number',
-                  label: 'Discovered',
+                  label: 'Crawled',
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'Products found on the page',
-                    width: '33%',
+                    description: 'Products successfully crawled',
+                    width: '50%',
                   },
                 },
                 {
-                  name: 'created',
+                  name: 'errors',
                   type: 'number',
-                  label: 'Created',
+                  label: 'Errors',
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'New products created',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'existing',
-                  type: 'number',
-                  label: 'Existing',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products already in database',
-                    width: '33%',
+                    description: 'Products that failed to crawl',
+                    width: '50%',
                   },
                 },
               ],

@@ -250,7 +250,7 @@ export const dmDriver: DmDiscoveryDriver = {
         }
       }
 
-      // Save to database
+      // Update existing product with crawled data
       const finalGtin = productData.gtin || gtin
       const existing = await payload.find({
         collection: 'dm-products',
@@ -259,6 +259,7 @@ export const dmDriver: DmDiscoveryDriver = {
       })
 
       const productPayload = {
+        status: 'crawled' as const,
         brandName: productData.brandName,
         name: productData.name,
         pricing: {
@@ -270,8 +271,8 @@ export const dmDriver: DmDiscoveryDriver = {
         },
         rating: productData.rating,
         ratingNum: productData.ratingNum,
-        labels: productData.labels.map((label) => ({ label })),
-        ingredients: ingredients.map((name) => ({ name })),
+        labels: productData.labels.map((label: string) => ({ label })),
+        ingredients: ingredients.map((name: string) => ({ name })),
         sourceUrl: productData.sourceUrl,
         crawledAt: new Date().toISOString(),
       }
@@ -286,11 +287,11 @@ export const dmDriver: DmDiscoveryDriver = {
           data: productPayload,
         })
       } else {
+        // Create new product if it doesn't exist (edge case)
         const newProduct = await payload.create({
           collection: 'dm-products',
           data: {
             gtin: finalGtin,
-            type: 'Product',
             ...productPayload,
           },
         })
