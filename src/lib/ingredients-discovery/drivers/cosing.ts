@@ -8,6 +8,64 @@ const MAX_PAGES = 50
 const BOUNDARY = '----WebKitFormBoundary6Q1PnAkG5xeXfWqu'
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
+// Retry configuration
+const MAX_RETRIES = 3
+const INITIAL_RETRY_DELAY_MS = 2000 // Start with 2 seconds
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase()
+    const cause = (error as Error & { cause?: Error })?.cause
+    const causeCode = (cause as Error & { code?: string })?.code
+
+    // Network errors that are typically transient
+    if (
+      message.includes('fetch failed') ||
+      message.includes('econnreset') ||
+      message.includes('etimedout') ||
+      message.includes('econnrefused') ||
+      message.includes('socket hang up') ||
+      causeCode === 'ECONNRESET' ||
+      causeCode === 'ETIMEDOUT' ||
+      causeCode === 'ECONNREFUSED'
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
+  context: string,
+): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+
+      if (attempt < MAX_RETRIES && isRetryableError(error)) {
+        const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt) // Exponential backoff: 2s, 4s, 8s
+        console.log(
+          `[CosIng] ${context}: Network error (${lastError.message}), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
+        )
+        await sleep(delay)
+      } else {
+        throw lastError
+      }
+    }
+  }
+
+  throw lastError
+}
+
 interface CosIngMetadata {
   inciName?: string[]
   casNo?: string[]
@@ -75,27 +133,28 @@ async function fetchCosIngPage(searchTerm: string, pageNumber: number): Promise<
     '',
   ].join('\r\n')
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': `multipart/form-data; boundary=${BOUNDARY}`,
-      Origin: 'https://ec.europa.eu',
-      Referer: 'https://ec.europa.eu/',
-      'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
-    },
-    body,
-  })
+  return fetchWithRetry(async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': `multipart/form-data; boundary=${BOUNDARY}`,
+        Origin: 'https://ec.europa.eu',
+        Referer: 'https://ec.europa.eu/',
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+      },
+      body,
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error(`API error response: ${errorText.substring(0, 500)}`)
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`)
-  }
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`API error response: ${errorText.substring(0, 500)}`)
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+    }
 
-  const data = (await response.json()) as CosIngResponse
-  return data
+    return (await response.json()) as CosIngResponse
+  }, `term "${searchTerm}" page ${pageNumber}`)
 }
 
 async function processResult(
