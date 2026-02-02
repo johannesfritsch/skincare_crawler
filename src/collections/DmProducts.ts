@@ -14,27 +14,28 @@ export const DmProducts: CollectionConfig = {
     listSearchableFields: ['name', 'brandName', 'gtin'],
   },
   fields: [
+    // Status must be at root level for sidebar positioning to work
+    {
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      defaultValue: 'uncrawled',
+      options: [
+        { label: 'Uncrawled', value: 'uncrawled' },
+        { label: 'Crawled', value: 'crawled' },
+        { label: 'Failed', value: 'failed' },
+      ],
+      index: true,
+      admin: {
+        position: 'sidebar',
+      },
+    },
     {
       type: 'tabs',
       tabs: [
         {
           label: 'Product',
           fields: [
-            {
-              name: 'status',
-              type: 'select',
-              label: 'Status',
-              defaultValue: 'uncrawled',
-              options: [
-                { label: 'Uncrawled', value: 'uncrawled' },
-                { label: 'Crawled', value: 'crawled' },
-                { label: 'Failed', value: 'failed' },
-              ],
-              index: true,
-              admin: {
-                position: 'sidebar',
-              },
-            },
             {
               name: 'gtin',
               type: 'text',

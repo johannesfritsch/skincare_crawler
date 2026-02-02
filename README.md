@@ -34,6 +34,16 @@ To do so, follow these steps:
 - Modify the `docker-compose.yml` file's `MONGODB_URL` to match the above `<dbname>`
 - Run `docker-compose up` to start the database, optionally pass `-d` to run in the background.
 
+## Tick API
+
+The crawler uses a tick-based job system for incremental processing. Jobs are created in the admin UI and processed by calling the tick endpoint repeatedly (e.g., via cron).
+
+For full documentation including available job types, settings, and examples:
+
+```
+GET /api/tick
+```
+
 ## How it works
 
 The Payload config is tailored specifically to the needs of most websites. It is pre-configured in the following ways:

@@ -7,23 +7,23 @@ import { launchBrowser } from '@/lib/browser'
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
-const TICK_DURATION_MS = 25_000 // Process for ~25 seconds
-
 // Job types
 type JobType = 'ingredients-discovery' | 'dm-discovery' | 'dm-crawl'
 const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'dm-discovery', 'dm-crawl']
 
 // Settings interfaces for each job type
 interface IngredientsDiscoverySettings {
-  // No specific settings yet
+  pagesPerTick?: number  // Optional: limit pages processed per tick
+  maxDurationMs?: number // Optional: limit execution time (for serverless)
 }
 
 interface DmDiscoverySettings {
-  // No specific settings yet
+  maxDurationMs?: number // Optional: limit execution time (for serverless)
 }
 
 interface DmCrawlSettings {
-  itemsPerTick?: number // Default: 10
+  itemsPerTick?: number   // Default: 10
+  maxDurationMs?: number  // Optional: limit execution time (for serverless)
 }
 
 type JobSettings = {
@@ -209,8 +209,13 @@ async function processIngredientsDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
   startTime: number,
-  _settings: IngredientsDiscoverySettings,
+  settings: IngredientsDiscoverySettings,
 ) {
+  const pagesPerTick = settings.pagesPerTick // undefined = no limit
+  const maxDurationMs = settings.maxDurationMs // undefined = no limit
+  let pagesProcessed = 0
+  console.log(`[Ingredients Discovery] Starting with pagesPerTick: ${pagesPerTick ?? 'unlimited'}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
+
   let discovery = await payload.findByID({
     collection: 'ingredients-discoveries',
     id: discoveryId,
@@ -263,8 +268,16 @@ async function processIngredientsDiscovery(
   let errors = discovery.errors || 0
 
   try {
-    // Process until time limit
-    while (Date.now() - startTime < TICK_DURATION_MS) {
+    // Process until limit (if set) or completion
+    while (true) {
+      if (pagesPerTick && pagesProcessed >= pagesPerTick) {
+        console.log(`[Ingredients Discovery] Stopping: pagesPerTick (${pagesPerTick}) reached`)
+        break
+      }
+      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
+        console.log(`[Ingredients Discovery] Stopping: maxDurationMs (${maxDurationMs}ms) reached`)
+        break
+      }
       // If no current term, get next from queue
       if (!currentTerm) {
         if (termQueue.length === 0) {
@@ -323,6 +336,7 @@ async function processIngredientsDiscovery(
       existing += stats.existing
       errors += stats.errors
       currentPage++
+      pagesProcessed++
 
       // Save progress after each page
       await payload.update({
@@ -538,6 +552,8 @@ async function processDmCrawl(
   settings: DmCrawlSettings,
 ) {
   const itemsPerTick = settings.itemsPerTick ?? 10
+  const maxDurationMs = settings.maxDurationMs // undefined = no limit
+  console.log(`[DM Crawl] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
 
   let crawl = await payload.findByID({
     collection: 'dm-crawls',
@@ -566,6 +582,7 @@ async function processDmCrawl(
     where: { status: { equals: 'uncrawled' } },
     limit: itemsPerTick,
   })
+  console.log(`[DM Crawl] Found ${uncrawledProducts.docs.length} uncrawled products (limit: ${itemsPerTick})`)
 
   if (uncrawledProducts.docs.length === 0) {
     // No more products to crawl
@@ -618,7 +635,8 @@ async function processDmCrawl(
 
   try {
     for (const product of uncrawledProducts.docs) {
-      if (Date.now() - startTime >= TICK_DURATION_MS) {
+      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
+        console.log(`[DM Crawl] Stopping: maxDurationMs (${maxDurationMs}ms) reached after ${processedThisTick} products`)
         break
       }
 
@@ -630,7 +648,12 @@ async function processDmCrawl(
       )
 
       if (productId !== null) {
-        // Product was crawled successfully (crawlProduct updates the product)
+        // Product was crawled successfully - ensure status is updated on the original product
+        await payload.update({
+          collection: 'dm-products',
+          id: product.id,
+          data: { status: 'crawled' },
+        })
         crawled++
       } else {
         // Mark as failed
@@ -731,12 +754,29 @@ export const GET = async () => {
       'ingredients-discovery': {
         collection: 'ingredients-discoveries',
         description: 'Discovers ingredients from CosIng API',
-        settings: {},
+        settings: {
+          pagesPerTick: {
+            type: 'number',
+            optional: true,
+            description: 'Limit pages processed per tick.',
+          },
+          maxDurationMs: {
+            type: 'number',
+            optional: true,
+            description: 'Limit execution time (ms). For serverless environments with timeouts.',
+          },
+        },
       },
       'dm-discovery': {
         collection: 'dm-discoveries',
         description: 'Discovers products from dm.de category pages, creates DmProducts with status "uncrawled"',
-        settings: {},
+        settings: {
+          maxDurationMs: {
+            type: 'number',
+            optional: true,
+            description: 'Limit execution time (ms). For serverless environments with timeouts.',
+          },
+        },
       },
       'dm-crawl': {
         collection: 'dm-crawls',
@@ -746,6 +786,11 @@ export const GET = async () => {
             type: 'number',
             default: 10,
             description: 'Number of products to crawl per tick',
+          },
+          maxDurationMs: {
+            type: 'number',
+            optional: true,
+            description: 'Limit execution time (ms). For serverless environments with timeouts.',
           },
         },
       },
