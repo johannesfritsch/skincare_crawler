@@ -1,5 +1,6 @@
 import { getPayload } from 'payload'
 import configPromise from '@payload-config'
+import { matchIngredients } from '@/lib/match-ingredients'
 
 export const runtime = 'nodejs'
 
@@ -49,38 +50,6 @@ async function aggregateFromSources(
   }
 
   return aggregated
-}
-
-// Upsert ingredients by name, returning their IDs
-async function upsertIngredients(
-  payload: Awaited<ReturnType<typeof getPayload>>,
-  names: string[],
-): Promise<number[]> {
-  const ids: number[] = []
-
-  for (const name of names) {
-    // Try to find existing ingredient by name
-    const existing = await payload.find({
-      collection: 'ingredients',
-      where: { name: { equals: name } },
-      limit: 1,
-    })
-
-    if (existing.docs.length > 0) {
-      ids.push(existing.docs[0].id)
-    } else {
-      // Create placeholder ingredient
-      const created = await (payload.create as any)({
-        collection: 'ingredients',
-        data: {
-          name,
-        },
-      })
-      ids.push(created.id)
-    }
-  }
-
-  return ids
 }
 
 export const POST = async (request: Request) => {
@@ -142,10 +111,30 @@ export const POST = async (request: Request) => {
         updateData.gtin = aggregated.gtin
       }
 
-      // Upsert ingredients and link them
+      // Match ingredients via LLM
       if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
-        const ingredientIds = await upsertIngredients(payload, aggregated.ingredientNames)
-        updateData.ingredients = ingredientIds
+        try {
+          const matchResult = await matchIngredients(payload, aggregated.ingredientNames)
+
+          if (matchResult.matched.length > 0) {
+            updateData.ingredients = matchResult.matched
+              .map((m) => m.ingredientId)
+              .filter((id): id is number => id !== null)
+          }
+
+          if (matchResult.unmatched.length > 0) {
+            updateData.aggregationStatus = 'ingredient_matching_error'
+            updateData.aggregationErrors = `Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`
+          } else {
+            updateData.aggregationStatus = 'success'
+            updateData.aggregationErrors = null
+          }
+        } catch (error) {
+          updateData.aggregationStatus = 'failed'
+          updateData.aggregationErrors = error instanceof Error ? error.message : 'Unknown matching error'
+        }
+      } else {
+        updateData.aggregationStatus = 'success'
       }
 
       // Update the product
@@ -182,6 +171,6 @@ export const GET = async () => {
       productIds: 'Required. Array of Product IDs to aggregate.',
     },
     description:
-      'Aggregates data from linked sources (DM Products, etc.) into Product fields. Updates name and gtin if empty, upserts ingredients, and sets lastAggregatedAt.',
+      'Aggregates data from linked sources (DM Products, etc.) into Product fields. Updates name and gtin if empty, matches ingredients via LLM, and sets lastAggregatedAt.',
   })
 }

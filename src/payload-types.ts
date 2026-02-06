@@ -292,6 +292,8 @@ export interface Product {
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
+  aggregationStatus?: ('pending' | 'success' | 'ingredient_matching_error' | 'failed') | null;
+  aggregationErrors?: string | null;
   /**
    * Link to crawled DM product data
    */
@@ -322,6 +324,23 @@ export interface DmProduct {
    */
   type?: string | null;
   /**
+   * Average rating (0-5)
+   */
+  rating?: number | null;
+  /**
+   * Total number of reviews
+   */
+  ratingNum?: number | null;
+  /**
+   * Product labels (e.g., Neu, Limitiert, dm-Marke)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
    * Product pricing information
    */
   pricing?: {
@@ -344,19 +363,11 @@ export interface DmProduct {
     unit?: string | null;
   };
   /**
-   * Average rating (0-5)
+   * Raw ingredient strings as crawled from dm.de
    */
-  rating?: number | null;
-  /**
-   * Total number of reviews
-   */
-  ratingNum?: number | null;
-  /**
-   * Product labels (e.g., Neu, Limitiert, dm-Marke)
-   */
-  labels?:
+  ingredients?:
     | {
-        label: string;
+        name: string;
         id?: string | null;
       }[]
     | null;
@@ -369,14 +380,9 @@ export interface DmProduct {
    */
   crawledAt?: string | null;
   /**
-   * Raw ingredient strings as crawled from dm.de
+   * Error message from the last crawl attempt
    */
-  ingredients?:
-    | {
-        name: string;
-        id?: string | null;
-      }[]
-    | null;
+  error?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -416,6 +422,16 @@ export interface DmDiscovery {
 export interface DmCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  type: 'all' | 'selected_gtins';
+  /**
+   * List of GTINs to crawl
+   */
+  gtins?:
+    | {
+        gtin: string;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * Products successfully crawled
    */
@@ -656,6 +672,8 @@ export interface ProductsSelect<T extends boolean = true> {
   publishedAt?: T;
   ingredients?: T;
   lastAggregatedAt?: T;
+  aggregationStatus?: T;
+  aggregationErrors?: T;
   dmProduct?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -670,6 +688,14 @@ export interface DmProductsSelect<T extends boolean = true> {
   brandName?: T;
   name?: T;
   type?: T;
+  rating?: T;
+  ratingNum?: T;
+  labels?:
+    | T
+    | {
+        label?: T;
+        id?: T;
+      };
   pricing?:
     | T
     | {
@@ -679,22 +705,15 @@ export interface DmProductsSelect<T extends boolean = true> {
         perUnitCurrency?: T;
         unit?: T;
       };
-  rating?: T;
-  ratingNum?: T;
-  labels?:
-    | T
-    | {
-        label?: T;
-        id?: T;
-      };
-  sourceUrl?: T;
-  crawledAt?: T;
   ingredients?:
     | T
     | {
         name?: T;
         id?: T;
       };
+  sourceUrl?: T;
+  crawledAt?: T;
+  error?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -720,6 +739,13 @@ export interface DmDiscoveriesSelect<T extends boolean = true> {
  */
 export interface DmCrawlsSelect<T extends boolean = true> {
   status?: T;
+  type?: T;
+  gtins?:
+    | T
+    | {
+        gtin?: T;
+        id?: T;
+      };
   crawled?: T;
   errors?: T;
   startedAt?: T;

@@ -107,6 +107,29 @@ export const Products: CollectionConfig = {
               },
             },
             {
+              name: 'aggregationStatus',
+              type: 'select',
+              label: 'Aggregation Status',
+              options: [
+                { label: 'Pending', value: 'pending' },
+                { label: 'Success', value: 'success' },
+                { label: 'Ingredient Matching Error', value: 'ingredient_matching_error' },
+                { label: 'Failed', value: 'failed' },
+              ],
+              admin: {
+                readOnly: true,
+              },
+            },
+            {
+              name: 'aggregationErrors',
+              type: 'textarea',
+              label: 'Aggregation Errors',
+              admin: {
+                readOnly: true,
+                condition: (_data, siblingData) => siblingData?.aggregationStatus !== 'success',
+              },
+            },
+            {
               name: 'dmProduct',
               type: 'relationship',
               relationTo: 'dm-products',

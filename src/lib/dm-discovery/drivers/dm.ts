@@ -128,11 +128,28 @@ export const dmDriver: DmDiscoveryDriver = {
         const fullUrl = productUrl.startsWith('http') ? productUrl : `https://www.dm.de${productUrl}`
         await page.goto(fullUrl, { waitUntil: 'domcontentloaded' })
 
+        // Select the correct variant by GTIN if the page has multiple variants
+        try {
+          const variantButton = page.locator(`[data-dmid="variant-picker"] button[data-gtin="${gtin}"], [data-gtin="${gtin}"]`).first()
+          if (await variantButton.isVisible({ timeout: 3000 })) {
+            const isSelected = await variantButton.getAttribute('aria-checked') === 'true'
+              || await variantButton.getAttribute('aria-selected') === 'true'
+              || await variantButton.evaluate((el) => el.classList.contains('selected') || el.classList.contains('active'))
+            if (!isSelected) {
+              console.log(`[DM] Clicking variant for GTIN ${gtin}`)
+              await variantButton.click()
+              await page.waitForTimeout(1000)
+            }
+          }
+        } catch {
+          // No variant picker or single-variant product — proceed normally
+        }
+
         // Wait for the ingredients section to load
         await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
 
         // Extract GTIN and raw ingredients text from product page
-        const pageData = await page.evaluate(() => {
+        const pageData = await page.evaluate((expectedGtin) => {
           let pageGtin: string | null = null
           const gtinEl = document.querySelector('[data-gtin]')
           if (gtinEl) {
@@ -150,14 +167,22 @@ export const dmDriver: DmDiscoveryDriver = {
             }
           }
 
+          if (pageGtin && expectedGtin && pageGtin !== expectedGtin) {
+            console.warn(`[DM] GTIN mismatch: page shows ${pageGtin} but expected ${expectedGtin}`)
+          }
+
           const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
           const rawIngredients = ingredientsEl?.textContent?.trim() || null
 
           return { pageGtin, rawIngredients }
-        })
+        }, gtin)
 
         if (pageData.rawIngredients) {
+          console.log(`[DM] Raw ingredients text for GTIN ${gtin}:`, pageData.rawIngredients)
           ingredients = await parseIngredients(pageData.rawIngredients)
+          console.log(`[DM] Parsed ${ingredients.length} ingredients:`, ingredients)
+        } else {
+          console.log(`[DM] No ingredients found on product page for GTIN ${gtin}`)
         }
 
         if (pageData.pageGtin) {
@@ -239,6 +264,7 @@ export const dmDriver: DmDiscoveryDriver = {
 
       // If we didn't have a productUrl but now have sourceUrl, fetch ingredients
       if (ingredients.length === 0 && productData.sourceUrl) {
+        console.log(`[DM] Fetching ingredients from sourceUrl: ${productData.sourceUrl}`)
         await page.goto(productData.sourceUrl, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
         const rawText = await page.evaluate(() => {
@@ -246,7 +272,11 @@ export const dmDriver: DmDiscoveryDriver = {
           return ingredientsEl?.textContent?.trim() || null
         })
         if (rawText) {
+          console.log(`[DM] Raw ingredients from sourceUrl for GTIN ${gtin}:`, rawText)
           ingredients = await parseIngredients(rawText)
+          console.log(`[DM] Parsed ${ingredients.length} ingredients from sourceUrl:`, ingredients)
+        } else {
+          console.log(`[DM] No ingredients found at sourceUrl for GTIN ${gtin}`)
         }
       }
 

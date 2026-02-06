@@ -47,15 +47,6 @@ export const DmProducts: CollectionConfig = {
               unique: true,
             },
             {
-              name: 'recrawl',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '/components/RecrawlProductButton',
-                },
-              },
-            },
-            {
               name: 'brandName',
               type: 'text',
               label: 'Brand',
@@ -78,6 +69,51 @@ export const DmProducts: CollectionConfig = {
               },
               index: true,
             },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'rating',
+                  type: 'number',
+                  label: 'Rating',
+                  min: 0,
+                  max: 5,
+                  admin: {
+                    description: 'Average rating (0-5)',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'ratingNum',
+                  type: 'number',
+                  label: 'Number of Reviews',
+                  admin: {
+                    description: 'Total number of reviews',
+                    width: '50%',
+                  },
+                },
+              ],
+            },
+            {
+              name: 'labels',
+              type: 'array',
+              label: 'Labels',
+              admin: {
+                description: 'Product labels (e.g., Neu, Limitiert, dm-Marke)',
+              },
+              fields: [
+                {
+                  name: 'label',
+                  type: 'text',
+                  required: true,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Pricing',
+          fields: [
             {
               name: 'pricing',
               type: 'group',
@@ -153,65 +189,6 @@ export const DmProducts: CollectionConfig = {
                 },
               ],
             },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'rating',
-                  type: 'number',
-                  label: 'Rating',
-                  min: 0,
-                  max: 5,
-                  admin: {
-                    description: 'Average rating (0-5)',
-                    width: '50%',
-                  },
-                },
-                {
-                  name: 'ratingNum',
-                  type: 'number',
-                  label: 'Number of Reviews',
-                  admin: {
-                    description: 'Total number of reviews',
-                    width: '50%',
-                  },
-                },
-              ],
-            },
-            {
-              name: 'labels',
-              type: 'array',
-              label: 'Labels',
-              admin: {
-                description: 'Product labels (e.g., Neu, Limitiert, dm-Marke)',
-              },
-              fields: [
-                {
-                  name: 'label',
-                  type: 'text',
-                  required: true,
-                },
-              ],
-            },
-            {
-              name: 'sourceUrl',
-              type: 'text',
-              label: 'Source URL',
-              admin: {
-                description: 'URL from which this product was crawled',
-              },
-            },
-            {
-              name: 'crawledAt',
-              type: 'date',
-              label: 'Crawled At',
-              admin: {
-                description: 'When this product was last crawled',
-                date: {
-                  pickerAppearance: 'dayAndTime',
-                },
-              },
-            },
           ],
         },
         {
@@ -231,6 +208,40 @@ export const DmProducts: CollectionConfig = {
                   required: true,
                 },
               ],
+            },
+          ],
+        },
+        {
+          label: 'Crawling',
+          fields: [
+            {
+              name: 'sourceUrl',
+              type: 'text',
+              label: 'Source URL',
+              admin: {
+                description: 'URL from which this product was crawled',
+              },
+            },
+            {
+              name: 'crawledAt',
+              type: 'date',
+              label: 'Crawled At',
+              admin: {
+                description: 'When this product was last crawled',
+                date: {
+                  pickerAppearance: 'dayAndTime',
+                },
+              },
+            },
+            {
+              name: 'error',
+              type: 'textarea',
+              label: 'Error',
+              admin: {
+                readOnly: true,
+                description: 'Error message from the last crawl attempt',
+                condition: (data) => data?.status === 'failed',
+              },
             },
           ],
         },

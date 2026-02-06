@@ -8,7 +8,7 @@ export const DmCrawls: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'id',
-    defaultColumns: ['id', 'status', 'crawled', 'errors', 'startedAt'],
+    defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
     group: 'Jobs',
   },
   fields: [
@@ -24,11 +24,45 @@ export const DmCrawls: CollectionConfig = {
         { label: 'Failed', value: 'failed' },
       ],
       index: true,
+      admin: {
+        position: 'sidebar',
+      },
     },
-    // Everything below only shows after creation
     {
       type: 'tabs',
       tabs: [
+        {
+          label: 'Configuration',
+          fields: [
+            {
+              name: 'type',
+              type: 'select',
+              label: 'Type',
+              required: true,
+              defaultValue: 'all',
+              options: [
+                { label: 'All Uncrawled', value: 'all' },
+                { label: 'Selected GTINs', value: 'selected_gtins' },
+              ],
+            },
+            {
+              name: 'gtins',
+              type: 'array',
+              label: 'GTINs',
+              admin: {
+                description: 'List of GTINs to crawl',
+                condition: (data) => data?.type === 'selected_gtins',
+              },
+              fields: [
+                {
+                  name: 'gtin',
+                  type: 'text',
+                  required: true,
+                },
+              ],
+            },
+          ],
+        },
         {
           label: 'Progress',
           fields: [
@@ -105,9 +139,6 @@ export const DmCrawls: CollectionConfig = {
           ],
         },
       ],
-      admin: {
-        condition: (data) => !!data?.id,
-      },
     },
   ],
 }

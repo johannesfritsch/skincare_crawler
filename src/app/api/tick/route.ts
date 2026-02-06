@@ -43,6 +43,7 @@ interface ActiveJob {
   type: JobType
   id: number
   status: string
+  crawlType?: string // 'all' | 'selected_gtins' for dm-crawl jobs
 }
 
 // Parse and validate settings from request body
@@ -177,11 +178,13 @@ export const POST = async (request: Request) => {
         type: 'dm-crawl' as const,
         id: d.id,
         status: d.status!,
+        crawlType: d.type || 'all',
       })),
       ...pending.docs.map((d) => ({
         type: 'dm-crawl' as const,
         id: d.id,
         status: d.status!,
+        crawlType: d.type || 'all',
       })),
     )
   }
@@ -193,8 +196,13 @@ export const POST = async (request: Request) => {
     })
   }
 
-  // Randomly select one job to process
-  const selected = activeJobs[Math.floor(Math.random() * activeJobs.length)]
+  // Prioritize selected_gtins dm-crawls, otherwise random
+  const selectedGtinsCrawls = activeJobs.filter(
+    (j) => j.type === 'dm-crawl' && j.crawlType === 'selected_gtins',
+  )
+  const selected = selectedGtinsCrawls.length > 0
+    ? selectedGtinsCrawls[0]
+    : activeJobs[Math.floor(Math.random() * activeJobs.length)]
 
   if (selected.type === 'ingredients-discovery') {
     return processIngredientsDiscovery(payload, selected.id, startTime, settings['ingredients-discovery'])
@@ -576,6 +584,12 @@ async function processDmCrawl(
     })
   }
 
+  // Branch based on crawl type
+  if (crawl.type === 'selected_gtins') {
+    return processDmCrawlSelectedGtins(payload, crawlId, crawl, startTime, settings)
+  }
+
+  // Default: crawl all uncrawled products
   // Find uncrawled DmProducts
   const uncrawledProducts = await payload.find({
     collection: 'dm-products',
@@ -718,6 +732,221 @@ async function processDmCrawl(
     })
   } catch (error) {
     console.error('DM crawl error:', error)
+    await browser.close()
+
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        completedAt: new Date().toISOString(),
+      },
+    })
+
+    return Response.json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+      jobId: crawlId,
+      type: 'dm-crawl',
+    }, { status: 500 })
+  }
+}
+
+async function processDmCrawlSelectedGtins(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  crawlId: number,
+  crawl: { crawled?: number | null; errors?: number | null; status?: string | null; gtins?: Array<{ gtin: string }> | null },
+  startTime: number,
+  settings: DmCrawlSettings,
+) {
+  const itemsPerTick = settings.itemsPerTick ?? 10
+  const maxDurationMs = settings.maxDurationMs
+  const gtinList = (crawl.gtins || []).map((g) => g.gtin)
+
+  console.log(`[DM Crawl] Selected GTINs mode: ${gtinList.length} GTINs`)
+
+  if (gtinList.length === 0) {
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    return Response.json({
+      message: 'Crawl completed - no GTINs specified',
+      jobId: crawlId,
+      type: 'dm-crawl',
+    })
+  }
+
+  // On first tick, reset matching products to uncrawled
+  if (crawl.status === 'in_progress' && (crawl.crawled || 0) === 0 && (crawl.errors || 0) === 0) {
+    await payload.update({
+      collection: 'dm-products',
+      where: { gtin: { in: gtinList.join(',') } },
+      data: { status: 'uncrawled' },
+    })
+  }
+
+  // Find uncrawled products matching our GTINs
+  const uncrawledProducts = await payload.find({
+    collection: 'dm-products',
+    where: {
+      and: [
+        { gtin: { in: gtinList.join(',') } },
+        { status: { equals: 'uncrawled' } },
+      ],
+    },
+    limit: itemsPerTick,
+  })
+
+  if (uncrawledProducts.docs.length === 0) {
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    return Response.json({
+      message: 'Crawl completed - all selected GTINs processed',
+      jobId: crawlId,
+      type: 'dm-crawl',
+      crawled: crawl.crawled || 0,
+      errors: crawl.errors || 0,
+    })
+  }
+
+  const driver = getDmDriver('https://www.dm.de')
+  if (!driver) {
+    await payload.update({
+      collection: 'dm-crawls',
+      id: crawlId,
+      data: {
+        status: 'failed',
+        error: 'No DM driver found',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    return Response.json({
+      error: 'No DM driver found',
+      jobId: crawlId,
+      type: 'dm-crawl',
+    }, { status: 400 })
+  }
+
+  const browser = await launchBrowser()
+  const page = await browser.newPage()
+
+  await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
+  await driver.acceptCookies(page)
+
+  let crawled = (crawl.crawled as number) || 0
+  let errors = (crawl.errors as number) || 0
+  let processedThisTick = 0
+
+  try {
+    for (const product of uncrawledProducts.docs) {
+      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
+        console.log(`[DM Crawl] Selected GTINs: stopping after ${processedThisTick} products (maxDurationMs reached)`)
+        break
+      }
+
+      const productId = await driver.crawlProduct(
+        page,
+        product.gtin!,
+        product.sourceUrl || null,
+        payload,
+      )
+
+      if (productId !== null) {
+        await payload.update({
+          collection: 'dm-products',
+          id: product.id,
+          data: { status: 'crawled' },
+        })
+        crawled++
+      } else {
+        await payload.update({
+          collection: 'dm-products',
+          id: product.id,
+          data: { status: 'failed' },
+        })
+        errors++
+      }
+
+      processedThisTick++
+
+      await payload.update({
+        collection: 'dm-crawls',
+        id: crawlId,
+        data: { crawled, errors },
+      })
+
+      if (processedThisTick < uncrawledProducts.docs.length) {
+        await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
+      }
+    }
+
+    await browser.close()
+
+    // Check if there are remaining uncrawled products in our GTIN list
+    const remaining = await payload.count({
+      collection: 'dm-products',
+      where: {
+        and: [
+          { gtin: { in: gtinList.join(',') } },
+          { status: { equals: 'uncrawled' } },
+        ],
+      },
+    })
+
+    if (remaining.totalDocs === 0) {
+      // Check for GTINs that had no matching DmProduct
+      const allMatching = await payload.count({
+        collection: 'dm-products',
+        where: { gtin: { in: gtinList.join(',') } },
+      })
+      const missingGtins = gtinList.length - allMatching.totalDocs
+      if (missingGtins > 0) {
+        errors += missingGtins
+      }
+
+      await payload.update({
+        collection: 'dm-crawls',
+        id: crawlId,
+        data: {
+          status: 'completed',
+          crawled,
+          errors,
+          completedAt: new Date().toISOString(),
+        },
+      })
+
+      return Response.json({
+        message: 'Crawl completed',
+        jobId: crawlId,
+        type: 'dm-crawl',
+        crawled,
+        errors,
+        missingGtins,
+      })
+    }
+
+    return Response.json({
+      message: 'Tick completed',
+      jobId: crawlId,
+      type: 'dm-crawl',
+      processedThisTick,
+      crawled,
+      errors,
+      remaining: remaining.totalDocs,
+    })
+  } catch (error) {
+    console.error('DM crawl (selected GTINs) error:', error)
     await browser.close()
 
     await payload.update({
