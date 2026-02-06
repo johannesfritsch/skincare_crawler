@@ -154,15 +154,6 @@ export const IngredientsDiscoveries: CollectionConfig = {
           label: 'Details',
           fields: [
             {
-              name: 'error',
-              type: 'textarea',
-              label: 'Error Message',
-              admin: {
-                readOnly: true,
-                condition: (data) => data?.status === 'failed',
-              },
-            },
-            {
               name: 'termQueue',
               type: 'json',
               label: 'Term Queue',
@@ -170,6 +161,17 @@ export const IngredientsDiscoveries: CollectionConfig = {
                 readOnly: true,
                 description: 'Remaining search terms to process',
               },
+            },
+          ],
+        },
+        {
+          label: 'Events',
+          fields: [
+            {
+              name: 'events',
+              type: 'join',
+              collection: 'events',
+              on: 'job',
             },
           ],
         },

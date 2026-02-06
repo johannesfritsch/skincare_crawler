@@ -77,12 +77,23 @@ export interface Config {
     'dm-products': DmProduct;
     'dm-discoveries': DmDiscovery;
     'dm-crawls': DmCrawl;
+    events: Event;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
-  collectionsJoins: {};
+  collectionsJoins: {
+    'ingredients-discoveries': {
+      events: 'events';
+    };
+    'dm-discoveries': {
+      events: 'events';
+    };
+    'dm-crawls': {
+      events: 'events';
+    };
+  };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
@@ -94,6 +105,7 @@ export interface Config {
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'dm-discoveries': DmDiscoveriesSelect<false> | DmDiscoveriesSelect<true>;
     'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
+    events: EventsSelect<false> | EventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -253,7 +265,6 @@ export interface IngredientsDiscovery {
   totalPagesForTerm?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  error?: string | null;
   /**
    * Remaining search terms to process
    */
@@ -266,6 +277,103 @@ export interface IngredientsDiscovery {
     | number
     | boolean
     | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events".
+ */
+export interface Event {
+  id: number;
+  type: 'error' | 'warning' | 'info';
+  message: string;
+  job?:
+    | ({
+        relationTo: 'dm-discoveries';
+        value: number | DmDiscovery;
+      } | null)
+    | ({
+        relationTo: 'dm-crawls';
+        value: number | DmCrawl;
+      } | null)
+    | ({
+        relationTo: 'ingredients-discoveries';
+        value: number | IngredientsDiscovery;
+      } | null);
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-discoveries".
+ */
+export interface DmDiscovery {
+  id: number;
+  /**
+   * The dm.de category URL to discover products from
+   */
+  sourceUrl: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Products found on the page
+   */
+  discovered?: number | null;
+  /**
+   * New products created
+   */
+  created?: number | null;
+  /**
+   * Products already in database
+   */
+  existing?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "dm-crawls".
+ */
+export interface DmCrawl {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  type: 'all' | 'selected_gtins';
+  /**
+   * List of GTINs to crawl
+   */
+  gtins?:
+    | {
+        gtin: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Products successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Products that failed to crawl
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -379,70 +487,6 @@ export interface DmProduct {
    * When this product was last crawled
    */
   crawledAt?: string | null;
-  /**
-   * Error message from the last crawl attempt
-   */
-  error?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-discoveries".
- */
-export interface DmDiscovery {
-  id: number;
-  /**
-   * The dm.de category URL to discover products from
-   */
-  sourceUrl: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Products found on the page
-   */
-  discovered?: number | null;
-  /**
-   * New products created
-   */
-  created?: number | null;
-  /**
-   * Products already in database
-   */
-  existing?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  error?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-crawls".
- */
-export interface DmCrawl {
-  id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  type: 'all' | 'selected_gtins';
-  /**
-   * List of GTINs to crawl
-   */
-  gtins?:
-    | {
-        gtin: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Products successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Products that failed to crawl
-   */
-  errors?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  error?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -509,6 +553,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'dm-crawls';
         value: number | DmCrawl;
+      } | null)
+    | ({
+        relationTo: 'events';
+        value: number | Event;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -654,8 +702,8 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   totalPagesForTerm?: T;
   startedAt?: T;
   completedAt?: T;
-  error?: T;
   termQueue?: T;
+  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -713,7 +761,6 @@ export interface DmProductsSelect<T extends boolean = true> {
       };
   sourceUrl?: T;
   crawledAt?: T;
-  error?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -729,7 +776,7 @@ export interface DmDiscoveriesSelect<T extends boolean = true> {
   existing?: T;
   startedAt?: T;
   completedAt?: T;
-  error?: T;
+  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -750,7 +797,18 @@ export interface DmCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
-  error?: T;
+  events?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events_select".
+ */
+export interface EventsSelect<T extends boolean = true> {
+  type?: T;
+  message?: T;
+  job?: T;
   updatedAt?: T;
   createdAt?: T;
 }

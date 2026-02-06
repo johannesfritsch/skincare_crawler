@@ -185,12 +185,7 @@ export const dmDriver: DmDiscoveryDriver = {
           console.log(`[DM] No ingredients found on product page for GTIN ${gtin}`)
         }
 
-        if (pageData.pageGtin) {
-          searchUrl = `https://www.dm.de/search?query=${pageData.pageGtin}`
-          gtin = pageData.pageGtin
-        } else {
-          searchUrl = `https://www.dm.de/search?query=${gtin}`
-        }
+        searchUrl = `https://www.dm.de/search?query=${gtin}`
       } else {
         searchUrl = `https://www.dm.de/search?query=${gtin}`
       }
@@ -281,7 +276,7 @@ export const dmDriver: DmDiscoveryDriver = {
       }
 
       // Update existing product with crawled data
-      const finalGtin = productData.gtin || gtin
+      const finalGtin = gtin
       const existing = await payload.find({
         collection: 'dm-products',
         where: { gtin: { equals: finalGtin } },

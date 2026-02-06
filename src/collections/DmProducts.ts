@@ -233,16 +233,6 @@ export const DmProducts: CollectionConfig = {
                 },
               },
             },
-            {
-              name: 'error',
-              type: 'textarea',
-              label: 'Error',
-              admin: {
-                readOnly: true,
-                description: 'Error message from the last crawl attempt',
-                condition: (data) => data?.status === 'failed',
-              },
-            },
           ],
         },
       ],

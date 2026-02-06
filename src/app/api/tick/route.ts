@@ -83,6 +83,22 @@ function parseSettings(body: Record<string, unknown>): {
   return { enabledTypes, settings }
 }
 
+async function createErrorEvent(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  jobCollection: 'dm-discoveries' | 'dm-crawls' | 'ingredients-discoveries',
+  jobId: number,
+  message: string,
+) {
+  try {
+    await payload.create({
+      collection: 'events',
+      data: { type: 'error', message, job: { relationTo: jobCollection, value: jobId } },
+    })
+  } catch (e) {
+    console.error('Failed to create error event:', e)
+  }
+}
+
 export const POST = async (request: Request) => {
   const startTime = Date.now()
   const payload = await getPayload({ config: configPromise })
@@ -231,17 +247,18 @@ async function processIngredientsDiscovery(
 
   const driver = getIngredientsDriver(discovery.sourceUrl)
   if (!driver) {
+    const errorMsg = `No driver found for URL: ${discovery.sourceUrl}`
     await payload.update({
       collection: 'ingredients-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
-        error: `No driver found for URL: ${discovery.sourceUrl}`,
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'ingredients-discoveries', discoveryId, errorMsg)
     return Response.json({
-      error: `No driver found for URL: ${discovery.sourceUrl}`,
+      error: errorMsg,
       jobId: discoveryId,
       type: 'ingredients-discovery',
     }, { status: 400 })
@@ -402,18 +419,19 @@ async function processIngredientsDiscovery(
   } catch (error) {
     console.error('Ingredients discovery error:', error)
 
+    const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
       collection: 'ingredients-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'ingredients-discoveries', discoveryId, errorMsg)
 
     return Response.json({
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMsg,
       jobId: discoveryId,
       type: 'ingredients-discovery',
     }, { status: 500 })
@@ -432,17 +450,18 @@ async function processDmDiscovery(
 
   const driver = getDmDriver(discovery.sourceUrl)
   if (!driver) {
+    const errorMsg = `No driver found for URL: ${discovery.sourceUrl}`
     await payload.update({
       collection: 'dm-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
-        error: `No driver found for URL: ${discovery.sourceUrl}`,
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'dm-discoveries', discoveryId, errorMsg)
     return Response.json({
-      error: `No driver found for URL: ${discovery.sourceUrl}`,
+      error: errorMsg,
       jobId: discoveryId,
       type: 'dm-discovery',
     }, { status: 400 })
@@ -535,18 +554,19 @@ async function processDmDiscovery(
     console.error('DM discovery error:', error)
     await browser.close()
 
+    const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
       collection: 'dm-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'dm-discoveries', discoveryId, errorMsg)
 
     return Response.json({
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMsg,
       jobId: discoveryId,
       type: 'dm-discovery',
     }, { status: 500 })
@@ -625,10 +645,10 @@ async function processDmCrawl(
       id: crawlId,
       data: {
         status: 'failed',
-        error: 'No DM driver found',
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'dm-crawls', crawlId, 'No DM driver found')
     return Response.json({
       error: 'No DM driver found',
       jobId: crawlId,
@@ -734,18 +754,19 @@ async function processDmCrawl(
     console.error('DM crawl error:', error)
     await browser.close()
 
+    const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
       collection: 'dm-crawls',
       id: crawlId,
       data: {
         status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'dm-crawls', crawlId, errorMsg)
 
     return Response.json({
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMsg,
       jobId: crawlId,
       type: 'dm-crawl',
     }, { status: 500 })
@@ -827,10 +848,10 @@ async function processDmCrawlSelectedGtins(
       id: crawlId,
       data: {
         status: 'failed',
-        error: 'No DM driver found',
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'dm-crawls', crawlId, 'No DM driver found')
     return Response.json({
       error: 'No DM driver found',
       jobId: crawlId,
@@ -949,18 +970,19 @@ async function processDmCrawlSelectedGtins(
     console.error('DM crawl (selected GTINs) error:', error)
     await browser.close()
 
+    const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
       collection: 'dm-crawls',
       id: crawlId,
       data: {
         status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
         completedAt: new Date().toISOString(),
       },
     })
+    await createErrorEvent(payload, 'dm-crawls', crawlId, errorMsg)
 
     return Response.json({
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMsg,
       jobId: crawlId,
       type: 'dm-crawl',
     }, { status: 500 })

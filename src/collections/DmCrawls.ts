@@ -125,16 +125,13 @@ export const DmCrawls: CollectionConfig = {
           ],
         },
         {
-          label: 'Details',
+          label: 'Events',
           fields: [
             {
-              name: 'error',
-              type: 'textarea',
-              label: 'Error Message',
-              admin: {
-                readOnly: true,
-                condition: (data) => data?.status === 'failed',
-              },
+              name: 'events',
+              type: 'join',
+              collection: 'events',
+              on: 'job',
             },
           ],
         },
