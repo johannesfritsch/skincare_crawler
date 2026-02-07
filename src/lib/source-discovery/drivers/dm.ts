@@ -1,13 +1,13 @@
 import type { Payload } from 'payload'
 import type { Page } from 'playwright-core'
-import type { DmDiscoveryDriver, DiscoveredProduct } from '../types'
+import type { SourceDriver, DiscoveredProduct } from '../types'
 import { parseIngredients } from '@/lib/parse-ingredients'
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
-export const dmDriver: DmDiscoveryDriver = {
+export const dmDriver: SourceDriver = {
   matches(url: string): boolean {
     try {
       const hostname = new URL(url).hostname.toLowerCase()

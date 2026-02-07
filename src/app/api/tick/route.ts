@@ -1,15 +1,15 @@
 import { getPayload } from 'payload'
 import configPromise from '@payload-config'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
-import { getDmDriver } from '@/lib/dm-discovery/driver'
+import { getSourceDriver } from '@/lib/source-discovery/driver'
 import { launchBrowser } from '@/lib/browser'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 // Job types
-type JobType = 'ingredients-discovery' | 'dm-discovery' | 'dm-crawl'
-const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'dm-discovery', 'dm-crawl']
+type JobType = 'ingredients-discovery' | 'source-discovery' | 'source-crawl'
+const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'source-discovery', 'source-crawl']
 
 // Settings interfaces for each job type
 interface IngredientsDiscoverySettings {
@@ -17,33 +17,33 @@ interface IngredientsDiscoverySettings {
   maxDurationMs?: number // Optional: limit execution time (for serverless)
 }
 
-interface DmDiscoverySettings {
+interface SourceDiscoverySettings {
   maxDurationMs?: number // Optional: limit execution time (for serverless)
 }
 
-interface DmCrawlSettings {
+interface SourceCrawlSettings {
   itemsPerTick?: number   // Default: 10
   maxDurationMs?: number  // Optional: limit execution time (for serverless)
 }
 
 type JobSettings = {
   'ingredients-discovery': IngredientsDiscoverySettings
-  'dm-discovery': DmDiscoverySettings
-  'dm-crawl': DmCrawlSettings
+  'source-discovery': SourceDiscoverySettings
+  'source-crawl': SourceCrawlSettings
 }
 
 // Default settings
 const DEFAULT_SETTINGS: JobSettings = {
   'ingredients-discovery': {},
-  'dm-discovery': {},
-  'dm-crawl': { itemsPerTick: 10 },
+  'source-discovery': {},
+  'source-crawl': { itemsPerTick: 10 },
 }
 
 interface ActiveJob {
   type: JobType
   id: number
   status: string
-  crawlType?: string // 'all' | 'selected_gtins' for dm-crawl jobs
+  crawlType?: string // 'all' | 'selected_gtins' for source-crawl jobs
 }
 
 // Parse and validate settings from request body
@@ -85,7 +85,7 @@ function parseSettings(body: Record<string, unknown>): {
 
 async function createErrorEvent(
   payload: Awaited<ReturnType<typeof getPayload>>,
-  jobCollection: 'dm-discoveries' | 'dm-crawls' | 'ingredients-discoveries',
+  jobCollection: 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries',
   jobId: number,
   message: string,
 ) {
@@ -147,15 +147,15 @@ export const POST = async (request: Request) => {
     )
   }
 
-  if (enabledTypes.includes('dm-discovery')) {
+  if (enabledTypes.includes('source-discovery')) {
     const [inProgress, pending] = await Promise.all([
       payload.find({
-        collection: 'dm-discoveries',
+        collection: 'source-discoveries',
         where: { status: { equals: 'in_progress' } },
         limit: 10,
       }),
       payload.find({
-        collection: 'dm-discoveries',
+        collection: 'source-discoveries',
         where: { status: { equals: 'pending' } },
         limit: 10,
         sort: 'createdAt',
@@ -163,27 +163,27 @@ export const POST = async (request: Request) => {
     ])
     activeJobs.push(
       ...inProgress.docs.map((d) => ({
-        type: 'dm-discovery' as const,
+        type: 'source-discovery' as const,
         id: d.id,
         status: d.status!,
       })),
       ...pending.docs.map((d) => ({
-        type: 'dm-discovery' as const,
+        type: 'source-discovery' as const,
         id: d.id,
         status: d.status!,
       })),
     )
   }
 
-  if (enabledTypes.includes('dm-crawl')) {
+  if (enabledTypes.includes('source-crawl')) {
     const [inProgress, pending] = await Promise.all([
       payload.find({
-        collection: 'dm-crawls',
+        collection: 'source-crawls',
         where: { status: { equals: 'in_progress' } },
         limit: 10,
       }),
       payload.find({
-        collection: 'dm-crawls',
+        collection: 'source-crawls',
         where: { status: { equals: 'pending' } },
         limit: 10,
         sort: 'createdAt',
@@ -191,13 +191,13 @@ export const POST = async (request: Request) => {
     ])
     activeJobs.push(
       ...inProgress.docs.map((d) => ({
-        type: 'dm-crawl' as const,
+        type: 'source-crawl' as const,
         id: d.id,
         status: d.status!,
         crawlType: d.type || 'all',
       })),
       ...pending.docs.map((d) => ({
-        type: 'dm-crawl' as const,
+        type: 'source-crawl' as const,
         id: d.id,
         status: d.status!,
         crawlType: d.type || 'all',
@@ -212,9 +212,9 @@ export const POST = async (request: Request) => {
     })
   }
 
-  // Prioritize selected_gtins dm-crawls, otherwise random
+  // Prioritize selected_gtins source-crawls, otherwise random
   const selectedGtinsCrawls = activeJobs.filter(
-    (j) => j.type === 'dm-crawl' && j.crawlType === 'selected_gtins',
+    (j) => j.type === 'source-crawl' && j.crawlType === 'selected_gtins',
   )
   const selected = selectedGtinsCrawls.length > 0
     ? selectedGtinsCrawls[0]
@@ -222,10 +222,10 @@ export const POST = async (request: Request) => {
 
   if (selected.type === 'ingredients-discovery') {
     return processIngredientsDiscovery(payload, selected.id, startTime, settings['ingredients-discovery'])
-  } else if (selected.type === 'dm-discovery') {
-    return processDmDiscovery(payload, selected.id, settings['dm-discovery'])
+  } else if (selected.type === 'source-discovery') {
+    return processSourceDiscovery(payload, selected.id, settings['source-discovery'])
   } else {
-    return processDmCrawl(payload, selected.id, startTime, settings['dm-crawl'])
+    return processSourceCrawl(payload, selected.id, startTime, settings['source-crawl'])
   }
 }
 
@@ -438,38 +438,38 @@ async function processIngredientsDiscovery(
   }
 }
 
-async function processDmDiscovery(
+async function processSourceDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
-  _settings: DmDiscoverySettings,
+  _settings: SourceDiscoverySettings,
 ) {
   const discovery = await payload.findByID({
-    collection: 'dm-discoveries',
+    collection: 'source-discoveries',
     id: discoveryId,
   })
 
-  const driver = getDmDriver(discovery.sourceUrl)
+  const driver = getSourceDriver(discovery.sourceUrl)
   if (!driver) {
     const errorMsg = `No driver found for URL: ${discovery.sourceUrl}`
     await payload.update({
-      collection: 'dm-discoveries',
+      collection: 'source-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'dm-discoveries', discoveryId, errorMsg)
+    await createErrorEvent(payload, 'source-discoveries', discoveryId, errorMsg)
     return Response.json({
       error: errorMsg,
       jobId: discoveryId,
-      type: 'dm-discovery',
+      type: 'source-discovery',
     }, { status: 400 })
   }
 
   // Mark as in_progress
   await payload.update({
-    collection: 'dm-discoveries',
+    collection: 'source-discoveries',
     id: discoveryId,
     data: {
       status: 'in_progress',
@@ -487,7 +487,7 @@ async function processDmDiscovery(
 
     // Update discovered count immediately
     await payload.update({
-      collection: 'dm-discoveries',
+      collection: 'source-discoveries',
       id: discoveryId,
       data: {
         discovered: products.length,
@@ -523,7 +523,7 @@ async function processDmDiscovery(
 
       // Update stats after each product
       await payload.update({
-        collection: 'dm-discoveries',
+        collection: 'source-discoveries',
         id: discoveryId,
         data: {
           created,
@@ -534,7 +534,7 @@ async function processDmDiscovery(
 
     // Mark as completed
     await payload.update({
-      collection: 'dm-discoveries',
+      collection: 'source-discoveries',
       id: discoveryId,
       data: {
         status: 'completed',
@@ -545,53 +545,53 @@ async function processDmDiscovery(
     return Response.json({
       message: 'Discovery completed',
       jobId: discoveryId,
-      type: 'dm-discovery',
+      type: 'source-discovery',
       discovered: products.length,
       created,
       existing,
     })
   } catch (error) {
-    console.error('DM discovery error:', error)
+    console.error('Source discovery error:', error)
     await browser.close()
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
-      collection: 'dm-discoveries',
+      collection: 'source-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'dm-discoveries', discoveryId, errorMsg)
+    await createErrorEvent(payload, 'source-discoveries', discoveryId, errorMsg)
 
     return Response.json({
       error: errorMsg,
       jobId: discoveryId,
-      type: 'dm-discovery',
+      type: 'source-discovery',
     }, { status: 500 })
   }
 }
 
-async function processDmCrawl(
+async function processSourceCrawl(
   payload: Awaited<ReturnType<typeof getPayload>>,
   crawlId: number,
   startTime: number,
-  settings: DmCrawlSettings,
+  settings: SourceCrawlSettings,
 ) {
   const itemsPerTick = settings.itemsPerTick ?? 10
   const maxDurationMs = settings.maxDurationMs // undefined = no limit
-  console.log(`[DM Crawl] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
+  console.log(`[Source Crawl] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
 
   let crawl = await payload.findByID({
-    collection: 'dm-crawls',
+    collection: 'source-crawls',
     id: crawlId,
   })
 
   // Initialize if pending
   if (crawl.status === 'pending') {
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'in_progress',
@@ -599,14 +599,14 @@ async function processDmCrawl(
       },
     })
     crawl = await payload.findByID({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
     })
   }
 
   // Branch based on crawl type
   if (crawl.type === 'selected_gtins') {
-    return processDmCrawlSelectedGtins(payload, crawlId, crawl, startTime, settings)
+    return processSourceCrawlSelectedGtins(payload, crawlId, crawl, startTime, settings)
   }
 
   // Default: crawl all uncrawled products
@@ -616,12 +616,12 @@ async function processDmCrawl(
     where: { status: { equals: 'uncrawled' } },
     limit: itemsPerTick,
   })
-  console.log(`[DM Crawl] Found ${uncrawledProducts.docs.length} uncrawled products (limit: ${itemsPerTick})`)
+  console.log(`[Source Crawl] Found ${uncrawledProducts.docs.length} uncrawled products (limit: ${itemsPerTick})`)
 
   if (uncrawledProducts.docs.length === 0) {
     // No more products to crawl
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'completed',
@@ -632,27 +632,27 @@ async function processDmCrawl(
     return Response.json({
       message: 'Crawl completed - no uncrawled products',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
       crawled: crawl.crawled || 0,
       errors: crawl.errors || 0,
     })
   }
 
-  const driver = getDmDriver('https://www.dm.de')
+  const driver = getSourceDriver('https://www.dm.de')
   if (!driver) {
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'dm-crawls', crawlId, 'No DM driver found')
+    await createErrorEvent(payload, 'source-crawls', crawlId, 'No DM driver found')
     return Response.json({
       error: 'No DM driver found',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
     }, { status: 400 })
   }
 
@@ -670,7 +670,7 @@ async function processDmCrawl(
   try {
     for (const product of uncrawledProducts.docs) {
       if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-        console.log(`[DM Crawl] Stopping: maxDurationMs (${maxDurationMs}ms) reached after ${processedThisTick} products`)
+        console.log(`[Source Crawl] Stopping: maxDurationMs (${maxDurationMs}ms) reached after ${processedThisTick} products`)
         break
       }
 
@@ -703,7 +703,7 @@ async function processDmCrawl(
 
       // Update crawl progress
       await payload.update({
-        collection: 'dm-crawls',
+        collection: 'source-crawls',
         id: crawlId,
         data: { crawled, errors },
       })
@@ -724,7 +724,7 @@ async function processDmCrawl(
 
     if (remaining.totalDocs === 0) {
       await payload.update({
-        collection: 'dm-crawls',
+        collection: 'source-crawls',
         id: crawlId,
         data: {
           status: 'completed',
@@ -735,7 +735,7 @@ async function processDmCrawl(
       return Response.json({
         message: 'Crawl completed',
         jobId: crawlId,
-        type: 'dm-crawl',
+        type: 'source-crawl',
         crawled,
         errors,
       })
@@ -744,51 +744,51 @@ async function processDmCrawl(
     return Response.json({
       message: 'Tick completed',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
       processedThisTick,
       crawled,
       errors,
       remaining: remaining.totalDocs,
     })
   } catch (error) {
-    console.error('DM crawl error:', error)
+    console.error('Source crawl error:', error)
     await browser.close()
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'dm-crawls', crawlId, errorMsg)
+    await createErrorEvent(payload, 'source-crawls', crawlId, errorMsg)
 
     return Response.json({
       error: errorMsg,
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
     }, { status: 500 })
   }
 }
 
-async function processDmCrawlSelectedGtins(
+async function processSourceCrawlSelectedGtins(
   payload: Awaited<ReturnType<typeof getPayload>>,
   crawlId: number,
   crawl: { crawled?: number | null; errors?: number | null; status?: string | null; gtins?: Array<{ gtin: string }> | null },
   startTime: number,
-  settings: DmCrawlSettings,
+  settings: SourceCrawlSettings,
 ) {
   const itemsPerTick = settings.itemsPerTick ?? 10
   const maxDurationMs = settings.maxDurationMs
   const gtinList = (crawl.gtins || []).map((g) => g.gtin)
 
-  console.log(`[DM Crawl] Selected GTINs mode: ${gtinList.length} GTINs`)
+  console.log(`[Source Crawl] Selected GTINs mode: ${gtinList.length} GTINs`)
 
   if (gtinList.length === 0) {
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'completed',
@@ -798,7 +798,7 @@ async function processDmCrawlSelectedGtins(
     return Response.json({
       message: 'Crawl completed - no GTINs specified',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
     })
   }
 
@@ -825,7 +825,7 @@ async function processDmCrawlSelectedGtins(
 
   if (uncrawledProducts.docs.length === 0) {
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'completed',
@@ -835,27 +835,27 @@ async function processDmCrawlSelectedGtins(
     return Response.json({
       message: 'Crawl completed - all selected GTINs processed',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
       crawled: crawl.crawled || 0,
       errors: crawl.errors || 0,
     })
   }
 
-  const driver = getDmDriver('https://www.dm.de')
+  const driver = getSourceDriver('https://www.dm.de')
   if (!driver) {
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'dm-crawls', crawlId, 'No DM driver found')
+    await createErrorEvent(payload, 'source-crawls', crawlId, 'No DM driver found')
     return Response.json({
       error: 'No DM driver found',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
     }, { status: 400 })
   }
 
@@ -872,7 +872,7 @@ async function processDmCrawlSelectedGtins(
   try {
     for (const product of uncrawledProducts.docs) {
       if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-        console.log(`[DM Crawl] Selected GTINs: stopping after ${processedThisTick} products (maxDurationMs reached)`)
+        console.log(`[Source Crawl] Selected GTINs: stopping after ${processedThisTick} products (maxDurationMs reached)`)
         break
       }
 
@@ -902,7 +902,7 @@ async function processDmCrawlSelectedGtins(
       processedThisTick++
 
       await payload.update({
-        collection: 'dm-crawls',
+        collection: 'source-crawls',
         id: crawlId,
         data: { crawled, errors },
       })
@@ -937,7 +937,7 @@ async function processDmCrawlSelectedGtins(
       }
 
       await payload.update({
-        collection: 'dm-crawls',
+        collection: 'source-crawls',
         id: crawlId,
         data: {
           status: 'completed',
@@ -950,7 +950,7 @@ async function processDmCrawlSelectedGtins(
       return Response.json({
         message: 'Crawl completed',
         jobId: crawlId,
-        type: 'dm-crawl',
+        type: 'source-crawl',
         crawled,
         errors,
         missingGtins,
@@ -960,31 +960,31 @@ async function processDmCrawlSelectedGtins(
     return Response.json({
       message: 'Tick completed',
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
       processedThisTick,
       crawled,
       errors,
       remaining: remaining.totalDocs,
     })
   } catch (error) {
-    console.error('DM crawl (selected GTINs) error:', error)
+    console.error('Source crawl (selected GTINs) error:', error)
     await browser.close()
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
-      collection: 'dm-crawls',
+      collection: 'source-crawls',
       id: crawlId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'dm-crawls', crawlId, errorMsg)
+    await createErrorEvent(payload, 'source-crawls', crawlId, errorMsg)
 
     return Response.json({
       error: errorMsg,
       jobId: crawlId,
-      type: 'dm-crawl',
+      type: 'source-crawl',
     }, { status: 500 })
   }
 }
@@ -1018,9 +1018,9 @@ export const GET = async () => {
           },
         },
       },
-      'dm-discovery': {
-        collection: 'dm-discoveries',
-        description: 'Discovers products from dm.de category pages, creates DmProducts with status "uncrawled"',
+      'source-discovery': {
+        collection: 'source-discoveries',
+        description: 'Discovers products from category pages, creates DmProducts with status "uncrawled"',
         settings: {
           maxDurationMs: {
             type: 'number',
@@ -1029,8 +1029,8 @@ export const GET = async () => {
           },
         },
       },
-      'dm-crawl': {
-        collection: 'dm-crawls',
+      'source-crawl': {
+        collection: 'source-crawls',
         description: 'Crawls uncrawled DmProducts, adds full details (price, ingredients, etc.)',
         settings: {
           itemsPerTick: {
@@ -1052,18 +1052,18 @@ export const GET = async () => {
         body: {},
       },
       {
-        description: 'Process only dm-discovery',
+        description: 'Process only source-discovery',
         body: {
           types: {
-            'dm-discovery': {},
+            'source-discovery': {},
           },
         },
       },
       {
-        description: 'Process only dm-crawl with custom items per tick',
+        description: 'Process only source-crawl with custom items per tick',
         body: {
           types: {
-            'dm-crawl': { itemsPerTick: 20 },
+            'source-crawl': { itemsPerTick: 20 },
           },
         },
       },
@@ -1071,8 +1071,8 @@ export const GET = async () => {
         description: 'Process multiple types with mixed settings',
         body: {
           types: {
-            'dm-discovery': {},
-            'dm-crawl': { itemsPerTick: 5 },
+            'source-discovery': {},
+            'source-crawl': { itemsPerTick: 5 },
           },
         },
       },

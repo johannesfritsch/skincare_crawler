@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const DmCrawls: CollectionConfig = {
-  slug: 'dm-crawls',
+export const SourceCrawls: CollectionConfig = {
+  slug: 'source-crawls',
   labels: {
-    singular: 'DM Crawl',
-    plural: 'DM Crawls',
+    singular: 'Source Crawl',
+    plural: 'Source Crawls',
   },
   admin: {
     useAsTitle: 'id',

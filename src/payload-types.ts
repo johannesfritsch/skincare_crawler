@@ -75,8 +75,8 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscovery;
     products: Product;
     'dm-products': DmProduct;
-    'dm-discoveries': DmDiscovery;
-    'dm-crawls': DmCrawl;
+    'source-discoveries': SourceDiscovery;
+    'source-crawls': SourceCrawl;
     events: Event;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
@@ -87,10 +87,10 @@ export interface Config {
     'ingredients-discoveries': {
       events: 'events';
     };
-    'dm-discoveries': {
+    'source-discoveries': {
       events: 'events';
     };
-    'dm-crawls': {
+    'source-crawls': {
       events: 'events';
     };
   };
@@ -103,8 +103,8 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
-    'dm-discoveries': DmDiscoveriesSelect<false> | DmDiscoveriesSelect<true>;
-    'dm-crawls': DmCrawlsSelect<false> | DmCrawlsSelect<true>;
+    'source-discoveries': SourceDiscoveriesSelect<false> | SourceDiscoveriesSelect<true>;
+    'source-crawls': SourceCrawlsSelect<false> | SourceCrawlsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -295,12 +295,12 @@ export interface Event {
   message: string;
   job?:
     | ({
-        relationTo: 'dm-discoveries';
-        value: number | DmDiscovery;
+        relationTo: 'source-discoveries';
+        value: number | SourceDiscovery;
       } | null)
     | ({
-        relationTo: 'dm-crawls';
-        value: number | DmCrawl;
+        relationTo: 'source-crawls';
+        value: number | SourceCrawl;
       } | null)
     | ({
         relationTo: 'ingredients-discoveries';
@@ -311,12 +311,12 @@ export interface Event {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-discoveries".
+ * via the `definition` "source-discoveries".
  */
-export interface DmDiscovery {
+export interface SourceDiscovery {
   id: number;
   /**
-   * The dm.de category URL to discover products from
+   * The category URL to discover products from
    */
   sourceUrl: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
@@ -344,9 +344,9 @@ export interface DmDiscovery {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-crawls".
+ * via the `definition` "source-crawls".
  */
-export interface DmCrawl {
+export interface SourceCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   type: 'all' | 'selected_gtins';
@@ -547,12 +547,12 @@ export interface PayloadLockedDocument {
         value: number | DmProduct;
       } | null)
     | ({
-        relationTo: 'dm-discoveries';
-        value: number | DmDiscovery;
+        relationTo: 'source-discoveries';
+        value: number | SourceDiscovery;
       } | null)
     | ({
-        relationTo: 'dm-crawls';
-        value: number | DmCrawl;
+        relationTo: 'source-crawls';
+        value: number | SourceCrawl;
       } | null)
     | ({
         relationTo: 'events';
@@ -766,9 +766,9 @@ export interface DmProductsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-discoveries_select".
+ * via the `definition` "source-discoveries_select".
  */
-export interface DmDiscoveriesSelect<T extends boolean = true> {
+export interface SourceDiscoveriesSelect<T extends boolean = true> {
   sourceUrl?: T;
   status?: T;
   discovered?: T;
@@ -782,9 +782,9 @@ export interface DmDiscoveriesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-crawls_select".
+ * via the `definition` "source-crawls_select".
  */
-export interface DmCrawlsSelect<T extends boolean = true> {
+export interface SourceCrawlsSelect<T extends boolean = true> {
   status?: T;
   type?: T;
   gtins?:

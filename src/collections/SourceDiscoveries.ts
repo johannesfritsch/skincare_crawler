@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const DmDiscoveries: CollectionConfig = {
-  slug: 'dm-discoveries',
+export const SourceDiscoveries: CollectionConfig = {
+  slug: 'source-discoveries',
   labels: {
-    singular: 'DM Discovery',
-    plural: 'DM Discoveries',
+    singular: 'Source Discovery',
+    plural: 'Source Discoveries',
   },
   admin: {
     useAsTitle: 'sourceUrl',
@@ -19,7 +19,7 @@ export const DmDiscoveries: CollectionConfig = {
       label: 'Source URL',
       required: true,
       admin: {
-        description: 'The dm.de category URL to discover products from',
+        description: 'The category URL to discover products from',
       },
     },
     {

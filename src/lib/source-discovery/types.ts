@@ -12,7 +12,7 @@ export interface DiscoveredProduct {
   productUrl: string | null
 }
 
-export interface DmDiscoveryDriver {
+export interface SourceDriver {
   // Check if this driver handles the given URL
   matches(url: string): boolean
 

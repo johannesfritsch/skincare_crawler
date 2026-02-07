@@ -13,8 +13,8 @@ import { Ingredients } from './collections/Ingredients'
 import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
 import { DmProducts } from './collections/DmProducts'
-import { DmDiscoveries } from './collections/DmDiscoveries'
-import { DmCrawls } from './collections/DmCrawls'
+import { SourceDiscoveries } from './collections/SourceDiscoveries'
+import { SourceCrawls } from './collections/SourceCrawls'
 import { Events } from './collections/Events'
 
 const filename = fileURLToPath(import.meta.url)
@@ -27,7 +27,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, DmProducts, DmDiscoveries, DmCrawls, Events],
+  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, DmProducts, SourceDiscoveries, SourceCrawls, Events],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
