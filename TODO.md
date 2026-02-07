@@ -1,0 +1,1 @@
+- Marked as read flag for events with a button in the list view to mark as read
