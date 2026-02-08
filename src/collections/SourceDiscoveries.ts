@@ -34,6 +34,9 @@ export const SourceDiscoveries: CollectionConfig = {
         { label: 'Failed', value: 'failed' },
       ],
       index: true,
+      admin: {
+        position: 'sidebar',
+      },
     },
     // Everything below only shows after creation
     {
