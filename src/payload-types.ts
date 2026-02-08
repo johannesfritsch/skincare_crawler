@@ -77,6 +77,7 @@ export interface Config {
     'dm-products': DmProduct;
     'source-discoveries': SourceDiscovery;
     'source-crawls': SourceCrawl;
+    'product-aggregations': ProductAggregation;
     events: Event;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
@@ -93,6 +94,9 @@ export interface Config {
     'source-crawls': {
       events: 'events';
     };
+    'product-aggregations': {
+      events: 'events';
+    };
   };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
@@ -105,6 +109,7 @@ export interface Config {
     'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
     'source-discoveries': SourceDiscoveriesSelect<false> | SourceDiscoveriesSelect<true>;
     'source-crawls': SourceCrawlsSelect<false> | SourceCrawlsSelect<true>;
+    'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -305,6 +310,10 @@ export interface Event {
     | ({
         relationTo: 'ingredients-discoveries';
         value: number | IngredientsDiscovery;
+      } | null)
+    | ({
+        relationTo: 'product-aggregations';
+        value: number | ProductAggregation;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -374,6 +383,42 @@ export interface SourceCrawl {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-aggregations".
+ */
+export interface ProductAggregation {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  type: 'all' | 'selected_gtins';
+  /**
+   * List of GTINs to aggregate
+   */
+  gtins?:
+    | {
+        gtin: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Products successfully aggregated
+   */
+  aggregated?: number | null;
+  /**
+   * Products that failed to aggregate
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  lastCheckedSourceId?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -553,6 +598,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'source-crawls';
         value: number | SourceCrawl;
+      } | null)
+    | ({
+        relationTo: 'product-aggregations';
+        value: number | ProductAggregation;
       } | null)
     | ({
         relationTo: 'events';
@@ -798,6 +847,28 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   events?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-aggregations_select".
+ */
+export interface ProductAggregationsSelect<T extends boolean = true> {
+  status?: T;
+  type?: T;
+  gtins?:
+    | T
+    | {
+        gtin?: T;
+        id?: T;
+      };
+  aggregated?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
+  events?: T;
+  lastCheckedSourceId?: T;
   updatedAt?: T;
   createdAt?: T;
 }

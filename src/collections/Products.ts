@@ -87,15 +87,6 @@ export const Products: CollectionConfig = {
           label: 'Sources',
           fields: [
             {
-              name: 'autoFill',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '/components/AutoFillFromSourcesButton',
-                },
-              },
-            },
-            {
               name: 'lastAggregatedAt',
               type: 'date',
               label: 'Last Aggregated At',

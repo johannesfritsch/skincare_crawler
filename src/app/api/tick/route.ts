@@ -3,13 +3,14 @@ import configPromise from '@payload-config'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getSourceDriver } from '@/lib/source-discovery/driver'
 import { launchBrowser } from '@/lib/browser'
+import { aggregateProduct } from '@/lib/aggregate-product'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 // Job types
-type JobType = 'ingredients-discovery' | 'source-discovery' | 'source-crawl'
-const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'source-discovery', 'source-crawl']
+type JobType = 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation'
+const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'source-discovery', 'source-crawl', 'product-aggregation']
 
 // Settings interfaces for each job type
 interface IngredientsDiscoverySettings {
@@ -26,10 +27,16 @@ interface SourceCrawlSettings {
   maxDurationMs?: number  // Optional: limit execution time (for serverless)
 }
 
+interface ProductAggregationSettings {
+  itemsPerTick?: number   // Default: 10
+  maxDurationMs?: number  // Optional: limit execution time (for serverless)
+}
+
 type JobSettings = {
   'ingredients-discovery': IngredientsDiscoverySettings
   'source-discovery': SourceDiscoverySettings
   'source-crawl': SourceCrawlSettings
+  'product-aggregation': ProductAggregationSettings
 }
 
 // Default settings
@@ -37,6 +44,7 @@ const DEFAULT_SETTINGS: JobSettings = {
   'ingredients-discovery': {},
   'source-discovery': {},
   'source-crawl': { itemsPerTick: 10 },
+  'product-aggregation': { itemsPerTick: 10 },
 }
 
 interface ActiveJob {
@@ -44,6 +52,7 @@ interface ActiveJob {
   id: number
   status: string
   crawlType?: string // 'all' | 'selected_gtins' for source-crawl jobs
+  aggregationType?: string // 'all' | 'selected_gtins' for product-aggregation jobs
 }
 
 // Parse and validate settings from request body
@@ -85,7 +94,7 @@ function parseSettings(body: Record<string, unknown>): {
 
 async function createErrorEvent(
   payload: Awaited<ReturnType<typeof getPayload>>,
-  jobCollection: 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries',
+  jobCollection: 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations',
   jobId: number,
   message: string,
 ) {
@@ -205,6 +214,36 @@ export const POST = async (request: Request) => {
     )
   }
 
+  if (enabledTypes.includes('product-aggregation')) {
+    const [inProgress, pending] = await Promise.all([
+      payload.find({
+        collection: 'product-aggregations',
+        where: { status: { equals: 'in_progress' } },
+        limit: 10,
+      }),
+      payload.find({
+        collection: 'product-aggregations',
+        where: { status: { equals: 'pending' } },
+        limit: 10,
+        sort: 'createdAt',
+      }),
+    ])
+    activeJobs.push(
+      ...inProgress.docs.map((d) => ({
+        type: 'product-aggregation' as const,
+        id: d.id,
+        status: d.status!,
+        aggregationType: d.type || 'all',
+      })),
+      ...pending.docs.map((d) => ({
+        type: 'product-aggregation' as const,
+        id: d.id,
+        status: d.status!,
+        aggregationType: d.type || 'all',
+      })),
+    )
+  }
+
   if (activeJobs.length === 0) {
     return Response.json({
       message: 'No pending jobs',
@@ -212,18 +251,21 @@ export const POST = async (request: Request) => {
     })
   }
 
-  // Prioritize selected_gtins source-crawls, otherwise random
-  const selectedGtinsCrawls = activeJobs.filter(
-    (j) => j.type === 'source-crawl' && j.crawlType === 'selected_gtins',
+  // Prioritize selected_gtins jobs, otherwise random
+  const selectedGtinsJobs = activeJobs.filter(
+    (j) => (j.type === 'source-crawl' && j.crawlType === 'selected_gtins') ||
+           (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
-  const selected = selectedGtinsCrawls.length > 0
-    ? selectedGtinsCrawls[0]
+  const selected = selectedGtinsJobs.length > 0
+    ? selectedGtinsJobs[0]
     : activeJobs[Math.floor(Math.random() * activeJobs.length)]
 
   if (selected.type === 'ingredients-discovery') {
     return processIngredientsDiscovery(payload, selected.id, startTime, settings['ingredients-discovery'])
   } else if (selected.type === 'source-discovery') {
     return processSourceDiscovery(payload, selected.id, settings['source-discovery'])
+  } else if (selected.type === 'product-aggregation') {
+    return processProductAggregation(payload, selected.id, startTime, settings['product-aggregation'])
   } else {
     return processSourceCrawl(payload, selected.id, startTime, settings['source-crawl'])
   }
@@ -989,6 +1031,317 @@ async function processSourceCrawlSelectedGtins(
   }
 }
 
+async function processProductAggregation(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  jobId: number,
+  startTime: number,
+  settings: ProductAggregationSettings,
+) {
+  const itemsPerTick = settings.itemsPerTick ?? 10
+  const maxDurationMs = settings.maxDurationMs
+  console.log(`[Product Aggregation] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
+
+  let job = await payload.findByID({
+    collection: 'product-aggregations',
+    id: jobId,
+  })
+
+  // Initialize if pending
+  if (job.status === 'pending') {
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    job = await payload.findByID({
+      collection: 'product-aggregations',
+      id: jobId,
+    })
+  }
+
+  // Branch based on type
+  if (job.type === 'selected_gtins') {
+    return processProductAggregationSelectedGtins(payload, jobId, job, settings)
+  }
+
+  // Default: aggregate all non-aggregated products
+  const lastCheckedSourceId = job.lastCheckedSourceId || 0
+  let aggregated = job.aggregated || 0
+  let errors = job.errors || 0
+
+  try {
+    // Query DmProducts where status='crawled' AND id > lastCheckedSourceId
+    const dmProducts = await payload.find({
+      collection: 'dm-products',
+      where: {
+        and: [
+          { status: { equals: 'crawled' } },
+          { id: { greater_than: lastCheckedSourceId } },
+        ],
+      },
+      sort: 'id',
+      limit: itemsPerTick * 5,
+    })
+
+    if (dmProducts.docs.length === 0) {
+      // No more sources to check
+      await payload.update({
+        collection: 'product-aggregations',
+        id: jobId,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        },
+      })
+      return Response.json({
+        message: 'Aggregation completed - no more sources to process',
+        jobId,
+        type: 'product-aggregation',
+        aggregated,
+        errors,
+      })
+    }
+
+    let processedAggregations = 0
+    let lastId = lastCheckedSourceId
+
+    for (const dmProduct of dmProducts.docs) {
+      if (processedAggregations >= itemsPerTick) break
+      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
+        console.log(`[Product Aggregation] Stopping: maxDurationMs (${maxDurationMs}ms) reached`)
+        break
+      }
+
+      lastId = dmProduct.id
+
+      if (!dmProduct.gtin) {
+        continue
+      }
+
+      // Check if Product with same GTIN already has lastAggregatedAt set
+      const existingProducts = await payload.find({
+        collection: 'products',
+        where: { gtin: { equals: dmProduct.gtin } },
+        limit: 1,
+      })
+
+      if (existingProducts.docs.length > 0 && existingProducts.docs[0].lastAggregatedAt) {
+        // Already aggregated, skip
+        continue
+      }
+
+      // Find or create Product
+      let productId: number
+      if (existingProducts.docs.length > 0) {
+        productId = existingProducts.docs[0].id
+      } else {
+        const newProduct = await payload.create({
+          collection: 'products',
+          data: {
+            gtin: dmProduct.gtin,
+            name: dmProduct.name || undefined,
+          },
+        })
+        productId = newProduct.id
+      }
+
+      // Run per-GTIN aggregation logic
+      const result = await aggregateProduct(payload, productId, dmProduct)
+      processedAggregations++
+
+      if (result.success) {
+        aggregated++
+      } else {
+        errors++
+        await createErrorEvent(payload, 'product-aggregations', jobId, `GTIN ${dmProduct.gtin}: ${result.error}`)
+      }
+
+      // Update progress
+      await payload.update({
+        collection: 'product-aggregations',
+        id: jobId,
+        data: { aggregated, errors, lastCheckedSourceId: lastId },
+      })
+    }
+
+    // Update lastCheckedSourceId even if we just skipped
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: { lastCheckedSourceId: lastId },
+    })
+
+    return Response.json({
+      message: 'Tick completed',
+      jobId,
+      type: 'product-aggregation',
+      processedAggregations,
+      aggregated,
+      errors,
+    })
+  } catch (error) {
+    console.error('Product aggregation error:', error)
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createErrorEvent(payload, 'product-aggregations', jobId, errorMsg)
+
+    return Response.json({
+      error: errorMsg,
+      jobId,
+      type: 'product-aggregation',
+    }, { status: 500 })
+  }
+}
+
+async function processProductAggregationSelectedGtins(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  jobId: number,
+  job: { aggregated?: number | null; errors?: number | null; gtins?: Array<{ gtin: string }> | null },
+  settings: ProductAggregationSettings,
+) {
+  const gtinList = (job.gtins || []).map((g) => g.gtin)
+
+  console.log(`[Product Aggregation] Selected GTINs mode: ${gtinList.length} GTINs`)
+
+  if (gtinList.length === 0) {
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    return Response.json({
+      message: 'Aggregation completed - no GTINs specified',
+      jobId,
+      type: 'product-aggregation',
+    })
+  }
+
+  let aggregated = job.aggregated || 0
+  let errors = job.errors || 0
+  const _itemsPerTick = settings.itemsPerTick ?? 10
+
+  try {
+    for (const gtin of gtinList) {
+      // Find DmProduct with this GTIN
+      const dmProducts = await payload.find({
+        collection: 'dm-products',
+        where: {
+          and: [
+            { gtin: { equals: gtin } },
+            { status: { equals: 'crawled' } },
+          ],
+        },
+        limit: 1,
+      })
+
+      if (dmProducts.docs.length === 0) {
+        // No source found, create warning event
+        await payload.create({
+          collection: 'events',
+          data: {
+            type: 'warning',
+            message: `No crawled DmProduct found for GTIN ${gtin}`,
+            job: { relationTo: 'product-aggregations', value: jobId },
+          },
+        })
+        errors++
+        continue
+      }
+
+      const dmProduct = dmProducts.docs[0]
+
+      // Find or create Product
+      const existingProducts = await payload.find({
+        collection: 'products',
+        where: { gtin: { equals: gtin } },
+        limit: 1,
+      })
+
+      let productId: number
+      if (existingProducts.docs.length > 0) {
+        productId = existingProducts.docs[0].id
+      } else {
+        const newProduct = await payload.create({
+          collection: 'products',
+          data: {
+            gtin,
+            name: dmProduct.name || undefined,
+          },
+        })
+        productId = newProduct.id
+      }
+
+      // Run per-GTIN aggregation logic
+      const result = await aggregateProduct(payload, productId, dmProduct)
+
+      if (result.success) {
+        aggregated++
+      } else {
+        errors++
+        await createErrorEvent(payload, 'product-aggregations', jobId, `GTIN ${gtin}: ${result.error}`)
+      }
+
+      // Update progress
+      await payload.update({
+        collection: 'product-aggregations',
+        id: jobId,
+        data: { aggregated, errors },
+      })
+    }
+
+    // All GTINs processed
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+
+    return Response.json({
+      message: 'Aggregation completed',
+      jobId,
+      type: 'product-aggregation',
+      aggregated,
+      errors,
+    })
+  } catch (error) {
+    console.error('Product aggregation (selected GTINs) error:', error)
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createErrorEvent(payload, 'product-aggregations', jobId, errorMsg)
+
+    return Response.json({
+      error: errorMsg,
+      jobId,
+      type: 'product-aggregation',
+    }, { status: 500 })
+  }
+}
+
 export const GET = async () => {
   return Response.json({
     message: 'Tick API',
@@ -1037,6 +1390,22 @@ export const GET = async () => {
             type: 'number',
             default: 10,
             description: 'Number of products to crawl per tick',
+          },
+          maxDurationMs: {
+            type: 'number',
+            optional: true,
+            description: 'Limit execution time (ms). For serverless environments with timeouts.',
+          },
+        },
+      },
+      'product-aggregation': {
+        collection: 'product-aggregations',
+        description: 'Aggregates data from DmProducts into Products, matches ingredients via LLM',
+        settings: {
+          itemsPerTick: {
+            type: 'number',
+            default: 10,
+            description: 'Number of products to aggregate per tick',
           },
           maxDurationMs: {
             type: 'number',

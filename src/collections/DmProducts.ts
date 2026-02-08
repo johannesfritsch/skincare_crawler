@@ -9,7 +9,7 @@ export const DmProducts: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'brandName', 'status', 'crawledAt', 'createdAt'],
-    group: 'DM Data',
+    group: 'Source Data',
     description: 'Products crawled from dm.de',
     listSearchableFields: ['name', 'brandName', 'gtin'],
   },
