@@ -519,13 +519,9 @@ async function processSourceDiscovery(
     },
   })
 
-  const browser = await launchBrowser()
-  const page = await browser.newPage()
-
   try {
-    // Discover all products from the category page
-    const { products } = await driver.discoverProducts(page, discovery.sourceUrl)
-    await browser.close()
+    // Discover all products via API
+    const { products } = await driver.discoverProducts(discovery.sourceUrl)
 
     // Update discovered count immediately
     await payload.update({
@@ -536,7 +532,7 @@ async function processSourceDiscovery(
       },
     })
 
-    // Create DmProducts with status "uncrawled"
+    // Create or update DmProducts with discovery data
     let created = 0
     let existing = 0
 
@@ -547,19 +543,35 @@ async function processSourceDiscovery(
         limit: 1,
       })
 
+      const discoveryData = {
+        sourceUrl: product.productUrl,
+        brandName: product.brandName,
+        name: product.name,
+        type: product.category,
+        pricing: product.price != null ? {
+          amount: product.price,
+          currency: product.currency ?? 'EUR',
+        } : undefined,
+        rating: product.rating,
+        ratingNum: product.ratingCount,
+      }
+
       if (existingProduct.docs.length === 0) {
         await payload.create({
           collection: 'dm-products',
           data: {
             gtin: product.gtin,
-            sourceUrl: product.productUrl
-              ? (product.productUrl.startsWith('http') ? product.productUrl : `https://www.dm.de${product.productUrl}`)
-              : null,
             status: 'uncrawled',
+            ...discoveryData,
           },
         })
         created++
       } else {
+        await payload.update({
+          collection: 'dm-products',
+          id: existingProduct.docs[0].id,
+          data: discoveryData,
+        })
         existing++
       }
 
@@ -594,7 +606,6 @@ async function processSourceDiscovery(
     })
   } catch (error) {
     console.error('Source discovery error:', error)
-    await browser.close()
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({

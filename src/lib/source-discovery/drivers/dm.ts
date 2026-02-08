@@ -7,6 +7,110 @@ function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Navigation tree node shape
+interface NavNode {
+  id: string
+  title: string
+  link: string
+  hidden?: boolean
+  children?: NavNode[]
+}
+
+// Find the subtree matching a target path (e.g., "/make-up/augen")
+function findSubtree(node: NavNode, targetPath: string): NavNode | null {
+  if (node.link === targetPath) return node
+  if (node.children) {
+    for (const child of node.children) {
+      const found = findSubtree(child, targetPath)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+// Collect leaf nodes (no children or empty children, not hidden)
+function collectLeaves(node: NavNode, path: string[] = []): { node: NavNode; breadcrumb: string }[] {
+  const currentPath = [...path, node.title]
+  if (!node.children || node.children.length === 0) {
+    if (node.hidden) return []
+    return [{ node, breadcrumb: currentPath.join(' -> ') }]
+  }
+  const leaves: { node: NavNode; breadcrumb: string }[] = []
+  for (const child of node.children) {
+    if (!child.hidden) {
+      leaves.push(...collectLeaves(child, currentPath))
+    }
+  }
+  return leaves
+}
+
+// Fetch the product search category ID from a content page
+async function fetchCategoryId(link: string): Promise<string | null> {
+  const url = `https://content.services.dmtech.com/rootpage-dm-shop-de-de${link}?view=category&mrclx=true`
+  try {
+    const res = await fetch(url)
+    if (!res.ok) {
+      console.log(`[DM] Content page fetch failed for ${link}: ${res.status}`)
+      return null
+    }
+    const data = await res.json()
+    const mainData = data?.mainData
+    if (!Array.isArray(mainData)) return null
+
+    for (const entry of mainData) {
+      if (entry.type === 'DMSearchProductGrid' && entry.query?.filters) {
+        const match = entry.query.filters.match(/allCategories\.id:(\S+)/)
+        if (match) return match[1]
+      }
+    }
+    return null
+  } catch (error) {
+    console.error(`[DM] Error fetching category ID for ${link}:`, error)
+    return null
+  }
+}
+
+// Fetch all products for a category ID via the product search API
+async function fetchProducts(
+  categoryId: string,
+  pageSize: number = 60,
+): Promise<{ products: Array<Record<string, unknown>>; totalCount: number }> {
+  const allProducts: Array<Record<string, unknown>> = []
+  let currentPage = 0
+  let totalPages = 1
+  let totalCount = 0
+
+  while (currentPage < totalPages) {
+    const url = `https://product-search.services.dmtech.com/de/search/static?allCategories.id=${categoryId}&pageSize=${pageSize}&currentPage=${currentPage}&sort=relevance`
+    try {
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.log(`[DM] Product search failed for category ${categoryId} page ${currentPage}: ${res.status}`)
+        break
+      }
+      const data = await res.json()
+      totalPages = data.totalPages ?? 1
+      totalCount = data.totalElements ?? 0
+      const products = data.products ?? []
+      allProducts.push(...products)
+      currentPage++
+
+      if (currentPage < totalPages) {
+        await sleep(randomDelay(300, 700))
+      }
+    } catch (error) {
+      console.error(`[DM] Error fetching products for category ${categoryId} page ${currentPage}:`, error)
+      break
+    }
+  }
+
+  return { products: allProducts, totalCount }
+}
+
 export const dmDriver: SourceDriver = {
   matches(url: string): boolean {
     try {
@@ -31,86 +135,105 @@ export const dmDriver: SourceDriver = {
   },
 
   async discoverProducts(
-    page: Page,
     url: string,
   ): Promise<{ totalCount: number; products: DiscoveredProduct[] }> {
-    console.log(`[DM] Starting discovery for ${url}`)
-    await page.goto(url, { waitUntil: 'domcontentloaded' })
-    await this.acceptCookies(page)
+    console.log(`[DM] Starting API-based discovery for ${url}`)
 
-    // Extract total count from [data-dmid="total-count"]
-    const totalCount = await page.evaluate(() => {
-      const countEl = document.querySelector('[data-dmid="total-count"]')
-      if (!countEl) return 0
-      const text = countEl.getAttribute('title') || countEl.textContent || ''
-      const match = text.match(/(\d+)/)
-      return match ? parseInt(match[1], 10) : 0
-    })
+    // Step 1: Parse target path from URL
+    const targetPath = new URL(url).pathname.replace(/\/$/, '') || '/'
+    console.log(`[DM] Target path: ${targetPath}`)
 
-    console.log(`[DM] Total products reported: ${totalCount}`)
+    // Step 2: Fetch navigation tree
+    const navRes = await fetch('https://content.services.dmtech.com/rootpage-dm-shop-de-de?view=navigation&mrclx=true')
+    if (!navRes.ok) {
+      throw new Error(`Failed to fetch navigation tree: ${navRes.status}`)
+    }
+    const navData = await navRes.json()
+    const navChildren: NavNode[] = navData.children ?? []
 
-    // Click "Mehr laden" button repeatedly until all products are loaded
-    let previousCount = 0
-    let currentCount = 0
-    let noNewProductsCount = 0
-
-    while (noNewProductsCount < 3) {
-      currentCount = await page.evaluate(() => {
-        return document.querySelectorAll('[data-dmid="product-tile"]').length
-      })
-
-      console.log(`[DM] Products loaded: ${currentCount}`)
-
-      if (currentCount === previousCount) {
-        noNewProductsCount++
-      } else {
-        noNewProductsCount = 0
-      }
-
-      previousCount = currentCount
-
-      if (currentCount >= totalCount) {
-        console.log('[DM] All products loaded')
-        break
-      }
-
-      try {
-        const loadMoreButton = page.locator('[data-dmid="load-more-products-button"]')
-        const isVisible = await loadMoreButton.isVisible()
-
-        if (isVisible) {
-          await loadMoreButton.click()
-          await page.waitForTimeout(randomDelay(1000, 1500))
-        } else {
-          console.log('[DM] Load more button not visible')
-          noNewProductsCount++
-        }
-      } catch (error) {
-        console.log('[DM] Could not click load more button:', error)
-        noNewProductsCount++
-      }
+    // Find the subtree matching the target path
+    let subtree: NavNode | null = null
+    for (const child of navChildren) {
+      subtree = findSubtree(child, targetPath)
+      if (subtree) break
     }
 
-    // Extract all product GTINs and URLs
-    const products = await page.evaluate(() => {
-      const items: Array<{ gtin: string; productUrl: string | null }> = []
-      const productTiles = document.querySelectorAll('[data-dmid="product-tile"]')
+    // Step 3: Collect leaf categories (or treat the URL itself as a leaf)
+    const categoryLeaves: { categoryId: string; breadcrumb: string }[] = []
 
-      productTiles.forEach((tile) => {
-        const gtin = tile.getAttribute('data-gtin')
-        const link = tile.querySelector('a[href]')
-        const productUrl = link ? link.getAttribute('href') : null
+    if (!subtree) {
+      // No subtree found — treat the URL directly as a leaf category
+      console.log(`[DM] No subtree in nav tree for ${targetPath}, treating as direct leaf`)
+      const categoryId = await fetchCategoryId(targetPath)
+      if (!categoryId) {
+        throw new Error(`No category ID found for path: ${targetPath}`)
+      }
+      // Build breadcrumb from the URL path segments
+      const breadcrumb = targetPath.split('/').filter(Boolean)
+        .map((seg) => seg.replace(/-und-/g, ' & ').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
+        .join(' -> ')
+      categoryLeaves.push({ categoryId, breadcrumb })
+      console.log(`[DM] Direct leaf resolved: ${targetPath} -> category ${categoryId} (${breadcrumb})`)
+    } else {
+      console.log(`[DM] Found subtree: ${subtree.title} (${subtree.id})`)
 
-        if (gtin) {
-          items.push({ gtin, productUrl })
+      const leaves = collectLeaves(subtree)
+      console.log(`[DM] Found ${leaves.length} leaf categories`)
+
+      // Step 4: Resolve category IDs for each leaf
+      for (const leaf of leaves) {
+        const categoryId = await fetchCategoryId(leaf.node.link)
+        if (categoryId) {
+          categoryLeaves.push({ categoryId, breadcrumb: leaf.breadcrumb })
+          console.log(`[DM] Resolved ${leaf.node.link} -> category ${categoryId}`)
+        } else {
+          console.log(`[DM] No category ID found for ${leaf.node.link}, skipping`)
         }
-      })
+        await sleep(randomDelay(200, 500))
+      }
 
-      return items
-    })
+      console.log(`[DM] Resolved ${categoryLeaves.length}/${leaves.length} category IDs`)
+    }
 
-    console.log(`[DM] Discovered ${products.length} products`)
-    return { totalCount, products }
+    // Step 5: Fetch products for each category
+    const allProducts: DiscoveredProduct[] = []
+    let totalCount = 0
+    const seenGtins = new Set<string>()
+
+    for (const { categoryId, breadcrumb } of categoryLeaves) {
+      const { products, totalCount: catTotal } = await fetchProducts(categoryId)
+      totalCount += catTotal
+      console.log(`[DM] Category ${categoryId}: ${products.length} products (${breadcrumb})`)
+
+      for (const product of products) {
+        const gtin = String((product as Record<string, unknown>).gtin ?? '')
+        if (!gtin || seenGtins.has(gtin)) continue
+        seenGtins.add(gtin)
+
+        const tileData = (product as Record<string, unknown>).tileData as Record<string, unknown> | undefined
+        const trackingData = tileData?.trackingData as Record<string, unknown> | undefined
+        const ratingData = tileData?.rating as Record<string, unknown> | undefined
+
+        allProducts.push({
+          gtin,
+          productUrl: tileData?.self ? `https://www.dm.de${tileData.self}` : null,
+          brandName: (product as Record<string, unknown>).brandName as string | undefined,
+          name: (product as Record<string, unknown>).title as string | undefined,
+          price: trackingData?.price != null
+            ? Math.round(Number(trackingData.price) * 100)
+            : undefined,
+          currency: trackingData?.currency as string | undefined,
+          rating: ratingData?.ratingValue as number | undefined,
+          ratingCount: ratingData?.ratingCount as number | undefined,
+          category: breadcrumb,
+        })
+      }
+
+      await sleep(randomDelay(300, 700))
+    }
+
+    console.log(`[DM] Discovery complete: ${allProducts.length} unique products (total reported: ${totalCount})`)
+    return { totalCount, products: allProducts }
   },
 
   async crawlProduct(

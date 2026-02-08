@@ -10,16 +10,22 @@ export interface DiscoveryStats {
 export interface DiscoveredProduct {
   gtin: string
   productUrl: string | null
+  brandName?: string
+  name?: string
+  price?: number       // cents
+  currency?: string
+  rating?: number
+  ratingCount?: number
+  category?: string    // "Make-up -> Augen -> Lidschatten Primer & Base"
 }
 
 export interface SourceDriver {
   // Check if this driver handles the given URL
   matches(url: string): boolean
 
-  // Discover all products from a category page (browser-based)
-  // Returns the products found and total count reported by the site
+  // Discover all products from a category URL (API-based)
+  // Returns the products found and total count
   discoverProducts(
-    page: Page,
     url: string,
   ): Promise<{ totalCount: number; products: DiscoveredProduct[] }>
 
