@@ -358,6 +358,7 @@ export interface SourceDiscovery {
 export interface SourceCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  source: 'all' | 'dm';
   type: 'all' | 'selected_gtins';
   /**
    * List of GTINs to crawl
@@ -839,6 +840,7 @@ export interface SourceDiscoveriesSelect<T extends boolean = true> {
  */
 export interface SourceCrawlsSelect<T extends boolean = true> {
   status?: T;
+  source?: T;
   type?: T;
   gtins?:
     | T

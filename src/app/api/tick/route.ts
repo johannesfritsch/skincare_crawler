@@ -1,7 +1,8 @@
 import { getPayload } from 'payload'
 import configPromise from '@payload-config'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
-import { getSourceDriver } from '@/lib/source-discovery/driver'
+import { getSourceDriver, getSourceDriverBySlug, getAllSourceDrivers } from '@/lib/source-discovery/driver'
+import type { SourceDriver } from '@/lib/source-discovery/types'
 import { launchBrowser } from '@/lib/browser'
 import { aggregateProduct } from '@/lib/aggregate-product'
 
@@ -633,7 +634,7 @@ async function processSourceCrawl(
   settings: SourceCrawlSettings,
 ) {
   const itemsPerTick = settings.itemsPerTick ?? 10
-  const maxDurationMs = settings.maxDurationMs // undefined = no limit
+  const maxDurationMs = settings.maxDurationMs
   console.log(`[Source Crawl] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
 
   let crawl = await payload.findByID({
@@ -642,7 +643,8 @@ async function processSourceCrawl(
   })
 
   // Initialize if pending
-  if (crawl.status === 'pending') {
+  const isFirstTick = crawl.status === 'pending'
+  if (isFirstTick) {
     await payload.update({
       collection: 'source-crawls',
       id: crawlId,
@@ -657,196 +659,42 @@ async function processSourceCrawl(
     })
   }
 
-  // Branch based on crawl type
-  if (crawl.type === 'selected_gtins') {
-    return processSourceCrawlSelectedGtins(payload, crawlId, crawl, startTime, settings)
-  }
+  // Resolve drivers from crawl.source (default 'all' for backward compat with null)
+  const sourceSlug = (crawl as unknown as Record<string, unknown>).source as string | null | undefined
+  const resolvedSource = sourceSlug || 'all'
+  let drivers: SourceDriver[]
 
-  // Default: crawl all uncrawled products
-  // Find uncrawled DmProducts
-  const uncrawledProducts = await payload.find({
-    collection: 'dm-products',
-    where: { status: { equals: 'uncrawled' } },
-    limit: itemsPerTick,
-  })
-  console.log(`[Source Crawl] Found ${uncrawledProducts.docs.length} uncrawled products (limit: ${itemsPerTick})`)
-
-  if (uncrawledProducts.docs.length === 0) {
-    // No more products to crawl
-    await payload.update({
-      collection: 'source-crawls',
-      id: crawlId,
-      data: {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-      },
-    })
-
-    return Response.json({
-      message: 'Crawl completed - no uncrawled products',
-      jobId: crawlId,
-      type: 'source-crawl',
-      crawled: crawl.crawled || 0,
-      errors: crawl.errors || 0,
-    })
-  }
-
-  const driver = getSourceDriver('https://www.dm.de')
-  if (!driver) {
-    await payload.update({
-      collection: 'source-crawls',
-      id: crawlId,
-      data: {
-        status: 'failed',
-        completedAt: new Date().toISOString(),
-      },
-    })
-    await createErrorEvent(payload, 'source-crawls', crawlId, 'No DM driver found')
-    return Response.json({
-      error: 'No DM driver found',
-      jobId: crawlId,
-      type: 'source-crawl',
-    }, { status: 400 })
-  }
-
-  const browser = await launchBrowser()
-  const page = await browser.newPage()
-
-  // Accept cookies once
-  await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
-  await driver.acceptCookies(page)
-
-  let crawled = crawl.crawled || 0
-  let errors = crawl.errors || 0
-  let processedThisTick = 0
-
-  try {
-    for (const product of uncrawledProducts.docs) {
-      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-        console.log(`[Source Crawl] Stopping: maxDurationMs (${maxDurationMs}ms) reached after ${processedThisTick} products`)
-        break
-      }
-
-      const productId = await driver.crawlProduct(
-        page,
-        product.gtin!,
-        product.sourceUrl || null,
-        payload,
-      )
-
-      if (productId !== null) {
-        // Product was crawled successfully - ensure status is updated on the original product
-        await payload.update({
-          collection: 'dm-products',
-          id: product.id,
-          data: { status: 'crawled' },
-        })
-        crawled++
-      } else {
-        // Mark as failed
-        await payload.update({
-          collection: 'dm-products',
-          id: product.id,
-          data: { status: 'failed' },
-        })
-        errors++
-      }
-
-      processedThisTick++
-
-      // Update crawl progress
+  if (resolvedSource === 'all') {
+    drivers = getAllSourceDrivers()
+  } else {
+    const driver = getSourceDriverBySlug(resolvedSource)
+    if (!driver) {
       await payload.update({
         collection: 'source-crawls',
         id: crawlId,
-        data: { crawled, errors },
+        data: { status: 'failed', completedAt: new Date().toISOString() },
       })
-
-      // Random delay between products
-      if (processedThisTick < uncrawledProducts.docs.length) {
-        await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
-      }
-    }
-
-    await browser.close()
-
-    // Check if there are more uncrawled products
-    const remaining = await payload.count({
-      collection: 'dm-products',
-      where: { status: { equals: 'uncrawled' } },
-    })
-
-    if (remaining.totalDocs === 0) {
-      await payload.update({
-        collection: 'source-crawls',
-        id: crawlId,
-        data: {
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-        },
-      })
-
+      await createErrorEvent(payload, 'source-crawls', crawlId, `No driver found for source: ${resolvedSource}`)
       return Response.json({
-        message: 'Crawl completed',
+        error: `No driver found for source: ${resolvedSource}`,
         jobId: crawlId,
         type: 'source-crawl',
-        crawled,
-        errors,
-      })
+      }, { status: 400 })
     }
-
-    return Response.json({
-      message: 'Tick completed',
-      jobId: crawlId,
-      type: 'source-crawl',
-      processedThisTick,
-      crawled,
-      errors,
-      remaining: remaining.totalDocs,
-    })
-  } catch (error) {
-    console.error('Source crawl error:', error)
-    await browser.close()
-
-    const errorMsg = error instanceof Error ? error.message : String(error)
-    await payload.update({
-      collection: 'source-crawls',
-      id: crawlId,
-      data: {
-        status: 'failed',
-        completedAt: new Date().toISOString(),
-      },
-    })
-    await createErrorEvent(payload, 'source-crawls', crawlId, errorMsg)
-
-    return Response.json({
-      error: errorMsg,
-      jobId: crawlId,
-      type: 'source-crawl',
-    }, { status: 500 })
+    drivers = [driver]
   }
-}
 
-async function processSourceCrawlSelectedGtins(
-  payload: Awaited<ReturnType<typeof getPayload>>,
-  crawlId: number,
-  crawl: { crawled?: number | null; errors?: number | null; status?: string | null; gtins?: Array<{ gtin: string }> | null },
-  startTime: number,
-  settings: SourceCrawlSettings,
-) {
-  const itemsPerTick = settings.itemsPerTick ?? 10
-  const maxDurationMs = settings.maxDurationMs
-  const gtinList = (crawl.gtins || []).map((g) => g.gtin)
+  // Parse GTINs for selected_gtins mode
+  const isSelectedGtins = crawl.type === 'selected_gtins'
+  const gtinList = isSelectedGtins ? (crawl.gtins || []).map((g) => g.gtin) : undefined
 
-  console.log(`[Source Crawl] Selected GTINs mode: ${gtinList.length} GTINs`)
+  console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, gtins=${gtinList ? gtinList.join(',') : 'all'}`)
 
-  if (gtinList.length === 0) {
+  if (isSelectedGtins && (!gtinList || gtinList.length === 0)) {
     await payload.update({
       collection: 'source-crawls',
       id: crawlId,
-      data: {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-      },
+      data: { status: 'completed', completedAt: new Date().toISOString() },
     })
     return Response.json({
       message: 'Crawl completed - no GTINs specified',
@@ -855,140 +703,86 @@ async function processSourceCrawlSelectedGtins(
     })
   }
 
-  // On first tick, reset matching products to uncrawled
-  if (crawl.status === 'in_progress' && (crawl.crawled || 0) === 0 && (crawl.errors || 0) === 0) {
-    await payload.update({
-      collection: 'dm-products',
-      where: { gtin: { in: gtinList.join(',') } },
-      data: { status: 'uncrawled' },
-    })
+  // On first tick, reset products to uncrawled so they get re-crawled
+  if (isFirstTick) {
+    for (const driver of drivers) {
+      await driver.resetProducts(payload, gtinList)
+    }
+    console.log(`[Source Crawl] Reset products to uncrawled`)
   }
 
-  // Find uncrawled products matching our GTINs
-  const uncrawledProducts = await payload.find({
-    collection: 'dm-products',
-    where: {
-      and: [
-        { gtin: { in: gtinList.join(',') } },
-        { status: { equals: 'uncrawled' } },
-      ],
-    },
-    limit: itemsPerTick,
-  })
-
-  if (uncrawledProducts.docs.length === 0) {
-    await payload.update({
-      collection: 'source-crawls',
-      id: crawlId,
-      data: {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-      },
-    })
-    return Response.json({
-      message: 'Crawl completed - all selected GTINs processed',
-      jobId: crawlId,
-      type: 'source-crawl',
-      crawled: crawl.crawled || 0,
-      errors: crawl.errors || 0,
-    })
-  }
-
-  const driver = getSourceDriver('https://www.dm.de')
-  if (!driver) {
-    await payload.update({
-      collection: 'source-crawls',
-      id: crawlId,
-      data: {
-        status: 'failed',
-        completedAt: new Date().toISOString(),
-      },
-    })
-    await createErrorEvent(payload, 'source-crawls', crawlId, 'No DM driver found')
-    return Response.json({
-      error: 'No DM driver found',
-      jobId: crawlId,
-      type: 'source-crawl',
-    }, { status: 400 })
-  }
-
-  const browser = await launchBrowser()
-  const page = await browser.newPage()
-
-  await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
-  await driver.acceptCookies(page)
-
-  let crawled = (crawl.crawled as number) || 0
-  let errors = (crawl.errors as number) || 0
+  let crawled = crawl.crawled || 0
+  let errors = crawl.errors || 0
   let processedThisTick = 0
+  let remainingBudget = itemsPerTick
 
   try {
-    for (const product of uncrawledProducts.docs) {
-      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-        console.log(`[Source Crawl] Selected GTINs: stopping after ${processedThisTick} products (maxDurationMs reached)`)
-        break
-      }
+    for (const driver of drivers) {
+      if (remainingBudget <= 0) break
+      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) break
 
-      const productId = await driver.crawlProduct(
-        page,
-        product.gtin!,
-        product.sourceUrl || null,
-        payload,
-      )
-
-      if (productId !== null) {
-        await payload.update({
-          collection: 'dm-products',
-          id: product.id,
-          data: { status: 'crawled' },
-        })
-        crawled++
-      } else {
-        await payload.update({
-          collection: 'dm-products',
-          id: product.id,
-          data: { status: 'failed' },
-        })
-        errors++
-      }
-
-      processedThisTick++
-
-      await payload.update({
-        collection: 'source-crawls',
-        id: crawlId,
-        data: { crawled, errors },
+      const products = await driver.findUncrawledProducts(payload, {
+        gtins: gtinList,
+        limit: remainingBudget,
       })
 
-      if (processedThisTick < uncrawledProducts.docs.length) {
-        await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
+      if (products.length === 0) continue
+
+      console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products`)
+
+      const browser = await launchBrowser()
+      const page = await browser.newPage()
+
+      await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
+      await driver.acceptCookies(page)
+
+      try {
+        for (const product of products) {
+          if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
+            console.log(`[Source Crawl] [${driver.slug}] Stopping: maxDurationMs reached after ${processedThisTick} products`)
+            break
+          }
+
+          const productId = await driver.crawlProduct(
+            page,
+            product.gtin,
+            product.sourceUrl,
+            payload,
+          )
+
+          if (productId !== null) {
+            await driver.markProductStatus(payload, product.id, 'crawled')
+            crawled++
+          } else {
+            await driver.markProductStatus(payload, product.id, 'failed')
+            errors++
+          }
+
+          processedThisTick++
+          remainingBudget--
+
+          await payload.update({
+            collection: 'source-crawls',
+            id: crawlId,
+            data: { crawled, errors },
+          })
+
+          if (remainingBudget > 0) {
+            await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
+          }
+        }
+      } finally {
+        await browser.close()
       }
     }
 
-    await browser.close()
+    // Check completion: sum uncrawled across all drivers
+    let totalRemaining = 0
+    for (const driver of drivers) {
+      totalRemaining += await driver.countUncrawled(payload, gtinList ? { gtins: gtinList } : undefined)
+    }
 
-    // Check if there are remaining uncrawled products in our GTIN list
-    const remaining = await payload.count({
-      collection: 'dm-products',
-      where: {
-        and: [
-          { gtin: { in: gtinList.join(',') } },
-          { status: { equals: 'uncrawled' } },
-        ],
-      },
-    })
-
-    if (remaining.totalDocs === 0) {
-      // Check for GTINs that had no matching DmProduct
-      const allMatching = await payload.count({
-        collection: 'dm-products',
-        where: { gtin: { in: gtinList.join(',') } },
-      })
-      const missingGtins = gtinList.length - allMatching.totalDocs
-      if (missingGtins > 0) {
-        errors += missingGtins
-      }
-
+    if (totalRemaining === 0) {
       await payload.update({
         collection: 'source-crawls',
         id: crawlId,
@@ -1006,7 +800,6 @@ async function processSourceCrawlSelectedGtins(
         type: 'source-crawl',
         crawled,
         errors,
-        missingGtins,
       })
     }
 
@@ -1017,11 +810,10 @@ async function processSourceCrawlSelectedGtins(
       processedThisTick,
       crawled,
       errors,
-      remaining: remaining.totalDocs,
+      remaining: totalRemaining,
     })
   } catch (error) {
-    console.error('Source crawl (selected GTINs) error:', error)
-    await browser.close()
+    console.error('Source crawl error:', error)
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({

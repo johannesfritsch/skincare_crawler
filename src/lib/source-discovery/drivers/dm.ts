@@ -1,4 +1,4 @@
-import type { Payload } from 'payload'
+import type { Payload, Where } from 'payload'
 import type { Page } from 'playwright-core'
 import type { SourceDriver, DiscoveredProduct } from '../types'
 import { parseIngredients } from '@/lib/parse-ingredients'
@@ -112,6 +112,9 @@ async function fetchProducts(
 }
 
 export const dmDriver: SourceDriver = {
+  slug: 'dm',
+  label: 'DM',
+
   matches(url: string): boolean {
     try {
       const hostname = new URL(url).hostname.toLowerCase()
@@ -452,5 +455,61 @@ export const dmDriver: SourceDriver = {
       console.error(`[DM] Error crawling product (gtin: ${gtin}, url: ${productUrl}):`, error)
       return null
     }
+  },
+
+  async findUncrawledProducts(
+    payload: Payload,
+    options: { gtins?: string[]; limit: number },
+  ): Promise<Array<{ id: number; gtin: string; sourceUrl: string | null }>> {
+    const where: Where[] = [{ status: { equals: 'uncrawled' } }]
+    if (options.gtins && options.gtins.length > 0) {
+      where.push({ gtin: { in: options.gtins.join(',') } })
+    }
+
+    const result = await payload.find({
+      collection: 'dm-products',
+      where: { and: where },
+      limit: options.limit,
+    })
+
+    return result.docs.map((doc) => ({
+      id: doc.id,
+      gtin: doc.gtin!,
+      sourceUrl: doc.sourceUrl || null,
+    }))
+  },
+
+  async markProductStatus(payload: Payload, productId: number, status: 'crawled' | 'failed'): Promise<void> {
+    await payload.update({
+      collection: 'dm-products',
+      id: productId,
+      data: { status },
+    })
+  },
+
+  async countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number> {
+    const where: Where[] = [{ status: { equals: 'uncrawled' } }]
+    if (options?.gtins && options.gtins.length > 0) {
+      where.push({ gtin: { in: options.gtins.join(',') } })
+    }
+
+    const result = await payload.count({
+      collection: 'dm-products',
+      where: { and: where },
+    })
+
+    return result.totalDocs
+  },
+
+  async resetProducts(payload: Payload, gtins?: string[]): Promise<void> {
+    if (gtins && gtins.length === 0) return
+    const where: Where = gtins
+      ? { gtin: { in: gtins.join(',') } }
+      : { status: { in: 'crawled,failed' } }
+    await payload.update({
+      collection: 'dm-products',
+      where,
+      data: { status: 'uncrawled' },
+    })
   },
 }

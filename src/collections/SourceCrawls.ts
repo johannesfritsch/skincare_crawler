@@ -35,6 +35,17 @@ export const SourceCrawls: CollectionConfig = {
           label: 'Configuration',
           fields: [
             {
+              name: 'source',
+              type: 'select',
+              label: 'Source',
+              required: true,
+              defaultValue: 'all',
+              options: [
+                { label: 'All Sources', value: 'all' },
+                { label: 'DM', value: 'dm' },
+              ],
+            },
+            {
               name: 'type',
               type: 'select',
               label: 'Type',

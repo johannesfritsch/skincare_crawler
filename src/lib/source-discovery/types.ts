@@ -20,6 +20,9 @@ export interface DiscoveredProduct {
 }
 
 export interface SourceDriver {
+  slug: string       // e.g., 'dm'
+  label: string      // e.g., 'DM' (for admin UI)
+
   // Check if this driver handles the given URL
   matches(url: string): boolean
 
@@ -43,4 +46,16 @@ export interface SourceDriver {
 
   // Get the base URL for this driver (for initial navigation)
   getBaseUrl(): string
+
+  // Collection-query methods
+  findUncrawledProducts(
+    payload: Payload,
+    options: { gtins?: string[]; limit: number },
+  ): Promise<Array<{ id: number; gtin: string; sourceUrl: string | null }>>
+
+  markProductStatus(payload: Payload, productId: number, status: 'crawled' | 'failed'): Promise<void>
+
+  countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number>
+
+  resetProducts(payload: Payload, gtins?: string[]): Promise<void>
 }

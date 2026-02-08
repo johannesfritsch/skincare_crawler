@@ -11,3 +11,11 @@ export function getSourceDriver(url: string): SourceDriver | null {
   }
   return null
 }
+
+export function getSourceDriverBySlug(slug: string): SourceDriver | null {
+  return drivers.find((d) => d.slug === slug) ?? null
+}
+
+export function getAllSourceDrivers(): SourceDriver[] {
+  return drivers
+}
