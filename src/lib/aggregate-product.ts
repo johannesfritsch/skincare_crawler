@@ -45,7 +45,7 @@ export async function aggregateProduct(
   payload: Payload,
   productId: number,
   dmProduct: DmProductSource,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; tokensUsed?: number }> {
   const aggregated = aggregateFromSources(dmProduct)
 
   if (!aggregated) {
@@ -71,9 +71,11 @@ export async function aggregateProduct(
   }
 
   // Match ingredients via LLM
+  let tokensUsed = 0
   if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
     try {
       const matchResult = await matchIngredients(payload, aggregated.ingredientNames)
+      tokensUsed = matchResult.tokensUsed.totalTokens
 
       if (matchResult.matched.length > 0) {
         updateData.ingredients = matchResult.matched
@@ -105,5 +107,6 @@ export async function aggregateProduct(
   return {
     success: updateData.aggregationStatus !== 'failed',
     error: updateData.aggregationErrors as string | undefined,
+    tokensUsed,
   }
 }

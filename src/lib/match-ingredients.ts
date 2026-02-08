@@ -7,9 +7,16 @@ export interface MatchedIngredient {
   matchedName: string | null
 }
 
+export interface TokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 export interface MatchIngredientsResult {
   matched: MatchedIngredient[]
   unmatched: string[]
+  tokensUsed: TokenUsage
 }
 
 interface SearchTermEntry {
@@ -67,7 +74,7 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey })
 }
 
-async function generateSearchTerms(ingredientNames: string[]): Promise<SearchTermEntry[]> {
+async function generateSearchTerms(ingredientNames: string[]): Promise<{ entries: SearchTermEntry[]; usage: TokenUsage }> {
   const openai = getOpenAI()
 
   const userContent = JSON.stringify(ingredientNames)
@@ -85,8 +92,15 @@ async function generateSearchTerms(ingredientNames: string[]): Promise<SearchTer
     ],
   })
 
+  const usage: TokenUsage = {
+    promptTokens: response.usage?.prompt_tokens ?? 0,
+    completionTokens: response.usage?.completion_tokens ?? 0,
+    totalTokens: response.usage?.total_tokens ?? 0,
+  }
+
   const content = response.choices[0]?.message?.content?.trim()
   console.log('[matchIngredients] Response:', content ?? '(empty)')
+  console.log(`[matchIngredients] Tokens: ${usage.promptTokens} prompt + ${usage.completionTokens} completion = ${usage.totalTokens} total`)
   if (!content) {
     throw new Error('Empty response from OpenAI during search term generation')
   }
@@ -110,10 +124,12 @@ async function generateSearchTerms(ingredientNames: string[]): Promise<SearchTer
     }
   }
 
-  return ingredientNames.map((name) => ({
+  const entries = ingredientNames.map((name) => ({
     original: name,
     searchTerms: resultMap.get(name) ?? [name], // Fall back to original name if missing
   }))
+
+  return { entries, usage }
 }
 
 async function searchIngredients(
@@ -193,7 +209,7 @@ async function searchIngredients(
 
 async function selectMatches(
   ambiguous: { original: string; candidates: CandidateInfo[] }[],
-): Promise<Map<string, string | null>> {
+): Promise<{ selections: Map<string, string | null>; usage: TokenUsage }> {
   const openai = getOpenAI()
 
   const prompt = ambiguous.map(({ original, candidates }) => ({
@@ -216,8 +232,15 @@ async function selectMatches(
     ],
   })
 
+  const usage: TokenUsage = {
+    promptTokens: response.usage?.prompt_tokens ?? 0,
+    completionTokens: response.usage?.completion_tokens ?? 0,
+    totalTokens: response.usage?.total_tokens ?? 0,
+  }
+
   const content = response.choices[0]?.message?.content?.trim()
   console.log('[matchIngredients] Response:', content ?? '(empty)')
+  console.log(`[matchIngredients] Tokens: ${usage.promptTokens} prompt + ${usage.completionTokens} completion = ${usage.totalTokens} total`)
   if (!content) {
     throw new Error('Empty response from OpenAI during match selection')
   }
@@ -233,37 +256,82 @@ async function selectMatches(
     throw new Error('Match selection response is not an array')
   }
 
-  const resultMap = new Map<string, string | null>()
+  const selections = new Map<string, string | null>()
   for (const entry of parsed as SelectionEntry[]) {
     if (entry && typeof entry.original === 'string') {
-      resultMap.set(entry.original, entry.selectedName ?? null)
+      selections.set(entry.original, entry.selectedName ?? null)
     }
   }
 
-  return resultMap
+  return { selections, usage }
 }
 
 export async function matchIngredients(
   payload: BasePayload,
   ingredientNames: string[],
 ): Promise<MatchIngredientsResult> {
+  const tokensUsed: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+
   if (ingredientNames.length === 0) {
-    return { matched: [], unmatched: [] }
+    return { matched: [], unmatched: [], tokensUsed }
   }
 
-  // Step 1: Generate search terms via LLM
-  const searchTermEntries = await generateSearchTerms(ingredientNames)
+  // Step 0: Exact DB match — resolve names that match exactly, skip LLM for those
+  console.log('\n[matchIngredients] ── Step 0: Exact DB Match ──')
+  const exactResults = await Promise.all(
+    ingredientNames.map(async (name) => {
+      const result = await payload.find({
+        collection: 'ingredients',
+        where: { name: { equals: name } },
+        limit: 2,
+      })
+      return { name, docs: result.docs }
+    }),
+  )
+
+  const matched: MatchedIngredient[] = []
+  const remainingNames: string[] = []
+
+  for (const { name, docs } of exactResults) {
+    if (docs.length === 1) {
+      console.log(`[matchIngredients]   "${name}" → EXACT MATCH → "${docs[0].name}" (id: ${docs[0].id})`)
+      matched.push({
+        originalName: name,
+        ingredientId: docs[0].id,
+        matchedName: docs[0].name,
+      })
+    } else {
+      remainingNames.push(name)
+    }
+  }
+
+  console.log(`[matchIngredients] Exact matches: ${matched.length}, remaining for LLM: ${remainingNames.length}`)
+
+  // If all resolved via exact match, skip LLM calls entirely
+  if (remainingNames.length === 0) {
+    console.log('\n[matchIngredients] ── Result ──')
+    console.log(`[matchIngredients] Matched: ${matched.length}, Unmatched: 0 (all exact matches, no LLM calls)`)
+    for (const m of matched) {
+      console.log(`[matchIngredients]   ✓ "${m.originalName}" → "${m.matchedName}" (id: ${m.ingredientId})`)
+    }
+    return { matched, unmatched: [], tokensUsed }
+  }
+
+  // Step 1: Generate search terms via LLM (only for remaining names)
+  const { entries: searchTermEntries, usage: searchTermUsage } = await generateSearchTerms(remainingNames)
+  tokensUsed.promptTokens += searchTermUsage.promptTokens
+  tokensUsed.completionTokens += searchTermUsage.completionTokens
+  tokensUsed.totalTokens += searchTermUsage.totalTokens
 
   // Step 2: Search DB for candidates
   const candidatesByOriginal = await searchIngredients(payload, searchTermEntries)
 
   // Step 3: Classify results
   console.log('\n[matchIngredients] ── Classification ──')
-  const matched: MatchedIngredient[] = []
   const unmatched: string[] = []
   const ambiguous: { original: string; candidates: CandidateInfo[] }[] = []
 
-  for (const name of ingredientNames) {
+  for (const name of remainingNames) {
     const candidates = candidatesByOriginal.get(name) ?? []
 
     if (candidates.length === 0) {
@@ -287,13 +355,17 @@ export async function matchIngredients(
     let selections: Map<string, string | null>
 
     try {
-      selections = await selectMatches(ambiguous)
+      const selectResult = await selectMatches(ambiguous)
+      selections = selectResult.selections
+      tokensUsed.promptTokens += selectResult.usage.promptTokens
+      tokensUsed.completionTokens += selectResult.usage.completionTokens
+      tokensUsed.totalTokens += selectResult.usage.totalTokens
     } catch (error) {
       console.error('LLM match selection failed, treating ambiguous ingredients as unmatched:', error)
       for (const { original } of ambiguous) {
         unmatched.push(original)
       }
-      return { matched, unmatched }
+      return { matched, unmatched, tokensUsed }
     }
 
     for (const { original, candidates } of ambiguous) {
@@ -318,6 +390,7 @@ export async function matchIngredients(
 
   console.log('\n[matchIngredients] ── Result ──')
   console.log(`[matchIngredients] Matched: ${matched.length}, Unmatched: ${unmatched.length}`)
+  console.log(`[matchIngredients] Total tokens used: ${tokensUsed.totalTokens}`)
   for (const m of matched) {
     console.log(`[matchIngredients]   ✓ "${m.originalName}" → "${m.matchedName}" (id: ${m.ingredientId})`)
   }
@@ -325,5 +398,5 @@ export async function matchIngredients(
     console.log(`[matchIngredients]   ✗ "${u}"`)
   }
 
-  return { matched, unmatched }
+  return { matched, unmatched, tokensUsed }
 }

@@ -411,6 +411,10 @@ export interface ProductAggregation {
    * Products that failed to aggregate
    */
   errors?: number | null;
+  /**
+   * Total LLM tokens spent on ingredient matching
+   */
+  tokensUsed?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
   events?: {
@@ -865,6 +869,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
       };
   aggregated?: T;
   errors?: T;
+  tokensUsed?: T;
   startedAt?: T;
   completedAt?: T;
   events?: T;

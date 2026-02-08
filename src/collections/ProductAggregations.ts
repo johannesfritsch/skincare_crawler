@@ -77,7 +77,7 @@ export const ProductAggregations: CollectionConfig = {
                   admin: {
                     readOnly: true,
                     description: 'Products successfully aggregated',
-                    width: '50%',
+                    width: '33%',
                   },
                 },
                 {
@@ -88,7 +88,18 @@ export const ProductAggregations: CollectionConfig = {
                   admin: {
                     readOnly: true,
                     description: 'Products that failed to aggregate',
-                    width: '50%',
+                    width: '33%',
+                  },
+                },
+                {
+                  name: 'tokensUsed',
+                  type: 'number',
+                  label: 'Tokens Used',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'Total LLM tokens spent on ingredient matching',
+                    width: '33%',
                   },
                 },
               ],

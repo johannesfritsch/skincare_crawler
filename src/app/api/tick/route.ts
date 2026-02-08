@@ -1071,6 +1071,7 @@ async function processProductAggregation(
   const lastCheckedSourceId = job.lastCheckedSourceId || 0
   let aggregated = job.aggregated || 0
   let errors = job.errors || 0
+  let tokensUsed = job.tokensUsed || 0
 
   try {
     // Query DmProducts where status='crawled' AND id > lastCheckedSourceId
@@ -1151,6 +1152,7 @@ async function processProductAggregation(
       // Run per-GTIN aggregation logic
       const result = await aggregateProduct(payload, productId, dmProduct)
       processedAggregations++
+      tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {
         aggregated++
@@ -1163,7 +1165,7 @@ async function processProductAggregation(
       await payload.update({
         collection: 'product-aggregations',
         id: jobId,
-        data: { aggregated, errors, lastCheckedSourceId: lastId },
+        data: { aggregated, errors, tokensUsed, lastCheckedSourceId: lastId },
       })
     }
 
@@ -1207,7 +1209,7 @@ async function processProductAggregation(
 async function processProductAggregationSelectedGtins(
   payload: Awaited<ReturnType<typeof getPayload>>,
   jobId: number,
-  job: { aggregated?: number | null; errors?: number | null; gtins?: Array<{ gtin: string }> | null },
+  job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: Array<{ gtin: string }> | null },
   settings: ProductAggregationSettings,
 ) {
   const gtinList = (job.gtins || []).map((g) => g.gtin)
@@ -1232,6 +1234,7 @@ async function processProductAggregationSelectedGtins(
 
   let aggregated = job.aggregated || 0
   let errors = job.errors || 0
+  let tokensUsed = job.tokensUsed || 0
   const _itemsPerTick = settings.itemsPerTick ?? 10
 
   try {
@@ -1287,6 +1290,7 @@ async function processProductAggregationSelectedGtins(
 
       // Run per-GTIN aggregation logic
       const result = await aggregateProduct(payload, productId, dmProduct)
+      tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {
         aggregated++
@@ -1299,7 +1303,7 @@ async function processProductAggregationSelectedGtins(
       await payload.update({
         collection: 'product-aggregations',
         id: jobId,
-        data: { aggregated, errors },
+        data: { aggregated, errors, tokensUsed },
       })
     }
 
