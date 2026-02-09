@@ -115,6 +115,20 @@ export const SourceDiscoveries: CollectionConfig = {
           ],
         },
         {
+          label: 'Output',
+          fields: [
+            {
+              name: 'gtins',
+              type: 'textarea',
+              label: 'Discovered GTINs',
+              admin: {
+                readOnly: true,
+                description: 'Comma-separated list of discovered GTINs',
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {

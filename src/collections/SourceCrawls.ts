@@ -58,19 +58,12 @@ export const SourceCrawls: CollectionConfig = {
             },
             {
               name: 'gtins',
-              type: 'array',
+              type: 'textarea',
               label: 'GTINs',
               admin: {
-                description: 'List of GTINs to crawl',
+                description: 'Comma-separated list of GTINs to crawl',
                 condition: (data) => data?.type === 'selected_gtins',
               },
-              fields: [
-                {
-                  name: 'gtin',
-                  type: 'text',
-                  required: true,
-                },
-              ],
             },
           ],
         },

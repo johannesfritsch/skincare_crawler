@@ -343,6 +343,10 @@ export interface SourceDiscovery {
   existing?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /**
+   * Comma-separated list of discovered GTINs
+   */
+  gtins?: string | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -361,14 +365,9 @@ export interface SourceCrawl {
   source: 'all' | 'dm';
   type: 'all' | 'selected_gtins';
   /**
-   * List of GTINs to crawl
+   * Comma-separated list of GTINs to crawl
    */
-  gtins?:
-    | {
-        gtin: string;
-        id?: string | null;
-      }[]
-    | null;
+  gtins?: string | null;
   /**
    * Products successfully crawled
    */
@@ -396,14 +395,9 @@ export interface ProductAggregation {
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   type: 'all' | 'selected_gtins';
   /**
-   * List of GTINs to aggregate
+   * Comma-separated list of GTINs to aggregate
    */
-  gtins?:
-    | {
-        gtin: string;
-        id?: string | null;
-      }[]
-    | null;
+  gtins?: string | null;
   /**
    * Products successfully aggregated
    */
@@ -839,6 +833,7 @@ export interface SourceDiscoveriesSelect<T extends boolean = true> {
   existing?: T;
   startedAt?: T;
   completedAt?: T;
+  gtins?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -851,12 +846,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   status?: T;
   source?: T;
   type?: T;
-  gtins?:
-    | T
-    | {
-        gtin?: T;
-        id?: T;
-      };
+  gtins?: T;
   crawled?: T;
   errors?: T;
   startedAt?: T;
@@ -872,12 +862,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
 export interface ProductAggregationsSelect<T extends boolean = true> {
   status?: T;
   type?: T;
-  gtins?:
-    | T
-    | {
-        gtin?: T;
-        id?: T;
-      };
+  gtins?: T;
   aggregated?: T;
   errors?: T;
   tokensUsed?: T;

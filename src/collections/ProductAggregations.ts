@@ -47,19 +47,12 @@ export const ProductAggregations: CollectionConfig = {
             },
             {
               name: 'gtins',
-              type: 'array',
+              type: 'textarea',
               label: 'GTINs',
               admin: {
-                description: 'List of GTINs to aggregate',
+                description: 'Comma-separated list of GTINs to aggregate',
                 condition: (data) => data?.type === 'selected_gtins',
               },
-              fields: [
-                {
-                  name: 'gtin',
-                  type: 'text',
-                  required: true,
-                },
-              ],
             },
           ],
         },

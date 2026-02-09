@@ -587,13 +587,15 @@ async function processSourceDiscovery(
       })
     }
 
-    // Mark as completed
+    // Mark as completed, output discovered GTINs
+    const discoveredGtins = products.map((p) => p.gtin).join(',')
     await payload.update({
       collection: 'source-discoveries',
       id: discoveryId,
       data: {
         status: 'completed',
         completedAt: new Date().toISOString(),
+        gtins: discoveredGtins,
       },
     })
 
@@ -686,7 +688,9 @@ async function processSourceCrawl(
 
   // Parse GTINs for selected_gtins mode
   const isSelectedGtins = crawl.type === 'selected_gtins'
-  const gtinList = isSelectedGtins ? (crawl.gtins || []).map((g) => g.gtin) : undefined
+  const gtinList = isSelectedGtins
+    ? (crawl.gtins || '').split(',').map((g) => g.trim()).filter(Boolean)
+    : undefined
 
   console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, gtins=${gtinList ? gtinList.join(',') : 'all'}`)
 
@@ -1012,10 +1016,10 @@ async function processProductAggregation(
 async function processProductAggregationSelectedGtins(
   payload: Awaited<ReturnType<typeof getPayload>>,
   jobId: number,
-  job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: Array<{ gtin: string }> | null },
+  job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: string | null },
   settings: ProductAggregationSettings,
 ) {
-  const gtinList = (job.gtins || []).map((g) => g.gtin)
+  const gtinList = (job.gtins || '').split(',').map((g) => g.trim()).filter(Boolean)
 
   console.log(`[Product Aggregation] Selected GTINs mode: ${gtinList.length} GTINs`)
 
