@@ -101,6 +101,7 @@ export const SourceCrawls: CollectionConfig = {
                   label: 'Unit',
                   defaultValue: 'days',
                   options: [
+                    { label: 'Minutes', value: 'minutes' },
                     { label: 'Hours', value: 'hours' },
                     { label: 'Days', value: 'days' },
                     { label: 'Weeks', value: 'weeks' },
@@ -171,6 +172,21 @@ export const SourceCrawls: CollectionConfig = {
                   },
                 },
               ],
+            },
+          ],
+        },
+        {
+          label: 'Pacing',
+          fields: [
+            {
+              name: 'itemsPerTick',
+              type: 'number',
+              label: 'Items Per Tick',
+              defaultValue: 10,
+              min: 1,
+              admin: {
+                description: 'Number of products to crawl per tick.',
+              },
             },
           ],
         },

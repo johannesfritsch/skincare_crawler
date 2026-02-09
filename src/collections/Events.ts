@@ -18,9 +18,11 @@ export const Events: CollectionConfig = {
       required: true,
       defaultValue: 'error',
       options: [
-        { label: 'Error', value: 'error' },
-        { label: 'Warning', value: 'warning' },
+        { label: 'Start', value: 'start' },
+        { label: 'Success', value: 'success' },
         { label: 'Info', value: 'info' },
+        { label: 'Warning', value: 'warning' },
+        { label: 'Error', value: 'error' },
       ],
       index: true,
     },

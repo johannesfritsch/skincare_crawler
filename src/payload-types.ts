@@ -282,6 +282,10 @@ export interface IngredientsDiscovery {
     | number
     | boolean
     | null;
+  /**
+   * Max pages to process per tick. Leave empty for unlimited.
+   */
+  pagesPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -296,7 +300,7 @@ export interface IngredientsDiscovery {
  */
 export interface Event {
   id: number;
-  type: 'error' | 'warning' | 'info';
+  type: 'start' | 'success' | 'info' | 'warning' | 'error';
   message: string;
   job?:
     | ({
@@ -347,6 +351,10 @@ export interface SourceDiscovery {
    * Comma-separated list of discovered GTINs
    */
   gtins?: string | null;
+  /**
+   * Max products to save per tick. Leave empty for unlimited.
+   */
+  itemsPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -376,7 +384,7 @@ export interface SourceCrawl {
    * Only re-crawl products older than this. Leave empty to re-crawl all.
    */
   minCrawlAge?: number | null;
-  minCrawlAgeUnit?: ('hours' | 'days' | 'weeks') | null;
+  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
   /**
    * Products successfully crawled
    */
@@ -387,6 +395,10 @@ export interface SourceCrawl {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /**
+   * Number of products to crawl per tick.
+   */
+  itemsPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -421,6 +433,10 @@ export interface ProductAggregation {
   tokensUsed?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /**
+   * Number of products to aggregate per tick.
+   */
+  itemsPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -769,6 +785,7 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   termQueue?: T;
+  pagesPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -843,6 +860,7 @@ export interface SourceDiscoveriesSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   gtins?: T;
+  itemsPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -863,6 +881,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
+  itemsPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -880,6 +899,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   tokensUsed?: T;
   startedAt?: T;
   completedAt?: T;
+  itemsPerTick?: T;
   events?: T;
   lastCheckedSourceId?: T;
   updatedAt?: T;

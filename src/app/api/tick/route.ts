@@ -9,247 +9,69 @@ import { aggregateProduct } from '@/lib/aggregate-product'
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
-// Job types
-type JobType = 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation'
-const ALL_JOB_TYPES: JobType[] = ['ingredients-discovery', 'source-discovery', 'source-crawl', 'product-aggregation']
-
-// Settings interfaces for each job type
-interface IngredientsDiscoverySettings {
-  pagesPerTick?: number  // Optional: limit pages processed per tick
-  maxDurationMs?: number // Optional: limit execution time (for serverless)
-}
-
-interface SourceDiscoverySettings {
-  maxDurationMs?: number // Optional: limit execution time (for serverless)
-}
-
-interface SourceCrawlSettings {
-  itemsPerTick?: number   // Default: 10
-  maxDurationMs?: number  // Optional: limit execution time (for serverless)
-}
-
-interface ProductAggregationSettings {
-  itemsPerTick?: number   // Default: 10
-  maxDurationMs?: number  // Optional: limit execution time (for serverless)
-}
-
-type JobSettings = {
-  'ingredients-discovery': IngredientsDiscoverySettings
-  'source-discovery': SourceDiscoverySettings
-  'source-crawl': SourceCrawlSettings
-  'product-aggregation': ProductAggregationSettings
-}
-
-// Default settings
-const DEFAULT_SETTINGS: JobSettings = {
-  'ingredients-discovery': {},
-  'source-discovery': {},
-  'source-crawl': { itemsPerTick: 10 },
-  'product-aggregation': { itemsPerTick: 10 },
-}
-
 interface ActiveJob {
-  type: JobType
+  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation'
   id: number
   status: string
-  crawlType?: string // 'all' | 'selected_gtins' for source-crawl jobs
-  aggregationType?: string // 'all' | 'selected_gtins' for product-aggregation jobs
+  crawlType?: string
+  aggregationType?: string
 }
 
-// Parse and validate settings from request body
-function parseSettings(body: Record<string, unknown>): {
-  enabledTypes: JobType[]
-  settings: JobSettings
-} {
-  // If no types specified, enable all with defaults
-  if (!body.types || typeof body.types !== 'object') {
-    return { enabledTypes: ALL_JOB_TYPES, settings: DEFAULT_SETTINGS }
-  }
+type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations'
+type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 
-  const typesObj = body.types as Record<string, unknown>
-  const enabledTypes: JobType[] = []
-  const settings: JobSettings = { ...DEFAULT_SETTINGS }
-
-  for (const type of ALL_JOB_TYPES) {
-    if (type in typesObj) {
-      enabledTypes.push(type)
-      const typeSettings = typesObj[type]
-      if (typeSettings && typeof typeSettings === 'object') {
-        settings[type] = { ...DEFAULT_SETTINGS[type], ...typeSettings } as JobSettings[typeof type]
-      }
-    }
-  }
-
-  // If types object was provided but empty or had no valid types, return empty
-  if (enabledTypes.length === 0 && Object.keys(typesObj).length > 0) {
-    return { enabledTypes: [], settings }
-  }
-
-  // If types object was empty {}, enable all
-  if (enabledTypes.length === 0) {
-    return { enabledTypes: ALL_JOB_TYPES, settings: DEFAULT_SETTINGS }
-  }
-
-  return { enabledTypes, settings }
-}
-
-async function createErrorEvent(
+async function createEvent(
   payload: Awaited<ReturnType<typeof getPayload>>,
-  jobCollection: 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations',
+  type: EventType,
+  jobCollection: JobCollection,
   jobId: number,
   message: string,
 ) {
   try {
     await payload.create({
       collection: 'events',
-      data: { type: 'error', message, job: { relationTo: jobCollection, value: jobId } },
+      data: { type, message, job: { relationTo: jobCollection, value: jobId } },
     })
   } catch (e) {
-    console.error('Failed to create error event:', e)
+    console.error('Failed to create event:', e)
   }
 }
 
-export const POST = async (request: Request) => {
-  const startTime = Date.now()
+export const POST = async () => {
   const payload = await getPayload({ config: configPromise })
 
-  // Parse request body for types and settings
-  let enabledTypes: JobType[] = ALL_JOB_TYPES
-  let settings: JobSettings = DEFAULT_SETTINGS
-
-  try {
-    const body = await request.json().catch(() => ({}))
-    const parsed = parseSettings(body)
-    enabledTypes = parsed.enabledTypes
-    settings = parsed.settings
-  } catch {
-    // No body or invalid JSON, use all types with defaults
-  }
-
-  // Find active jobs only for enabled types
+  // Find active jobs across all types
   const activeJobs: ActiveJob[] = []
 
-  if (enabledTypes.includes('ingredients-discovery')) {
-    const [inProgress, pending] = await Promise.all([
-      payload.find({
-        collection: 'ingredients-discoveries',
-        where: { status: { equals: 'in_progress' } },
-        limit: 10,
-      }),
-      payload.find({
-        collection: 'ingredients-discoveries',
-        where: { status: { equals: 'pending' } },
-        limit: 10,
-        sort: 'createdAt',
-      }),
-    ])
-    activeJobs.push(
-      ...inProgress.docs.map((d) => ({
-        type: 'ingredients-discovery' as const,
-        id: d.id,
-        status: d.status!,
-      })),
-      ...pending.docs.map((d) => ({
-        type: 'ingredients-discovery' as const,
-        id: d.id,
-        status: d.status!,
-      })),
-    )
-  }
+  const [
+    ingredientsInProgress, ingredientsPending,
+    sourceDiscInProgress, sourceDiscPending,
+    crawlInProgress, crawlPending,
+    aggInProgress, aggPending,
+  ] = await Promise.all([
+    payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'source-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'source-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'source-crawls', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'source-crawls', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'product-aggregations', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'product-aggregations', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+  ])
 
-  if (enabledTypes.includes('source-discovery')) {
-    const [inProgress, pending] = await Promise.all([
-      payload.find({
-        collection: 'source-discoveries',
-        where: { status: { equals: 'in_progress' } },
-        limit: 10,
-      }),
-      payload.find({
-        collection: 'source-discoveries',
-        where: { status: { equals: 'pending' } },
-        limit: 10,
-        sort: 'createdAt',
-      }),
-    ])
-    activeJobs.push(
-      ...inProgress.docs.map((d) => ({
-        type: 'source-discovery' as const,
-        id: d.id,
-        status: d.status!,
-      })),
-      ...pending.docs.map((d) => ({
-        type: 'source-discovery' as const,
-        id: d.id,
-        status: d.status!,
-      })),
-    )
-  }
-
-  if (enabledTypes.includes('source-crawl')) {
-    const [inProgress, pending] = await Promise.all([
-      payload.find({
-        collection: 'source-crawls',
-        where: { status: { equals: 'in_progress' } },
-        limit: 10,
-      }),
-      payload.find({
-        collection: 'source-crawls',
-        where: { status: { equals: 'pending' } },
-        limit: 10,
-        sort: 'createdAt',
-      }),
-    ])
-    activeJobs.push(
-      ...inProgress.docs.map((d) => ({
-        type: 'source-crawl' as const,
-        id: d.id,
-        status: d.status!,
-        crawlType: d.type || 'all',
-      })),
-      ...pending.docs.map((d) => ({
-        type: 'source-crawl' as const,
-        id: d.id,
-        status: d.status!,
-        crawlType: d.type || 'all',
-      })),
-    )
-  }
-
-  if (enabledTypes.includes('product-aggregation')) {
-    const [inProgress, pending] = await Promise.all([
-      payload.find({
-        collection: 'product-aggregations',
-        where: { status: { equals: 'in_progress' } },
-        limit: 10,
-      }),
-      payload.find({
-        collection: 'product-aggregations',
-        where: { status: { equals: 'pending' } },
-        limit: 10,
-        sort: 'createdAt',
-      }),
-    ])
-    activeJobs.push(
-      ...inProgress.docs.map((d) => ({
-        type: 'product-aggregation' as const,
-        id: d.id,
-        status: d.status!,
-        aggregationType: d.type || 'all',
-      })),
-      ...pending.docs.map((d) => ({
-        type: 'product-aggregation' as const,
-        id: d.id,
-        status: d.status!,
-        aggregationType: d.type || 'all',
-      })),
-    )
-  }
+  activeJobs.push(
+    ...ingredientsInProgress.docs.map((d) => ({ type: 'ingredients-discovery' as const, id: d.id, status: d.status! })),
+    ...ingredientsPending.docs.map((d) => ({ type: 'ingredients-discovery' as const, id: d.id, status: d.status! })),
+    ...sourceDiscInProgress.docs.map((d) => ({ type: 'source-discovery' as const, id: d.id, status: d.status! })),
+    ...sourceDiscPending.docs.map((d) => ({ type: 'source-discovery' as const, id: d.id, status: d.status! })),
+    ...crawlInProgress.docs.map((d) => ({ type: 'source-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
+    ...crawlPending.docs.map((d) => ({ type: 'source-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
+    ...aggInProgress.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
+    ...aggPending.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
+  )
 
   if (activeJobs.length === 0) {
-    return Response.json({
-      message: 'No pending jobs',
-      enabledTypes: enabledTypes.length < ALL_JOB_TYPES.length ? enabledTypes : undefined,
-    })
+    return Response.json({ message: 'No pending jobs' })
   }
 
   // Prioritize selected_gtins jobs, otherwise random
@@ -262,31 +84,28 @@ export const POST = async (request: Request) => {
     : activeJobs[Math.floor(Math.random() * activeJobs.length)]
 
   if (selected.type === 'ingredients-discovery') {
-    return processIngredientsDiscovery(payload, selected.id, startTime, settings['ingredients-discovery'])
+    return processIngredientsDiscovery(payload, selected.id)
   } else if (selected.type === 'source-discovery') {
-    return processSourceDiscovery(payload, selected.id, settings['source-discovery'])
+    return processSourceDiscovery(payload, selected.id)
   } else if (selected.type === 'product-aggregation') {
-    return processProductAggregation(payload, selected.id, startTime, settings['product-aggregation'])
+    return processProductAggregation(payload, selected.id)
   } else {
-    return processSourceCrawl(payload, selected.id, startTime, settings['source-crawl'])
+    return processSourceCrawl(payload, selected.id)
   }
 }
 
 async function processIngredientsDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
-  startTime: number,
-  settings: IngredientsDiscoverySettings,
 ) {
-  const pagesPerTick = settings.pagesPerTick // undefined = no limit
-  const maxDurationMs = settings.maxDurationMs // undefined = no limit
-  let pagesProcessed = 0
-  console.log(`[Ingredients Discovery] Starting with pagesPerTick: ${pagesPerTick ?? 'unlimited'}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
-
   let discovery = await payload.findByID({
     collection: 'ingredients-discoveries',
     id: discoveryId,
   })
+
+  const pagesPerTick = discovery.pagesPerTick ?? undefined
+  let pagesProcessed = 0
+  console.log(`[Ingredients Discovery] Starting with pagesPerTick: ${pagesPerTick ?? 'unlimited'}`)
 
   const driver = getIngredientsDriver(discovery.sourceUrl)
   if (!driver) {
@@ -299,7 +118,7 @@ async function processIngredientsDiscovery(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'ingredients-discoveries', discoveryId, errorMsg)
+    await createEvent(payload, 'error', 'ingredients-discoveries', discoveryId, errorMsg)
     return Response.json({
       error: errorMsg,
       jobId: discoveryId,
@@ -319,6 +138,7 @@ async function processIngredientsDiscovery(
         startedAt: new Date().toISOString(),
       },
     })
+    await createEvent(payload, 'start', 'ingredients-discoveries', discoveryId, `Started ingredients discovery for ${discovery.sourceUrl}`)
     discovery = await payload.findByID({
       collection: 'ingredients-discoveries',
       id: discoveryId,
@@ -342,10 +162,6 @@ async function processIngredientsDiscovery(
         console.log(`[Ingredients Discovery] Stopping: pagesPerTick (${pagesPerTick}) reached`)
         break
       }
-      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-        console.log(`[Ingredients Discovery] Stopping: maxDurationMs (${maxDurationMs}ms) reached`)
-        break
-      }
       // If no current term, get next from queue
       if (!currentTerm) {
         if (termQueue.length === 0) {
@@ -362,6 +178,7 @@ async function processIngredientsDiscovery(
               completedAt: new Date().toISOString(),
             },
           })
+          await createEvent(payload, 'success', 'ingredients-discoveries', discoveryId, `Completed: ${discovered} discovered, ${created} created, ${existing} existing, ${errors} errors`)
           return Response.json({
             message: 'Discovery completed',
             jobId: discoveryId,
@@ -430,7 +247,7 @@ async function processIngredientsDiscovery(
       }
     }
 
-    // Time's up, save final state
+    // Tick limit reached, save final state
     await payload.update({
       collection: 'ingredients-discoveries',
       id: discoveryId,
@@ -471,7 +288,7 @@ async function processIngredientsDiscovery(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'ingredients-discoveries', discoveryId, errorMsg)
+    await createEvent(payload, 'error', 'ingredients-discoveries', discoveryId, errorMsg)
 
     return Response.json({
       error: errorMsg,
@@ -484,12 +301,14 @@ async function processIngredientsDiscovery(
 async function processSourceDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
-  _settings: SourceDiscoverySettings,
 ) {
   const discovery = await payload.findByID({
     collection: 'source-discoveries',
     id: discoveryId,
   })
+
+  const itemsPerTick = discovery.itemsPerTick ?? undefined
+  console.log(`[Source Discovery] Starting with itemsPerTick: ${itemsPerTick ?? 'unlimited'}`)
 
   const driver = getSourceDriver(discovery.sourceUrl)
   if (!driver) {
@@ -502,7 +321,7 @@ async function processSourceDiscovery(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'source-discoveries', discoveryId, errorMsg)
+    await createEvent(payload, 'error', 'source-discoveries', discoveryId, errorMsg)
     return Response.json({
       error: errorMsg,
       jobId: discoveryId,
@@ -510,21 +329,24 @@ async function processSourceDiscovery(
     }, { status: 400 })
   }
 
-  // Mark as in_progress
-  await payload.update({
-    collection: 'source-discoveries',
-    id: discoveryId,
-    data: {
-      status: 'in_progress',
-      startedAt: new Date().toISOString(),
-    },
-  })
+  // Mark as in_progress if pending
+  if (discovery.status === 'pending') {
+    await payload.update({
+      collection: 'source-discoveries',
+      id: discoveryId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    await createEvent(payload, 'start', 'source-discoveries', discoveryId, `Started source discovery for ${discovery.sourceUrl}`)
+  }
 
   try {
-    // Discover all products via API
+    // Discover all products via API (fast, idempotent)
     const { products } = await driver.discoverProducts(discovery.sourceUrl)
 
-    // Update discovered count immediately
+    // Update discovered count
     await payload.update({
       collection: 'source-discoveries',
       id: discoveryId,
@@ -533,11 +355,16 @@ async function processSourceDiscovery(
       },
     })
 
-    // Create or update DmProducts with discovery data
-    let created = 0
-    let existing = 0
+    // Calculate offset from already-processed count
+    let created = discovery.created || 0
+    let existing = discovery.existing || 0
+    const offset = created + existing
 
-    for (const product of products) {
+    // Determine slice to process this tick
+    const end = itemsPerTick ? Math.min(offset + itemsPerTick, products.length) : products.length
+    const batch = products.slice(offset, end)
+
+    for (const product of batch) {
       const existingProduct = await payload.find({
         collection: 'dm-products',
         where: { gtin: { equals: product.gtin } },
@@ -587,25 +414,39 @@ async function processSourceDiscovery(
       })
     }
 
-    // Mark as completed, output discovered GTINs
-    const discoveredGtins = products.map((p) => p.gtin).join(',')
-    await payload.update({
-      collection: 'source-discoveries',
-      id: discoveryId,
-      data: {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-        gtins: discoveredGtins,
-      },
-    })
+    // Check if all products processed
+    if (created + existing >= products.length) {
+      const discoveredGtins = products.map((p) => p.gtin).join(',')
+      await payload.update({
+        collection: 'source-discoveries',
+        id: discoveryId,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          gtins: discoveredGtins,
+        },
+      })
+      await createEvent(payload, 'success', 'source-discoveries', discoveryId, `Completed: ${products.length} discovered, ${created} created, ${existing} existing`)
 
+      return Response.json({
+        message: 'Discovery completed',
+        jobId: discoveryId,
+        type: 'source-discovery',
+        discovered: products.length,
+        created,
+        existing,
+      })
+    }
+
+    // More products remaining, stay in_progress
     return Response.json({
-      message: 'Discovery completed',
+      message: 'Tick completed',
       jobId: discoveryId,
       type: 'source-discovery',
       discovered: products.length,
       created,
       existing,
+      remaining: products.length - (created + existing),
     })
   } catch (error) {
     console.error('Source discovery error:', error)
@@ -619,7 +460,7 @@ async function processSourceDiscovery(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'source-discoveries', discoveryId, errorMsg)
+    await createEvent(payload, 'error', 'source-discoveries', discoveryId, errorMsg)
 
     return Response.json({
       error: errorMsg,
@@ -632,17 +473,14 @@ async function processSourceDiscovery(
 async function processSourceCrawl(
   payload: Awaited<ReturnType<typeof getPayload>>,
   crawlId: number,
-  startTime: number,
-  settings: SourceCrawlSettings,
 ) {
-  const itemsPerTick = settings.itemsPerTick ?? 10
-  const maxDurationMs = settings.maxDurationMs
-  console.log(`[Source Crawl] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
-
   let crawl = await payload.findByID({
     collection: 'source-crawls',
     id: crawlId,
   })
+
+  const itemsPerTick = crawl.itemsPerTick ?? 10
+  console.log(`[Source Crawl] Starting with itemsPerTick: ${itemsPerTick}`)
 
   // Initialize if pending
   const isFirstTick = crawl.status === 'pending'
@@ -655,6 +493,7 @@ async function processSourceCrawl(
         startedAt: new Date().toISOString(),
       },
     })
+    await createEvent(payload, 'start', 'source-crawls', crawlId, `Started source crawl (source=${crawl.source || 'all'}, type=${crawl.type || 'all'}, scope=${crawl.scope ?? 'uncrawled_only'})`)
     crawl = await payload.findByID({
       collection: 'source-crawls',
       id: crawlId,
@@ -675,7 +514,7 @@ async function processSourceCrawl(
         id: crawlId,
         data: { status: 'failed', completedAt: new Date().toISOString() },
       })
-      await createErrorEvent(payload, 'source-crawls', crawlId, `No driver found for source: ${resolvedSource}`)
+      await createEvent(payload, 'error', 'source-crawls', crawlId, `No driver found for source: ${resolvedSource}`)
       return Response.json({
         error: `No driver found for source: ${resolvedSource}`,
         jobId: crawlId,
@@ -715,7 +554,7 @@ async function processSourceCrawl(
   if (isFirstTick && scope === 'recrawl') {
     let crawledBefore: Date | undefined
     if (minCrawlAge && minCrawlAgeUnit) {
-      const multipliers: Record<string, number> = { hours: 3600000, days: 86400000, weeks: 604800000 }
+      const multipliers: Record<string, number> = { minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }
       crawledBefore = new Date(Date.now() - minCrawlAge * (multipliers[minCrawlAgeUnit] ?? 86400000))
       console.log(`[Source Crawl] Re-crawl with minCrawlAge: ${minCrawlAge} ${minCrawlAgeUnit} (crawledBefore: ${crawledBefore.toISOString()})`)
     }
@@ -733,7 +572,6 @@ async function processSourceCrawl(
   try {
     for (const driver of drivers) {
       if (remainingBudget <= 0) break
-      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) break
 
       const products = await driver.findUncrawledProducts(payload, {
         gtins: gtinList,
@@ -752,11 +590,6 @@ async function processSourceCrawl(
 
       try {
         for (const product of products) {
-          if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-            console.log(`[Source Crawl] [${driver.slug}] Stopping: maxDurationMs reached after ${processedThisTick} products`)
-            break
-          }
-
           const productId = await driver.crawlProduct(
             page,
             product.gtin,
@@ -807,6 +640,7 @@ async function processSourceCrawl(
           completedAt: new Date().toISOString(),
         },
       })
+      await createEvent(payload, 'success', 'source-crawls', crawlId, `Completed: ${crawled} crawled, ${errors} errors`)
 
       return Response.json({
         message: 'Crawl completed',
@@ -838,7 +672,7 @@ async function processSourceCrawl(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'source-crawls', crawlId, errorMsg)
+    await createEvent(payload, 'error', 'source-crawls', crawlId, errorMsg)
 
     return Response.json({
       error: errorMsg,
@@ -851,17 +685,14 @@ async function processSourceCrawl(
 async function processProductAggregation(
   payload: Awaited<ReturnType<typeof getPayload>>,
   jobId: number,
-  startTime: number,
-  settings: ProductAggregationSettings,
 ) {
-  const itemsPerTick = settings.itemsPerTick ?? 10
-  const maxDurationMs = settings.maxDurationMs
-  console.log(`[Product Aggregation] Starting with itemsPerTick: ${itemsPerTick}, maxDurationMs: ${maxDurationMs ?? 'unlimited'}`)
-
   let job = await payload.findByID({
     collection: 'product-aggregations',
     id: jobId,
   })
+
+  const itemsPerTick = job.itemsPerTick ?? 10
+  console.log(`[Product Aggregation] Starting with itemsPerTick: ${itemsPerTick}`)
 
   // Initialize if pending
   if (job.status === 'pending') {
@@ -873,6 +704,7 @@ async function processProductAggregation(
         startedAt: new Date().toISOString(),
       },
     })
+    await createEvent(payload, 'start', 'product-aggregations', jobId, `Started product aggregation (type=${job.type || 'all'})`)
     job = await payload.findByID({
       collection: 'product-aggregations',
       id: jobId,
@@ -881,7 +713,7 @@ async function processProductAggregation(
 
   // Branch based on type
   if (job.type === 'selected_gtins') {
-    return processProductAggregationSelectedGtins(payload, jobId, job, settings)
+    return processProductAggregationSelectedGtins(payload, jobId, job)
   }
 
   // Default: aggregate all non-aggregated products
@@ -914,6 +746,7 @@ async function processProductAggregation(
           completedAt: new Date().toISOString(),
         },
       })
+      await createEvent(payload, 'success', 'product-aggregations', jobId, `Completed: ${aggregated} aggregated, ${errors} errors`)
       return Response.json({
         message: 'Aggregation completed - no more sources to process',
         jobId,
@@ -928,10 +761,6 @@ async function processProductAggregation(
 
     for (const dmProduct of dmProducts.docs) {
       if (processedAggregations >= itemsPerTick) break
-      if (maxDurationMs && Date.now() - startTime >= maxDurationMs) {
-        console.log(`[Product Aggregation] Stopping: maxDurationMs (${maxDurationMs}ms) reached`)
-        break
-      }
 
       lastId = dmProduct.id
 
@@ -975,7 +804,7 @@ async function processProductAggregation(
         aggregated++
       } else {
         errors++
-        await createErrorEvent(payload, 'product-aggregations', jobId, `GTIN ${dmProduct.gtin}: ${result.error}`)
+        await createEvent(payload, 'error', 'product-aggregations', jobId, `GTIN ${dmProduct.gtin}: ${result.error}`)
       }
 
       // Update progress
@@ -1013,7 +842,7 @@ async function processProductAggregation(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'product-aggregations', jobId, errorMsg)
+    await createEvent(payload, 'error', 'product-aggregations', jobId, errorMsg)
 
     return Response.json({
       error: errorMsg,
@@ -1027,7 +856,6 @@ async function processProductAggregationSelectedGtins(
   payload: Awaited<ReturnType<typeof getPayload>>,
   jobId: number,
   job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: string | null },
-  settings: ProductAggregationSettings,
 ) {
   const gtinList = (job.gtins || '').split(',').map((g) => g.trim()).filter(Boolean)
 
@@ -1052,7 +880,6 @@ async function processProductAggregationSelectedGtins(
   let aggregated = job.aggregated || 0
   let errors = job.errors || 0
   let tokensUsed = job.tokensUsed || 0
-  const _itemsPerTick = settings.itemsPerTick ?? 10
 
   try {
     for (const gtin of gtinList) {
@@ -1113,7 +940,7 @@ async function processProductAggregationSelectedGtins(
         aggregated++
       } else {
         errors++
-        await createErrorEvent(payload, 'product-aggregations', jobId, `GTIN ${gtin}: ${result.error}`)
+        await createEvent(payload, 'error', 'product-aggregations', jobId, `GTIN ${gtin}: ${result.error}`)
       }
 
       // Update progress
@@ -1133,6 +960,7 @@ async function processProductAggregationSelectedGtins(
         completedAt: new Date().toISOString(),
       },
     })
+    await createEvent(payload, 'success', 'product-aggregations', jobId, `Completed: ${aggregated} aggregated, ${errors} errors`)
 
     return Response.json({
       message: 'Aggregation completed',
@@ -1153,7 +981,7 @@ async function processProductAggregationSelectedGtins(
         completedAt: new Date().toISOString(),
       },
     })
-    await createErrorEvent(payload, 'product-aggregations', jobId, errorMsg)
+    await createEvent(payload, 'error', 'product-aggregations', jobId, errorMsg)
 
     return Response.json({
       error: errorMsg,
@@ -1164,108 +992,5 @@ async function processProductAggregationSelectedGtins(
 }
 
 export const GET = async () => {
-  return Response.json({
-    message: 'Tick API',
-    usage: 'POST /api/tick',
-    description: 'Processes pending jobs incrementally. Call repeatedly via cron.',
-    parameters: {
-      types: {
-        type: 'object',
-        optional: true,
-        description: 'Object where keys are job types to enable, and values are settings for that type. If omitted, all types run with default settings.',
-      },
-    },
-    jobTypes: {
-      'ingredients-discovery': {
-        collection: 'ingredients-discoveries',
-        description: 'Discovers ingredients from CosIng API',
-        settings: {
-          pagesPerTick: {
-            type: 'number',
-            optional: true,
-            description: 'Limit pages processed per tick.',
-          },
-          maxDurationMs: {
-            type: 'number',
-            optional: true,
-            description: 'Limit execution time (ms). For serverless environments with timeouts.',
-          },
-        },
-      },
-      'source-discovery': {
-        collection: 'source-discoveries',
-        description: 'Discovers products from category pages, creates DmProducts with status "uncrawled"',
-        settings: {
-          maxDurationMs: {
-            type: 'number',
-            optional: true,
-            description: 'Limit execution time (ms). For serverless environments with timeouts.',
-          },
-        },
-      },
-      'source-crawl': {
-        collection: 'source-crawls',
-        description: 'Crawls uncrawled DmProducts, adds full details (price, ingredients, etc.)',
-        settings: {
-          itemsPerTick: {
-            type: 'number',
-            default: 10,
-            description: 'Number of products to crawl per tick',
-          },
-          maxDurationMs: {
-            type: 'number',
-            optional: true,
-            description: 'Limit execution time (ms). For serverless environments with timeouts.',
-          },
-        },
-      },
-      'product-aggregation': {
-        collection: 'product-aggregations',
-        description: 'Aggregates data from DmProducts into Products, matches ingredients via LLM',
-        settings: {
-          itemsPerTick: {
-            type: 'number',
-            default: 10,
-            description: 'Number of products to aggregate per tick',
-          },
-          maxDurationMs: {
-            type: 'number',
-            optional: true,
-            description: 'Limit execution time (ms). For serverless environments with timeouts.',
-          },
-        },
-      },
-    },
-    examples: [
-      {
-        description: 'Process any pending job with defaults',
-        body: {},
-      },
-      {
-        description: 'Process only source-discovery',
-        body: {
-          types: {
-            'source-discovery': {},
-          },
-        },
-      },
-      {
-        description: 'Process only source-crawl with custom items per tick',
-        body: {
-          types: {
-            'source-crawl': { itemsPerTick: 20 },
-          },
-        },
-      },
-      {
-        description: 'Process multiple types with mixed settings',
-        body: {
-          types: {
-            'source-discovery': {},
-            'source-crawl': { itemsPerTick: 5 },
-          },
-        },
-      },
-    ],
-  })
+  return Response.json({ message: 'POST /api/tick to process pending jobs' })
 }

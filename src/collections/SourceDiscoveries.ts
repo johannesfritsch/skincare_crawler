@@ -129,6 +129,20 @@ export const SourceDiscoveries: CollectionConfig = {
           ],
         },
         {
+          label: 'Pacing',
+          fields: [
+            {
+              name: 'itemsPerTick',
+              type: 'number',
+              label: 'Items Per Tick',
+              min: 1,
+              admin: {
+                description: 'Max products to save per tick. Leave empty for unlimited.',
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {

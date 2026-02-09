@@ -129,6 +129,21 @@ export const ProductAggregations: CollectionConfig = {
           ],
         },
         {
+          label: 'Pacing',
+          fields: [
+            {
+              name: 'itemsPerTick',
+              type: 'number',
+              label: 'Items Per Tick',
+              defaultValue: 10,
+              min: 1,
+              admin: {
+                description: 'Number of products to aggregate per tick.',
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {

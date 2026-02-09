@@ -168,6 +168,20 @@ export const IngredientsDiscoveries: CollectionConfig = {
           ],
         },
         {
+          label: 'Pacing',
+          fields: [
+            {
+              name: 'pagesPerTick',
+              type: 'number',
+              label: 'Pages Per Tick',
+              min: 1,
+              admin: {
+                description: 'Max pages to process per tick. Leave empty for unlimited.',
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {
