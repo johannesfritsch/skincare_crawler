@@ -369,6 +369,15 @@ export interface SourceCrawl {
    */
   gtins?: string | null;
   /**
+   * Uncrawled Only skips already-crawled products. Re-crawl includes them.
+   */
+  scope: 'uncrawled_only' | 'recrawl';
+  /**
+   * Only re-crawl products older than this. Leave empty to re-crawl all.
+   */
+  minCrawlAge?: number | null;
+  minCrawlAgeUnit?: ('hours' | 'days' | 'weeks') | null;
+  /**
    * Products successfully crawled
    */
   crawled?: number | null;
@@ -847,6 +856,9 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   source?: T;
   type?: T;
   gtins?: T;
+  scope?: T;
+  minCrawlAge?: T;
+  minCrawlAgeUnit?: T;
   crawled?: T;
   errors?: T;
   startedAt?: T;

@@ -48,11 +48,11 @@ export const SourceCrawls: CollectionConfig = {
             {
               name: 'type',
               type: 'select',
-              label: 'Type',
+              label: 'Products',
               required: true,
               defaultValue: 'all',
               options: [
-                { label: 'All Uncrawled', value: 'all' },
+                { label: 'All Products', value: 'all' },
                 { label: 'Selected GTINs', value: 'selected_gtins' },
               ],
             },
@@ -64,6 +64,52 @@ export const SourceCrawls: CollectionConfig = {
                 description: 'Comma-separated list of GTINs to crawl',
                 condition: (data) => data?.type === 'selected_gtins',
               },
+            },
+            {
+              name: 'scope',
+              type: 'select',
+              label: 'Scope',
+              required: true,
+              defaultValue: 'uncrawled_only',
+              options: [
+                { label: 'Uncrawled Only', value: 'uncrawled_only' },
+                { label: 'Re-crawl', value: 'recrawl' },
+              ],
+              admin: {
+                description: 'Uncrawled Only skips already-crawled products. Re-crawl includes them.',
+              },
+            },
+            {
+              type: 'row',
+              admin: {
+                condition: (data) => data?.scope === 'recrawl',
+              },
+              fields: [
+                {
+                  name: 'minCrawlAge',
+                  type: 'number',
+                  label: 'Minimum Crawl Age',
+                  min: 1,
+                  admin: {
+                    width: '50%',
+                    description: 'Only re-crawl products older than this. Leave empty to re-crawl all.',
+                  },
+                },
+                {
+                  name: 'minCrawlAgeUnit',
+                  type: 'select',
+                  label: 'Unit',
+                  defaultValue: 'days',
+                  options: [
+                    { label: 'Hours', value: 'hours' },
+                    { label: 'Days', value: 'days' },
+                    { label: 'Weeks', value: 'weeks' },
+                  ],
+                  admin: {
+                    width: '50%',
+                  },
+                },
+              ],
             },
           ],
         },

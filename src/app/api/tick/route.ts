@@ -662,8 +662,7 @@ async function processSourceCrawl(
   }
 
   // Resolve drivers from crawl.source (default 'all' for backward compat with null)
-  const sourceSlug = (crawl as unknown as Record<string, unknown>).source as string | null | undefined
-  const resolvedSource = sourceSlug || 'all'
+  const resolvedSource = crawl.source || 'all'
   let drivers: SourceDriver[]
 
   if (resolvedSource === 'all') {
@@ -692,7 +691,12 @@ async function processSourceCrawl(
     ? (crawl.gtins || '').split(',').map((g) => g.trim()).filter(Boolean)
     : undefined
 
-  console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, gtins=${gtinList ? gtinList.join(',') : 'all'}`)
+  // Read scope and minimum crawl age settings
+  const scope = crawl.scope ?? 'uncrawled_only'
+  const minCrawlAge = crawl.minCrawlAge
+  const minCrawlAgeUnit = crawl.minCrawlAgeUnit
+
+  console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, scope=${scope}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, gtins=${gtinList ? gtinList.join(',') : 'all'}`)
 
   if (isSelectedGtins && (!gtinList || gtinList.length === 0)) {
     await payload.update({
@@ -707,10 +711,16 @@ async function processSourceCrawl(
     })
   }
 
-  // On first tick, reset products to uncrawled so they get re-crawled
-  if (isFirstTick) {
+  // On first tick, reset products to uncrawled if scope includes re-crawl
+  if (isFirstTick && scope === 'recrawl') {
+    let crawledBefore: Date | undefined
+    if (minCrawlAge && minCrawlAgeUnit) {
+      const multipliers: Record<string, number> = { hours: 3600000, days: 86400000, weeks: 604800000 }
+      crawledBefore = new Date(Date.now() - minCrawlAge * (multipliers[minCrawlAgeUnit] ?? 86400000))
+      console.log(`[Source Crawl] Re-crawl with minCrawlAge: ${minCrawlAge} ${minCrawlAgeUnit} (crawledBefore: ${crawledBefore.toISOString()})`)
+    }
     for (const driver of drivers) {
-      await driver.resetProducts(payload, gtinList)
+      await driver.resetProducts(payload, gtinList, crawledBefore)
     }
     console.log(`[Source Crawl] Reset products to uncrawled`)
   }

@@ -57,5 +57,5 @@ export interface SourceDriver {
 
   countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number>
 
-  resetProducts(payload: Payload, gtins?: string[]): Promise<void>
+  resetProducts(payload: Payload, gtins?: string[], crawledBefore?: Date): Promise<void>
 }

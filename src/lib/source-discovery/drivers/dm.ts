@@ -501,14 +501,25 @@ export const dmDriver: SourceDriver = {
     return result.totalDocs
   },
 
-  async resetProducts(payload: Payload, gtins?: string[]): Promise<void> {
+  async resetProducts(payload: Payload, gtins?: string[], crawledBefore?: Date): Promise<void> {
     if (gtins && gtins.length === 0) return
-    const where: Where = gtins
-      ? { gtin: { in: gtins.join(',') } }
-      : { status: { in: 'crawled,failed' } }
+
+    const conditions: Where[] = [{ status: { in: 'crawled,failed' } }]
+    if (gtins) {
+      conditions.push({ gtin: { in: gtins.join(',') } })
+    }
+    if (crawledBefore) {
+      conditions.push({
+        or: [
+          { crawledAt: { less_than: crawledBefore.toISOString() } },
+          { crawledAt: { exists: false } },
+        ],
+      })
+    }
+
     await payload.update({
       collection: 'dm-products',
-      where,
+      where: conditions.length === 1 ? conditions[0] : { and: conditions },
       data: { status: 'uncrawled' },
     })
   },
