@@ -450,7 +450,16 @@ export interface Product {
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
-  aggregationStatus?: ('pending' | 'success' | 'ingredient_matching_error' | 'failed') | null;
+  aggregationStatus?:
+    | (
+        | 'pending'
+        | 'success'
+        | 'brand_matching_error'
+        | 'category_matching_error'
+        | 'ingredient_matching_error'
+        | 'failed'
+      )
+    | null;
   aggregationErrors?: string | null;
   /**
    * Link to crawled DM product data

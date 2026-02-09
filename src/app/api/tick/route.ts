@@ -953,7 +953,7 @@ async function processProductAggregation(
       }
 
       // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, dmProduct)
+      const result = await aggregateProduct(payload, productId, dmProduct, 'dm')
       processedAggregations++
       tokensUsed += result.tokensUsed ?? 0
 
@@ -1092,7 +1092,7 @@ async function processProductAggregationSelectedGtins(
       }
 
       // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, dmProduct)
+      const result = await aggregateProduct(payload, productId, dmProduct, 'dm')
       tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {

@@ -104,6 +104,8 @@ export const Products: CollectionConfig = {
               options: [
                 { label: 'Pending', value: 'pending' },
                 { label: 'Success', value: 'success' },
+                { label: 'Brand Matching Error', value: 'brand_matching_error' },
+                { label: 'Category Matching Error', value: 'category_matching_error' },
                 { label: 'Ingredient Matching Error', value: 'ingredient_matching_error' },
                 { label: 'Failed', value: 'failed' },
               ],
