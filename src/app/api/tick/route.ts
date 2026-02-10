@@ -3,7 +3,6 @@ import configPromise from '@payload-config'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getSourceDriver, getSourceDriverBySlug, getAllSourceDrivers } from '@/lib/source-discovery/driver'
 import type { SourceDriver } from '@/lib/source-discovery/types'
-import { launchBrowser } from '@/lib/browser'
 import { aggregateProduct } from '@/lib/aggregate-product'
 
 export const runtime = 'nodejs'
@@ -337,6 +336,9 @@ async function processSourceDiscovery(
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        discovered: 0,
+        created: 0,
+        existing: 0,
       },
     })
     await createEvent(payload, 'start', 'source-discoveries', discoveryId, `Started source discovery for ${discovery.sourceUrl}`)
@@ -504,6 +506,8 @@ async function processSourceCrawl(
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        crawled: 0,
+        errors: 0,
       },
     })
     await createEvent(payload, 'start', 'source-crawls', crawlId, `Started source crawl (source=${crawl.source || 'all'}, type=${crawl.type || 'all'}, scope=${crawl.scope ?? 'uncrawled_only'})`)
@@ -598,46 +602,30 @@ async function processSourceCrawl(
 
       console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.gtin).join(', ')}`)
 
-      const browser = await launchBrowser()
-      const page = await browser.newPage()
+      for (const product of products) {
+        const productId = await driver.crawlProduct(
+          product.gtin,
+          payload,
+        )
 
-      await page.goto(driver.getBaseUrl(), { waitUntil: 'domcontentloaded' })
-      await driver.acceptCookies(page)
-
-      try {
-        for (const product of products) {
-          const productId = await driver.crawlProduct(
-            page,
-            product.gtin,
-            product.sourceUrl,
-            payload,
-          )
-
-          if (productId !== null) {
-            await driver.markProductStatus(payload, product.id, 'crawled')
-            crawled++
-            console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.gtin} -> source-product #${productId}`)
-          } else {
-            await driver.markProductStatus(payload, product.id, 'failed')
-            errors++
-            console.log(`[Source Crawl] [${driver.slug}] Failed to crawl ${product.gtin}`)
-          }
-
-          processedThisTick++
-          remainingBudget--
-
-          await payload.update({
-            collection: 'source-crawls',
-            id: crawlId,
-            data: { crawled, errors },
-          })
-
-          if (remainingBudget > 0) {
-            await page.waitForTimeout(Math.floor(Math.random() * 500) + 500)
-          }
+        if (productId !== null) {
+          await driver.markProductStatus(payload, product.id, 'crawled')
+          crawled++
+          console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.gtin} -> source-product #${productId}`)
+        } else {
+          await driver.markProductStatus(payload, product.id, 'failed')
+          errors++
+          console.log(`[Source Crawl] [${driver.slug}] Failed to crawl ${product.gtin}`)
         }
-      } finally {
-        await browser.close()
+
+        processedThisTick++
+        remainingBudget--
+
+        await payload.update({
+          collection: 'source-crawls',
+          id: crawlId,
+          data: { crawled, errors },
+        })
       }
     }
 
@@ -720,6 +708,9 @@ async function processProductAggregation(
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        aggregated: 0,
+        errors: 0,
+        tokensUsed: 0,
       },
     })
     await createEvent(payload, 'start', 'product-aggregations', jobId, `Started product aggregation (type=${job.type || 'all'})`)

@@ -14,7 +14,16 @@ export const SourceProducts: CollectionConfig = {
     listSearchableFields: ['name', 'brandName', 'gtin'],
   },
   fields: [
-    // Status must be at root level for sidebar positioning to work
+    {
+      name: 'gtin',
+      type: 'text',
+      label: 'GTIN',
+      index: true,
+      admin: {
+        description: 'Global Trade Item Number',
+        position: 'sidebar',
+      },
+    },
     {
       name: 'status',
       type: 'select',
@@ -47,13 +56,12 @@ export const SourceProducts: CollectionConfig = {
           label: 'Product',
           fields: [
             {
-              name: 'gtin',
+              name: 'sourceArticleNumber',
               type: 'text',
-              label: 'GTIN',
+              label: 'Article Number',
               admin: {
-                description: 'Global Trade Item Number',
+                description: 'Source-specific article number (e.g., DM Artikelnummer)',
               },
-              index: true,
             },
             {
               name: 'brandName',
@@ -115,6 +123,89 @@ export const SourceProducts: CollectionConfig = {
                   name: 'label',
                   type: 'text',
                   required: true,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Description',
+          fields: [
+            {
+              name: 'description',
+              type: 'textarea',
+              label: 'Description',
+              admin: {
+                description: 'Full product description extracted from source page (markdown)',
+              },
+            },
+          ],
+        },
+        {
+          label: 'Images',
+          fields: [
+            {
+              name: 'images',
+              type: 'array',
+              label: 'Images',
+              fields: [
+                {
+                  name: 'url',
+                  type: 'text',
+                  label: 'URL',
+                  required: true,
+                },
+                {
+                  name: 'alt',
+                  type: 'text',
+                  label: 'Alt Text',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Variants',
+          fields: [
+            {
+              name: 'variants',
+              type: 'array',
+              label: 'Variant Dimensions',
+              fields: [
+                {
+                  name: 'dimension',
+                  type: 'text',
+                  label: 'Dimension',
+                  required: true,
+                },
+                {
+                  name: 'options',
+                  type: 'array',
+                  label: 'Options',
+                  fields: [
+                    {
+                      name: 'label',
+                      type: 'text',
+                      label: 'Label',
+                      required: true,
+                    },
+                    {
+                      name: 'value',
+                      type: 'text',
+                      label: 'Value',
+                    },
+                    {
+                      name: 'gtin',
+                      type: 'text',
+                      label: 'GTIN',
+                    },
+                    {
+                      name: 'isSelected',
+                      type: 'checkbox',
+                      label: 'Selected',
+                      defaultValue: false,
+                    },
+                  ],
                 },
               ],
             },

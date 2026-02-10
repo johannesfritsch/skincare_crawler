@@ -1,7 +1,8 @@
 import type { Payload, Where } from 'payload'
-import type { Page } from 'playwright-core'
 import type { SourceDriver, DiscoveredProduct } from '../types'
 import { parseIngredients } from '@/lib/parse-ingredients'
+
+const DM_PRODUCT_API = 'https://products.dm.de/product/products/detail/DE/gtin'
 
 // Match source='dm' OR source IS NULL (legacy data created before the source field existed)
 const SOURCE_DM_FILTER: Where = {
@@ -26,6 +27,56 @@ interface NavNode {
   link: string
   hidden?: boolean
   children?: NavNode[]
+}
+
+// DM product detail API response shapes
+interface DmContentBlock {
+  bulletpoints?: string[]
+  texts?: string[]
+  descriptionList?: { title: string; description: string }[]
+}
+
+interface DmDescriptionGroup {
+  header: string
+  contentBlock: DmContentBlock[]
+}
+
+interface DmImage {
+  alt?: string
+  src?: string
+  thumbnailSrc?: string
+  zoomSrc?: string
+}
+
+interface DmVariantOption {
+  gtin?: number
+  dan?: number
+  hex?: string
+  colorLabel?: string
+  label?: string
+  href?: string
+  isSelected?: boolean
+}
+
+interface DmVariantGroup {
+  heading?: string
+  options?: DmVariantOption[]
+}
+
+interface DmProductDetail {
+  gtin: number
+  dan?: number
+  brand?: { name: string }
+  title?: { headline: string }
+  breadcrumbs?: string[]
+  rating?: { ratingValue: number; ratingCount: number }
+  metadata?: { price: number; currency: string }
+  price?: { infos?: string[] }
+  self?: string
+  descriptionGroups?: DmDescriptionGroup[]
+  images?: DmImage[]
+  pills?: string[]
+  variants?: { colors?: DmVariantGroup[] }
 }
 
 // Find the subtree matching a target path (e.g., "/make-up/augen")
@@ -119,6 +170,44 @@ async function fetchProducts(
   return { products: allProducts, totalCount }
 }
 
+// Convert descriptionGroups from the product detail API into markdown
+function descriptionGroupsToMarkdown(groups: DmDescriptionGroup[]): string | null {
+  const sections: string[] = []
+  for (const group of groups) {
+    const parts: string[] = []
+    for (const block of group.contentBlock) {
+      if (block.bulletpoints) {
+        parts.push(block.bulletpoints.map((bp) => `- ${bp}`).join('\n'))
+      }
+      if (block.texts) {
+        parts.push(block.texts.join('\n'))
+      }
+      if (block.descriptionList) {
+        parts.push(block.descriptionList.map((dl) => `**${dl.title}:** ${dl.description}`).join('\n'))
+      }
+    }
+    if (parts.length > 0) {
+      sections.push(`## ${group.header}\n\n${parts.join('\n\n')}`)
+    }
+  }
+  return sections.length > 0 ? sections.join('\n\n') : null
+}
+
+// Parse per-unit price from price.infos, e.g. "0,3 l (2,17 € je 1 l)"
+function parsePerUnitPrice(infos?: string[]): { amount: number; unit: string } | null {
+  if (!infos) return null
+  for (const info of infos) {
+    const match = info.match(/\(([\d,]+)\s*€\s*je\s*[\d,]*\s*(\w+)\)/)
+    if (match) {
+      return {
+        amount: Math.round(parseFloat(match[1].replace(',', '.')) * 100),
+        unit: match[2],
+      }
+    }
+  }
+  return null
+}
+
 export const dmDriver: SourceDriver = {
   slug: 'dm',
   label: 'DM',
@@ -129,19 +218,6 @@ export const dmDriver: SourceDriver = {
       return hostname === 'www.dm.de' || hostname === 'dm.de'
     } catch {
       return false
-    }
-  },
-
-  getBaseUrl(): string {
-    return 'https://www.dm.de'
-  },
-
-  async acceptCookies(page: Page): Promise<void> {
-    try {
-      await page.click('button:has-text("Alles akzeptieren")', { timeout: 5000 })
-      await page.waitForTimeout(500)
-    } catch {
-      console.log('[DM] No cookie banner found or already accepted')
     }
   },
 
@@ -248,183 +324,103 @@ export const dmDriver: SourceDriver = {
   },
 
   async crawlProduct(
-    page: Page,
     gtin: string,
-    productUrl: string | null,
     payload: Payload,
   ): Promise<number | null> {
     try {
-      let searchUrl: string
-      let ingredients: string[] = []
-
-      if (productUrl) {
-        // Use productUrl - navigate to product page and extract GTIN + ingredients
-        const fullUrl = productUrl.startsWith('http') ? productUrl : `https://www.dm.de${productUrl}`
-        await page.goto(fullUrl, { waitUntil: 'domcontentloaded' })
-
-        // Select the correct variant by GTIN if the page has multiple variants
-        try {
-          const variantButton = page.locator(`[data-dmid="variant-picker"] button[data-gtin="${gtin}"], [data-gtin="${gtin}"]`).first()
-          if (await variantButton.isVisible({ timeout: 3000 })) {
-            const isSelected = await variantButton.getAttribute('aria-checked') === 'true'
-              || await variantButton.getAttribute('aria-selected') === 'true'
-              || await variantButton.evaluate((el) => el.classList.contains('selected') || el.classList.contains('active'))
-            if (!isSelected) {
-              console.log(`[DM] Clicking variant for GTIN ${gtin}`)
-              await variantButton.click()
-              await page.waitForTimeout(1000)
-            }
-          }
-        } catch {
-          // No variant picker or single-variant product — proceed normally
-        }
-
-        // Wait for the ingredients section to load
-        await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
-
-        // Extract GTIN and raw ingredients text from product page
-        const pageData = await page.evaluate((expectedGtin) => {
-          let pageGtin: string | null = null
-          const gtinEl = document.querySelector('[data-gtin]')
-          if (gtinEl) {
-            pageGtin = gtinEl.getAttribute('data-gtin')
-          } else {
-            const jsonLd = document.querySelector('script[type="application/ld+json"]')
-            if (jsonLd) {
-              try {
-                const data = JSON.parse(jsonLd.textContent || '')
-                if (data.gtin13) pageGtin = data.gtin13
-                else if (data.gtin) pageGtin = data.gtin
-              } catch {
-                // ignore parse errors
-              }
-            }
-          }
-
-          if (pageGtin && expectedGtin && pageGtin !== expectedGtin) {
-            console.warn(`[DM] GTIN mismatch: page shows ${pageGtin} but expected ${expectedGtin}`)
-          }
-
-          const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
-          const rawIngredients = ingredientsEl?.textContent?.trim() || null
-
-          return { pageGtin, rawIngredients }
-        }, gtin)
-
-        if (pageData.rawIngredients) {
-          console.log(`[DM] Raw ingredients text for GTIN ${gtin}:`, pageData.rawIngredients)
-          ingredients = await parseIngredients(pageData.rawIngredients)
-          console.log(`[DM] Parsed ${ingredients.length} ingredients:`, ingredients)
-        } else {
-          console.log(`[DM] No ingredients found on product page for GTIN ${gtin}`)
-        }
-
-        searchUrl = `https://www.dm.de/search?query=${gtin}`
-      } else {
-        searchUrl = `https://www.dm.de/search?query=${gtin}`
+      // Fetch product details from DM API
+      const res = await fetch(`${DM_PRODUCT_API}/${gtin}`)
+      if (!res.ok) {
+        console.log(`[DM] API returned ${res.status} for GTIN ${gtin}`)
+        return null
       }
+      const data: DmProductDetail = await res.json()
 
-      // Search for the product by GTIN to get the product tile with structured data
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' })
-      await page.waitForSelector('[data-dmid="product-tile"]', { timeout: 10000 }).catch(() => null)
-
-      const productData = await page.evaluate((searchGtin) => {
-        const tile = searchGtin
-          ? document.querySelector(`[data-dmid="product-tile"][data-gtin="${searchGtin}"]`)
-          : document.querySelector('[data-dmid="product-tile"]')
-        if (!tile) return null
-
-        const tileGtin = tile.getAttribute('data-gtin')
-
-        const srOnly = tile.querySelector('.sr-only')
-        const srText = srOnly?.textContent || ''
-
-        const brandMatch = srText.match(/Marke:\s*([^;]+)/)
-        const brandName = brandMatch ? brandMatch[1].trim() : null
-
-        const nameMatch = srText.match(/Produktname:\s*([^;]+)/)
-        const name = nameMatch ? nameMatch[1].trim() : ''
-
-        const priceMatch = srText.match(/Preis:\s*([\d,]+)\s*€/)
-        const price = priceMatch
-          ? Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
-          : null
-
-        const pricePerMatch = srText.match(/Grundpreis:[^(]*\(([\d,]+)\s*€\s*je\s*[\d,]*\s*(\w+)\)/)
-        const pricePerValue = pricePerMatch
-          ? Math.round(parseFloat(pricePerMatch[1].replace(',', '.')) * 100)
-          : null
-        const pricePerUnit = pricePerMatch ? pricePerMatch[2] : null
-
-        const ratingMatch = srText.match(/([\d,]+)\s*von\s*5\s*Sternen\s*bei\s*([\d.]+)\s*Bewertungen/)
-        const rating = ratingMatch ? parseFloat(ratingMatch[1].replace(',', '.')) : null
-        const ratingNum = ratingMatch ? parseInt(ratingMatch[2].replace('.', ''), 10) : null
-
-        const labels: string[] = []
-        const eyecatchers = tile.querySelectorAll('[data-dmid="eyecatchers"] img')
-        eyecatchers.forEach((img) => {
-          const alt = img.getAttribute('alt') || ''
-          if (alt.includes('Neues Produkt')) labels.push('Neu')
-          if (alt.includes('Limitiert')) labels.push('Limitiert')
-          if (alt.includes('Marke von dm')) labels.push('dm-Marke')
-        })
-
-        const link = tile.querySelector('a[href]')
-        const tileProductUrl = link ? link.getAttribute('href') : null
-
-        return {
-          gtin: tileGtin,
-          brandName,
-          name,
-          price,
-          pricePerUnit,
-          pricePerValue,
-          rating,
-          ratingNum,
-          labels,
-          sourceUrl: tileProductUrl ? `https://www.dm.de${tileProductUrl}` : null,
-        }
-      }, gtin)
-
-      if (!productData || !productData.name) {
-        console.log(`[DM] No product data found for GTIN ${gtin}`)
+      const name = data.title?.headline
+      if (!name) {
+        console.log(`[DM] No product name in API response for GTIN ${gtin}`)
         return null
       }
 
-      // If we didn't have a productUrl but now have sourceUrl, fetch ingredients
-      if (ingredients.length === 0 && productData.sourceUrl) {
-        console.log(`[DM] Fetching ingredients from sourceUrl: ${productData.sourceUrl}`)
-        await page.goto(productData.sourceUrl, { waitUntil: 'domcontentloaded' })
-        await page.waitForSelector('[data-dmid="Inhaltsstoffe-content"]', { timeout: 5000 }).catch(() => null)
-        const rawText = await page.evaluate(() => {
-          const ingredientsEl = document.querySelector('[data-dmid="Inhaltsstoffe-content"]')
-          return ingredientsEl?.textContent?.trim() || null
-        })
+      // Extract description as markdown
+      const description = data.descriptionGroups
+        ? descriptionGroupsToMarkdown(data.descriptionGroups)
+        : null
+
+      // Extract raw ingredients text from Inhaltsstoffe section
+      let ingredients: string[] = []
+      const ingredientsGroup = data.descriptionGroups?.find((g) => g.header === 'Inhaltsstoffe')
+      if (ingredientsGroup) {
+        const rawText = ingredientsGroup.contentBlock
+          .flatMap((b) => b.texts || [])
+          .join(' ')
+          .trim()
         if (rawText) {
-          console.log(`[DM] Raw ingredients from sourceUrl for GTIN ${gtin}:`, rawText)
+          console.log(`[DM] Raw ingredients for GTIN ${gtin}:`, rawText)
           ingredients = await parseIngredients(rawText)
-          console.log(`[DM] Parsed ${ingredients.length} ingredients from sourceUrl:`, ingredients)
-        } else {
-          console.log(`[DM] No ingredients found at sourceUrl for GTIN ${gtin}`)
+          console.log(`[DM] Parsed ${ingredients.length} ingredients`)
         }
       }
 
-      // Update existing product with crawled data
-      const finalGtin = gtin
+      // Parse prices
+      const priceCents = data.metadata?.price != null
+        ? Math.round(data.metadata.price * 100)
+        : null
+      const perUnit = parsePerUnitPrice(data.price?.infos)
+
+      // Build source URL
+      const sourceUrl = data.self ? `https://www.dm.de${data.self}` : null
+
+      // Extract new structured fields
+      const sourceArticleNumber = data.dan != null ? String(data.dan) : null
+      const type = data.breadcrumbs?.length ? data.breadcrumbs.join(' > ') : undefined
+      const labels = data.pills?.length ? data.pills.map((p) => ({ label: p })) : []
+      const images =
+        data.images
+          ?.filter((img) => img.zoomSrc)
+          .map((img) => ({
+            url: img.zoomSrc!,
+            alt: img.alt ?? null,
+          })) ?? []
+
+      const variants: Array<{
+        dimension: string
+        options: Array<{
+          label: string
+          value: string | null
+          gtin: string | null
+          isSelected: boolean
+        }>
+      }> = []
+      if (data.variants?.colors) {
+        for (const group of data.variants.colors) {
+          const options = (group.options ?? []).map((opt) => ({
+            label: opt.label ?? opt.colorLabel ?? '',
+            value: opt.hex ?? null,
+            gtin: opt.gtin != null ? String(opt.gtin) : null,
+            isSelected: opt.isSelected ?? false,
+          }))
+          if (options.length > 0) {
+            variants.push({ dimension: group.heading ?? 'Color', options })
+          }
+        }
+      }
+
+      // Find existing product
       const existing = await payload.find({
         collection: 'source-products',
-        where: { and: [{ gtin: { equals: finalGtin } }, SOURCE_DM_FILTER] },
+        where: { and: [{ gtin: { equals: gtin } }, SOURCE_DM_FILTER] },
         limit: 1,
       })
 
       const now = new Date().toISOString()
       const priceEntry = {
         recordedAt: now,
-        amount: productData.price,
-        currency: 'EUR',
-        perUnitAmount: productData.pricePerValue,
-        perUnitCurrency: 'EUR',
-        unit: productData.pricePerUnit,
+        amount: priceCents,
+        currency: data.metadata?.currency ?? 'EUR',
+        perUnitAmount: perUnit?.amount ?? null,
+        perUnitCurrency: perUnit ? 'EUR' : null,
+        unit: perUnit?.unit ?? null,
       }
 
       const existingHistory = existing.docs.length > 0
@@ -433,14 +429,19 @@ export const dmDriver: SourceDriver = {
 
       const productPayload = {
         status: 'crawled' as const,
-        brandName: productData.brandName,
-        name: productData.name,
+        sourceArticleNumber,
+        brandName: data.brand?.name ?? null,
+        name,
+        type,
+        description,
+        labels,
+        images,
+        variants,
         priceHistory: [...existingHistory, priceEntry],
-        rating: productData.rating,
-        ratingNum: productData.ratingNum,
-        labels: productData.labels.map((label: string) => ({ label })),
-        ingredients: ingredients.map((name: string) => ({ name })),
-        sourceUrl: productData.sourceUrl,
+        rating: data.rating?.ratingValue ?? null,
+        ratingNum: data.rating?.ratingCount ?? null,
+        ingredients: ingredients.map((n: string) => ({ name: n })),
+        sourceUrl,
         crawledAt: now,
       }
 
@@ -454,11 +455,10 @@ export const dmDriver: SourceDriver = {
           data: { source: 'dm', ...productPayload },
         })
       } else {
-        // Create new product if it doesn't exist (edge case)
         const newProduct = await payload.create({
           collection: 'source-products',
           data: {
-            gtin: finalGtin,
+            gtin,
             source: 'dm',
             ...productPayload,
           },
@@ -466,10 +466,10 @@ export const dmDriver: SourceDriver = {
         productId = newProduct.id
       }
 
-      console.log(`[DM] Crawled product ${finalGtin}: ${productData.name} (id: ${productId})`)
+      console.log(`[DM] Crawled product ${gtin}: ${name} (id: ${productId})`)
       return productId
     } catch (error) {
-      console.error(`[DM] Error crawling product (gtin: ${gtin}, url: ${productUrl}):`, error)
+      console.error(`[DM] Error crawling product (gtin: ${gtin}):`, error)
       return null
     }
   },

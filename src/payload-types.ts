@@ -495,15 +495,19 @@ export interface Product {
  */
 export interface SourceProduct {
   id: number;
+  /**
+   * Global Trade Item Number
+   */
+  gtin?: string | null;
   status?: ('uncrawled' | 'crawled' | 'failed') | null;
   /**
    * Source identifier (e.g., dm)
    */
   source?: string | null;
   /**
-   * Global Trade Item Number
+   * Source-specific article number (e.g., DM Artikelnummer)
    */
-  gtin?: string | null;
+  sourceArticleNumber?: string | null;
   /**
    * Product brand name
    */
@@ -527,6 +531,32 @@ export interface SourceProduct {
   labels?:
     | {
         label: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Full product description extracted from source page (markdown)
+   */
+  description?: string | null;
+  images?:
+    | {
+        url: string;
+        alt?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  variants?:
+    | {
+        dimension: string;
+        options?:
+          | {
+              label: string;
+              value?: string | null;
+              gtin?: string | null;
+              isSelected?: boolean | null;
+              id?: string | null;
+            }[]
+          | null;
         id?: string | null;
       }[]
     | null;
@@ -816,9 +846,10 @@ export interface ProductsSelect<T extends boolean = true> {
  * via the `definition` "source-products_select".
  */
 export interface SourceProductsSelect<T extends boolean = true> {
+  gtin?: T;
   status?: T;
   source?: T;
-  gtin?: T;
+  sourceArticleNumber?: T;
   brandName?: T;
   name?: T;
   type?: T;
@@ -828,6 +859,29 @@ export interface SourceProductsSelect<T extends boolean = true> {
     | T
     | {
         label?: T;
+        id?: T;
+      };
+  description?: T;
+  images?:
+    | T
+    | {
+        url?: T;
+        alt?: T;
+        id?: T;
+      };
+  variants?:
+    | T
+    | {
+        dimension?: T;
+        options?:
+          | T
+          | {
+              label?: T;
+              value?: T;
+              gtin?: T;
+              isSelected?: T;
+              id?: T;
+            };
         id?: T;
       };
   priceHistory?:
