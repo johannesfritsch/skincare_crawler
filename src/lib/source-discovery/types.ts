@@ -1,5 +1,4 @@
 import type { Payload } from 'payload'
-import type { Page } from 'playwright-core'
 
 export interface DiscoveryStats {
   itemsDiscovered: number
@@ -32,20 +31,12 @@ export interface SourceDriver {
     url: string,
   ): Promise<{ totalCount: number; products: DiscoveredProduct[] }>
 
-  // Crawl a single product and save to database
+  // Crawl a single product via API and save to database
   // Returns the product ID if successful, null if failed
   crawlProduct(
-    page: Page,
     gtin: string,
-    productUrl: string | null,
     payload: Payload,
   ): Promise<number | null>
-
-  // Accept cookies on the page
-  acceptCookies(page: Page): Promise<void>
-
-  // Get the base URL for this driver (for initial navigation)
-  getBaseUrl(): string
 
   // Collection-query methods
   findUncrawledProducts(

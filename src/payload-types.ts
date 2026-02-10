@@ -464,7 +464,19 @@ export interface Product {
   /**
    * Product ingredients (aggregated from sources)
    */
-  ingredients?: (number | Ingredient)[] | null;
+  ingredients?:
+    | {
+        /**
+         * Raw ingredient name as listed on the product
+         */
+        name: string;
+        /**
+         * Link to ingredient database entry, if matched
+         */
+        ingredient?: (number | null) | Ingredient;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * When data sources were last aggregated into name, category, and description
    */
@@ -833,7 +845,13 @@ export interface ProductsSelect<T extends boolean = true> {
   brand?: T;
   category?: T;
   publishedAt?: T;
-  ingredients?: T;
+  ingredients?:
+    | T
+    | {
+        name?: T;
+        ingredient?: T;
+        id?: T;
+      };
   lastAggregatedAt?: T;
   aggregationStatus?: T;
   aggregationErrors?: T;

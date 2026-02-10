@@ -123,11 +123,13 @@ export async function aggregateProduct(
       const matchResult = await matchIngredients(payload, aggregated.ingredientNames)
       tokensUsed += matchResult.tokensUsed.totalTokens
 
-      if (matchResult.matched.length > 0) {
-        updateData.ingredients = matchResult.matched
-          .map((m) => m.ingredientId)
-          .filter((id): id is number => id !== null)
-      }
+      const matchedMap = new Map(
+        matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
+      )
+      updateData.ingredients = aggregated.ingredientNames!.map((name) => ({
+        name,
+        ingredient: matchedMap.get(name) ?? null,
+      }))
 
       if (matchResult.unmatched.length > 0) {
         status = worstStatus(status, 'ingredient_matching_error')

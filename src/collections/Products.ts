@@ -73,13 +73,27 @@ export const Products: CollectionConfig = {
           fields: [
             {
               name: 'ingredients',
-              type: 'relationship',
-              relationTo: 'ingredients',
-              hasMany: true,
+              type: 'array',
               label: 'Ingredients',
               admin: {
                 description: 'Product ingredients (aggregated from sources)',
               },
+              fields: [
+                {
+                  name: 'name',
+                  type: 'text',
+                  label: 'Name',
+                  required: true,
+                  admin: { description: 'Raw ingredient name as listed on the product' },
+                },
+                {
+                  name: 'ingredient',
+                  type: 'relationship',
+                  relationTo: 'ingredients',
+                  label: 'Matched Ingredient',
+                  admin: { description: 'Link to ingredient database entry, if matched' },
+                },
+              ],
             },
           ],
         },

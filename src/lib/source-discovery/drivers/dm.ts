@@ -373,7 +373,7 @@ export const dmDriver: SourceDriver = {
 
       // Extract new structured fields
       const sourceArticleNumber = data.dan != null ? String(data.dan) : null
-      const type = data.breadcrumbs?.length ? data.breadcrumbs.join(' > ') : undefined
+      const type = data.breadcrumbs?.length ? data.breadcrumbs.join(' -> ') : undefined
       const labels = data.pills?.length ? data.pills.map((p) => ({ label: p })) : []
       const images =
         data.images
