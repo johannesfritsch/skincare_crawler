@@ -478,6 +478,40 @@ export interface Product {
       }[]
     | null;
   /**
+   * Ingredient-based attributes determined by LLM analysis of source descriptions
+   */
+  productAttributes?: {
+    containsAllergens?: boolean | null;
+    containsSimpleAlcohol?: boolean | null;
+    containsGluten?: boolean | null;
+    containsSilicones?: boolean | null;
+    containsSulfates?: boolean | null;
+    containsParabens?: boolean | null;
+    containsPegs?: boolean | null;
+    containsFragrance?: boolean | null;
+    containsMineralOil?: boolean | null;
+  };
+  /**
+   * Marketing and safety claims determined by LLM analysis of source descriptions
+   */
+  productClaims?: {
+    vegan?: boolean | null;
+    crueltyFree?: boolean | null;
+    unsafeForPregnancy?: boolean | null;
+    pregnancySafe?: boolean | null;
+    waterProof?: boolean | null;
+    microplasticFree?: boolean | null;
+    allergenFree?: boolean | null;
+    simpleAlcoholFree?: boolean | null;
+    glutenFree?: boolean | null;
+    siliconeFree?: boolean | null;
+    sulfateFree?: boolean | null;
+    parabenFree?: boolean | null;
+    pegFree?: boolean | null;
+    fragranceFree?: boolean | null;
+    mineralOilFree?: boolean | null;
+  };
+  /**
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
@@ -840,6 +874,38 @@ export interface ProductsSelect<T extends boolean = true> {
         name?: T;
         ingredient?: T;
         id?: T;
+      };
+  productAttributes?:
+    | T
+    | {
+        containsAllergens?: T;
+        containsSimpleAlcohol?: T;
+        containsGluten?: T;
+        containsSilicones?: T;
+        containsSulfates?: T;
+        containsParabens?: T;
+        containsPegs?: T;
+        containsFragrance?: T;
+        containsMineralOil?: T;
+      };
+  productClaims?:
+    | T
+    | {
+        vegan?: T;
+        crueltyFree?: T;
+        unsafeForPregnancy?: T;
+        pregnancySafe?: T;
+        waterProof?: T;
+        microplasticFree?: T;
+        allergenFree?: T;
+        simpleAlcoholFree?: T;
+        glutenFree?: T;
+        siliconeFree?: T;
+        sulfateFree?: T;
+        parabenFree?: T;
+        pegFree?: T;
+        fragranceFree?: T;
+        mineralOilFree?: T;
       };
   lastAggregatedAt?: T;
   sourceProducts?: T;

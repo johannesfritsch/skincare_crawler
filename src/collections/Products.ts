@@ -98,6 +98,55 @@ export const Products: CollectionConfig = {
           ],
         },
         {
+          label: 'Attributes & Claims',
+          fields: [
+            {
+              name: 'productAttributes',
+              type: 'group',
+              label: 'Product Attributes',
+              admin: {
+                description: 'Ingredient-based attributes determined by LLM analysis of source descriptions',
+              },
+              fields: [
+                { name: 'containsAllergens', type: 'checkbox', label: 'Contains Allergens' },
+                { name: 'containsSimpleAlcohol', type: 'checkbox', label: 'Contains Simple Alcohol' },
+                { name: 'containsGluten', type: 'checkbox', label: 'Contains Gluten' },
+                { name: 'containsSilicones', type: 'checkbox', label: 'Contains Silicones' },
+                { name: 'containsSulfates', type: 'checkbox', label: 'Contains Sulfates' },
+                { name: 'containsParabens', type: 'checkbox', label: 'Contains Parabens' },
+                { name: 'containsPegs', type: 'checkbox', label: 'Contains PEGs' },
+                { name: 'containsFragrance', type: 'checkbox', label: 'Contains Fragrance' },
+                { name: 'containsMineralOil', type: 'checkbox', label: 'Contains Mineral Oil' },
+              ],
+            },
+            {
+              name: 'productClaims',
+              type: 'group',
+              label: 'Product Claims',
+              admin: {
+                description: 'Marketing and safety claims determined by LLM analysis of source descriptions',
+              },
+              fields: [
+                { name: 'vegan', type: 'checkbox', label: 'Vegan' },
+                { name: 'crueltyFree', type: 'checkbox', label: 'Cruelty Free' },
+                { name: 'unsafeForPregnancy', type: 'checkbox', label: 'Unsafe for Pregnancy' },
+                { name: 'pregnancySafe', type: 'checkbox', label: 'Pregnancy Safe' },
+                { name: 'waterProof', type: 'checkbox', label: 'Waterproof' },
+                { name: 'microplasticFree', type: 'checkbox', label: 'Microplastic Free' },
+                { name: 'allergenFree', type: 'checkbox', label: 'Allergen Free' },
+                { name: 'simpleAlcoholFree', type: 'checkbox', label: 'Simple Alcohol Free' },
+                { name: 'glutenFree', type: 'checkbox', label: 'Gluten Free' },
+                { name: 'siliconeFree', type: 'checkbox', label: 'Silicone Free' },
+                { name: 'sulfateFree', type: 'checkbox', label: 'Sulfate Free' },
+                { name: 'parabenFree', type: 'checkbox', label: 'Paraben Free' },
+                { name: 'pegFree', type: 'checkbox', label: 'PEG Free' },
+                { name: 'fragranceFree', type: 'checkbox', label: 'Fragrance Free' },
+                { name: 'mineralOilFree', type: 'checkbox', label: 'Mineral Oil Free' },
+              ],
+            },
+          ],
+        },
+        {
           label: 'Sources',
           fields: [
             {

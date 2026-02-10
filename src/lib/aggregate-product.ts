@@ -2,6 +2,7 @@ import { getPayload } from 'payload'
 import { matchIngredients } from '@/lib/match-ingredients'
 import { matchBrand } from '@/lib/match-brand'
 import { matchCategory } from '@/lib/match-category'
+import { classifyProduct } from '@/lib/classify-product'
 
 type Payload = Awaited<ReturnType<typeof getPayload>>
 
@@ -51,7 +52,7 @@ export async function aggregateProduct(
   productId: number,
   sourceProduct: SourceProductData,
   sourceSlug: string,
-): Promise<{ success: boolean; error?: string; tokensUsed?: number }> {
+): Promise<{ success: boolean; error?: string; warning?: string; tokensUsed?: number }> {
   const aggregated = aggregateFromSources(sourceProduct)
 
   if (!aggregated) {
@@ -86,6 +87,7 @@ export async function aggregateProduct(
 
   let tokensUsed = 0
   const errorMessages: string[] = []
+  const warningMessages: string[] = []
 
   // Match brand
   if (aggregated.brandName) {
@@ -124,11 +126,43 @@ export async function aggregateProduct(
       }))
 
       if (matchResult.unmatched.length > 0) {
-        errorMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
+        warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
       }
     } catch (error) {
       errorMessages.push(`Ingredient matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  // Classify product attributes & claims
+  try {
+    const allSourceProducts = await payload.find({
+      collection: 'source-products',
+      where: { id: { in: sourceProducts } },
+      limit: sourceProducts.length,
+    })
+
+    const descriptions: string[] = []
+    for (const sp of allSourceProducts.docs) {
+      const parts: string[] = []
+      if (sp.description) parts.push(sp.description)
+      if (sp.ingredients && Array.isArray(sp.ingredients) && sp.ingredients.length > 0) {
+        const ingredientList = sp.ingredients
+          .map((i: { name?: string | null }) => i.name)
+          .filter((n): n is string => !!n)
+          .join(', ')
+        if (ingredientList) parts.push(`Ingredients: ${ingredientList}`)
+      }
+      if (parts.length > 0) descriptions.push(parts.join('\n\n'))
+    }
+
+    if (descriptions.length > 0) {
+      const classifyResult = await classifyProduct(descriptions)
+      tokensUsed += classifyResult.tokensUsed.totalTokens
+      updateData.productAttributes = classifyResult.productAttributes
+      updateData.productClaims = classifyResult.productClaims
+    }
+  } catch (error) {
+    errorMessages.push(`Product classification error: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 
   await payload.update({
@@ -140,6 +174,7 @@ export async function aggregateProduct(
   return {
     success: errorMessages.length === 0,
     error: errorMessages.length > 0 ? errorMessages.join('\n\n') : undefined,
+    warning: warningMessages.length > 0 ? warningMessages.join('\n\n') : undefined,
     tokensUsed,
   }
 }

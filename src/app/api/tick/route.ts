@@ -811,6 +811,9 @@ async function processProductAggregation(
 
       if (result.success) {
         aggregated++
+        if (result.warning) {
+          await createEvent(payload, 'warning', 'product-aggregations', jobId, `GTIN ${sourceProduct.gtin}: ${result.warning}`)
+        }
       } else {
         errors++
         await createEvent(payload, 'error', 'product-aggregations', jobId, `GTIN ${sourceProduct.gtin}: ${result.error}`)
@@ -947,6 +950,9 @@ async function processProductAggregationSelectedGtins(
 
       if (result.success) {
         aggregated++
+        if (result.warning) {
+          await createEvent(payload, 'warning', 'product-aggregations', jobId, `GTIN ${gtin}: ${result.warning}`)
+        }
       } else {
         errors++
         await createEvent(payload, 'error', 'product-aggregations', jobId, `GTIN ${gtin}: ${result.error}`)
