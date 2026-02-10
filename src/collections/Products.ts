@@ -112,37 +112,13 @@ export const Products: CollectionConfig = {
               },
             },
             {
-              name: 'aggregationStatus',
-              type: 'select',
-              label: 'Aggregation Status',
-              options: [
-                { label: 'Pending', value: 'pending' },
-                { label: 'Success', value: 'success' },
-                { label: 'Brand Matching Error', value: 'brand_matching_error' },
-                { label: 'Category Matching Error', value: 'category_matching_error' },
-                { label: 'Ingredient Matching Error', value: 'ingredient_matching_error' },
-                { label: 'Failed', value: 'failed' },
-              ],
-              admin: {
-                readOnly: true,
-              },
-            },
-            {
-              name: 'aggregationErrors',
-              type: 'textarea',
-              label: 'Aggregation Errors',
-              admin: {
-                readOnly: true,
-                condition: (_data, siblingData) => siblingData?.aggregationStatus !== 'success',
-              },
-            },
-            {
-              name: 'sourceProduct',
+              name: 'sourceProducts',
               type: 'relationship',
               relationTo: 'source-products',
-              label: 'Source Product',
+              hasMany: true,
+              label: 'Source Products',
               admin: {
-                description: 'Link to crawled source product data',
+                description: 'Links to crawled source product data',
               },
             },
           ],

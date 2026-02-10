@@ -45,20 +45,7 @@ export function aggregateFromSources(sourceProduct: SourceProductData): Aggregat
   return aggregated
 }
 
-// Error status priority: failed > ingredient_matching_error > brand_matching_error > category_matching_error > success
-const STATUS_PRIORITY: Record<string, number> = {
-  success: 0,
-  category_matching_error: 1,
-  brand_matching_error: 2,
-  ingredient_matching_error: 3,
-  failed: 4,
-}
-
-function worstStatus(current: string, candidate: string): string {
-  return (STATUS_PRIORITY[candidate] ?? 0) > (STATUS_PRIORITY[current] ?? 0) ? candidate : current
-}
-
-// Aggregate a product: fill attributes, match brand, category, ingredients, set status
+// Aggregate a product: fill attributes, match brand, category, ingredients
 export async function aggregateProduct(
   payload: Payload,
   productId: number,
@@ -76,9 +63,17 @@ export async function aggregateProduct(
     id: productId,
   })
 
+  // Build sourceProducts array, appending new source if not already present
+  const existingSourceIds = (product.sourceProducts ?? []).map((sp: unknown) =>
+    typeof sp === 'object' && sp !== null && 'id' in sp ? (sp as { id: number }).id : sp,
+  ) as number[]
+  const sourceProducts = existingSourceIds.includes(sourceProduct.id)
+    ? existingSourceIds
+    : [...existingSourceIds, sourceProduct.id]
+
   const updateData: Record<string, unknown> = {
     lastAggregatedAt: new Date().toISOString(),
-    sourceProduct: sourceProduct.id,
+    sourceProducts,
   }
 
   if (aggregated.name && !product.name) {
@@ -90,7 +85,6 @@ export async function aggregateProduct(
   }
 
   let tokensUsed = 0
-  let status = 'success'
   const errorMessages: string[] = []
 
   // Match brand
@@ -100,7 +94,6 @@ export async function aggregateProduct(
       tokensUsed += brandResult.tokensUsed.totalTokens
       updateData.brand = brandResult.brandId
     } catch (error) {
-      status = worstStatus(status, 'brand_matching_error')
       errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
@@ -112,7 +105,6 @@ export async function aggregateProduct(
       tokensUsed += categoryResult.tokensUsed.totalTokens
       updateData.category = categoryResult.categoryId
     } catch (error) {
-      status = worstStatus(status, 'category_matching_error')
       errorMessages.push(`Category matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
@@ -132,17 +124,12 @@ export async function aggregateProduct(
       }))
 
       if (matchResult.unmatched.length > 0) {
-        status = worstStatus(status, 'ingredient_matching_error')
         errorMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
       }
     } catch (error) {
-      status = worstStatus(status, 'failed')
       errorMessages.push(`Ingredient matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
-
-  updateData.aggregationStatus = status
-  updateData.aggregationErrors = errorMessages.length > 0 ? errorMessages.join('\n\n') : null
 
   await payload.update({
     collection: 'products',
@@ -151,7 +138,7 @@ export async function aggregateProduct(
   })
 
   return {
-    success: status !== 'failed',
+    success: errorMessages.length === 0,
     error: errorMessages.length > 0 ? errorMessages.join('\n\n') : undefined,
     tokensUsed,
   }

@@ -481,21 +481,10 @@ export interface Product {
    * When data sources were last aggregated into name, category, and description
    */
   lastAggregatedAt?: string | null;
-  aggregationStatus?:
-    | (
-        | 'pending'
-        | 'success'
-        | 'brand_matching_error'
-        | 'category_matching_error'
-        | 'ingredient_matching_error'
-        | 'failed'
-      )
-    | null;
-  aggregationErrors?: string | null;
   /**
-   * Link to crawled source product data
+   * Links to crawled source product data
    */
-  sourceProduct?: (number | null) | SourceProduct;
+  sourceProducts?: (number | SourceProduct)[] | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -853,9 +842,7 @@ export interface ProductsSelect<T extends boolean = true> {
         id?: T;
       };
   lastAggregatedAt?: T;
-  aggregationStatus?: T;
-  aggregationErrors?: T;
-  sourceProduct?: T;
+  sourceProducts?: T;
   updatedAt?: T;
   createdAt?: T;
 }
