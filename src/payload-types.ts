@@ -74,7 +74,7 @@ export interface Config {
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
     products: Product;
-    'dm-products': DmProduct;
+    'source-products': SourceProduct;
     'source-discoveries': SourceDiscovery;
     'source-crawls': SourceCrawl;
     'product-aggregations': ProductAggregation;
@@ -106,7 +106,7 @@ export interface Config {
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
-    'dm-products': DmProductsSelect<false> | DmProductsSelect<true>;
+    'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
     'source-discoveries': SourceDiscoveriesSelect<false> | SourceDiscoveriesSelect<true>;
     'source-crawls': SourceCrawlsSelect<false> | SourceCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
@@ -481,21 +481,25 @@ export interface Product {
     | null;
   aggregationErrors?: string | null;
   /**
-   * Link to crawled DM product data
+   * Link to crawled source product data
    */
-  dmProduct?: (number | null) | DmProduct;
+  sourceProduct?: (number | null) | SourceProduct;
   updatedAt: string;
   createdAt: string;
 }
 /**
- * Products crawled from dm.de
+ * Products crawled from source stores
  *
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-products".
+ * via the `definition` "source-products".
  */
-export interface DmProduct {
+export interface SourceProduct {
   id: number;
   status?: ('uncrawled' | 'crawled' | 'failed') | null;
+  /**
+   * Source identifier (e.g., dm)
+   */
+  source?: string | null;
   /**
    * Global Trade Item Number
    */
@@ -527,29 +531,27 @@ export interface DmProduct {
       }[]
     | null;
   /**
-   * Product pricing information
+   * Timestamped price entries from each crawl
    */
-  pricing?: {
-    /**
-     * Price in smallest currency unit (cents)
-     */
-    amount?: number | null;
-    /**
-     * ISO 4217 currency code
-     */
-    currency?: string | null;
-    /**
-     * Base price per unit in cents
-     */
-    perUnitAmount?: number | null;
-    perUnitCurrency?: string | null;
-    /**
-     * Unit of measurement (e.g., l, kg)
-     */
-    unit?: string | null;
-  };
+  priceHistory?:
+    | {
+        recordedAt: string;
+        /**
+         * Price in cents
+         */
+        amount?: number | null;
+        currency?: string | null;
+        perUnitAmount?: number | null;
+        perUnitCurrency?: string | null;
+        /**
+         * Unit of measurement (e.g., l, kg)
+         */
+        unit?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   /**
-   * Raw ingredient strings as crawled from dm.de
+   * Raw ingredient strings as crawled from source
    */
   ingredients?:
     | {
@@ -621,8 +623,8 @@ export interface PayloadLockedDocument {
         value: number | Product;
       } | null)
     | ({
-        relationTo: 'dm-products';
-        value: number | DmProduct;
+        relationTo: 'source-products';
+        value: number | SourceProduct;
       } | null)
     | ({
         relationTo: 'source-discoveries';
@@ -805,16 +807,17 @@ export interface ProductsSelect<T extends boolean = true> {
   lastAggregatedAt?: T;
   aggregationStatus?: T;
   aggregationErrors?: T;
-  dmProduct?: T;
+  sourceProduct?: T;
   updatedAt?: T;
   createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "dm-products_select".
+ * via the `definition` "source-products_select".
  */
-export interface DmProductsSelect<T extends boolean = true> {
+export interface SourceProductsSelect<T extends boolean = true> {
   status?: T;
+  source?: T;
   gtin?: T;
   brandName?: T;
   name?: T;
@@ -827,14 +830,16 @@ export interface DmProductsSelect<T extends boolean = true> {
         label?: T;
         id?: T;
       };
-  pricing?:
+  priceHistory?:
     | T
     | {
+        recordedAt?: T;
         amount?: T;
         currency?: T;
         perUnitAmount?: T;
         perUnitCurrency?: T;
         unit?: T;
+        id?: T;
       };
   ingredients?:
     | T

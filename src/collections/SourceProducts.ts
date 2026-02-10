@@ -1,16 +1,16 @@
 import type { CollectionConfig } from 'payload'
 
-export const DmProducts: CollectionConfig = {
-  slug: 'dm-products',
+export const SourceProducts: CollectionConfig = {
+  slug: 'source-products',
   labels: {
-    singular: 'DM Product',
-    plural: 'DM Products',
+    singular: 'Source Product',
+    plural: 'Source Products',
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'brandName', 'status', 'crawledAt', 'createdAt'],
+    defaultColumns: ['name', 'brandName', 'source', 'status', 'crawledAt', 'createdAt'],
     group: 'Source Data',
-    description: 'Products crawled from dm.de',
+    description: 'Products crawled from source stores',
     listSearchableFields: ['name', 'brandName', 'gtin'],
   },
   fields: [
@@ -31,6 +31,16 @@ export const DmProducts: CollectionConfig = {
       },
     },
     {
+      name: 'source',
+      type: 'text',
+      label: 'Source',
+      index: true,
+      admin: {
+        description: 'Source identifier (e.g., dm)',
+        position: 'sidebar',
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
@@ -44,7 +54,6 @@ export const DmProducts: CollectionConfig = {
                 description: 'Global Trade Item Number',
               },
               index: true,
-              unique: true,
             },
             {
               name: 'brandName',
@@ -112,16 +121,27 @@ export const DmProducts: CollectionConfig = {
           ],
         },
         {
-          label: 'Pricing',
+          label: 'Price History',
           fields: [
             {
-              name: 'pricing',
-              type: 'group',
-              label: 'Pricing',
+              name: 'priceHistory',
+              type: 'array',
+              label: 'Price History',
               admin: {
-                description: 'Product pricing information',
+                description: 'Timestamped price entries from each crawl',
               },
               fields: [
+                {
+                  name: 'recordedAt',
+                  type: 'date',
+                  label: 'Recorded At',
+                  required: true,
+                  admin: {
+                    date: {
+                      pickerAppearance: 'dayAndTime',
+                    },
+                  },
+                },
                 {
                   type: 'row',
                   fields: [
@@ -130,7 +150,7 @@ export const DmProducts: CollectionConfig = {
                       type: 'number',
                       label: 'Price (cents)',
                       admin: {
-                        description: 'Price in smallest currency unit (cents)',
+                        description: 'Price in cents',
                         width: '50%',
                       },
                     },
@@ -140,50 +160,39 @@ export const DmProducts: CollectionConfig = {
                       label: 'Currency',
                       defaultValue: 'EUR',
                       admin: {
-                        description: 'ISO 4217 currency code',
                         width: '50%',
                       },
                     },
                   ],
                 },
                 {
-                  type: 'collapsible',
-                  label: 'Price per Unit',
-                  admin: {
-                    initCollapsed: true,
-                  },
+                  type: 'row',
                   fields: [
                     {
-                      type: 'row',
-                      fields: [
-                        {
-                          name: 'perUnitAmount',
-                          type: 'number',
-                          label: 'Per Unit Price (cents)',
-                          admin: {
-                            description: 'Base price per unit in cents',
-                            width: '33%',
-                          },
-                        },
-                        {
-                          name: 'perUnitCurrency',
-                          type: 'text',
-                          label: 'Currency',
-                          defaultValue: 'EUR',
-                          admin: {
-                            width: '33%',
-                          },
-                        },
-                        {
-                          name: 'unit',
-                          type: 'text',
-                          label: 'Unit',
-                          admin: {
-                            description: 'Unit of measurement (e.g., l, kg)',
-                            width: '33%',
-                          },
-                        },
-                      ],
+                      name: 'perUnitAmount',
+                      type: 'number',
+                      label: 'Per Unit Price (cents)',
+                      admin: {
+                        width: '33%',
+                      },
+                    },
+                    {
+                      name: 'perUnitCurrency',
+                      type: 'text',
+                      label: 'Per Unit Currency',
+                      defaultValue: 'EUR',
+                      admin: {
+                        width: '33%',
+                      },
+                    },
+                    {
+                      name: 'unit',
+                      type: 'text',
+                      label: 'Unit',
+                      admin: {
+                        description: 'Unit of measurement (e.g., l, kg)',
+                        width: '33%',
+                      },
                     },
                   ],
                 },
@@ -199,7 +208,7 @@ export const DmProducts: CollectionConfig = {
               type: 'array',
               label: 'Ingredients',
               admin: {
-                description: 'Raw ingredient strings as crawled from dm.de',
+                description: 'Raw ingredient strings as crawled from source',
               },
               fields: [
                 {

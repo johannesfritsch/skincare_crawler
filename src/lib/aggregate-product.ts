@@ -14,7 +14,7 @@ interface AggregatedData {
   ingredientNames?: string[]
 }
 
-interface DmProductSource {
+interface SourceProductData {
   id: number
   gtin?: string | null
   name?: string | null
@@ -23,17 +23,17 @@ interface DmProductSource {
   ingredients?: Array<{ name?: string | null }> | null
 }
 
-// Aggregate data from a DmProduct source
-export function aggregateFromSources(dmProduct: DmProductSource): AggregatedData | null {
+// Aggregate data from a source product
+export function aggregateFromSources(sourceProduct: SourceProductData): AggregatedData | null {
   const aggregated: AggregatedData = {}
 
-  if (dmProduct.gtin) aggregated.gtin = dmProduct.gtin
-  if (dmProduct.name) aggregated.name = dmProduct.name
-  if (dmProduct.brandName) aggregated.brandName = dmProduct.brandName
-  if (dmProduct.type) aggregated.categoryBreadcrumb = dmProduct.type
+  if (sourceProduct.gtin) aggregated.gtin = sourceProduct.gtin
+  if (sourceProduct.name) aggregated.name = sourceProduct.name
+  if (sourceProduct.brandName) aggregated.brandName = sourceProduct.brandName
+  if (sourceProduct.type) aggregated.categoryBreadcrumb = sourceProduct.type
 
-  if (dmProduct.ingredients && Array.isArray(dmProduct.ingredients) && dmProduct.ingredients.length > 0) {
-    aggregated.ingredientNames = dmProduct.ingredients
+  if (sourceProduct.ingredients && Array.isArray(sourceProduct.ingredients) && sourceProduct.ingredients.length > 0) {
+    aggregated.ingredientNames = sourceProduct.ingredients
       .map((i) => i.name)
       .filter((n): n is string => !!n)
   }
@@ -62,10 +62,10 @@ function worstStatus(current: string, candidate: string): string {
 export async function aggregateProduct(
   payload: Payload,
   productId: number,
-  dmProduct: DmProductSource,
+  sourceProduct: SourceProductData,
   sourceSlug: string,
 ): Promise<{ success: boolean; error?: string; tokensUsed?: number }> {
-  const aggregated = aggregateFromSources(dmProduct)
+  const aggregated = aggregateFromSources(sourceProduct)
 
   if (!aggregated) {
     return { success: false, error: 'No data to aggregate from source' }
@@ -78,7 +78,7 @@ export async function aggregateProduct(
 
   const updateData: Record<string, unknown> = {
     lastAggregatedAt: new Date().toISOString(),
-    dmProduct: dmProduct.id,
+    sourceProduct: sourceProduct.id,
   }
 
   if (aggregated.name && !product.name) {

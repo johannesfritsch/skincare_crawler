@@ -12,7 +12,7 @@ import { Categories } from './collections/Categories'
 import { Ingredients } from './collections/Ingredients'
 import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
-import { DmProducts } from './collections/DmProducts'
+import { SourceProducts } from './collections/SourceProducts'
 import { SourceDiscoveries } from './collections/SourceDiscoveries'
 import { SourceCrawls } from './collections/SourceCrawls'
 import { ProductAggregations } from './collections/ProductAggregations'
@@ -28,7 +28,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, DmProducts, SourceDiscoveries, SourceCrawls, ProductAggregations, Events],
+  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, SourceDiscoveries, SourceCrawls, ProductAggregations, Events],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

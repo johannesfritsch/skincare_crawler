@@ -3,6 +3,14 @@ import type { Page } from 'playwright-core'
 import type { SourceDriver, DiscoveredProduct } from '../types'
 import { parseIngredients } from '@/lib/parse-ingredients'
 
+// Match source='dm' OR source IS NULL (legacy data created before the source field existed)
+const SOURCE_DM_FILTER: Where = {
+  or: [
+    { source: { equals: 'dm' } },
+    { source: { exists: false } },
+  ],
+}
+
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
@@ -404,28 +412,36 @@ export const dmDriver: SourceDriver = {
       // Update existing product with crawled data
       const finalGtin = gtin
       const existing = await payload.find({
-        collection: 'dm-products',
-        where: { gtin: { equals: finalGtin } },
+        collection: 'source-products',
+        where: { and: [{ gtin: { equals: finalGtin } }, SOURCE_DM_FILTER] },
         limit: 1,
       })
+
+      const now = new Date().toISOString()
+      const priceEntry = {
+        recordedAt: now,
+        amount: productData.price,
+        currency: 'EUR',
+        perUnitAmount: productData.pricePerValue,
+        perUnitCurrency: 'EUR',
+        unit: productData.pricePerUnit,
+      }
+
+      const existingHistory = existing.docs.length > 0
+        ? (existing.docs[0].priceHistory ?? [])
+        : []
 
       const productPayload = {
         status: 'crawled' as const,
         brandName: productData.brandName,
         name: productData.name,
-        pricing: {
-          amount: productData.price,
-          currency: 'EUR',
-          perUnitAmount: productData.pricePerValue,
-          perUnitCurrency: 'EUR',
-          unit: productData.pricePerUnit,
-        },
+        priceHistory: [...existingHistory, priceEntry],
         rating: productData.rating,
         ratingNum: productData.ratingNum,
         labels: productData.labels.map((label: string) => ({ label })),
         ingredients: ingredients.map((name: string) => ({ name })),
         sourceUrl: productData.sourceUrl,
-        crawledAt: new Date().toISOString(),
+        crawledAt: now,
       }
 
       let productId: number
@@ -433,16 +449,17 @@ export const dmDriver: SourceDriver = {
       if (existing.docs.length > 0) {
         productId = existing.docs[0].id
         await payload.update({
-          collection: 'dm-products',
+          collection: 'source-products',
           id: productId,
-          data: productPayload,
+          data: { source: 'dm', ...productPayload },
         })
       } else {
         // Create new product if it doesn't exist (edge case)
         const newProduct = await payload.create({
-          collection: 'dm-products',
+          collection: 'source-products',
           data: {
             gtin: finalGtin,
+            source: 'dm',
             ...productPayload,
           },
         })
@@ -461,16 +478,18 @@ export const dmDriver: SourceDriver = {
     payload: Payload,
     options: { gtins?: string[]; limit: number },
   ): Promise<Array<{ id: number; gtin: string; sourceUrl: string | null }>> {
-    const where: Where[] = [{ status: { equals: 'uncrawled' } }]
+    const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_DM_FILTER]
     if (options.gtins && options.gtins.length > 0) {
       where.push({ gtin: { in: options.gtins.join(',') } })
     }
 
     const result = await payload.find({
-      collection: 'dm-products',
+      collection: 'source-products',
       where: { and: where },
       limit: options.limit,
     })
+
+    console.log(`[DM] findUncrawledProducts: found ${result.docs.length} (query: gtins=${options.gtins?.join(',') ?? 'all'}, limit=${options.limit})`)
 
     return result.docs.map((doc) => ({
       id: doc.id,
@@ -481,30 +500,31 @@ export const dmDriver: SourceDriver = {
 
   async markProductStatus(payload: Payload, productId: number, status: 'crawled' | 'failed'): Promise<void> {
     await payload.update({
-      collection: 'dm-products',
+      collection: 'source-products',
       id: productId,
       data: { status },
     })
   },
 
   async countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number> {
-    const where: Where[] = [{ status: { equals: 'uncrawled' } }]
+    const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_DM_FILTER]
     if (options?.gtins && options.gtins.length > 0) {
       where.push({ gtin: { in: options.gtins.join(',') } })
     }
 
     const result = await payload.count({
-      collection: 'dm-products',
+      collection: 'source-products',
       where: { and: where },
     })
 
+    console.log(`[DM] countUncrawled: ${result.totalDocs}`)
     return result.totalDocs
   },
 
   async resetProducts(payload: Payload, gtins?: string[], crawledBefore?: Date): Promise<void> {
     if (gtins && gtins.length === 0) return
 
-    const conditions: Where[] = [{ status: { in: 'crawled,failed' } }]
+    const conditions: Where[] = [{ status: { in: 'crawled,failed' } }, SOURCE_DM_FILTER]
     if (gtins) {
       conditions.push({ gtin: { in: gtins.join(',') } })
     }
@@ -518,7 +538,7 @@ export const dmDriver: SourceDriver = {
     }
 
     await payload.update({
-      collection: 'dm-products',
+      collection: 'source-products',
       where: conditions.length === 1 ? conditions[0] : { and: conditions },
       data: { status: 'uncrawled' },
     })

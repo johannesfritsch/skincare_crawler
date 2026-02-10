@@ -366,39 +366,52 @@ async function processSourceDiscovery(
 
     for (const product of batch) {
       const existingProduct = await payload.find({
-        collection: 'dm-products',
-        where: { gtin: { equals: product.gtin } },
+        collection: 'source-products',
+        where: { and: [
+          { gtin: { equals: product.gtin } },
+          { or: [{ source: { equals: driver.slug } }, { source: { exists: false } }] },
+        ] },
         limit: 1,
       })
+
+      const now = new Date().toISOString()
+      const priceEntry = product.price != null ? {
+        recordedAt: now,
+        amount: product.price,
+        currency: product.currency ?? 'EUR',
+      } : null
 
       const discoveryData = {
         sourceUrl: product.productUrl,
         brandName: product.brandName,
         name: product.name,
         type: product.category,
-        pricing: product.price != null ? {
-          amount: product.price,
-          currency: product.currency ?? 'EUR',
-        } : undefined,
         rating: product.rating,
         ratingNum: product.ratingCount,
       }
 
       if (existingProduct.docs.length === 0) {
         await payload.create({
-          collection: 'dm-products',
+          collection: 'source-products',
           data: {
             gtin: product.gtin,
+            source: driver.slug,
             status: 'uncrawled',
             ...discoveryData,
+            priceHistory: priceEntry ? [priceEntry] : [],
           },
         })
         created++
       } else {
+        const existingHistory = existingProduct.docs[0].priceHistory ?? []
         await payload.update({
-          collection: 'dm-products',
+          collection: 'source-products',
           id: existingProduct.docs[0].id,
-          data: discoveryData,
+          data: {
+            source: driver.slug,
+            ...discoveryData,
+            ...(priceEntry ? { priceHistory: [...existingHistory, priceEntry] } : {}),
+          },
         })
         existing++
       }
@@ -578,9 +591,12 @@ async function processSourceCrawl(
         limit: remainingBudget,
       })
 
-      if (products.length === 0) continue
+      if (products.length === 0) {
+        console.log(`[Source Crawl] [${driver.slug}] No uncrawled products found, skipping`)
+        continue
+      }
 
-      console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products`)
+      console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.gtin).join(', ')}`)
 
       const browser = await launchBrowser()
       const page = await browser.newPage()
@@ -600,9 +616,11 @@ async function processSourceCrawl(
           if (productId !== null) {
             await driver.markProductStatus(payload, product.id, 'crawled')
             crawled++
+            console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.gtin} -> source-product #${productId}`)
           } else {
             await driver.markProductStatus(payload, product.id, 'failed')
             errors++
+            console.log(`[Source Crawl] [${driver.slug}] Failed to crawl ${product.gtin}`)
           }
 
           processedThisTick++
@@ -723,9 +741,9 @@ async function processProductAggregation(
   let tokensUsed = job.tokensUsed || 0
 
   try {
-    // Query DmProducts where status='crawled' AND id > lastCheckedSourceId
-    const dmProducts = await payload.find({
-      collection: 'dm-products',
+    // Query source products where status='crawled' AND id > lastCheckedSourceId
+    const sourceProducts = await payload.find({
+      collection: 'source-products',
       where: {
         and: [
           { status: { equals: 'crawled' } },
@@ -736,7 +754,7 @@ async function processProductAggregation(
       limit: itemsPerTick * 5,
     })
 
-    if (dmProducts.docs.length === 0) {
+    if (sourceProducts.docs.length === 0) {
       // No more sources to check
       await payload.update({
         collection: 'product-aggregations',
@@ -759,19 +777,19 @@ async function processProductAggregation(
     let processedAggregations = 0
     let lastId = lastCheckedSourceId
 
-    for (const dmProduct of dmProducts.docs) {
+    for (const sourceProduct of sourceProducts.docs) {
       if (processedAggregations >= itemsPerTick) break
 
-      lastId = dmProduct.id
+      lastId = sourceProduct.id
 
-      if (!dmProduct.gtin) {
+      if (!sourceProduct.gtin) {
         continue
       }
 
       // Check if Product with same GTIN already has lastAggregatedAt set
       const existingProducts = await payload.find({
         collection: 'products',
-        where: { gtin: { equals: dmProduct.gtin } },
+        where: { gtin: { equals: sourceProduct.gtin } },
         limit: 1,
       })
 
@@ -788,15 +806,15 @@ async function processProductAggregation(
         const newProduct = await payload.create({
           collection: 'products',
           data: {
-            gtin: dmProduct.gtin,
-            name: dmProduct.name || undefined,
+            gtin: sourceProduct.gtin,
+            name: sourceProduct.name || undefined,
           },
         })
         productId = newProduct.id
       }
 
       // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, dmProduct, 'dm')
+      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm')
       processedAggregations++
       tokensUsed += result.tokensUsed ?? 0
 
@@ -804,7 +822,7 @@ async function processProductAggregation(
         aggregated++
       } else {
         errors++
-        await createEvent(payload, 'error', 'product-aggregations', jobId, `GTIN ${dmProduct.gtin}: ${result.error}`)
+        await createEvent(payload, 'error', 'product-aggregations', jobId, `GTIN ${sourceProduct.gtin}: ${result.error}`)
       }
 
       // Update progress
@@ -883,9 +901,9 @@ async function processProductAggregationSelectedGtins(
 
   try {
     for (const gtin of gtinList) {
-      // Find DmProduct with this GTIN
-      const dmProducts = await payload.find({
-        collection: 'dm-products',
+      // Find source product with this GTIN
+      const sourceProducts = await payload.find({
+        collection: 'source-products',
         where: {
           and: [
             { gtin: { equals: gtin } },
@@ -895,13 +913,13 @@ async function processProductAggregationSelectedGtins(
         limit: 1,
       })
 
-      if (dmProducts.docs.length === 0) {
+      if (sourceProducts.docs.length === 0) {
         // No source found, create warning event
         await payload.create({
           collection: 'events',
           data: {
             type: 'warning',
-            message: `No crawled DmProduct found for GTIN ${gtin}`,
+            message: `No crawled source product found for GTIN ${gtin}`,
             job: { relationTo: 'product-aggregations', value: jobId },
           },
         })
@@ -909,7 +927,7 @@ async function processProductAggregationSelectedGtins(
         continue
       }
 
-      const dmProduct = dmProducts.docs[0]
+      const sourceProduct = sourceProducts.docs[0]
 
       // Find or create Product
       const existingProducts = await payload.find({
@@ -926,14 +944,14 @@ async function processProductAggregationSelectedGtins(
           collection: 'products',
           data: {
             gtin,
-            name: dmProduct.name || undefined,
+            name: sourceProduct.name || undefined,
           },
         })
         productId = newProduct.id
       }
 
       // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, dmProduct, 'dm')
+      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm')
       tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {

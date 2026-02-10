@@ -123,12 +123,12 @@ export const Products: CollectionConfig = {
               },
             },
             {
-              name: 'dmProduct',
+              name: 'sourceProduct',
               type: 'relationship',
-              relationTo: 'dm-products',
-              label: 'DM Product',
+              relationTo: 'source-products',
+              label: 'Source Product',
               admin: {
-                description: 'Link to crawled DM product data',
+                description: 'Link to crawled source product data',
               },
             },
           ],
