@@ -141,25 +141,59 @@ export async function aggregateProduct(
       limit: sourceProducts.length,
     })
 
-    const descriptions: string[] = []
+    const classifySources: { id: number; description?: string; ingredientNames?: string[] }[] = []
     for (const sp of allSourceProducts.docs) {
-      const parts: string[] = []
-      if (sp.description) parts.push(sp.description)
-      if (sp.ingredients && Array.isArray(sp.ingredients) && sp.ingredients.length > 0) {
-        const ingredientList = sp.ingredients
-          .map((i: { name?: string | null }) => i.name)
-          .filter((n): n is string => !!n)
-          .join(', ')
-        if (ingredientList) parts.push(`Ingredients: ${ingredientList}`)
+      const ingredientNames = (sp.ingredients ?? [])
+        .map((i: { name?: string | null }) => i.name)
+        .filter((n): n is string => !!n)
+      if (sp.description || ingredientNames.length > 0) {
+        classifySources.push({
+          id: sp.id,
+          description: sp.description || undefined,
+          ingredientNames: ingredientNames.length > 0 ? ingredientNames : undefined,
+        })
       }
-      if (parts.length > 0) descriptions.push(parts.join('\n\n'))
     }
 
-    if (descriptions.length > 0) {
-      const classifyResult = await classifyProduct(descriptions)
+    if (classifySources.length > 0) {
+      const classifyResult = await classifyProduct(
+        classifySources.map((s) => ({ description: s.description, ingredientNames: s.ingredientNames })),
+      )
       tokensUsed += classifyResult.tokensUsed.totalTokens
+
+      if (classifyResult.description) {
+        updateData.description = classifyResult.description
+      }
+
+      const mapEvidence = (entry: { sourceIndex: number; type: 'ingredient' | 'descriptionSnippet'; snippet?: string; ingredientNames?: string[] }) => {
+        const source = classifySources[entry.sourceIndex]
+        const result: Record<string, unknown> = {
+          sourceProduct: source?.id,
+          evidenceType: entry.type,
+        }
+        if (entry.type === 'descriptionSnippet' && entry.snippet) {
+          result.snippet = entry.snippet
+          if (source?.description) {
+            const start = source.description.indexOf(entry.snippet)
+            if (start !== -1) {
+              result.start = start
+              result.end = start + entry.snippet.length
+            }
+          }
+        }
+        if (entry.type === 'ingredient' && entry.ingredientNames) {
+          result.ingredientNames = entry.ingredientNames.map((name) => ({ name }))
+        }
+        return result
+      }
+
       updateData.productAttributes = classifyResult.productAttributes
+        .filter((e) => classifySources[e.sourceIndex])
+        .map((entry) => ({ attribute: entry.attribute, ...mapEvidence(entry) }))
+
       updateData.productClaims = classifyResult.productClaims
+        .filter((e) => classifySources[e.sourceIndex])
+        .map((entry) => ({ claim: entry.claim, ...mapEvidence(entry) }))
     }
   } catch (error) {
     errorMessages.push(`Product classification error: ${error instanceof Error ? error.message : 'Unknown error'}`)

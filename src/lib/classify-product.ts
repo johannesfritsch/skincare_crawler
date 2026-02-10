@@ -1,54 +1,77 @@
 import OpenAI from 'openai'
 import type { TokenUsage } from './match-ingredients'
 
+export interface SourceInput {
+  description?: string
+  ingredientNames?: string[]
+}
+
+interface EvidenceEntry {
+  sourceIndex: number
+  type: 'ingredient' | 'descriptionSnippet'
+  snippet?: string
+  ingredientNames?: string[]
+}
+
 export interface ClassifyProductResult {
-  productAttributes: Record<string, boolean>
-  productClaims: Record<string, boolean>
+  description: string
+  productAttributes: Array<{ attribute: string } & EvidenceEntry>
+  productClaims: Array<{ claim: string } & EvidenceEntry>
   tokensUsed: TokenUsage
 }
 
 const SYSTEM_PROMPT = `You are an expert cosmetic chemist analyzing cosmetics/personal care products.
 
-Given one or more source descriptions (and/or ingredient lists) for the same product, determine the following boolean flags.
+You will receive one or more sources for the same product, each with a description and/or ingredient list.
 
-**Product Attributes** (ingredient-based — true if the product contains these):
-- containsAllergens: contains known allergens (e.g. common fragrance allergens, preservatives like MI/MCI)
-- containsSimpleAlcohol: contains simple/drying alcohols (e.g. Alcohol Denat., Ethanol, Isopropyl Alcohol) — NOT fatty alcohols
-- containsGluten: contains gluten or gluten-derived ingredients
-- containsSilicones: contains silicones (e.g. Dimethicone, Cyclomethicone, any -cone/-siloxane)
-- containsSulfates: contains sulfates (e.g. SLS, SLES, Sodium Lauryl Sulfate)
-- containsParabens: contains parabens (e.g. Methylparaben, Propylparaben)
-- containsPegs: contains PEG compounds (Polyethylene Glycol derivatives)
-- containsFragrance: contains fragrance/parfum
-- containsMineralOil: contains mineral oil or petroleum-derived oils (e.g. Paraffinum Liquidum, Petrolatum)
+First, write a short neutral product description (2-4 sentences). State what the product is, what it does, and any notable claims. No advertising language, no superlatives, no promotional tone. Just factual information.
 
-**Product Claims** (marketing/safety claims — true if the product makes or supports this claim):
-- vegan: product is marketed as vegan or contains no animal-derived ingredients
-- crueltyFree: product is marketed as cruelty-free / not tested on animals
-- unsafeForPregnancy: product contains ingredients considered unsafe during pregnancy (e.g. retinoids, salicylic acid in high concentration)
-- pregnancySafe: product is explicitly marketed as pregnancy-safe
-- waterProof: product is marketed as waterproof or water-resistant
-- microplasticFree: product is marketed as microplastic-free
-- allergenFree: product is marketed as allergen-free or hypoallergenic
-- simpleAlcoholFree: product is marketed as alcohol-free (referring to simple alcohols)
-- glutenFree: product is marketed as gluten-free
-- siliconeFree: product is marketed as silicone-free
-- sulfateFree: product is marketed as sulfate-free
-- parabenFree: product is marketed as paraben-free
-- pegFree: product is marketed as PEG-free
-- fragranceFree: product is marketed as fragrance-free
-- mineralOilFree: product is marketed as mineral-oil-free
+Then identify which product attributes and claims apply, providing evidence for each.
+
+**Product Attributes** (true if the product contains these):
+- containsAllergens: known allergens (common fragrance allergens, MI/MCI, etc.)
+- containsSimpleAlcohol: simple/drying alcohols (Alcohol Denat., Ethanol, Isopropyl Alcohol) — NOT fatty alcohols
+- containsGluten: gluten or gluten-derived ingredients
+- containsSilicones: silicones (Dimethicone, Cyclomethicone, -cone/-siloxane compounds)
+- containsSulfates: sulfates (SLS, SLES, Sodium Lauryl Sulfate)
+- containsParabens: parabens (Methylparaben, Propylparaben, etc.)
+- containsPegs: PEG compounds (Polyethylene Glycol derivatives)
+- containsFragrance: fragrance/parfum
+- containsMineralOil: mineral oil / petroleum-derived oils (Paraffinum Liquidum, Petrolatum)
+
+**Product Claims** (true if the product makes or supports this claim):
+- vegan: marketed as vegan or no animal-derived ingredients
+- crueltyFree: marketed as cruelty-free / not tested on animals
+- unsafeForPregnancy: contains ingredients unsafe during pregnancy (retinoids, high-concentration salicylic acid)
+- pregnancySafe: explicitly marketed as pregnancy-safe
+- waterProof: marketed as waterproof or water-resistant
+- microplasticFree: marketed as microplastic-free
+- allergenFree: marketed as allergen-free or hypoallergenic
+- simpleAlcoholFree: marketed as alcohol-free (simple alcohols)
+- glutenFree: marketed as gluten-free
+- siliconeFree: marketed as silicone-free
+- sulfateFree: marketed as sulfate-free
+- parabenFree: marketed as paraben-free
+- pegFree: marketed as PEG-free
+- fragranceFree: marketed as fragrance-free
+- mineralOilFree: marketed as mineral-oil-free
 
 **Rules:**
-- If multiple source descriptions are provided, a flag should only be true if a majority of sources support it.
-- For attributes (contains*): base your answer on ingredient lists when available, descriptions otherwise.
-- For claims: base your answer on explicit marketing claims, labels, or certifications mentioned in the descriptions.
-- When uncertain, default to false.
+- Only include attributes/claims that are actually supported by evidence.
+- For each, provide the 0-based sourceIndex and evidence type.
+- type "ingredient": list the specific ingredient names from the ingredient list that triggered it.
+- type "descriptionSnippet": provide the exact verbatim snippet from the description text. Copy it character-for-character so it can be located in the original text.
+- One entry per (attribute/claim, source) combination.
 
-Return ONLY strict JSON with this structure:
+Return ONLY JSON:
 {
-  "productAttributes": { "containsAllergens": false, ... },
-  "productClaims": { "vegan": false, ... }
+  "description": "A neutral 2-4 sentence product description.",
+  "productAttributes": [
+    { "attribute": "containsParabens", "sourceIndex": 0, "type": "ingredient", "ingredientNames": ["Methylparaben", "Propylparaben"] }
+  ],
+  "productClaims": [
+    { "claim": "vegan", "sourceIndex": 0, "type": "descriptionSnippet", "snippet": "100% vegan" }
+  ]
 }
 
 No explanation, no markdown fences.`
@@ -61,16 +84,23 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey })
 }
 
-export async function classifyProduct(descriptions: string[]): Promise<ClassifyProductResult> {
+export async function classifyProduct(sources: SourceInput[]): Promise<ClassifyProductResult> {
   const openai = getOpenAI()
 
-  const userContent = descriptions
-    .map((desc, i) => `Source ${i + 1}:\n${desc}`)
+  const userContent = sources
+    .map((source, i) => {
+      const parts: string[] = [`Source ${i}:`]
+      if (source.description) parts.push(`Description:\n"""\n${source.description}\n"""`)
+      if (source.ingredientNames && source.ingredientNames.length > 0) {
+        parts.push(`Ingredients: ${source.ingredientNames.join(', ')}`)
+      }
+      return parts.join('\n')
+    })
     .join('\n\n---\n\n')
 
   console.log('\n[classifyProduct] ── LLM Call: Product Classification ──')
   console.log('[classifyProduct] Model: gpt-4.1-mini, temperature: 0')
-  console.log(`[classifyProduct] Sources: ${descriptions.length}`)
+  console.log(`[classifyProduct] Sources: ${sources.length}`)
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -102,15 +132,28 @@ export async function classifyProduct(descriptions: string[]): Promise<ClassifyP
     throw new Error(`Failed to parse classification response as JSON: ${content.substring(0, 200)}`)
   }
 
-  const result = parsed as { productAttributes?: Record<string, boolean>; productClaims?: Record<string, boolean> }
-
-  if (!result.productAttributes || !result.productClaims) {
-    throw new Error('Classification response missing productAttributes or productClaims')
+  const result = parsed as {
+    description?: string
+    productAttributes?: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
+    productClaims?: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
   }
 
   return {
-    productAttributes: result.productAttributes,
-    productClaims: result.productClaims,
+    description: result.description ?? '',
+    productAttributes: (result.productAttributes ?? []).map((entry) => ({
+      attribute: entry.attribute,
+      sourceIndex: entry.sourceIndex,
+      type: entry.type as 'ingredient' | 'descriptionSnippet',
+      snippet: entry.snippet,
+      ingredientNames: entry.ingredientNames,
+    })),
+    productClaims: (result.productClaims ?? []).map((entry) => ({
+      claim: entry.claim,
+      sourceIndex: entry.sourceIndex,
+      type: entry.type as 'ingredient' | 'descriptionSnippet',
+      snippet: entry.snippet,
+      ingredientNames: entry.ingredientNames,
+    })),
     tokensUsed,
   }
 }

@@ -79,6 +79,10 @@ export interface Config {
     'source-crawls': SourceCrawl;
     'product-aggregations': ProductAggregation;
     events: Event;
+    creators: Creator;
+    channels: Channel;
+    videos: Video;
+    'video-references': VideoReference;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -88,6 +92,9 @@ export interface Config {
     'ingredients-discoveries': {
       events: 'events';
     };
+    products: {
+      videoReferences: 'video-references';
+    };
     'source-discoveries': {
       events: 'events';
     };
@@ -96,6 +103,15 @@ export interface Config {
     };
     'product-aggregations': {
       events: 'events';
+    };
+    creators: {
+      channels: 'channels';
+    };
+    channels: {
+      videos: 'videos';
+    };
+    videos: {
+      videoReferences: 'video-references';
     };
   };
   collectionsSelect: {
@@ -111,6 +127,10 @@ export interface Config {
     'source-crawls': SourceCrawlsSelect<false> | SourceCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
+    creators: CreatorsSelect<false> | CreatorsSelect<true>;
+    channels: ChannelsSelect<false> | ChannelsSelect<true>;
+    videos: VideosSelect<false> | VideosSelect<true>;
+    'video-references': VideoReferencesSelect<false> | VideoReferencesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -478,38 +498,73 @@ export interface Product {
       }[]
     | null;
   /**
-   * Ingredient-based attributes determined by LLM analysis of source descriptions
+   * Ingredient-based attributes with evidence from source products
    */
-  productAttributes?: {
-    containsAllergens?: boolean | null;
-    containsSimpleAlcohol?: boolean | null;
-    containsGluten?: boolean | null;
-    containsSilicones?: boolean | null;
-    containsSulfates?: boolean | null;
-    containsParabens?: boolean | null;
-    containsPegs?: boolean | null;
-    containsFragrance?: boolean | null;
-    containsMineralOil?: boolean | null;
-  };
+  productAttributes?:
+    | {
+        attribute:
+          | 'containsAllergens'
+          | 'containsSimpleAlcohol'
+          | 'containsGluten'
+          | 'containsSilicones'
+          | 'containsSulfates'
+          | 'containsParabens'
+          | 'containsPegs'
+          | 'containsFragrance'
+          | 'containsMineralOil';
+        sourceProduct: number | SourceProduct;
+        evidenceType: 'ingredient' | 'descriptionSnippet';
+        snippet?: string | null;
+        start?: number | null;
+        end?: number | null;
+        ingredientNames?:
+          | {
+              name: string;
+              id?: string | null;
+            }[]
+          | null;
+        id?: string | null;
+      }[]
+    | null;
   /**
-   * Marketing and safety claims determined by LLM analysis of source descriptions
+   * Marketing and safety claims with evidence from source products
    */
-  productClaims?: {
-    vegan?: boolean | null;
-    crueltyFree?: boolean | null;
-    unsafeForPregnancy?: boolean | null;
-    pregnancySafe?: boolean | null;
-    waterProof?: boolean | null;
-    microplasticFree?: boolean | null;
-    allergenFree?: boolean | null;
-    simpleAlcoholFree?: boolean | null;
-    glutenFree?: boolean | null;
-    siliconeFree?: boolean | null;
-    sulfateFree?: boolean | null;
-    parabenFree?: boolean | null;
-    pegFree?: boolean | null;
-    fragranceFree?: boolean | null;
-    mineralOilFree?: boolean | null;
+  productClaims?:
+    | {
+        claim:
+          | 'vegan'
+          | 'crueltyFree'
+          | 'unsafeForPregnancy'
+          | 'pregnancySafe'
+          | 'waterProof'
+          | 'microplasticFree'
+          | 'allergenFree'
+          | 'simpleAlcoholFree'
+          | 'glutenFree'
+          | 'siliconeFree'
+          | 'sulfateFree'
+          | 'parabenFree'
+          | 'pegFree'
+          | 'fragranceFree'
+          | 'mineralOilFree';
+        sourceProduct: number | SourceProduct;
+        evidenceType: 'ingredient' | 'descriptionSnippet';
+        snippet?: string | null;
+        start?: number | null;
+        end?: number | null;
+        ingredientNames?:
+          | {
+              name: string;
+              id?: string | null;
+            }[]
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  videoReferences?: {
+    docs?: (number | VideoReference)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
   };
   /**
    * When data sources were last aggregated into name, category, and description
@@ -637,6 +692,79 @@ export interface SourceProduct {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-references".
+ */
+export interface VideoReference {
+  id: number;
+  video: number | Video;
+  image?: (number | null) | Media;
+  /**
+   * Start time in seconds
+   */
+  timestampStart?: number | null;
+  /**
+   * End time in seconds
+   */
+  timestampEnd?: number | null;
+  localVideo?: (number | null) | Media;
+  referencedProducts?: (number | Product)[] | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "videos".
+ */
+export interface Video {
+  id: number;
+  channel: number | Channel;
+  title: string;
+  image?: (number | null) | Media;
+  externalUrl?: string | null;
+  videoReferences?: {
+    docs?: (number | VideoReference)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "channels".
+ */
+export interface Channel {
+  id: number;
+  creator: number | Creator;
+  image?: (number | null) | Media;
+  platform: 'youtube' | 'instagram' | 'tiktok';
+  externalUrl?: string | null;
+  videos?: {
+    docs?: (number | Video)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "creators".
+ */
+export interface Creator {
+  id: number;
+  name: string;
+  image?: (number | null) | Media;
+  channels?: {
+    docs?: (number | Channel)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -706,6 +834,22 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'events';
         value: number | Event;
+      } | null)
+    | ({
+        relationTo: 'creators';
+        value: number | Creator;
+      } | null)
+    | ({
+        relationTo: 'channels';
+        value: number | Channel;
+      } | null)
+    | ({
+        relationTo: 'videos';
+        value: number | Video;
+      } | null)
+    | ({
+        relationTo: 'video-references';
+        value: number | VideoReference;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -878,35 +1022,38 @@ export interface ProductsSelect<T extends boolean = true> {
   productAttributes?:
     | T
     | {
-        containsAllergens?: T;
-        containsSimpleAlcohol?: T;
-        containsGluten?: T;
-        containsSilicones?: T;
-        containsSulfates?: T;
-        containsParabens?: T;
-        containsPegs?: T;
-        containsFragrance?: T;
-        containsMineralOil?: T;
+        attribute?: T;
+        sourceProduct?: T;
+        evidenceType?: T;
+        snippet?: T;
+        start?: T;
+        end?: T;
+        ingredientNames?:
+          | T
+          | {
+              name?: T;
+              id?: T;
+            };
+        id?: T;
       };
   productClaims?:
     | T
     | {
-        vegan?: T;
-        crueltyFree?: T;
-        unsafeForPregnancy?: T;
-        pregnancySafe?: T;
-        waterProof?: T;
-        microplasticFree?: T;
-        allergenFree?: T;
-        simpleAlcoholFree?: T;
-        glutenFree?: T;
-        siliconeFree?: T;
-        sulfateFree?: T;
-        parabenFree?: T;
-        pegFree?: T;
-        fragranceFree?: T;
-        mineralOilFree?: T;
+        claim?: T;
+        sourceProduct?: T;
+        evidenceType?: T;
+        snippet?: T;
+        start?: T;
+        end?: T;
+        ingredientNames?:
+          | T
+          | {
+              name?: T;
+              id?: T;
+            };
+        id?: T;
       };
+  videoReferences?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
   updatedAt?: T;
@@ -1043,6 +1190,57 @@ export interface EventsSelect<T extends boolean = true> {
   type?: T;
   message?: T;
   job?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "creators_select".
+ */
+export interface CreatorsSelect<T extends boolean = true> {
+  name?: T;
+  image?: T;
+  channels?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "channels_select".
+ */
+export interface ChannelsSelect<T extends boolean = true> {
+  creator?: T;
+  image?: T;
+  platform?: T;
+  externalUrl?: T;
+  videos?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "videos_select".
+ */
+export interface VideosSelect<T extends boolean = true> {
+  channel?: T;
+  title?: T;
+  image?: T;
+  externalUrl?: T;
+  videoReferences?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-references_select".
+ */
+export interface VideoReferencesSelect<T extends boolean = true> {
+  video?: T;
+  image?: T;
+  timestampStart?: T;
+  timestampEnd?: T;
+  localVideo?: T;
+  referencedProducts?: T;
   updatedAt?: T;
   createdAt?: T;
 }
