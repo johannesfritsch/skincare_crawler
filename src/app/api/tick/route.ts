@@ -4,19 +4,20 @@ import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/d
 import { getSourceDriver, getSourceDriverBySlug, getAllSourceDrivers } from '@/lib/source-discovery/driver'
 import type { SourceDriver } from '@/lib/source-discovery/types'
 import { aggregateProduct } from '@/lib/aggregate-product'
+import { getVideoDriver } from '@/lib/video-discovery/driver'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 interface ActiveJob {
-  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation'
+  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation' | 'video-discovery'
   id: number
   status: string
   crawlType?: string
   aggregationType?: string
 }
 
-type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations'
+type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries'
 type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 
 async function createEvent(
@@ -47,6 +48,7 @@ export const POST = async () => {
     sourceDiscInProgress, sourceDiscPending,
     crawlInProgress, crawlPending,
     aggInProgress, aggPending,
+    videoDiscInProgress, videoDiscPending,
   ] = await Promise.all([
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
@@ -56,6 +58,8 @@ export const POST = async () => {
     payload.find({ collection: 'source-crawls', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
     payload.find({ collection: 'product-aggregations', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'product-aggregations', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'video-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'video-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
   ])
 
   activeJobs.push(
@@ -67,6 +71,8 @@ export const POST = async () => {
     ...crawlPending.docs.map((d) => ({ type: 'source-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
     ...aggInProgress.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
     ...aggPending.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
+    ...videoDiscInProgress.docs.map((d) => ({ type: 'video-discovery' as const, id: d.id, status: d.status! })),
+    ...videoDiscPending.docs.map((d) => ({ type: 'video-discovery' as const, id: d.id, status: d.status! })),
   )
 
   if (activeJobs.length === 0) {
@@ -88,6 +94,8 @@ export const POST = async () => {
     return processSourceDiscovery(payload, selected.id)
   } else if (selected.type === 'product-aggregation') {
     return processProductAggregation(payload, selected.id)
+  } else if (selected.type === 'video-discovery') {
+    return processVideoDiscovery(payload, selected.id)
   } else {
     return processSourceCrawl(payload, selected.id)
   }
@@ -1002,6 +1010,211 @@ async function processProductAggregationSelectedGtins(
       error: errorMsg,
       jobId,
       type: 'product-aggregation',
+    }, { status: 500 })
+  }
+}
+
+async function processVideoDiscovery(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  jobId: number,
+) {
+  const discovery = await payload.findByID({
+    collection: 'video-discoveries',
+    id: jobId,
+  })
+
+  const itemsPerTick = discovery.itemsPerTick ?? undefined
+  console.log(`[Video Discovery] Starting with itemsPerTick: ${itemsPerTick ?? 'unlimited'}`)
+
+  const driver = getVideoDriver(discovery.channelUrl)
+  if (!driver) {
+    const errorMsg = `No video driver found for URL: ${discovery.channelUrl}`
+    await payload.update({
+      collection: 'video-discoveries',
+      id: jobId,
+      data: {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createEvent(payload, 'error', 'video-discoveries', jobId, errorMsg)
+    return Response.json({
+      error: errorMsg,
+      jobId,
+      type: 'video-discovery',
+    }, { status: 400 })
+  }
+
+  // Mark as in_progress if pending
+  if (discovery.status === 'pending') {
+    await payload.update({
+      collection: 'video-discoveries',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        discovered: 0,
+        created: 0,
+        existing: 0,
+      },
+    })
+    await createEvent(payload, 'start', 'video-discoveries', jobId, `Started video discovery for ${discovery.channelUrl}`)
+  }
+
+  try {
+    // Discover all videos via driver
+    const videos = await driver.discoverVideos(discovery.channelUrl)
+
+    // Update discovered count
+    await payload.update({
+      collection: 'video-discoveries',
+      id: jobId,
+      data: { discovered: videos.length },
+    })
+
+    // Find or create the channel
+    const channelUrl = videos[0]?.channelUrl || discovery.channelUrl
+    const channelName = videos[0]?.channelName
+
+    let existingChannel = await payload.find({
+      collection: 'channels',
+      where: { externalUrl: { equals: channelUrl } },
+      limit: 1,
+    })
+
+    let channelId: number
+    if (existingChannel.docs.length > 0) {
+      channelId = existingChannel.docs[0].id
+    } else {
+      // Find or create creator from channel name
+      const creatorName = channelName || channelUrl
+      const existingCreator = await payload.find({
+        collection: 'creators',
+        where: { name: { equals: creatorName } },
+        limit: 1,
+      })
+      let creatorId: number
+      if (existingCreator.docs.length > 0) {
+        creatorId = existingCreator.docs[0].id
+      } else {
+        const newCreator = await payload.create({
+          collection: 'creators',
+          data: { name: creatorName },
+        })
+        creatorId = newCreator.id
+      }
+
+      const newChannel = await payload.create({
+        collection: 'channels',
+        data: {
+          creator: creatorId,
+          platform: driver.slug as 'youtube' | 'instagram' | 'tiktok',
+          externalUrl: channelUrl,
+        },
+      })
+      channelId = newChannel.id
+    }
+
+    // Calculate offset from already-processed count
+    let created = discovery.created || 0
+    let existing = discovery.existing || 0
+    const offset = created + existing
+
+    // Determine slice to process this tick
+    const end = itemsPerTick ? Math.min(offset + itemsPerTick, videos.length) : videos.length
+    const batch = videos.slice(offset, end)
+
+    for (const video of batch) {
+      const existingVideo = await payload.find({
+        collection: 'videos',
+        where: { externalUrl: { equals: video.externalUrl } },
+        limit: 1,
+      })
+
+      const publishedAt = video.uploadDate ? `${video.uploadDate}T00:00:00.000Z` : undefined
+
+      if (existingVideo.docs.length === 0) {
+        await payload.create({
+          collection: 'videos',
+          data: {
+            channel: channelId,
+            title: video.title,
+            externalUrl: video.externalUrl,
+            publishedAt,
+          },
+        })
+        created++
+      } else {
+        await payload.update({
+          collection: 'videos',
+          id: existingVideo.docs[0].id,
+          data: {
+            title: video.title,
+            channel: channelId,
+            publishedAt,
+          },
+        })
+        existing++
+      }
+
+      // Update stats after each video
+      await payload.update({
+        collection: 'video-discoveries',
+        id: jobId,
+        data: { created, existing },
+      })
+    }
+
+    // Check if all videos processed
+    if (created + existing >= videos.length) {
+      await payload.update({
+        collection: 'video-discoveries',
+        id: jobId,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        },
+      })
+      await createEvent(payload, 'success', 'video-discoveries', jobId, `Completed: ${videos.length} discovered, ${created} created, ${existing} existing`)
+
+      return Response.json({
+        message: 'Video discovery completed',
+        jobId,
+        type: 'video-discovery',
+        discovered: videos.length,
+        created,
+        existing,
+      })
+    }
+
+    // More videos remaining, stay in_progress
+    return Response.json({
+      message: 'Tick completed',
+      jobId,
+      type: 'video-discovery',
+      discovered: videos.length,
+      created,
+      existing,
+      remaining: videos.length - (created + existing),
+    })
+  } catch (error) {
+    console.error('Video discovery error:', error)
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await payload.update({
+      collection: 'video-discoveries',
+      id: jobId,
+      data: {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createEvent(payload, 'error', 'video-discoveries', jobId, errorMsg)
+
+    return Response.json({
+      error: errorMsg,
+      jobId,
+      type: 'video-discovery',
     }, { status: 500 })
   }
 }

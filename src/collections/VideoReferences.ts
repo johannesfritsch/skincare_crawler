@@ -48,6 +48,20 @@ export const VideoReferences: CollectionConfig = {
       label: 'Local Video',
     },
     {
+      name: 'screenshots',
+      type: 'array',
+      label: 'Screenshots',
+      fields: [
+        {
+          name: 'image',
+          type: 'upload',
+          relationTo: 'media',
+          label: 'Image',
+          required: true,
+        },
+      ],
+    },
+    {
       name: 'referencedProducts',
       type: 'relationship',
       relationTo: 'products',

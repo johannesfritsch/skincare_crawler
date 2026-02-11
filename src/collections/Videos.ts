@@ -32,6 +32,16 @@ export const Videos: CollectionConfig = {
       label: 'Image',
     },
     {
+      name: 'publishedAt',
+      type: 'date',
+      label: 'Published At',
+      admin: {
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
       name: 'externalUrl',
       type: 'text',
       label: 'External URL',

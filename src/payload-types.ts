@@ -83,6 +83,7 @@ export interface Config {
     channels: Channel;
     videos: Video;
     'video-references': VideoReference;
+    'video-discoveries': VideoDiscovery;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -113,6 +114,9 @@ export interface Config {
     videos: {
       videoReferences: 'video-references';
     };
+    'video-discoveries': {
+      events: 'events';
+    };
   };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
@@ -131,6 +135,7 @@ export interface Config {
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
     videos: VideosSelect<false> | VideosSelect<true>;
     'video-references': VideoReferencesSelect<false> | VideoReferencesSelect<true>;
+    'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -338,6 +343,10 @@ export interface Event {
     | ({
         relationTo: 'product-aggregations';
         value: number | ProductAggregation;
+      } | null)
+    | ({
+        relationTo: 'video-discoveries';
+        value: number | VideoDiscovery;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -463,6 +472,43 @@ export interface ProductAggregation {
     totalDocs?: number;
   };
   lastCheckedSourceId?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-discoveries".
+ */
+export interface VideoDiscovery {
+  id: number;
+  /**
+   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
+   */
+  channelUrl: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Videos found on the channel
+   */
+  discovered?: number | null;
+  /**
+   * New videos created
+   */
+  created?: number | null;
+  /**
+   * Videos already in database
+   */
+  existing?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Max videos to save per tick. Leave empty for unlimited.
+   */
+  itemsPerTick?: number | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -707,6 +753,12 @@ export interface VideoReference {
    */
   timestampEnd?: number | null;
   localVideo?: (number | null) | Media;
+  screenshots?:
+    | {
+        image: number | Media;
+        id?: string | null;
+      }[]
+    | null;
   referencedProducts?: (number | Product)[] | null;
   updatedAt: string;
   createdAt: string;
@@ -720,6 +772,7 @@ export interface Video {
   channel: number | Channel;
   title: string;
   image?: (number | null) | Media;
+  publishedAt?: string | null;
   externalUrl?: string | null;
   videoReferences?: {
     docs?: (number | VideoReference)[];
@@ -850,6 +903,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'video-references';
         value: number | VideoReference;
+      } | null)
+    | ({
+        relationTo: 'video-discoveries';
+        value: number | VideoDiscovery;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1225,6 +1282,7 @@ export interface VideosSelect<T extends boolean = true> {
   channel?: T;
   title?: T;
   image?: T;
+  publishedAt?: T;
   externalUrl?: T;
   videoReferences?: T;
   updatedAt?: T;
@@ -1240,7 +1298,30 @@ export interface VideoReferencesSelect<T extends boolean = true> {
   timestampStart?: T;
   timestampEnd?: T;
   localVideo?: T;
+  screenshots?:
+    | T
+    | {
+        image?: T;
+        id?: T;
+      };
   referencedProducts?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-discoveries_select".
+ */
+export interface VideoDiscoveriesSelect<T extends boolean = true> {
+  channelUrl?: T;
+  status?: T;
+  discovered?: T;
+  created?: T;
+  existing?: T;
+  startedAt?: T;
+  completedAt?: T;
+  itemsPerTick?: T;
+  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
