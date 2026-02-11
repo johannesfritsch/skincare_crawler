@@ -229,6 +229,24 @@ export async function processVideo(
   let totalScreenshots = 0
 
   try {
+    // Step 0: Delete existing snippets for this video
+    console.log(`[processVideo] ── Step: Clean Up Existing Snippets ──`)
+    const existingSnippets = await payload.find({
+      collection: 'video-snippets',
+      where: { video: { equals: videoId } },
+      limit: 1000,
+    })
+    if (existingSnippets.docs.length > 0) {
+      console.log(`[processVideo] Deleting ${existingSnippets.docs.length} existing snippets`)
+      await payload.delete({
+        collection: 'video-snippets',
+        where: { video: { equals: videoId } },
+      })
+      console.log(`[processVideo] Deleted existing snippets`)
+    } else {
+      console.log(`[processVideo] No existing snippets to clean up`)
+    }
+
     // Step 1: Download
     await downloadVideo(video.externalUrl, videoPath)
 
