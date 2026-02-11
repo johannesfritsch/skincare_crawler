@@ -462,6 +462,10 @@ export interface ProductAggregation {
    */
   gtins?: string | null;
   /**
+   * Language for the generated product description.
+   */
+  language?: ('de' | 'en') | null;
+  /**
    * Total products to aggregate
    */
   total?: number | null;
@@ -1302,6 +1306,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   status?: T;
   type?: T;
   gtins?: T;
+  language?: T;
   total?: T;
   aggregated?: T;
   errors?: T;

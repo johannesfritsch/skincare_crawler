@@ -52,6 +52,7 @@ export async function aggregateProduct(
   productId: number,
   sourceProduct: SourceProductData,
   sourceSlug: string,
+  language: string = 'de',
 ): Promise<{ success: boolean; error?: string; warning?: string; tokensUsed?: number }> {
   const aggregated = aggregateFromSources(sourceProduct)
 
@@ -158,6 +159,7 @@ export async function aggregateProduct(
     if (classifySources.length > 0) {
       const classifyResult = await classifyProduct(
         classifySources.map((s) => ({ description: s.description, ingredientNames: s.ingredientNames })),
+        language,
       )
       tokensUsed += classifyResult.tokensUsed.totalTokens
 

@@ -906,7 +906,7 @@ async function processProductAggregation(
       }
 
       // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm')
+      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm', job.language || 'de')
       processedAggregations++
       tokensUsed += result.tokensUsed ?? 0
 
@@ -968,7 +968,7 @@ async function processProductAggregation(
 async function processProductAggregationSelectedGtins(
   payload: Awaited<ReturnType<typeof getPayload>>,
   jobId: number,
-  job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: string | null },
+  job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: string | null; language?: string | null },
 ) {
   const gtinList = (job.gtins || '').split('\n').map((g) => g.trim()).filter(Boolean)
 
@@ -1052,7 +1052,7 @@ async function processProductAggregationSelectedGtins(
       }
 
       // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm')
+      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm', job.language || 'de')
       tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {

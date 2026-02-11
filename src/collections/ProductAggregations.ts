@@ -54,6 +54,19 @@ export const ProductAggregations: CollectionConfig = {
                 condition: (data) => data?.type === 'selected_gtins',
               },
             },
+            {
+              name: 'language',
+              type: 'select',
+              label: 'Description Language',
+              defaultValue: 'de',
+              options: [
+                { label: 'German', value: 'de' },
+                { label: 'English', value: 'en' },
+              ],
+              admin: {
+                description: 'Language for the generated product description.',
+              },
+            },
           ],
         },
         {

@@ -24,7 +24,7 @@ const SYSTEM_PROMPT = `You are an expert cosmetic chemist analyzing cosmetics/pe
 
 You will receive one or more sources for the same product, each with a description and/or ingredient list.
 
-First, write a short neutral product description (2-4 sentences). State what the product is, what it does, and any notable claims. No advertising language, no superlatives, no promotional tone. Just factual information.
+First, write a short neutral product description (2-4 sentences) in {{LANGUAGE}}. State what the product is, what it does, and any notable claims. No advertising language, no superlatives, no promotional tone. Just factual information.
 
 Then identify which product attributes and claims apply, providing evidence for each.
 
@@ -95,7 +95,7 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey })
 }
 
-export async function classifyProduct(sources: SourceInput[]): Promise<ClassifyProductResult> {
+export async function classifyProduct(sources: SourceInput[], language: string = 'de'): Promise<ClassifyProductResult> {
   const openai = getOpenAI()
 
   const userContent = sources
@@ -109,15 +109,18 @@ export async function classifyProduct(sources: SourceInput[]): Promise<ClassifyP
     })
     .join('\n\n---\n\n')
 
+  const languageLabel = language === 'de' ? 'German' : 'English'
+  const systemPrompt = SYSTEM_PROMPT.replace('{{LANGUAGE}}', languageLabel)
+
   console.log('\n[classifyProduct] ── LLM Call: Product Classification ──')
   console.log('[classifyProduct] Model: gpt-4.1-mini, temperature: 0')
-  console.log(`[classifyProduct] Sources: ${sources.length}`)
+  console.log(`[classifyProduct] Sources: ${sources.length}, language: ${languageLabel}`)
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
     temperature: 0,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ],
   })

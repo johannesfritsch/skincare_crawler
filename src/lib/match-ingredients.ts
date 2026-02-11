@@ -154,13 +154,20 @@ async function searchIngredients(
   console.log('\n[matchIngredients] ── DB Search ──')
   console.log(`[matchIngredients] Searching ${uniqueTerms.length} unique terms:`, uniqueTerms)
 
-  // Search all terms in parallel: exact match + fuzzy (like) match per term
+  // Search all terms in parallel: case-insensitive exact match + fuzzy (like) match per term.
+  // The uppercase exact search ensures the precise entry is always included even when
+  // `like` results are crowded out by compounds (e.g. "Glycerin" → "POLYGLYCERIN-40").
   const searchResults = await Promise.all(
     uniqueTerms.map(async (term) => {
-      const [exactResult, likeResult] = await Promise.all([
+      const [exactResult, uppercaseResult, likeResult] = await Promise.all([
         payload.find({
           collection: 'ingredients',
           where: { name: { equals: term } },
+          limit: 1,
+        }),
+        payload.find({
+          collection: 'ingredients',
+          where: { name: { equals: term.toUpperCase() } },
           limit: 1,
         }),
         payload.find({
@@ -169,8 +176,8 @@ async function searchIngredients(
           limit: 10,
         }),
       ])
-      // Merge exact match first, then like results (deduped below)
-      const docs = [...exactResult.docs, ...likeResult.docs]
+      // Merge exact matches first, then like results (deduped below)
+      const docs = [...exactResult.docs, ...uppercaseResult.docs, ...likeResult.docs]
       return { term, docs }
     }),
   )
@@ -276,13 +283,21 @@ export async function matchIngredients(
     return { matched: [], unmatched: [], tokensUsed }
   }
 
-  // Step 0: Exact DB match — resolve names that match exactly, skip LLM for those
-  console.log('\n[matchIngredients] ── Step 0: Exact DB Match ──')
+  // Step 0: Exact DB match (case-insensitive) — resolve names that match exactly, skip LLM for those
+  // DB stores names in UPPERCASE, so we search both original case and uppercased.
+  // We avoid `like` here because it does substring matching and the exact entry
+  // can be crowded out by compounds (e.g. "Glycerin" returns "POLYGLYCERIN-40" but not "GLYCERIN").
+  console.log('\n[matchIngredients] ── Step 0: Exact DB Match (case-insensitive) ──')
   const exactResults = await Promise.all(
     ingredientNames.map(async (name) => {
       const result = await payload.find({
         collection: 'ingredients',
-        where: { name: { equals: name } },
+        where: {
+          or: [
+            { name: { equals: name } },
+            { name: { equals: name.toUpperCase() } },
+          ],
+        },
         limit: 2,
       })
       return { name, docs: result.docs }
