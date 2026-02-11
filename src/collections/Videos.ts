@@ -42,6 +42,20 @@ export const Videos: CollectionConfig = {
       },
     },
     {
+      name: 'processingStatus',
+      type: 'select',
+      label: 'Processing Status',
+      defaultValue: 'unprocessed',
+      options: [
+        { label: 'Unprocessed', value: 'unprocessed' },
+        { label: 'Processed', value: 'processed' },
+      ],
+      index: true,
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
       name: 'externalUrl',
       type: 'text',
       label: 'External URL',

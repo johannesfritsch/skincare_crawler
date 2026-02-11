@@ -84,6 +84,7 @@ export interface Config {
     videos: Video;
     'video-references': VideoReference;
     'video-discoveries': VideoDiscovery;
+    'video-processings': VideoProcessing;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -117,6 +118,9 @@ export interface Config {
     'video-discoveries': {
       events: 'events';
     };
+    'video-processings': {
+      events: 'events';
+    };
   };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
@@ -136,6 +140,7 @@ export interface Config {
     videos: VideosSelect<false> | VideosSelect<true>;
     'video-references': VideoReferencesSelect<false> | VideoReferencesSelect<true>;
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
+    'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -347,6 +352,10 @@ export interface Event {
     | ({
         relationTo: 'video-discoveries';
         value: number | VideoDiscovery;
+      } | null)
+    | ({
+        relationTo: 'video-processings';
+        value: number | VideoProcessing;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -509,6 +518,125 @@ export interface VideoDiscovery {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-processings".
+ */
+export interface VideoProcessing {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  type: 'all_unprocessed' | 'single_video';
+  /**
+   * The video to process
+   */
+  video?: (number | null) | Video;
+  /**
+   * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
+   */
+  sceneThreshold?: number | null;
+  /**
+   * Videos successfully processed
+   */
+  processed?: number | null;
+  /**
+   * Videos that failed to process
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Number of videos to process per tick.
+   */
+  itemsPerTick?: number | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "videos".
+ */
+export interface Video {
+  id: number;
+  channel: number | Channel;
+  title: string;
+  image?: (number | null) | Media;
+  publishedAt?: string | null;
+  processingStatus?: ('unprocessed' | 'processed') | null;
+  externalUrl?: string | null;
+  videoReferences?: {
+    docs?: (number | VideoReference)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "channels".
+ */
+export interface Channel {
+  id: number;
+  creator: number | Creator;
+  image?: (number | null) | Media;
+  platform: 'youtube' | 'instagram' | 'tiktok';
+  externalUrl?: string | null;
+  videos?: {
+    docs?: (number | Video)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "creators".
+ */
+export interface Creator {
+  id: number;
+  name: string;
+  image?: (number | null) | Media;
+  channels?: {
+    docs?: (number | Channel)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-references".
+ */
+export interface VideoReference {
+  id: number;
+  video: number | Video;
+  image?: (number | null) | Media;
+  /**
+   * Start time in seconds
+   */
+  timestampStart?: number | null;
+  /**
+   * End time in seconds
+   */
+  timestampEnd?: number | null;
+  localVideo?: (number | null) | Media;
+  screenshots?:
+    | {
+        image: number | Media;
+        id?: string | null;
+      }[]
+    | null;
+  referencedProducts?: (number | Product)[] | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -738,86 +866,6 @@ export interface SourceProduct {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-references".
- */
-export interface VideoReference {
-  id: number;
-  video: number | Video;
-  image?: (number | null) | Media;
-  /**
-   * Start time in seconds
-   */
-  timestampStart?: number | null;
-  /**
-   * End time in seconds
-   */
-  timestampEnd?: number | null;
-  localVideo?: (number | null) | Media;
-  screenshots?:
-    | {
-        image: number | Media;
-        id?: string | null;
-      }[]
-    | null;
-  referencedProducts?: (number | Product)[] | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "videos".
- */
-export interface Video {
-  id: number;
-  channel: number | Channel;
-  title: string;
-  image?: (number | null) | Media;
-  publishedAt?: string | null;
-  externalUrl?: string | null;
-  videoReferences?: {
-    docs?: (number | VideoReference)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "channels".
- */
-export interface Channel {
-  id: number;
-  creator: number | Creator;
-  image?: (number | null) | Media;
-  platform: 'youtube' | 'instagram' | 'tiktok';
-  externalUrl?: string | null;
-  videos?: {
-    docs?: (number | Video)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "creators".
- */
-export interface Creator {
-  id: number;
-  name: string;
-  image?: (number | null) | Media;
-  channels?: {
-    docs?: (number | Channel)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -907,6 +955,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'video-discoveries';
         value: number | VideoDiscovery;
+      } | null)
+    | ({
+        relationTo: 'video-processings';
+        value: number | VideoProcessing;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1283,6 +1335,7 @@ export interface VideosSelect<T extends boolean = true> {
   title?: T;
   image?: T;
   publishedAt?: T;
+  processingStatus?: T;
   externalUrl?: T;
   videoReferences?: T;
   updatedAt?: T;
@@ -1318,6 +1371,24 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   discovered?: T;
   created?: T;
   existing?: T;
+  startedAt?: T;
+  completedAt?: T;
+  itemsPerTick?: T;
+  events?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-processings_select".
+ */
+export interface VideoProcessingsSelect<T extends boolean = true> {
+  status?: T;
+  type?: T;
+  video?: T;
+  sceneThreshold?: T;
+  processed?: T;
+  errors?: T;
   startedAt?: T;
   completedAt?: T;
   itemsPerTick?: T;

@@ -5,19 +5,20 @@ import { getSourceDriver, getSourceDriverBySlug, getAllSourceDrivers } from '@/l
 import type { SourceDriver } from '@/lib/source-discovery/types'
 import { aggregateProduct } from '@/lib/aggregate-product'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
+import { processVideo } from '@/lib/video-processing/process-video'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 interface ActiveJob {
-  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation' | 'video-discovery'
+  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation' | 'video-discovery' | 'video-processing'
   id: number
   status: string
   crawlType?: string
   aggregationType?: string
 }
 
-type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries'
+type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries' | 'video-processings'
 type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 
 async function createEvent(
@@ -49,6 +50,7 @@ export const POST = async () => {
     crawlInProgress, crawlPending,
     aggInProgress, aggPending,
     videoDiscInProgress, videoDiscPending,
+    videoProcInProgress, videoProcPending,
   ] = await Promise.all([
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
@@ -60,6 +62,8 @@ export const POST = async () => {
     payload.find({ collection: 'product-aggregations', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
     payload.find({ collection: 'video-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'video-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'video-processings', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'video-processings', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
   ])
 
   activeJobs.push(
@@ -73,6 +77,8 @@ export const POST = async () => {
     ...aggPending.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
     ...videoDiscInProgress.docs.map((d) => ({ type: 'video-discovery' as const, id: d.id, status: d.status! })),
     ...videoDiscPending.docs.map((d) => ({ type: 'video-discovery' as const, id: d.id, status: d.status! })),
+    ...videoProcInProgress.docs.map((d) => ({ type: 'video-processing' as const, id: d.id, status: d.status! })),
+    ...videoProcPending.docs.map((d) => ({ type: 'video-processing' as const, id: d.id, status: d.status! })),
   )
 
   if (activeJobs.length === 0) {
@@ -96,6 +102,8 @@ export const POST = async () => {
     return processProductAggregation(payload, selected.id)
   } else if (selected.type === 'video-discovery') {
     return processVideoDiscovery(payload, selected.id)
+  } else if (selected.type === 'video-processing') {
+    return processVideoProcessing(payload, selected.id)
   } else {
     return processSourceCrawl(payload, selected.id)
   }
@@ -1215,6 +1223,203 @@ async function processVideoDiscovery(
       error: errorMsg,
       jobId,
       type: 'video-discovery',
+    }, { status: 500 })
+  }
+}
+
+async function processVideoProcessing(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  jobId: number,
+) {
+  let job = await payload.findByID({
+    collection: 'video-processings',
+    id: jobId,
+  })
+
+  const itemsPerTick = job.itemsPerTick ?? 1
+  const sceneThreshold = job.sceneThreshold ?? 0.4
+  console.log(`[Video Processing] Starting job #${jobId} with itemsPerTick: ${itemsPerTick}, sceneThreshold: ${sceneThreshold}`)
+
+  // Initialize if pending
+  if (job.status === 'pending') {
+    await payload.update({
+      collection: 'video-processings',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        processed: 0,
+        errors: 0,
+      },
+    })
+    await createEvent(payload, 'start', 'video-processings', jobId, `Started video processing (type=${job.type || 'all_unprocessed'})`)
+    job = await payload.findByID({
+      collection: 'video-processings',
+      id: jobId,
+    })
+  }
+
+  let processed = job.processed || 0
+  let errors = job.errors || 0
+
+  try {
+    if (job.type === 'single_video') {
+      // Process a single video
+      const videoId = typeof job.video === 'object' && job.video !== null ? job.video.id : job.video
+      if (!videoId) {
+        await payload.update({
+          collection: 'video-processings',
+          id: jobId,
+          data: { status: 'failed', completedAt: new Date().toISOString() },
+        })
+        await createEvent(payload, 'error', 'video-processings', jobId, 'No video specified for single_video mode')
+        return Response.json({ error: 'No video specified', jobId, type: 'video-processing' }, { status: 400 })
+      }
+
+      console.log(`[Video Processing] Single video mode: video #${videoId}`)
+      const result = await processVideo(payload, videoId as number, sceneThreshold)
+
+      if (result.success) {
+        processed++
+        await createEvent(payload, 'success', 'video-processings', jobId, `Video #${videoId}: ${result.segmentsCreated} segments, ${result.screenshotsCreated} screenshots`)
+      } else {
+        errors++
+        await createEvent(payload, 'error', 'video-processings', jobId, `Video #${videoId}: ${result.error}`)
+      }
+
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: {
+          status: 'completed',
+          processed,
+          errors,
+          completedAt: new Date().toISOString(),
+        },
+      })
+
+      return Response.json({
+        message: 'Video processing completed',
+        jobId,
+        type: 'video-processing',
+        processed,
+        errors,
+      })
+    }
+
+    // Default: all_unprocessed mode
+    console.log(`[Video Processing] All unprocessed mode, fetching up to ${itemsPerTick} videos`)
+
+    const unprocessedVideos = await payload.find({
+      collection: 'videos',
+      where: {
+        and: [
+          { processingStatus: { equals: 'unprocessed' } },
+          { externalUrl: { exists: true } },
+        ],
+      },
+      limit: itemsPerTick,
+      sort: 'createdAt',
+    })
+
+    console.log(`[Video Processing] Found ${unprocessedVideos.docs.length} unprocessed videos`)
+
+    if (unprocessedVideos.docs.length === 0) {
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        },
+      })
+      await createEvent(payload, 'success', 'video-processings', jobId, `Completed: ${processed} processed, ${errors} errors`)
+      return Response.json({
+        message: 'Video processing completed - no more unprocessed videos',
+        jobId,
+        type: 'video-processing',
+        processed,
+        errors,
+      })
+    }
+
+    for (const video of unprocessedVideos.docs) {
+      console.log(`[Video Processing] Processing video #${video.id}: "${video.title}"`)
+
+      const result = await processVideo(payload, video.id, sceneThreshold)
+
+      if (result.success) {
+        processed++
+        await createEvent(payload, 'info', 'video-processings', jobId, `Video #${video.id} "${video.title}": ${result.segmentsCreated} segments, ${result.screenshotsCreated} screenshots`)
+      } else {
+        errors++
+        await createEvent(payload, 'error', 'video-processings', jobId, `Video #${video.id} "${video.title}": ${result.error}`)
+      }
+
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: { processed, errors },
+      })
+    }
+
+    // Check if there are more unprocessed videos
+    const remaining = await payload.count({
+      collection: 'videos',
+      where: {
+        and: [
+          { processingStatus: { equals: 'unprocessed' } },
+          { externalUrl: { exists: true } },
+        ],
+      },
+    })
+
+    if (remaining.totalDocs === 0) {
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        },
+      })
+      await createEvent(payload, 'success', 'video-processings', jobId, `Completed: ${processed} processed, ${errors} errors`)
+
+      return Response.json({
+        message: 'Video processing completed',
+        jobId,
+        type: 'video-processing',
+        processed,
+        errors,
+      })
+    }
+
+    return Response.json({
+      message: 'Tick completed',
+      jobId,
+      type: 'video-processing',
+      processed,
+      errors,
+      remaining: remaining.totalDocs,
+    })
+  } catch (error) {
+    console.error('Video processing error:', error)
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await payload.update({
+      collection: 'video-processings',
+      id: jobId,
+      data: {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createEvent(payload, 'error', 'video-processings', jobId, errorMsg)
+
+    return Response.json({
+      error: errorMsg,
+      jobId,
+      type: 'video-processing',
     }, { status: 500 })
   }
 }

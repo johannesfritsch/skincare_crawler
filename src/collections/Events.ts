@@ -34,7 +34,7 @@ export const Events: CollectionConfig = {
     {
       name: 'job',
       type: 'relationship',
-      relationTo: ['source-discoveries', 'source-crawls', 'ingredients-discoveries', 'product-aggregations', 'video-discoveries'],
+      relationTo: ['source-discoveries', 'source-crawls', 'ingredients-discoveries', 'product-aggregations', 'video-discoveries', 'video-processings'],
       index: true,
     },
   ],

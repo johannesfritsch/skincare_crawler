@@ -22,6 +22,7 @@ import { Channels } from './collections/Channels'
 import { Videos } from './collections/Videos'
 import { VideoReferences } from './collections/VideoReferences'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
+import { VideoProcessings } from './collections/VideoProcessings'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -33,7 +34,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, SourceDiscoveries, SourceCrawls, ProductAggregations, Events, Creators, Channels, Videos, VideoReferences, VideoDiscoveries],
+  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, SourceDiscoveries, SourceCrawls, ProductAggregations, Events, Creators, Channels, Videos, VideoReferences, VideoDiscoveries, VideoProcessings],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
