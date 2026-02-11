@@ -61,9 +61,9 @@ export const Videos: CollectionConfig = {
       label: 'External URL',
     },
     {
-      name: 'videoReferences',
+      name: 'videoSnippets',
       type: 'join',
-      collection: 'video-references',
+      collection: 'video-snippets',
       on: 'video',
     },
   ],

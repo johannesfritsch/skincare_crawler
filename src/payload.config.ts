@@ -20,7 +20,7 @@ import { Events } from './collections/Events'
 import { Creators } from './collections/Creators'
 import { Channels } from './collections/Channels'
 import { Videos } from './collections/Videos'
-import { VideoReferences } from './collections/VideoReferences'
+import { VideoSnippets } from './collections/VideoSnippets'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
 import { VideoProcessings } from './collections/VideoProcessings'
 
@@ -34,7 +34,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, SourceDiscoveries, SourceCrawls, ProductAggregations, Events, Creators, Channels, Videos, VideoReferences, VideoDiscoveries, VideoProcessings],
+  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, SourceDiscoveries, SourceCrawls, ProductAggregations, Events, Creators, Channels, Videos, VideoSnippets, VideoDiscoveries, VideoProcessings],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

@@ -254,12 +254,12 @@ export async function processVideo(
         screenshotMediaIds.push(mediaId)
       }
 
-      // Create VideoReference
+      // Create VideoSnippet
       const firstScreenshot = screenshotMediaIds[0] ?? null
-      console.log(`[processVideo]   Creating VideoReference: ${screenshotMediaIds.length} screenshots, image=${firstScreenshot}`)
+      console.log(`[processVideo]   Creating VideoSnippet: ${screenshotMediaIds.length} screenshots, image=${firstScreenshot}`)
 
       await payload.create({
-        collection: 'video-references',
+        collection: 'video-snippets',
         data: {
           video: videoId,
           image: firstScreenshot,

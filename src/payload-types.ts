@@ -82,7 +82,7 @@ export interface Config {
     creators: Creator;
     channels: Channel;
     videos: Video;
-    'video-references': VideoReference;
+    'video-snippets': VideoSnippet;
     'video-discoveries': VideoDiscovery;
     'video-processings': VideoProcessing;
     'payload-kv': PayloadKv;
@@ -95,7 +95,7 @@ export interface Config {
       events: 'events';
     };
     products: {
-      videoReferences: 'video-references';
+      videoSnippets: 'video-snippets';
     };
     'source-discoveries': {
       events: 'events';
@@ -113,7 +113,7 @@ export interface Config {
       videos: 'videos';
     };
     videos: {
-      videoReferences: 'video-references';
+      videoSnippets: 'video-snippets';
     };
     'video-discoveries': {
       events: 'events';
@@ -138,7 +138,7 @@ export interface Config {
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
     videos: VideosSelect<false> | VideosSelect<true>;
-    'video-references': VideoReferencesSelect<false> | VideoReferencesSelect<true>;
+    'video-snippets': VideoSnippetsSelect<false> | VideoSnippetsSelect<true>;
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
     'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -571,8 +571,8 @@ export interface Video {
   publishedAt?: string | null;
   processingStatus?: ('unprocessed' | 'processed') | null;
   externalUrl?: string | null;
-  videoReferences?: {
-    docs?: (number | VideoReference)[];
+  videoSnippets?: {
+    docs?: (number | VideoSnippet)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -615,9 +615,9 @@ export interface Creator {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-references".
+ * via the `definition` "video-snippets".
  */
-export interface VideoReference {
+export interface VideoSnippet {
   id: number;
   video: number | Video;
   image?: (number | null) | Media;
@@ -735,8 +735,8 @@ export interface Product {
         id?: string | null;
       }[]
     | null;
-  videoReferences?: {
-    docs?: (number | VideoReference)[];
+  videoSnippets?: {
+    docs?: (number | VideoSnippet)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -949,8 +949,8 @@ export interface PayloadLockedDocument {
         value: number | Video;
       } | null)
     | ({
-        relationTo: 'video-references';
-        value: number | VideoReference;
+        relationTo: 'video-snippets';
+        value: number | VideoSnippet;
       } | null)
     | ({
         relationTo: 'video-discoveries';
@@ -1162,7 +1162,7 @@ export interface ProductsSelect<T extends boolean = true> {
             };
         id?: T;
       };
-  videoReferences?: T;
+  videoSnippets?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
   updatedAt?: T;
@@ -1337,15 +1337,15 @@ export interface VideosSelect<T extends boolean = true> {
   publishedAt?: T;
   processingStatus?: T;
   externalUrl?: T;
-  videoReferences?: T;
+  videoSnippets?: T;
   updatedAt?: T;
   createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-references_select".
+ * via the `definition` "video-snippets_select".
  */
-export interface VideoReferencesSelect<T extends boolean = true> {
+export interface VideoSnippetsSelect<T extends boolean = true> {
   video?: T;
   image?: T;
   timestampStart?: T;

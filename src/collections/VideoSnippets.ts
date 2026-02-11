@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const VideoReferences: CollectionConfig = {
-  slug: 'video-references',
+export const VideoSnippets: CollectionConfig = {
+  slug: 'video-snippets',
   labels: {
-    singular: 'Video Reference',
-    plural: 'Video References',
+    singular: 'Video Snippet',
+    plural: 'Video Snippets',
   },
   admin: {
     useAsTitle: 'video',

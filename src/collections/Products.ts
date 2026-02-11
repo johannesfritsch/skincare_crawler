@@ -267,12 +267,12 @@ export const Products: CollectionConfig = {
           ],
         },
         {
-          label: 'Video References',
+          label: 'Video Snippets',
           fields: [
             {
-              name: 'videoReferences',
+              name: 'videoSnippets',
               type: 'join',
-              collection: 'video-references',
+              collection: 'video-snippets',
               on: 'referencedProducts',
             },
           ],
