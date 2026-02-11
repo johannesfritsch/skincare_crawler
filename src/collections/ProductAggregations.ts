@@ -50,7 +50,7 @@ export const ProductAggregations: CollectionConfig = {
               type: 'textarea',
               label: 'GTINs',
               admin: {
-                description: 'Comma-separated list of GTINs to aggregate',
+                description: 'GTINs to aggregate, one per line',
                 condition: (data) => data?.type === 'selected_gtins',
               },
             },

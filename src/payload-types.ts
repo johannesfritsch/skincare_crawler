@@ -367,9 +367,9 @@ export interface Event {
 export interface SourceDiscovery {
   id: number;
   /**
-   * The category URL to discover products from
+   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
    */
-  sourceUrl: string;
+  sourceUrls: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Products found on the page
@@ -386,7 +386,7 @@ export interface SourceDiscovery {
   startedAt?: string | null;
   completedAt?: string | null;
   /**
-   * Comma-separated list of discovered GTINs
+   * Discovered GTINs, one per line
    */
   gtins?: string | null;
   /**
@@ -411,7 +411,7 @@ export interface SourceCrawl {
   source: 'all' | 'dm';
   type: 'all' | 'selected_gtins';
   /**
-   * Comma-separated list of GTINs to crawl
+   * GTINs to crawl, one per line
    */
   gtins?: string | null;
   /**
@@ -454,7 +454,7 @@ export interface ProductAggregation {
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   type: 'all' | 'selected_gtins';
   /**
-   * Comma-separated list of GTINs to aggregate
+   * GTINs to aggregate, one per line
    */
   gtins?: string | null;
   /**
@@ -1247,7 +1247,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
  * via the `definition` "source-discoveries_select".
  */
 export interface SourceDiscoveriesSelect<T extends boolean = true> {
-  sourceUrl?: T;
+  sourceUrls?: T;
   status?: T;
   discovered?: T;
   created?: T;

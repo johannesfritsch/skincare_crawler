@@ -325,9 +325,22 @@ async function processSourceDiscovery(
   const itemsPerTick = discovery.itemsPerTick ?? undefined
   console.log(`[Source Discovery] Starting with itemsPerTick: ${itemsPerTick ?? 'unlimited'}`)
 
-  const driver = getSourceDriver(discovery.sourceUrl)
+  // Parse semicolon-separated URLs
+  const sourceUrls = (discovery.sourceUrls ?? '').split('\n').map((u) => u.trim()).filter(Boolean)
+  if (sourceUrls.length === 0) {
+    await payload.update({
+      collection: 'source-discoveries',
+      id: discoveryId,
+      data: { status: 'failed', completedAt: new Date().toISOString() },
+    })
+    await createEvent(payload, 'error', 'source-discoveries', discoveryId, 'No URLs provided')
+    return Response.json({ error: 'No URLs provided', jobId: discoveryId, type: 'source-discovery' }, { status: 400 })
+  }
+
+  // Check that we have a driver for at least the first URL
+  const driver = getSourceDriver(sourceUrls[0])
   if (!driver) {
-    const errorMsg = `No driver found for URL: ${discovery.sourceUrl}`
+    const errorMsg = `No driver found for URL: ${sourceUrls[0]}`
     await payload.update({
       collection: 'source-discoveries',
       id: discoveryId,
@@ -357,12 +370,56 @@ async function processSourceDiscovery(
         existing: 0,
       },
     })
-    await createEvent(payload, 'start', 'source-discoveries', discoveryId, `Started source discovery for ${discovery.sourceUrl}`)
+    await createEvent(payload, 'start', 'source-discoveries', discoveryId, `Started source discovery for ${sourceUrls.length} URL(s)`)
   }
 
   try {
-    // Discover all products via API (fast, idempotent)
-    const { products } = await driver.discoverProducts(discovery.sourceUrl)
+    // Detect product URLs (path depth 1, ending in -p<digits>.html) vs category URLs
+    const productUrlPattern = /^\/[^/]+-p(\d+)\.html$/
+    const productUrls: { url: string; gtin: string }[] = []
+    const categoryUrls: string[] = []
+
+    for (const url of sourceUrls) {
+      try {
+        const pathname = new URL(url).pathname
+        const match = pathname.match(productUrlPattern)
+        if (match) {
+          productUrls.push({ url, gtin: match[1] })
+        } else {
+          categoryUrls.push(url)
+        }
+      } catch {
+        categoryUrls.push(url)
+      }
+    }
+
+    console.log(`[Source Discovery] ${categoryUrls.length} category URL(s), ${productUrls.length} product URL(s)`)
+
+    // Discover products from all category URLs
+    const allDiscoveredProducts: Array<{ gtin: string; productUrl: string | null; brandName?: string; name?: string; price?: number; currency?: string; rating?: number; ratingCount?: number; category?: string }> = []
+    const seenGtins = new Set<string>()
+
+    for (const catUrl of categoryUrls) {
+      const catDriver = getSourceDriver(catUrl) ?? driver
+      const { products: catProducts } = await catDriver.discoverProducts(catUrl)
+      for (const p of catProducts) {
+        if (!seenGtins.has(p.gtin)) {
+          seenGtins.add(p.gtin)
+          allDiscoveredProducts.push(p)
+        }
+      }
+    }
+
+    // Add product URLs as direct entries (minimal data — will be filled during crawl)
+    for (const { url, gtin } of productUrls) {
+      if (!seenGtins.has(gtin)) {
+        seenGtins.add(gtin)
+        allDiscoveredProducts.push({ gtin, productUrl: url })
+      }
+    }
+
+    const products = allDiscoveredProducts
+    console.log(`[Source Discovery] Total unique products: ${products.length}`)
 
     // Update discovered count
     await payload.update({
@@ -447,7 +504,7 @@ async function processSourceDiscovery(
 
     // Check if all products processed
     if (created + existing >= products.length) {
-      const discoveredGtins = products.map((p) => p.gtin).join(',')
+      const discoveredGtins = products.map((p) => p.gtin).join('\n')
       await payload.update({
         collection: 'source-discoveries',
         id: discoveryId,
@@ -560,7 +617,7 @@ async function processSourceCrawl(
   // Parse GTINs for selected_gtins mode
   const isSelectedGtins = crawl.type === 'selected_gtins'
   const gtinList = isSelectedGtins
-    ? (crawl.gtins || '').split(',').map((g) => g.trim()).filter(Boolean)
+    ? (crawl.gtins || '').split('\n').map((g) => g.trim()).filter(Boolean)
     : undefined
 
   // Read scope and minimum crawl age settings
@@ -885,7 +942,7 @@ async function processProductAggregationSelectedGtins(
   jobId: number,
   job: { aggregated?: number | null; errors?: number | null; tokensUsed?: number | null; gtins?: string | null },
 ) {
-  const gtinList = (job.gtins || '').split(',').map((g) => g.trim()).filter(Boolean)
+  const gtinList = (job.gtins || '').split('\n').map((g) => g.trim()).filter(Boolean)
 
   console.log(`[Product Aggregation] Selected GTINs mode: ${gtinList.length} GTINs`)
 

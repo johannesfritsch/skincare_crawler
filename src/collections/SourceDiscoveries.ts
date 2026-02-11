@@ -7,19 +7,19 @@ export const SourceDiscoveries: CollectionConfig = {
     plural: 'Source Discoveries',
   },
   admin: {
-    useAsTitle: 'sourceUrl',
-    defaultColumns: ['sourceUrl', 'status', 'discovered', 'created', 'startedAt'],
+    useAsTitle: 'sourceUrls',
+    defaultColumns: ['sourceUrls', 'status', 'discovered', 'created', 'startedAt'],
     group: 'Jobs',
   },
   fields: [
     // Main configuration - always visible
     {
-      name: 'sourceUrl',
-      type: 'text',
-      label: 'Source URL',
+      name: 'sourceUrls',
+      type: 'textarea',
+      label: 'Source URLs',
       required: true,
       admin: {
-        description: 'The category URL to discover products from',
+        description: 'Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.',
       },
     },
     {
@@ -123,7 +123,7 @@ export const SourceDiscoveries: CollectionConfig = {
               label: 'Discovered GTINs',
               admin: {
                 readOnly: true,
-                description: 'Comma-separated list of discovered GTINs',
+                description: 'Discovered GTINs, one per line',
               },
             },
           ],
