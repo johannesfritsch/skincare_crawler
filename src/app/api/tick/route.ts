@@ -654,6 +654,20 @@ async function processSourceCrawl(
     console.log(`[Source Crawl] Reset products to uncrawled`)
   }
 
+  // Count total on first tick
+  if (isFirstTick) {
+    let totalUncrawled = 0
+    for (const driver of drivers) {
+      totalUncrawled += await driver.countUncrawled(payload, gtinList ? { gtins: gtinList } : undefined)
+    }
+    await payload.update({
+      collection: 'source-crawls',
+      id: crawlId,
+      data: { total: totalUncrawled },
+    })
+    console.log(`[Source Crawl] Total products to crawl: ${totalUncrawled}`)
+  }
+
   let crawled = crawl.crawled || 0
   let errors = crawl.errors || 0
   let processedThisTick = 0
@@ -796,6 +810,20 @@ async function processProductAggregation(
   // Branch based on type
   if (job.type === 'selected_gtins') {
     return processProductAggregationSelectedGtins(payload, jobId, job)
+  }
+
+  // Count total crawled source products on first tick
+  if (!job.total) {
+    const totalCount = await payload.count({
+      collection: 'source-products',
+      where: { status: { equals: 'crawled' } },
+    })
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: { total: totalCount.totalDocs },
+    })
+    console.log(`[Product Aggregation] Total source products to check: ${totalCount.totalDocs}`)
   }
 
   // Default: aggregate all non-aggregated products
@@ -945,6 +973,12 @@ async function processProductAggregationSelectedGtins(
   const gtinList = (job.gtins || '').split('\n').map((g) => g.trim()).filter(Boolean)
 
   console.log(`[Product Aggregation] Selected GTINs mode: ${gtinList.length} GTINs`)
+
+  await payload.update({
+    collection: 'product-aggregations',
+    id: jobId,
+    data: { total: gtinList.length },
+  })
 
   if (gtinList.length === 0) {
     await payload.update({
@@ -1357,6 +1391,20 @@ async function processVideoProcessing(
       collection: 'video-processings',
       id: jobId,
     })
+  }
+
+  // Set total on first tick
+  if (!job.total) {
+    if (job.type === 'single_video') {
+      await payload.update({ collection: 'video-processings', id: jobId, data: { total: 1 } })
+    } else {
+      const totalCount = await payload.count({
+        collection: 'videos',
+        where: { and: [{ processingStatus: { equals: 'unprocessed' } }, { externalUrl: { exists: true } }] },
+      })
+      await payload.update({ collection: 'video-processings', id: jobId, data: { total: totalCount.totalDocs } })
+      console.log(`[Video Processing] Total unprocessed videos: ${totalCount.totalDocs}`)
+    }
   }
 
   let processed = job.processed || 0

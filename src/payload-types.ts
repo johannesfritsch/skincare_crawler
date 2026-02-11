@@ -424,6 +424,10 @@ export interface SourceCrawl {
   minCrawlAge?: number | null;
   minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
   /**
+   * Total products to crawl
+   */
+  total?: number | null;
+  /**
    * Products successfully crawled
    */
   crawled?: number | null;
@@ -457,6 +461,10 @@ export interface ProductAggregation {
    * GTINs to aggregate, one per line
    */
   gtins?: string | null;
+  /**
+   * Total products to aggregate
+   */
+  total?: number | null;
   /**
    * Products successfully aggregated
    */
@@ -537,6 +545,10 @@ export interface VideoProcessing {
    * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
    */
   sceneThreshold?: number | null;
+  /**
+   * Total videos to process
+   */
+  total?: number | null;
   /**
    * Videos successfully processed
    */
@@ -1272,6 +1284,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   scope?: T;
   minCrawlAge?: T;
   minCrawlAgeUnit?: T;
+  total?: T;
   crawled?: T;
   errors?: T;
   startedAt?: T;
@@ -1289,6 +1302,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   status?: T;
   type?: T;
   gtins?: T;
+  total?: T;
   aggregated?: T;
   errors?: T;
   tokensUsed?: T;
@@ -1399,6 +1413,7 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   type?: T;
   video?: T;
   sceneThreshold?: T;
+  total?: T;
   processed?: T;
   errors?: T;
   startedAt?: T;

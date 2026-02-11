@@ -118,6 +118,15 @@ export const SourceCrawls: CollectionConfig = {
           label: 'Progress',
           fields: [
             {
+              name: 'total',
+              type: 'number',
+              label: 'Total',
+              admin: {
+                readOnly: true,
+                description: 'Total products to crawl',
+              },
+            },
+            {
               type: 'row',
               fields: [
                 {

@@ -72,6 +72,15 @@ export const VideoProcessings: CollectionConfig = {
           label: 'Progress',
           fields: [
             {
+              name: 'total',
+              type: 'number',
+              label: 'Total',
+              admin: {
+                readOnly: true,
+                description: 'Total videos to process',
+              },
+            },
+            {
               type: 'row',
               fields: [
                 {
