@@ -50,13 +50,7 @@ export const VideoSnippets: CollectionConfig = {
         description: 'End time in seconds',
       },
     },
-    {
-      name: 'localVideo',
-      type: 'upload',
-      relationTo: 'media',
-      label: 'Local Video',
-    },
-    {
+{
       name: 'screenshots',
       type: 'array',
       label: 'Screenshots',
