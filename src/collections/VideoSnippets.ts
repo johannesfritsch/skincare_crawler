@@ -13,6 +13,15 @@ export const VideoSnippets: CollectionConfig = {
   },
   fields: [
     {
+      name: 'embeddedPlayer',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '/components/EmbeddedSnippetPlayer',
+        },
+      },
+    },
+    {
       name: 'video',
       type: 'relationship',
       relationTo: 'videos',

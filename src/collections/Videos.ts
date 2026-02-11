@@ -13,6 +13,15 @@ export const Videos: CollectionConfig = {
   },
   fields: [
     {
+      name: 'embeddedPlayer',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '/components/EmbeddedVideoPlayer',
+        },
+      },
+    },
+    {
       name: 'channel',
       type: 'relationship',
       relationTo: 'channels',
