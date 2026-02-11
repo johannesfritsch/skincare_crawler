@@ -134,6 +134,49 @@ async function extractScreenshots(
   return files
 }
 
+async function scanBarcode(imagePath: string): Promise<string | null> {
+  console.log(`[processVideo]     Scanning for barcode: ${path.basename(imagePath)}`)
+
+  return new Promise((resolve) => {
+    execFile(
+      'zbarimg',
+      ['--quiet', imagePath],
+      { timeout: 30_000 },
+      (error, stdout) => {
+        if (error || !stdout.trim()) {
+          console.log(`[processVideo]     No barcode found`)
+          resolve(null)
+          return
+        }
+
+        for (const line of stdout.trim().split('\n')) {
+          const colonIdx = line.indexOf(':')
+          if (colonIdx === -1) continue
+          const type = line.substring(0, colonIdx)
+          const data = line.substring(colonIdx + 1).trim()
+
+          // Skip QR codes, only accept EAN-13, EAN-8, UPC-A
+          if (type === 'QR-Code' || type === 'QR_Code') {
+            console.log(`[processVideo]     Skipping QR code: ${data.substring(0, 40)}...`)
+            continue
+          }
+
+          if (type === 'EAN-13' || type === 'EAN-8' || type === 'UPC-A') {
+            console.log(`[processVideo]     Found barcode: ${type}:${data}`)
+            resolve(data)
+            return
+          }
+
+          console.log(`[processVideo]     Skipping unsupported barcode type: ${type}:${data}`)
+        }
+
+        console.log(`[processVideo]     No EAN-13/EAN-8 barcode in scan results`)
+        resolve(null)
+      },
+    )
+  })
+}
+
 async function uploadFile(
   payload: Payload,
   filePath: string,
@@ -239,8 +282,29 @@ export async function processVideo(
         segDuration,
       )
 
+      // Scan screenshots for barcodes (stop at first hit)
+      console.log(`[processVideo]   Scanning ${screenshotFiles.length} screenshots for barcodes...`)
+      let foundBarcode: string | null = null
+      let barcodeScreenshotIndex: number | null = null
+
+      for (let j = 0; j < screenshotFiles.length; j++) {
+        const barcode = await scanBarcode(screenshotFiles[j])
+        if (barcode) {
+          foundBarcode = barcode
+          barcodeScreenshotIndex = j
+          console.log(`[processVideo]   Barcode found in screenshot ${j + 1}, skipping remaining scans`)
+          break
+        }
+      }
+
+      if (foundBarcode) {
+        console.log(`[processVideo]   Segment barcode result: ${foundBarcode}`)
+      } else {
+        console.log(`[processVideo]   No barcode found in segment`)
+      }
+
       // Upload screenshots
-      const screenshotMediaIds: number[] = []
+      const screenshotEntries: { image: number; barcode?: string }[] = []
       for (let j = 0; j < screenshotFiles.length; j++) {
         const file = screenshotFiles[j]
         const ts = Math.floor(seg.start) + j
@@ -251,12 +315,33 @@ export async function processVideo(
           `${video.title} – ${ts}s`,
           'image/jpeg',
         )
-        screenshotMediaIds.push(mediaId)
+        const entry: { image: number; barcode?: string } = { image: mediaId }
+        if (j === barcodeScreenshotIndex && foundBarcode) {
+          entry.barcode = foundBarcode
+        }
+        screenshotEntries.push(entry)
+      }
+
+      // Look up product by GTIN if barcode found
+      let referencedProductIds: number[] | undefined
+      if (foundBarcode) {
+        console.log(`[processVideo]   Looking up product for GTIN: ${foundBarcode}`)
+        const products = await payload.find({
+          collection: 'products',
+          where: { gtin: { equals: foundBarcode } },
+          limit: 1,
+        })
+        if (products.docs.length > 0) {
+          referencedProductIds = [products.docs[0].id]
+          console.log(`[processVideo]   Matched product #${products.docs[0].id} for GTIN ${foundBarcode}`)
+        } else {
+          console.log(`[processVideo]   No product found for GTIN ${foundBarcode}`)
+        }
       }
 
       // Create VideoSnippet
-      const firstScreenshot = screenshotMediaIds[0] ?? null
-      console.log(`[processVideo]   Creating VideoSnippet: ${screenshotMediaIds.length} screenshots, image=${firstScreenshot}`)
+      const firstScreenshot = screenshotEntries[0]?.image ?? null
+      console.log(`[processVideo]   Creating VideoSnippet: ${screenshotEntries.length} screenshots, image=${firstScreenshot}, barcode=${foundBarcode ?? 'none'}`)
 
       await payload.create({
         collection: 'video-snippets',
@@ -265,12 +350,13 @@ export async function processVideo(
           image: firstScreenshot,
           timestampStart: Math.round(seg.start),
           timestampEnd: Math.round(seg.end),
-          screenshots: screenshotMediaIds.map((id) => ({ image: id })),
+          screenshots: screenshotEntries,
+          ...(referencedProductIds ? { referencedProducts: referencedProductIds } : {}),
         },
       })
 
       totalSegments++
-      totalScreenshots += screenshotMediaIds.length
+      totalScreenshots += screenshotEntries.length
     }
 
     // Step 7: Mark video as processed

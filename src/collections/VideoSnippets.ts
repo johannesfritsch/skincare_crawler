@@ -59,6 +59,14 @@ export const VideoSnippets: CollectionConfig = {
           label: 'Image',
           required: true,
         },
+        {
+          name: 'barcode',
+          type: 'text',
+          label: 'Barcode',
+          admin: {
+            description: 'EAN-13/EAN-8 barcode detected in this screenshot',
+          },
+        },
       ],
     },
     {

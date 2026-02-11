@@ -633,6 +633,10 @@ export interface VideoSnippet {
   screenshots?:
     | {
         image: number | Media;
+        /**
+         * EAN-13/EAN-8 barcode detected in this screenshot
+         */
+        barcode?: string | null;
         id?: string | null;
       }[]
     | null;
@@ -1355,6 +1359,7 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
     | T
     | {
         image?: T;
+        barcode?: T;
         id?: T;
       };
   referencedProducts?: T;

@@ -76,6 +76,17 @@ Return ONLY JSON:
 
 No explanation, no markdown fences.`
 
+const VALID_ATTRIBUTES = new Set([
+  'containsAllergens', 'containsSimpleAlcohol', 'containsGluten', 'containsSilicones',
+  'containsSulfates', 'containsParabens', 'containsPegs', 'containsFragrance', 'containsMineralOil',
+])
+
+const VALID_CLAIMS = new Set([
+  'vegan', 'crueltyFree', 'unsafeForPregnancy', 'pregnancySafe', 'waterProof',
+  'microplasticFree', 'allergenFree', 'simpleAlcoholFree', 'glutenFree', 'siliconeFree',
+  'sulfateFree', 'parabenFree', 'pegFree', 'fragranceFree', 'mineralOilFree',
+])
+
 function getOpenAI(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -138,16 +149,32 @@ export async function classifyProduct(sources: SourceInput[]): Promise<ClassifyP
     productClaims?: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
   }
 
+  const rawAttributes = (result.productAttributes ?? []).filter((entry) => {
+    if (!VALID_ATTRIBUTES.has(entry.attribute)) {
+      console.log(`[classifyProduct] Dropping invalid attribute: "${entry.attribute}"`)
+      return false
+    }
+    return true
+  })
+
+  const rawClaims = (result.productClaims ?? []).filter((entry) => {
+    if (!VALID_CLAIMS.has(entry.claim)) {
+      console.log(`[classifyProduct] Dropping invalid claim: "${entry.claim}"`)
+      return false
+    }
+    return true
+  })
+
   return {
     description: result.description ?? '',
-    productAttributes: (result.productAttributes ?? []).map((entry) => ({
+    productAttributes: rawAttributes.map((entry) => ({
       attribute: entry.attribute,
       sourceIndex: entry.sourceIndex,
       type: entry.type as 'ingredient' | 'descriptionSnippet',
       snippet: entry.snippet,
       ingredientNames: entry.ingredientNames,
     })),
-    productClaims: (result.productClaims ?? []).map((entry) => ({
+    productClaims: rawClaims.map((entry) => ({
       claim: entry.claim,
       sourceIndex: entry.sourceIndex,
       type: entry.type as 'ingredient' | 'descriptionSnippet',
