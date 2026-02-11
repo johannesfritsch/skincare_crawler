@@ -570,6 +570,12 @@ export interface Video {
   image?: (number | null) | Media;
   publishedAt?: string | null;
   processingStatus?: ('unprocessed' | 'processed') | null;
+  /**
+   * Duration in seconds
+   */
+  duration?: number | null;
+  viewCount?: number | null;
+  likeCount?: number | null;
   externalUrl?: string | null;
   videoSnippets?: {
     docs?: (number | VideoSnippet)[];
@@ -629,7 +635,6 @@ export interface VideoSnippet {
    * End time in seconds
    */
   timestampEnd?: number | null;
-  localVideo?: (number | null) | Media;
   screenshots?:
     | {
         image: number | Media;
@@ -1340,6 +1345,9 @@ export interface VideosSelect<T extends boolean = true> {
   image?: T;
   publishedAt?: T;
   processingStatus?: T;
+  duration?: T;
+  viewCount?: T;
+  likeCount?: T;
   externalUrl?: T;
   videoSnippets?: T;
   updatedAt?: T;
@@ -1354,7 +1362,6 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
   image?: T;
   timestampStart?: T;
   timestampEnd?: T;
-  localVideo?: T;
   screenshots?:
     | T
     | {

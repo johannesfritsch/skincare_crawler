@@ -7,6 +7,7 @@ interface YtDlpEntry {
   description?: string
   thumbnail?: string
   upload_date?: string
+  timestamp?: number
   duration?: number
   view_count?: number
   like_count?: number
@@ -71,6 +72,7 @@ export const youtubeDriver: VideoDiscoveryDriver = {
           uploadDate: entry.upload_date
             ? `${entry.upload_date.slice(0, 4)}-${entry.upload_date.slice(4, 6)}-${entry.upload_date.slice(6, 8)}`
             : undefined,
+          timestamp: entry.timestamp ?? undefined,
           duration: entry.duration || undefined,
           viewCount: entry.view_count ?? undefined,
           likeCount: entry.like_count ?? undefined,

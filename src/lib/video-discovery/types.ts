@@ -5,6 +5,7 @@ export interface DiscoveredVideo {
   thumbnailUrl?: string
   externalUrl: string
   uploadDate?: string
+  timestamp?: number
   duration?: number
   viewCount?: number
   likeCount?: number

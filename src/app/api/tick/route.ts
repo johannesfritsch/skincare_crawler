@@ -1139,7 +1139,42 @@ async function processVideoDiscovery(
         limit: 1,
       })
 
-      const publishedAt = video.uploadDate ? `${video.uploadDate}T00:00:00.000Z` : undefined
+      const publishedAt = video.timestamp
+        ? new Date(video.timestamp * 1000).toISOString()
+        : video.uploadDate
+          ? `${video.uploadDate}T00:00:00.000Z`
+          : undefined
+
+      // Download and upload thumbnail if available and video doesn't already have one
+      const existingHasImage = existingVideo.docs.length > 0 && existingVideo.docs[0].image
+      let imageId: number | undefined
+      if (video.thumbnailUrl && !existingHasImage) {
+        try {
+          console.log(`[Video Discovery] Downloading thumbnail for "${video.title}"`)
+          const res = await fetch(video.thumbnailUrl)
+          if (res.ok) {
+            const buffer = Buffer.from(await res.arrayBuffer())
+            const ext = video.thumbnailUrl.includes('.webp') ? 'webp' : 'jpg'
+            const mimetype = ext === 'webp' ? 'image/webp' : 'image/jpeg'
+            const media = await payload.create({
+              collection: 'media',
+              data: { alt: video.title },
+              file: {
+                data: buffer,
+                mimetype,
+                name: `${video.externalId}.${ext}`,
+                size: buffer.length,
+              },
+            })
+            imageId = media.id
+            console.log(`[Video Discovery] Uploaded thumbnail as media #${imageId}`)
+          }
+        } catch (e) {
+          console.warn(`[Video Discovery] Failed to download thumbnail: ${e}`)
+        }
+      } else if (existingHasImage) {
+        console.log(`[Video Discovery] Skipping thumbnail for "${video.title}" (already has image)`)
+      }
 
       if (existingVideo.docs.length === 0) {
         await payload.create({
@@ -1149,6 +1184,10 @@ async function processVideoDiscovery(
             title: video.title,
             externalUrl: video.externalUrl,
             publishedAt,
+            duration: video.duration ?? undefined,
+            viewCount: video.viewCount ?? undefined,
+            likeCount: video.likeCount ?? undefined,
+            ...(imageId ? { image: imageId } : {}),
           },
         })
         created++
@@ -1160,6 +1199,10 @@ async function processVideoDiscovery(
             title: video.title,
             channel: channelId,
             publishedAt,
+            duration: video.duration ?? undefined,
+            viewCount: video.viewCount ?? undefined,
+            likeCount: video.likeCount ?? undefined,
+            ...(imageId ? { image: imageId } : {}),
           },
         })
         existing++

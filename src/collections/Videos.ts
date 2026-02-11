@@ -65,6 +65,24 @@ export const Videos: CollectionConfig = {
       },
     },
     {
+      name: 'duration',
+      type: 'number',
+      label: 'Duration',
+      admin: {
+        description: 'Duration in seconds',
+      },
+    },
+    {
+      name: 'viewCount',
+      type: 'number',
+      label: 'View Count',
+    },
+    {
+      name: 'likeCount',
+      type: 'number',
+      label: 'Like Count',
+    },
+    {
       name: 'externalUrl',
       type: 'text',
       label: 'External URL',
@@ -74,6 +92,10 @@ export const Videos: CollectionConfig = {
       type: 'join',
       collection: 'video-snippets',
       on: 'video',
+      defaultSort: 'timestampStart',
+      admin: {
+        defaultColumns: ['image', 'timestampStart', 'timestampEnd', 'referencedProducts'],
+      },
     },
   ],
 }
