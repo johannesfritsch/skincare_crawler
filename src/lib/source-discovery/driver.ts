@@ -1,7 +1,8 @@
 import type { SourceDriver } from './types'
 import { dmDriver } from './drivers/dm'
+import { rossmannDriver } from './drivers/rossmann'
 
-const drivers: SourceDriver[] = [dmDriver]
+const drivers: SourceDriver[] = [dmDriver, rossmannDriver]
 
 export function getSourceDriver(url: string): SourceDriver | null {
   for (const driver of drivers) {

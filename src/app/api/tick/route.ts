@@ -374,18 +374,29 @@ async function processSourceDiscovery(
   }
 
   try {
-    // Detect product URLs (path depth 1, ending in -p<digits>.html) vs category URLs
-    const productUrlPattern = /^\/[^/]+-p(\d+)\.html$/
+    // Detect product URLs vs category URLs
+    // DM: /produkt-name-p12345.html → GTIN from -p<digits>.html
+    // Rossmann: /de/.../p/6298042560680 → GTIN from /p/<digits>
+    const productUrlPatterns: RegExp[] = [
+      /^\/[^/]+-p(\d+)\.html$/,    // DM
+      /\/p\/(\d+)$/,               // Rossmann
+    ]
     const productUrls: { url: string; gtin: string }[] = []
     const categoryUrls: string[] = []
 
     for (const url of sourceUrls) {
       try {
         const pathname = new URL(url).pathname
-        const match = pathname.match(productUrlPattern)
-        if (match) {
-          productUrls.push({ url, gtin: match[1] })
-        } else {
+        let matched = false
+        for (const pattern of productUrlPatterns) {
+          const match = pathname.match(pattern)
+          if (match) {
+            productUrls.push({ url, gtin: match[1] })
+            matched = true
+            break
+          }
+        }
+        if (!matched) {
           categoryUrls.push(url)
         }
       } catch {
@@ -1372,7 +1383,8 @@ async function processVideoProcessing(
 
   const itemsPerTick = job.itemsPerTick ?? 1
   const sceneThreshold = job.sceneThreshold ?? 0.4
-  console.log(`[Video Processing] Starting job #${jobId} with itemsPerTick: ${itemsPerTick}, sceneThreshold: ${sceneThreshold}`)
+  const clusterThreshold = job.clusterThreshold ?? 25
+  console.log(`[Video Processing] Starting job #${jobId} with itemsPerTick: ${itemsPerTick}, sceneThreshold: ${sceneThreshold}, clusterThreshold: ${clusterThreshold}`)
 
   // Initialize if pending
   if (job.status === 'pending') {
@@ -1384,6 +1396,7 @@ async function processVideoProcessing(
         startedAt: new Date().toISOString(),
         processed: 0,
         errors: 0,
+        tokensUsed: 0,
       },
     })
     await createEvent(payload, 'start', 'video-processings', jobId, `Started video processing (type=${job.type || 'all_unprocessed'})`)
@@ -1409,6 +1422,7 @@ async function processVideoProcessing(
 
   let processed = job.processed || 0
   let errors = job.errors || 0
+  let tokensUsed = job.tokensUsed || 0
 
   try {
     if (job.type === 'single_video') {
@@ -1425,7 +1439,8 @@ async function processVideoProcessing(
       }
 
       console.log(`[Video Processing] Single video mode: video #${videoId}`)
-      const result = await processVideo(payload, videoId as number, sceneThreshold)
+      const result = await processVideo(payload, videoId as number, sceneThreshold, clusterThreshold, jobId)
+      tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {
         processed++
@@ -1442,6 +1457,7 @@ async function processVideoProcessing(
           status: 'completed',
           processed,
           errors,
+          tokensUsed,
           completedAt: new Date().toISOString(),
         },
       })
@@ -1526,7 +1542,8 @@ async function processVideoProcessing(
 
       for (const videoId of batch) {
         console.log(`[Video Processing] Processing video #${videoId}`)
-        const result = await processVideo(payload, videoId, sceneThreshold)
+        const result = await processVideo(payload, videoId, sceneThreshold, clusterThreshold, jobId)
+        tokensUsed += result.tokensUsed ?? 0
 
         if (result.success) {
           processed++
@@ -1539,7 +1556,7 @@ async function processVideoProcessing(
         await payload.update({
           collection: 'video-processings',
           id: jobId,
-          data: { processed, errors },
+          data: { processed, errors, tokensUsed },
         })
       }
 
@@ -1602,7 +1619,8 @@ async function processVideoProcessing(
     for (const video of unprocessedVideos.docs) {
       console.log(`[Video Processing] Processing video #${video.id}: "${video.title}"`)
 
-      const result = await processVideo(payload, video.id, sceneThreshold)
+      const result = await processVideo(payload, video.id, sceneThreshold, clusterThreshold, jobId)
+      tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {
         processed++
@@ -1615,7 +1633,7 @@ async function processVideoProcessing(
       await payload.update({
         collection: 'video-processings',
         id: jobId,
-        data: { processed, errors },
+        data: { processed, errors, tokensUsed },
       })
     }
 

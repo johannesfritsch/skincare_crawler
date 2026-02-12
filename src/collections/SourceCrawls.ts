@@ -43,6 +43,7 @@ export const SourceCrawls: CollectionConfig = {
               options: [
                 { label: 'All Sources', value: 'all' },
                 { label: 'DM', value: 'dm' },
+                { label: 'Rossmann', value: 'rossmann' },
               ],
             },
             {
