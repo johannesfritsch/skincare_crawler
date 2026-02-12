@@ -268,26 +268,21 @@ export const rossmannDriver: SourceDriver = {
             ? rawCategory.split('/').map((s: string) => s.trim()).join(' -> ')
             : null
 
-          // Description from accordion sections
+          // Description: find all h2 headings, take innerText, then
+          // go to parent and get the first direct child div's innerText as body
           const descriptionSections: string[] = []
-          const accordionIds = ['GRP_PRODUKTDETAILS', 'GRP_ANWENDUNG', 'GRP_WARNHINWEIS']
-          for (const id of accordionIds) {
-            const section = document.getElementById(id)
-            if (!section) continue
-            const heading = section.querySelector('.rm-accordion__title')
-            const content = section.querySelector('.rm-cms')
-            if (content) {
-              const headingText = heading?.textContent?.trim()
-              const bodyText = content.textContent?.trim()
-              if (bodyText) {
-                if (headingText) {
-                  descriptionSections.push(`## ${headingText}\n\n${bodyText}`)
-                } else {
-                  descriptionSections.push(bodyText)
-                }
-              }
+          const headings = document.querySelectorAll('h2')
+          headings.forEach((h2) => {
+            const headingText = (h2 as HTMLElement).innerText?.trim()
+            if (!headingText) return
+            const parent = h2.parentElement
+            if (!parent) return
+            const bodyDiv = parent.querySelector(':scope > div') as HTMLElement | null
+            const bodyText = bodyDiv?.innerText?.trim()
+            if (bodyText) {
+              descriptionSections.push(`## ${headingText}\n\n${bodyText}`)
             }
-          }
+          })
           const description = descriptionSections.length > 0
             ? descriptionSections.join('\n\n')
             : null
