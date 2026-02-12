@@ -408,7 +408,7 @@ export interface SourceDiscovery {
 export interface SourceCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  source: 'all' | 'dm';
+  source: 'all' | 'dm' | 'rossmann';
   type: 'all' | 'selected_gtins';
   /**
    * GTINs to crawl, one per line
@@ -554,6 +554,10 @@ export interface VideoProcessing {
    */
   sceneThreshold?: number | null;
   /**
+   * Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.
+   */
+  clusterThreshold?: number | null;
+  /**
    * Total videos to process
    */
   total?: number | null;
@@ -565,6 +569,10 @@ export interface VideoProcessing {
    * Videos that failed to process
    */
   errors?: number | null;
+  /**
+   * Total LLM tokens consumed during visual recognition
+   */
+  tokensUsed?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
   /**
@@ -645,6 +653,7 @@ export interface Creator {
  */
 export interface VideoSnippet {
   id: number;
+  matchingType?: ('barcode' | 'visual') | null;
   video: number | Video;
   image?: (number | null) | Media;
   /**
@@ -659,9 +668,33 @@ export interface VideoSnippet {
     | {
         image: number | Media;
         /**
+         * 64x64 grayscale thumbnail used for image hashing
+         */
+        thumbnail?: (number | null) | Media;
+        /**
+         * Perceptual hash of the thumbnail
+         */
+        hash?: string | null;
+        /**
+         * Hamming distance to assigned cluster representative hash
+         */
+        distance?: number | null;
+        /**
+         * Cluster ID — screenshots with similar visual content share a cluster
+         */
+        screenshotGroup?: number | null;
+        /**
          * EAN-13/EAN-8 barcode detected in this screenshot
          */
         barcode?: string | null;
+        /**
+         * Whether this screenshot was selected as a cluster representative for product recognition
+         */
+        recognitionCandidate?: boolean | null;
+        /**
+         * 128x128 color thumbnail used for product classification
+         */
+        recognitionThumbnail?: (number | null) | Media;
         id?: string | null;
       }[]
     | null;
@@ -1381,6 +1414,7 @@ export interface VideosSelect<T extends boolean = true> {
  * via the `definition` "video-snippets_select".
  */
 export interface VideoSnippetsSelect<T extends boolean = true> {
+  matchingType?: T;
   video?: T;
   image?: T;
   timestampStart?: T;
@@ -1389,7 +1423,13 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
     | T
     | {
         image?: T;
+        thumbnail?: T;
+        hash?: T;
+        distance?: T;
+        screenshotGroup?: T;
         barcode?: T;
+        recognitionCandidate?: T;
+        recognitionThumbnail?: T;
         id?: T;
       };
   referencedProducts?: T;
@@ -1423,9 +1463,11 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   video?: T;
   urls?: T;
   sceneThreshold?: T;
+  clusterThreshold?: T;
   total?: T;
   processed?: T;
   errors?: T;
+  tokensUsed?: T;
   startedAt?: T;
   completedAt?: T;
   itemsPerTick?: T;

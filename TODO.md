@@ -1,1 +1,4 @@
+- Rename Source to Store?
+- Aggregate reviews from stores
+- Aggregate video reviews from influencers
 - Marked as read flag for events with a button in the list view to mark as read

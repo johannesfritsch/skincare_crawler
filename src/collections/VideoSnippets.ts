@@ -13,6 +13,16 @@ export const VideoSnippets: CollectionConfig = {
   },
   fields: [
     {
+      name: 'matchingType',
+      type: 'select',
+      label: 'Matching Type',
+      options: [
+        { label: 'Barcode', value: 'barcode' },
+        { label: 'Visual', value: 'visual' },
+      ],
+      admin: { position: 'sidebar' },
+    },
+    {
       name: 'embeddedPlayer',
       type: 'ui',
       admin: {
@@ -50,7 +60,7 @@ export const VideoSnippets: CollectionConfig = {
         description: 'End time in seconds',
       },
     },
-{
+    {
       name: 'screenshots',
       type: 'array',
       label: 'Screenshots',
@@ -63,11 +73,67 @@ export const VideoSnippets: CollectionConfig = {
           required: true,
         },
         {
+          name: 'thumbnail',
+          type: 'upload',
+          relationTo: 'media',
+          label: 'Thumbnail',
+          admin: {
+            description: '64x64 grayscale thumbnail used for image hashing',
+            condition: (data) => data?.matchingType !== 'barcode',
+          },
+        },
+        {
+          name: 'hash',
+          type: 'text',
+          label: 'Image Hash',
+          admin: {
+            description: 'Perceptual hash of the thumbnail',
+            condition: (data) => data?.matchingType !== 'barcode',
+          },
+        },
+        {
+          name: 'distance',
+          type: 'number',
+          label: 'Distance',
+          admin: {
+            description: 'Hamming distance to assigned cluster representative hash',
+            condition: (data) => data?.matchingType !== 'barcode',
+          },
+        },
+        {
+          name: 'screenshotGroup',
+          type: 'number',
+          label: 'Screenshot Group',
+          admin: {
+            description: 'Cluster ID — screenshots with similar visual content share a cluster',
+            condition: (data) => data?.matchingType !== 'barcode',
+          },
+        },
+        {
           name: 'barcode',
           type: 'text',
           label: 'Barcode',
           admin: {
             description: 'EAN-13/EAN-8 barcode detected in this screenshot',
+          },
+        },
+        {
+          name: 'recognitionCandidate',
+          type: 'checkbox',
+          label: 'Recognition Candidate',
+          admin: {
+            description: 'Whether this screenshot was selected as a cluster representative for product recognition',
+            condition: (data) => data?.matchingType === 'visual',
+          },
+        },
+        {
+          name: 'recognitionThumbnail',
+          type: 'upload',
+          relationTo: 'media',
+          label: 'Recognition Thumbnail',
+          admin: {
+            description: '128x128 color thumbnail used for product classification',
+            condition: (data) => data?.matchingType === 'visual',
           },
         },
       ],

@@ -76,6 +76,17 @@ export const VideoProcessings: CollectionConfig = {
                 description: 'Scene change detection threshold (0-1). Lower = more sensitive, more segments.',
               },
             },
+            {
+              name: 'clusterThreshold',
+              type: 'number',
+              label: 'Cluster Threshold',
+              defaultValue: 25,
+              min: 1,
+              max: 64,
+              admin: {
+                description: 'Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.',
+              },
+            },
           ],
         },
         {
@@ -116,6 +127,16 @@ export const VideoProcessings: CollectionConfig = {
                   },
                 },
               ],
+            },
+            {
+              name: 'tokensUsed',
+              type: 'number',
+              label: 'Tokens Used',
+              defaultValue: 0,
+              admin: {
+                readOnly: true,
+                description: 'Total LLM tokens consumed during visual recognition',
+              },
             },
             {
               type: 'row',
