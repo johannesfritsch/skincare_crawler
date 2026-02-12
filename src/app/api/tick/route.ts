@@ -1393,11 +1393,11 @@ async function processVideoProcessing(
     })
   }
 
-  // Set total on first tick
+  // Set total on first tick (selected_urls sets its own total after resolving)
   if (!job.total) {
     if (job.type === 'single_video') {
       await payload.update({ collection: 'video-processings', id: jobId, data: { total: 1 } })
-    } else {
+    } else if (job.type === 'all_unprocessed') {
       const totalCount = await payload.count({
         collection: 'videos',
         where: { and: [{ processingStatus: { equals: 'unprocessed' } }, { externalUrl: { exists: true } }] },
@@ -1452,6 +1452,114 @@ async function processVideoProcessing(
         type: 'video-processing',
         processed,
         errors,
+      })
+    }
+
+    if (job.type === 'selected_urls') {
+      // Resolve URLs to video IDs
+      const urlList = (job.urls || '').split('\n').map((u) => u.trim()).filter(Boolean)
+      console.log(`[Video Processing] Selected URLs mode: ${urlList.length} URLs`)
+
+      // Separate video URLs from channel URLs by looking up channels first
+      const videoIds: number[] = []
+
+      for (const url of urlList) {
+        // Try to find as a video
+        const videoResult = await payload.find({
+          collection: 'videos',
+          where: { externalUrl: { equals: url } },
+          limit: 1,
+        })
+
+        if (videoResult.docs.length > 0) {
+          videoIds.push(videoResult.docs[0].id)
+          continue
+        }
+
+        // Try to find as a channel and collect all its videos
+        const channelResult = await payload.find({
+          collection: 'channels',
+          where: { externalUrl: { equals: url } },
+          limit: 1,
+        })
+
+        if (channelResult.docs.length > 0) {
+          const channelVideos = await payload.find({
+            collection: 'videos',
+            where: { channel: { equals: channelResult.docs[0].id } },
+            limit: 1000,
+            sort: 'createdAt',
+          })
+          for (const v of channelVideos.docs) {
+            videoIds.push(v.id)
+          }
+          console.log(`[Video Processing] Channel "${url}" → ${channelVideos.docs.length} videos`)
+          continue
+        }
+
+        await createEvent(payload, 'warning', 'video-processings', jobId, `URL not found as video or channel: ${url}`)
+      }
+
+      // Deduplicate
+      const uniqueVideoIds = [...new Set(videoIds)]
+      console.log(`[Video Processing] Resolved to ${uniqueVideoIds.length} unique videos`)
+
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: { total: uniqueVideoIds.length },
+      })
+
+      // Process up to itemsPerTick, track which have been done via processed + errors count
+      const alreadyDone = processed + errors
+      const batch = uniqueVideoIds.slice(alreadyDone, alreadyDone + itemsPerTick)
+
+      if (batch.length === 0) {
+        await payload.update({
+          collection: 'video-processings',
+          id: jobId,
+          data: { status: 'completed', completedAt: new Date().toISOString() },
+        })
+        await createEvent(payload, 'success', 'video-processings', jobId, `Completed: ${processed} processed, ${errors} errors`)
+        return Response.json({ message: 'Video processing completed', jobId, type: 'video-processing', processed, errors })
+      }
+
+      for (const videoId of batch) {
+        console.log(`[Video Processing] Processing video #${videoId}`)
+        const result = await processVideo(payload, videoId, sceneThreshold)
+
+        if (result.success) {
+          processed++
+          await createEvent(payload, 'info', 'video-processings', jobId, `Video #${videoId}: ${result.segmentsCreated} segments, ${result.screenshotsCreated} screenshots`)
+        } else {
+          errors++
+          await createEvent(payload, 'error', 'video-processings', jobId, `Video #${videoId}: ${result.error}`)
+        }
+
+        await payload.update({
+          collection: 'video-processings',
+          id: jobId,
+          data: { processed, errors },
+        })
+      }
+
+      if (processed + errors >= uniqueVideoIds.length) {
+        await payload.update({
+          collection: 'video-processings',
+          id: jobId,
+          data: { status: 'completed', completedAt: new Date().toISOString() },
+        })
+        await createEvent(payload, 'success', 'video-processings', jobId, `Completed: ${processed} processed, ${errors} errors`)
+        return Response.json({ message: 'Video processing completed', jobId, type: 'video-processing', processed, errors })
+      }
+
+      return Response.json({
+        message: 'Tick completed',
+        jobId,
+        type: 'video-processing',
+        processed,
+        errors,
+        remaining: uniqueVideoIds.length - processed - errors,
       })
     }
 

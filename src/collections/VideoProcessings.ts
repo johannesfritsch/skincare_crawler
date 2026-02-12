@@ -43,6 +43,7 @@ export const VideoProcessings: CollectionConfig = {
               options: [
                 { label: 'All Unprocessed', value: 'all_unprocessed' },
                 { label: 'Single Video', value: 'single_video' },
+                { label: 'Selected URLs', value: 'selected_urls' },
               ],
             },
             {
@@ -53,6 +54,15 @@ export const VideoProcessings: CollectionConfig = {
               admin: {
                 description: 'The video to process',
                 condition: (data) => data?.type === 'single_video',
+              },
+            },
+            {
+              name: 'urls',
+              type: 'textarea',
+              label: 'URLs',
+              admin: {
+                description: 'Video or channel URLs to process, one per line',
+                condition: (data) => data?.type === 'selected_urls',
               },
             },
             {

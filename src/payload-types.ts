@@ -540,11 +540,15 @@ export interface VideoDiscovery {
 export interface VideoProcessing {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  type: 'all_unprocessed' | 'single_video';
+  type: 'all_unprocessed' | 'single_video' | 'selected_urls';
   /**
    * The video to process
    */
   video?: (number | null) | Video;
+  /**
+   * Video or channel URLs to process, one per line
+   */
+  urls?: string | null;
   /**
    * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
    */
@@ -1417,6 +1421,7 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   status?: T;
   type?: T;
   video?: T;
+  urls?: T;
   sceneThreshold?: T;
   total?: T;
   processed?: T;
