@@ -193,15 +193,38 @@ function descriptionGroupsToMarkdown(groups: DmDescriptionGroup[]): string | nul
   return sections.length > 0 ? sections.join('\n\n') : null
 }
 
-// Parse per-unit price from price.infos, e.g. "0,3 l (2,17 € je 1 l)"
-function parsePerUnitPrice(infos?: string[]): { amount: number; unit: string } | null {
+// Parse product amount from price.infos, e.g. "0,055 l (271,82 € je 1 l)" → { amount: 55, unit: "ml" }
+function parseProductAmount(infos?: string[]): { amount: number; unit: string } | null {
   if (!infos) return null
   for (const info of infos) {
-    const match = info.match(/\(([\d,]+)\s*€\s*je\s*[\d,]*\s*(\w+)\)/)
+    const match = info.match(/^([\d,]+)\s*(\w+)\s*\(/)
+    if (match) {
+      let amount = parseFloat(match[1].replace(',', '.'))
+      let unit = match[2]
+      // Normalize: 0.055 l → 55 ml, 0.25 kg → 250 g
+      if (unit === 'l' && amount < 1) {
+        amount = Math.round(amount * 1000)
+        unit = 'ml'
+      } else if (unit === 'kg' && amount < 1) {
+        amount = Math.round(amount * 1000)
+        unit = 'g'
+      }
+      return { amount, unit }
+    }
+  }
+  return null
+}
+
+// Parse per-unit price from price.infos, e.g. "0,3 l (2,17 € je 1 l)"
+function parsePerUnitPrice(infos?: string[]): { amount: number; quantity: number; unit: string } | null {
+  if (!infos) return null
+  for (const info of infos) {
+    const match = info.match(/\(([\d,]+)\s*€\s*je\s*([\d,]*)\s*(\w+)\)/)
     if (match) {
       return {
         amount: Math.round(parseFloat(match[1].replace(',', '.')) * 100),
-        unit: match[2],
+        quantity: match[2] ? parseFloat(match[2].replace(',', '.')) : 1,
+        unit: match[3],
       }
     }
   }
@@ -362,10 +385,11 @@ export const dmDriver: SourceDriver = {
         }
       }
 
-      // Parse prices
+      // Parse prices and product amount
       const priceCents = data.metadata?.price != null
         ? Math.round(data.metadata.price * 100)
         : null
+      const productAmount = parseProductAmount(data.price?.infos)
       const perUnit = parsePerUnitPrice(data.price?.infos)
 
       // Build source URL
@@ -420,6 +444,7 @@ export const dmDriver: SourceDriver = {
         currency: data.metadata?.currency ?? 'EUR',
         perUnitAmount: perUnit?.amount ?? null,
         perUnitCurrency: perUnit ? 'EUR' : null,
+        perUnitQuantity: perUnit?.quantity ?? null,
         unit: perUnit?.unit ?? null,
       }
 
@@ -434,10 +459,12 @@ export const dmDriver: SourceDriver = {
         name,
         type,
         description,
+        amount: productAmount?.amount ?? null,
+        amountUnit: productAmount?.unit ?? null,
         labels,
         images,
         variants,
-        priceHistory: [...existingHistory, priceEntry],
+        priceHistory: [priceEntry, ...existingHistory],
         rating: data.rating?.ratingValue ?? null,
         ratingNum: data.rating?.ratingCount ?? null,
         ingredients: ingredients.map((n: string) => ({ name: n })),

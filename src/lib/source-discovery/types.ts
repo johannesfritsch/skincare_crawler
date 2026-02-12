@@ -36,6 +36,7 @@ export interface SourceDriver {
   crawlProduct(
     gtin: string,
     payload: Payload,
+    options?: { debug?: boolean },
   ): Promise<number | null>
 
   // Collection-query methods

@@ -704,6 +704,7 @@ async function processSourceCrawl(
         const productId = await driver.crawlProduct(
           product.gtin,
           payload,
+          { debug: crawl.debug ?? false },
         )
 
         if (productId !== null) {

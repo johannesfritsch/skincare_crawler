@@ -1,6 +1,7 @@
 import type { Payload, Where } from 'payload'
 import type { SourceDriver, DiscoveredProduct } from '../types'
 import { launchBrowser } from '@/lib/browser'
+import { parseIngredients } from '@/lib/parse-ingredients'
 
 const SOURCE_ROSSMANN_FILTER: Where = {
   source: { equals: 'rossmann' },
@@ -210,12 +211,316 @@ export const rossmannDriver: SourceDriver = {
   },
 
   async crawlProduct(
-    _gtin: string,
-    _payload: Payload,
+    gtin: string,
+    payload: Payload,
+    options?: { debug?: boolean },
   ): Promise<number | null> {
-    // Stub — not implemented yet
-    console.log(`[Rossmann] crawlProduct not implemented`)
-    return null
+    try {
+      // Find existing source-product to get its sourceUrl
+      const existing = await payload.find({
+        collection: 'source-products',
+        where: { and: [{ gtin: { equals: gtin } }, SOURCE_ROSSMANN_FILTER] },
+        limit: 1,
+      })
+
+      const productUrl =
+        existing.docs[0]?.sourceUrl || `https://www.rossmann.de/de/p/${gtin}`
+
+      console.log(`[Rossmann] Crawling product ${gtin}: ${productUrl}`)
+
+      const debug = options?.debug ?? false
+      const browser = await launchBrowser({ headless: !debug })
+      try {
+        const page = await browser.newPage()
+        await page.goto(productUrl, { waitUntil: 'networkidle' })
+        await sleep(randomDelay(1000, 2000))
+
+        // Wait for BazaarVoice rating widget to render (loads async via JS)
+        await page
+          .waitForSelector('.bv_avgRating_component_container', {
+            timeout: 15000,
+          })
+          .catch(() => {})
+
+        if (debug) {
+          console.log(`[Rossmann] Debug mode: browser kept open for GTIN ${gtin}. Press Ctrl+C to continue.`)
+          await page.pause()
+        }
+
+        // Scrape all fields in one page.evaluate call
+        const scraped = await page.evaluate(() => {
+          // Name
+          const nameEl = document.querySelector('.rm-product__title')
+          const name = nameEl?.textContent?.trim() || null
+
+          // Brand
+          const brandEl = document.querySelector('.rm-product__brand')
+          const brandName = brandEl?.textContent?.trim() || null
+
+          // Source article number (DAN)
+          const danEl = document.querySelector('[data-jsevent="obj:product__dan"]')
+          const sourceArticleNumber = danEl?.getAttribute('data-value') || null
+
+          // Type from category breadcrumbs
+          const cartBtn = document.querySelector('button[data-jsevent="ctrl:add-to-cart"]')
+          const rawCategory = cartBtn?.getAttribute('data-product-category') || null
+          const type = rawCategory
+            ? rawCategory.split('/').map((s: string) => s.trim()).join(' -> ')
+            : null
+
+          // Description from accordion sections
+          const descriptionSections: string[] = []
+          const accordionIds = ['GRP_PRODUKTDETAILS', 'GRP_ANWENDUNG', 'GRP_WARNHINWEIS']
+          for (const id of accordionIds) {
+            const section = document.getElementById(id)
+            if (!section) continue
+            const heading = section.querySelector('.rm-accordion__title')
+            const content = section.querySelector('.rm-cms')
+            if (content) {
+              const headingText = heading?.textContent?.trim()
+              const bodyText = content.textContent?.trim()
+              if (bodyText) {
+                if (headingText) {
+                  descriptionSections.push(`## ${headingText}\n\n${bodyText}`)
+                } else {
+                  descriptionSections.push(bodyText)
+                }
+              }
+            }
+          }
+          const description = descriptionSections.length > 0
+            ? descriptionSections.join('\n\n')
+            : null
+
+          // Ingredients raw text
+          const ingredientsSection = document.getElementById('GRP_INHALTSSTOFFE')
+          const ingredientsRaw = ingredientsSection
+            ?.querySelector('.rm-cms')
+            ?.textContent?.trim() || null
+
+          // Price
+          const priceMeta = document.querySelector('meta[itemprop="price"]')
+          const priceValue = priceMeta?.getAttribute('content')
+          const priceCents = priceValue
+            ? Math.round(parseFloat(priceValue) * 100)
+            : null
+
+          // Currency
+          const currencyMeta = document.querySelector('meta[itemprop="priceCurrency"]')
+          const currency = currencyMeta?.getAttribute('content') || 'EUR'
+
+          // Product amount from units text, e.g. "3 ml", "100 ml (23,02 € je 100 ml)"
+          const unitsEl = document.querySelector('.rm-product__units')
+          const unitsText = unitsEl?.textContent?.trim() || ''
+          let amount: number | null = null
+          let amountUnit: string | null = null
+          const amountMatch = unitsText.match(/^([\d,.]+)\s*(\w+)/)
+          if (amountMatch) {
+            amount = parseFloat(amountMatch[1].replace(',', '.'))
+            amountUnit = amountMatch[2]
+          }
+
+          // Images from product gallery
+          const imageSlides = document.querySelectorAll(
+            '.rm-product__image-main:first-of-type .swiper-slide:not(.swiper-slide-duplicate) .rm-product__lens[data-image]',
+          )
+          const images: Array<{ url: string; alt: string | null }> = []
+          imageSlides.forEach((slide) => {
+            const url = slide.getAttribute('data-image')
+            if (url) {
+              const imgEl = slide.querySelector('img[itemprop="image"]')
+              const alt = imgEl?.getAttribute('alt') || null
+              images.push({ url, alt })
+            }
+          })
+
+          // Variants from rm-variations__list
+          const variants: Array<{
+            dimension: string
+            options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean }>
+          }> = []
+          const _variantDebug: Record<string, unknown> = {}
+          const variantList = document.querySelector('.rm-variations__list')
+          _variantDebug.found = !!variantList
+          if (!variantList) {
+            // Try broader search for debug
+            const byId = document.getElementById('sortOptions')
+            const byClass = document.querySelector('[class*="rm-variations"]')
+            _variantDebug.byId = byId ? byId.className : null
+            _variantDebug.byClass = byClass ? byClass.className : null
+          }
+          if (variantList) {
+            _variantDebug.html = (variantList as HTMLElement).innerHTML.substring(0, 500)
+            // Derive dimension from the child element class, e.g. "rm-variations__color" → "Color"
+            const typeEl = variantList.querySelector('[class*="rm-variations__"]')
+            let dimension = 'Variant'
+            _variantDebug.typeElClass = typeEl?.className || null
+            if (typeEl) {
+              const classMatch = typeEl.className.match(/rm-variations__(\w+)/)
+              if (classMatch && classMatch[1] !== 'list') {
+                dimension = classMatch[1].charAt(0).toUpperCase() + classMatch[1].slice(1)
+              }
+            }
+            _variantDebug.dimension = dimension
+            const items = variantList.querySelectorAll('li.rm-input__option')
+            _variantDebug.itemCount = items.length
+            const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean }> = []
+            items.forEach((li, i) => {
+              const link = li.querySelector('a') as HTMLElement | null
+              const linkText = link?.textContent?.trim() || ''
+              const href = link?.getAttribute('href') || ''
+              const gtinMatch = href.match(/\/p\/(\d+)/)
+              const optGtin = gtinMatch ? gtinMatch[1] : null
+              const isSelected = li.classList.contains('active')
+              ;(_variantDebug as Record<string, unknown>)[`item${i}`] = { linkText, href, optGtin }
+              if (linkText) {
+                options.push({ label: linkText, value: null, gtin: optGtin, isSelected })
+              }
+            })
+            _variantDebug.optionCount = options.length
+            if (options.length > 0) {
+              variants.push({ dimension, options })
+            }
+          }
+
+          // Rating from BazaarVoice widget
+          let rating: number | null = null
+          let ratingNum: number | null = null
+          const bvRatingEl = document.querySelector('.bv_avgRating_component_container') as HTMLElement | null
+          if (bvRatingEl) {
+            const val = parseFloat(bvRatingEl.innerText.trim())
+            if (!isNaN(val)) rating = val
+          }
+          const bvCountEl = document.querySelector('.bv_numReviews_component_container') as HTMLElement | null
+          if (bvCountEl) {
+            const countMatch = bvCountEl.innerText.match(/(\d+)/)
+            if (countMatch) ratingNum = parseInt(countMatch[1], 10)
+          }
+
+          // Current page URL (in case of redirect from /de/p/GTIN)
+          const currentUrl = window.location.href
+
+          return {
+            name,
+            brandName,
+            sourceArticleNumber,
+            type,
+            description,
+            ingredientsRaw,
+            priceCents,
+            currency,
+            amount,
+            amountUnit,
+            images,
+            variants,
+            _variantDebug,
+            rating,
+            ratingNum,
+            currentUrl,
+          }
+        })
+
+        console.log(`[Rossmann] Variant debug for GTIN ${gtin}:`, JSON.stringify(scraped._variantDebug, null, 2))
+
+        if (!scraped.name) {
+          console.log(`[Rossmann] No product name found on page for GTIN ${gtin}`)
+          return null
+        }
+
+        // Parse ingredients
+        let ingredients: string[] = []
+        if (scraped.ingredientsRaw) {
+          console.log(`[Rossmann] Raw ingredients for GTIN ${gtin}:`, scraped.ingredientsRaw)
+          ingredients = await parseIngredients(scraped.ingredientsRaw)
+          console.log(`[Rossmann] Parsed ${ingredients.length} ingredients`)
+        }
+
+        // Build price history entry with per-unit price calculated from amount
+        const now = new Date().toISOString()
+        let perUnitAmount: number | null = null
+        let perUnitQuantity: number | null = null
+        let perUnitUnit: string | null = null
+        if (scraped.priceCents && scraped.amount && scraped.amountUnit) {
+          const u = scraped.amountUnit.toLowerCase()
+          if (u === 'ml' || u === 'g') {
+            perUnitAmount = Math.round(scraped.priceCents / scraped.amount * 100)
+            perUnitQuantity = 100
+            perUnitUnit = u
+          } else if (u === 'l' || u === 'kg') {
+            perUnitAmount = Math.round(scraped.priceCents / scraped.amount)
+            perUnitQuantity = 1
+            perUnitUnit = u
+          } else {
+            perUnitAmount = Math.round(scraped.priceCents / scraped.amount)
+            perUnitQuantity = 1
+            perUnitUnit = scraped.amountUnit
+          }
+        }
+        const priceEntry = {
+          recordedAt: now,
+          amount: scraped.priceCents,
+          currency: scraped.currency,
+          perUnitAmount,
+          perUnitCurrency: perUnitAmount ? scraped.currency : null,
+          perUnitQuantity,
+          unit: perUnitUnit,
+        }
+
+        const existingHistory = existing.docs.length > 0
+          ? (existing.docs[0].priceHistory ?? [])
+          : []
+
+        const sourceUrl = existing.docs[0]?.sourceUrl || scraped.currentUrl
+
+        const productPayload = {
+          status: 'crawled' as const,
+          sourceArticleNumber: scraped.sourceArticleNumber,
+          brandName: scraped.brandName,
+          name: scraped.name,
+          type: scraped.type ?? undefined,
+          description: scraped.description,
+          amount: scraped.amount,
+          amountUnit: scraped.amountUnit,
+          images: scraped.images,
+          variants: scraped.variants,
+          priceHistory: [priceEntry, ...existingHistory],
+          rating: scraped.rating,
+          ratingNum: scraped.ratingNum,
+          ingredients: ingredients.map((n: string) => ({ name: n })),
+          sourceUrl,
+          crawledAt: now,
+        }
+
+        let productId: number
+
+        if (existing.docs.length > 0) {
+          productId = existing.docs[0].id
+          await payload.update({
+            collection: 'source-products',
+            id: productId,
+            data: { source: 'rossmann', ...productPayload },
+          })
+        } else {
+          const newProduct = await payload.create({
+            collection: 'source-products',
+            data: {
+              gtin,
+              source: 'rossmann',
+              ...productPayload,
+            },
+          })
+          productId = newProduct.id
+        }
+
+        console.log(`[Rossmann] Crawled product ${gtin}: ${scraped.name} (id: ${productId})`)
+        return productId
+      } finally {
+        await browser.close()
+      }
+    } catch (error) {
+      console.error(`[Rossmann] Error crawling product (gtin: ${gtin}):`, error)
+      return null
+    }
   },
 
   async findUncrawledProducts(

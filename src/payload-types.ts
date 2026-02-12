@@ -438,6 +438,10 @@ export interface SourceCrawl {
   startedAt?: string | null;
   completedAt?: string | null;
   /**
+   * Keep browser visible for inspection (non-headless). Only works for browser-based drivers.
+   */
+  debug?: boolean | null;
+  /**
    * Number of products to crawl per tick.
    */
   itemsPerTick?: number | null;
@@ -852,6 +856,14 @@ export interface SourceProduct {
    */
   ratingNum?: number | null;
   /**
+   * Product amount (e.g., 3, 100, 250)
+   */
+  amount?: number | null;
+  /**
+   * Unit of measurement (e.g., ml, g, Stück)
+   */
+  amountUnit?: string | null;
+  /**
    * Product labels (e.g., Neu, Limitiert, dm-Marke)
    */
   labels?:
@@ -900,7 +912,11 @@ export interface SourceProduct {
         perUnitAmount?: number | null;
         perUnitCurrency?: string | null;
         /**
-         * Unit of measurement (e.g., l, kg)
+         * Reference quantity (e.g., 100 for "per 100 ml")
+         */
+        perUnitQuantity?: number | null;
+        /**
+         * Unit of measurement (e.g., ml, g, l, kg)
          */
         unit?: string | null;
         id?: string | null;
@@ -1244,6 +1260,8 @@ export interface SourceProductsSelect<T extends boolean = true> {
   type?: T;
   rating?: T;
   ratingNum?: T;
+  amount?: T;
+  amountUnit?: T;
   labels?:
     | T
     | {
@@ -1281,6 +1299,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
         currency?: T;
         perUnitAmount?: T;
         perUnitCurrency?: T;
+        perUnitQuantity?: T;
         unit?: T;
         id?: T;
       };
@@ -1330,6 +1349,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
+  debug?: T;
   itemsPerTick?: T;
   events?: T;
   updatedAt?: T;

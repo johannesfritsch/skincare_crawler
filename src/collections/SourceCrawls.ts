@@ -189,6 +189,15 @@ export const SourceCrawls: CollectionConfig = {
           label: 'Pacing',
           fields: [
             {
+              name: 'debug',
+              type: 'checkbox',
+              label: 'Debug Mode',
+              defaultValue: false,
+              admin: {
+                description: 'Keep browser visible for inspection (non-headless). Only works for browser-based drivers.',
+              },
+            },
+            {
               name: 'itemsPerTick',
               type: 'number',
               label: 'Items Per Tick',

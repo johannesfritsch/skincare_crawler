@@ -112,6 +112,29 @@ export const SourceProducts: CollectionConfig = {
               ],
             },
             {
+              type: 'row',
+              fields: [
+                {
+                  name: 'amount',
+                  type: 'number',
+                  label: 'Amount',
+                  admin: {
+                    description: 'Product amount (e.g., 3, 100, 250)',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'amountUnit',
+                  type: 'text',
+                  label: 'Unit',
+                  admin: {
+                    description: 'Unit of measurement (e.g., ml, g, Stück)',
+                    width: '50%',
+                  },
+                },
+              ],
+            },
+            {
               name: 'labels',
               type: 'array',
               label: 'Labels',
@@ -264,7 +287,7 @@ export const SourceProducts: CollectionConfig = {
                       type: 'number',
                       label: 'Per Unit Price (cents)',
                       admin: {
-                        width: '33%',
+                        width: '25%',
                       },
                     },
                     {
@@ -273,7 +296,16 @@ export const SourceProducts: CollectionConfig = {
                       label: 'Per Unit Currency',
                       defaultValue: 'EUR',
                       admin: {
-                        width: '33%',
+                        width: '25%',
+                      },
+                    },
+                    {
+                      name: 'perUnitQuantity',
+                      type: 'number',
+                      label: 'Per Unit Qty',
+                      admin: {
+                        description: 'Reference quantity (e.g., 100 for "per 100 ml")',
+                        width: '25%',
                       },
                     },
                     {
@@ -281,8 +313,8 @@ export const SourceProducts: CollectionConfig = {
                       type: 'text',
                       label: 'Unit',
                       admin: {
-                        description: 'Unit of measurement (e.g., l, kg)',
-                        width: '33%',
+                        description: 'Unit of measurement (e.g., ml, g, l, kg)',
+                        width: '25%',
                       },
                     },
                   ],
