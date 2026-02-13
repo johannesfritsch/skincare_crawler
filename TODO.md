@@ -1,4 +1,2 @@
 - Aggregate reviews from stores
-- Crawl amount/amountUnit for DM driver
-- Add per unit amount
-- Make sure leaf pages are all found
+- Make sure leaf pages are all found for rossmann/mueller and the tick can be resumed
