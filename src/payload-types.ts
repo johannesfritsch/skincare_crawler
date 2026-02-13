@@ -408,7 +408,7 @@ export interface SourceDiscovery {
 export interface SourceCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  source: 'all' | 'dm' | 'rossmann';
+  source: 'all' | 'dm' | 'rossmann' | 'mueller';
   type: 'all' | 'selected_urls' | 'from_discovery';
   /**
    * Product URLs to crawl, one per line
