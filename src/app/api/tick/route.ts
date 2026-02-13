@@ -87,7 +87,7 @@ export const POST = async () => {
 
   // Prioritize selected jobs, otherwise random
   const selectedTargetJobs = activeJobs.filter(
-    (j) => (j.type === 'source-crawl' && j.crawlType === 'selected_urls') ||
+    (j) => (j.type === 'source-crawl' && (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery')) ||
            (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
   const selected = selectedTargetJobs.length > 0
@@ -585,11 +585,20 @@ async function processSourceCrawl(
     drivers = [driver]
   }
 
-  // Parse URLs for selected_urls mode
+  // Parse URLs for selected_urls / from_discovery mode
   const isSelectedUrls = crawl.type === 'selected_urls'
-  const urlList = isSelectedUrls
-    ? (crawl.urls || '').split('\n').map((u) => u.trim()).filter(Boolean)
-    : undefined
+  const isFromDiscovery = crawl.type === 'from_discovery'
+
+  let urlList: string[] | undefined
+  if (isSelectedUrls) {
+    urlList = (crawl.urls || '').split('\n').map((u) => u.trim()).filter(Boolean)
+  } else if (isFromDiscovery && crawl.discovery) {
+    const discoveryId = typeof crawl.discovery === 'object' ? crawl.discovery.id : crawl.discovery
+    const discovery = await payload.findByID({ collection: 'source-discoveries', id: discoveryId })
+    urlList = (discovery.productUrls || '').split('\n').map((u) => u.trim()).filter(Boolean)
+  }
+
+  const hasUrlList = !!urlList
 
   // Read scope and minimum crawl age settings
   const scope = crawl.scope ?? 'uncrawled_only'
@@ -598,7 +607,7 @@ async function processSourceCrawl(
 
   console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, scope=${scope}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, urls=${urlList ? urlList.join(',') : 'all'}`)
 
-  if (isSelectedUrls && (!urlList || urlList.length === 0)) {
+  if (hasUrlList && (!urlList || urlList.length === 0)) {
     await payload.update({
       collection: 'source-crawls',
       id: crawlId,
@@ -611,8 +620,8 @@ async function processSourceCrawl(
     })
   }
 
-  // On first tick for selected_urls, auto-create SourceProduct stubs for URLs that don't exist yet
-  if (isFirstTick && isSelectedUrls && urlList) {
+  // On first tick for selected_urls/from_discovery, auto-create SourceProduct stubs for URLs that don't exist yet
+  if (isFirstTick && hasUrlList && urlList) {
     let stubsCreated = 0
     for (const url of urlList) {
       const urlDriver = getSourceDriver(url)
@@ -739,6 +748,8 @@ async function processSourceCrawl(
         errors,
       })
     }
+
+    await createEvent(payload, 'info', 'source-crawls', crawlId, `Tick: ${processedThisTick} processed (${crawled} crawled, ${errors} errors, ${totalRemaining} remaining)`)
 
     return Response.json({
       message: 'Tick completed',

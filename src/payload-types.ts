@@ -409,11 +409,15 @@ export interface SourceCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   source: 'all' | 'dm' | 'rossmann';
-  type: 'all' | 'selected_urls';
+  type: 'all' | 'selected_urls' | 'from_discovery';
   /**
    * Product URLs to crawl, one per line
    */
   urls?: string | null;
+  /**
+   * Use product URLs from this completed discovery
+   */
+  discovery?: (number | null) | SourceDiscovery;
   /**
    * Uncrawled Only skips already-crawled products. Re-crawl includes them.
    */
@@ -1341,6 +1345,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   source?: T;
   type?: T;
   urls?: T;
+  discovery?: T;
   scope?: T;
   minCrawlAge?: T;
   minCrawlAgeUnit?: T;

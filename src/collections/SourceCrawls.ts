@@ -55,6 +55,7 @@ export const SourceCrawls: CollectionConfig = {
               options: [
                 { label: 'All Products', value: 'all' },
                 { label: 'Selected URLs', value: 'selected_urls' },
+                { label: 'From Discovery', value: 'from_discovery' },
               ],
             },
             {
@@ -64,6 +65,16 @@ export const SourceCrawls: CollectionConfig = {
               admin: {
                 description: 'Product URLs to crawl, one per line',
                 condition: (data) => data?.type === 'selected_urls',
+              },
+            },
+            {
+              name: 'discovery',
+              type: 'relationship',
+              relationTo: 'source-discoveries',
+              label: 'Discovery',
+              admin: {
+                description: 'Use product URLs from this completed discovery',
+                condition: (data) => data?.type === 'from_discovery',
               },
             },
             {
