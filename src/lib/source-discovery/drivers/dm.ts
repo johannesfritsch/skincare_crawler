@@ -231,6 +231,17 @@ function parsePerUnitPrice(infos?: string[]): { amount: number; quantity: number
   return null
 }
 
+// Extract GTIN from a DM product URL like /produkt-name-p12345.html
+function extractGtinFromDmUrl(url: string): string | null {
+  try {
+    const pathname = new URL(url).pathname
+    const match = pathname.match(/-p(\d+)\.html/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
 export const dmDriver: SourceDriver = {
   slug: 'dm',
   label: 'DM',
@@ -308,7 +319,7 @@ export const dmDriver: SourceDriver = {
     // Step 5: Fetch products for each category
     const allProducts: DiscoveredProduct[] = []
     let totalCount = 0
-    const seenGtins = new Set<string>()
+    const seenUrls = new Set<string>()
 
     for (const { categoryId, breadcrumb } of categoryLeaves) {
       const { products, totalCount: catTotal } = await fetchProducts(categoryId)
@@ -317,16 +328,17 @@ export const dmDriver: SourceDriver = {
 
       for (const product of products) {
         const gtin = String((product as Record<string, unknown>).gtin ?? '')
-        if (!gtin || seenGtins.has(gtin)) continue
-        seenGtins.add(gtin)
-
         const tileData = (product as Record<string, unknown>).tileData as Record<string, unknown> | undefined
+        const productUrl = tileData?.self ? `https://www.dm.de${tileData.self}` : (gtin ? `https://www.dm.de/p${gtin}.html` : null)
+        if (!productUrl || seenUrls.has(productUrl)) continue
+        seenUrls.add(productUrl)
+
         const trackingData = tileData?.trackingData as Record<string, unknown> | undefined
         const ratingData = tileData?.rating as Record<string, unknown> | undefined
 
         allProducts.push({
-          gtin,
-          productUrl: tileData?.self ? `https://www.dm.de${tileData.self}` : null,
+          gtin: gtin || undefined,
+          productUrl,
           brandName: (product as Record<string, unknown>).brandName as string | undefined,
           name: (product as Record<string, unknown>).title as string | undefined,
           price: trackingData?.price != null
@@ -347,10 +359,17 @@ export const dmDriver: SourceDriver = {
   },
 
   async crawlProduct(
-    gtin: string,
+    sourceUrl: string,
     payload: Payload,
   ): Promise<number | null> {
     try {
+      // Extract GTIN from URL to call DM API
+      const gtin = extractGtinFromDmUrl(sourceUrl)
+      if (!gtin) {
+        console.log(`[DM] Could not extract GTIN from URL: ${sourceUrl}`)
+        return null
+      }
+
       // Fetch product details from DM API
       const res = await fetch(`${DM_PRODUCT_API}/${gtin}`)
       if (!res.ok) {
@@ -392,8 +411,8 @@ export const dmDriver: SourceDriver = {
       const productAmount = parseProductAmount(data.price?.infos)
       const perUnit = parsePerUnitPrice(data.price?.infos)
 
-      // Build source URL
-      const sourceUrl = data.self ? `https://www.dm.de${data.self}` : null
+      // Build canonical source URL from API response
+      const canonicalUrl = data.self ? `https://www.dm.de${data.self}` : sourceUrl
 
       // Extract new structured fields
       const sourceArticleNumber = data.dan != null ? String(data.dan) : null
@@ -430,10 +449,10 @@ export const dmDriver: SourceDriver = {
         }
       }
 
-      // Find existing product
+      // Find existing product by sourceUrl
       const existing = await payload.find({
         collection: 'source-products',
-        where: { and: [{ gtin: { equals: gtin } }, SOURCE_DM_FILTER] },
+        where: { and: [{ sourceUrl: { equals: sourceUrl } }, SOURCE_DM_FILTER] },
         limit: 1,
       })
 
@@ -453,6 +472,7 @@ export const dmDriver: SourceDriver = {
         : []
 
       const productPayload = {
+        gtin: String(data.gtin),
         status: 'crawled' as const,
         sourceArticleNumber,
         brandName: data.brand?.name ?? null,
@@ -468,7 +488,7 @@ export const dmDriver: SourceDriver = {
         rating: data.rating?.ratingValue ?? null,
         ratingNum: data.rating?.ratingCount ?? null,
         ingredients: ingredients.map((n: string) => ({ name: n })),
-        sourceUrl,
+        sourceUrl: canonicalUrl,
         crawledAt: now,
       }
 
@@ -485,7 +505,6 @@ export const dmDriver: SourceDriver = {
         const newProduct = await payload.create({
           collection: 'source-products',
           data: {
-            gtin,
             source: 'dm',
             ...productPayload,
           },
@@ -493,21 +512,21 @@ export const dmDriver: SourceDriver = {
         productId = newProduct.id
       }
 
-      console.log(`[DM] Crawled product ${gtin}: ${name} (id: ${productId})`)
+      console.log(`[DM] Crawled product ${sourceUrl}: ${name} (id: ${productId})`)
       return productId
     } catch (error) {
-      console.error(`[DM] Error crawling product (gtin: ${gtin}):`, error)
+      console.error(`[DM] Error crawling product (url: ${sourceUrl}):`, error)
       return null
     }
   },
 
   async findUncrawledProducts(
     payload: Payload,
-    options: { gtins?: string[]; limit: number },
-  ): Promise<Array<{ id: number; gtin: string; sourceUrl: string | null }>> {
+    options: { sourceUrls?: string[]; limit: number },
+  ): Promise<Array<{ id: number; sourceUrl: string; gtin?: string }>> {
     const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_DM_FILTER]
-    if (options.gtins && options.gtins.length > 0) {
-      where.push({ gtin: { in: options.gtins.join(',') } })
+    if (options.sourceUrls && options.sourceUrls.length > 0) {
+      where.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
     }
 
     const result = await payload.find({
@@ -516,12 +535,12 @@ export const dmDriver: SourceDriver = {
       limit: options.limit,
     })
 
-    console.log(`[DM] findUncrawledProducts: found ${result.docs.length} (query: gtins=${options.gtins?.join(',') ?? 'all'}, limit=${options.limit})`)
+    console.log(`[DM] findUncrawledProducts: found ${result.docs.length} (query: sourceUrls=${options.sourceUrls?.join(',') ?? 'all'}, limit=${options.limit})`)
 
     return result.docs.map((doc) => ({
       id: doc.id,
-      gtin: doc.gtin!,
-      sourceUrl: doc.sourceUrl || null,
+      sourceUrl: doc.sourceUrl || '',
+      gtin: doc.gtin || undefined,
     }))
   },
 
@@ -533,10 +552,10 @@ export const dmDriver: SourceDriver = {
     })
   },
 
-  async countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number> {
+  async countUncrawled(payload: Payload, options?: { sourceUrls?: string[] }): Promise<number> {
     const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_DM_FILTER]
-    if (options?.gtins && options.gtins.length > 0) {
-      where.push({ gtin: { in: options.gtins.join(',') } })
+    if (options?.sourceUrls && options.sourceUrls.length > 0) {
+      where.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
     }
 
     const result = await payload.count({
@@ -548,12 +567,12 @@ export const dmDriver: SourceDriver = {
     return result.totalDocs
   },
 
-  async resetProducts(payload: Payload, gtins?: string[], crawledBefore?: Date): Promise<void> {
-    if (gtins && gtins.length === 0) return
+  async resetProducts(payload: Payload, sourceUrls?: string[], crawledBefore?: Date): Promise<void> {
+    if (sourceUrls && sourceUrls.length === 0) return
 
     const conditions: Where[] = [{ status: { in: 'crawled,failed' } }, SOURCE_DM_FILTER]
-    if (gtins) {
-      conditions.push({ gtin: { in: gtins.join(',') } })
+    if (sourceUrls) {
+      conditions.push({ sourceUrl: { in: sourceUrls.join(',') } })
     }
     if (crawledBefore) {
       conditions.push({

@@ -2,7 +2,7 @@ import { getPayload } from 'payload'
 import configPromise from '@payload-config'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getSourceDriver, getSourceDriverBySlug, getAllSourceDrivers } from '@/lib/source-discovery/driver'
-import type { SourceDriver } from '@/lib/source-discovery/types'
+import type { SourceDriver, DiscoveredProduct } from '@/lib/source-discovery/types'
 import { aggregateProduct } from '@/lib/aggregate-product'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { processVideo } from '@/lib/video-processing/process-video'
@@ -85,13 +85,13 @@ export const POST = async () => {
     return Response.json({ message: 'No pending jobs' })
   }
 
-  // Prioritize selected_gtins jobs, otherwise random
-  const selectedGtinsJobs = activeJobs.filter(
-    (j) => (j.type === 'source-crawl' && j.crawlType === 'selected_gtins') ||
+  // Prioritize selected jobs, otherwise random
+  const selectedTargetJobs = activeJobs.filter(
+    (j) => (j.type === 'source-crawl' && j.crawlType === 'selected_urls') ||
            (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
-  const selected = selectedGtinsJobs.length > 0
-    ? selectedGtinsJobs[0]
+  const selected = selectedTargetJobs.length > 0
+    ? selectedTargetJobs[0]
     : activeJobs[Math.floor(Math.random() * activeJobs.length)]
 
   if (selected.type === 'ingredients-discovery') {
@@ -374,58 +374,18 @@ async function processSourceDiscovery(
   }
 
   try {
-    // Detect product URLs vs category URLs
-    // DM: /produkt-name-p12345.html → GTIN from -p<digits>.html
-    // Rossmann: /de/.../p/6298042560680 → GTIN from /p/<digits>
-    const productUrlPatterns: RegExp[] = [
-      /^\/[^/]+-p(\d+)\.html$/,    // DM
-      /\/p\/(\d+)$/,               // Rossmann
-    ]
-    const productUrls: { url: string; gtin: string }[] = []
-    const categoryUrls: string[] = []
+    // Discover products from all URLs
+    const allDiscoveredProducts: DiscoveredProduct[] = []
+    const seenUrls = new Set<string>()
 
     for (const url of sourceUrls) {
-      try {
-        const pathname = new URL(url).pathname
-        let matched = false
-        for (const pattern of productUrlPatterns) {
-          const match = pathname.match(pattern)
-          if (match) {
-            productUrls.push({ url, gtin: match[1] })
-            matched = true
-            break
-          }
-        }
-        if (!matched) {
-          categoryUrls.push(url)
-        }
-      } catch {
-        categoryUrls.push(url)
-      }
-    }
-
-    console.log(`[Source Discovery] ${categoryUrls.length} category URL(s), ${productUrls.length} product URL(s)`)
-
-    // Discover products from all category URLs
-    const allDiscoveredProducts: Array<{ gtin: string; productUrl: string | null; brandName?: string; name?: string; price?: number; currency?: string; rating?: number; ratingCount?: number; category?: string }> = []
-    const seenGtins = new Set<string>()
-
-    for (const catUrl of categoryUrls) {
-      const catDriver = getSourceDriver(catUrl) ?? driver
-      const { products: catProducts } = await catDriver.discoverProducts(catUrl)
-      for (const p of catProducts) {
-        if (!seenGtins.has(p.gtin)) {
-          seenGtins.add(p.gtin)
+      const urlDriver = getSourceDriver(url) ?? driver
+      const { products } = await urlDriver.discoverProducts(url)
+      for (const p of products) {
+        if (!seenUrls.has(p.productUrl)) {
+          seenUrls.add(p.productUrl)
           allDiscoveredProducts.push(p)
         }
-      }
-    }
-
-    // Add product URLs as direct entries (minimal data — will be filled during crawl)
-    for (const { url, gtin } of productUrls) {
-      if (!seenGtins.has(gtin)) {
-        seenGtins.add(gtin)
-        allDiscoveredProducts.push({ gtin, productUrl: url })
       }
     }
 
@@ -454,7 +414,7 @@ async function processSourceDiscovery(
       const existingProduct = await payload.find({
         collection: 'source-products',
         where: { and: [
-          { gtin: { equals: product.gtin } },
+          { sourceUrl: { equals: product.productUrl } },
           { or: [{ source: { equals: driver.slug } }, { source: { exists: false } }] },
         ] },
         limit: 1,
@@ -474,13 +434,13 @@ async function processSourceDiscovery(
         type: product.category,
         rating: product.rating,
         ratingNum: product.ratingCount,
+        ...(product.gtin ? { gtin: product.gtin } : {}),
       }
 
       if (existingProduct.docs.length === 0) {
         await payload.create({
           collection: 'source-products',
           data: {
-            gtin: product.gtin,
             source: driver.slug,
             status: 'uncrawled',
             ...discoveryData,
@@ -515,14 +475,14 @@ async function processSourceDiscovery(
 
     // Check if all products processed
     if (created + existing >= products.length) {
-      const discoveredGtins = products.map((p) => p.gtin).join('\n')
+      const discoveredProductUrls = products.map((p) => p.productUrl).join('\n')
       await payload.update({
         collection: 'source-discoveries',
         id: discoveryId,
         data: {
           status: 'completed',
           completedAt: new Date().toISOString(),
-          gtins: discoveredGtins,
+          productUrls: discoveredProductUrls,
         },
       })
       await createEvent(payload, 'success', 'source-discoveries', discoveryId, `Completed: ${products.length} discovered, ${created} created, ${existing} existing`)
@@ -625,10 +585,10 @@ async function processSourceCrawl(
     drivers = [driver]
   }
 
-  // Parse GTINs for selected_gtins mode
-  const isSelectedGtins = crawl.type === 'selected_gtins'
-  const gtinList = isSelectedGtins
-    ? (crawl.gtins || '').split('\n').map((g) => g.trim()).filter(Boolean)
+  // Parse URLs for selected_urls mode
+  const isSelectedUrls = crawl.type === 'selected_urls'
+  const urlList = isSelectedUrls
+    ? (crawl.urls || '').split('\n').map((u) => u.trim()).filter(Boolean)
     : undefined
 
   // Read scope and minimum crawl age settings
@@ -636,19 +596,43 @@ async function processSourceCrawl(
   const minCrawlAge = crawl.minCrawlAge
   const minCrawlAgeUnit = crawl.minCrawlAgeUnit
 
-  console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, scope=${scope}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, gtins=${gtinList ? gtinList.join(',') : 'all'}`)
+  console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, scope=${scope}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, urls=${urlList ? urlList.join(',') : 'all'}`)
 
-  if (isSelectedGtins && (!gtinList || gtinList.length === 0)) {
+  if (isSelectedUrls && (!urlList || urlList.length === 0)) {
     await payload.update({
       collection: 'source-crawls',
       id: crawlId,
       data: { status: 'completed', completedAt: new Date().toISOString() },
     })
     return Response.json({
-      message: 'Crawl completed - no GTINs specified',
+      message: 'Crawl completed - no URLs specified',
       jobId: crawlId,
       type: 'source-crawl',
     })
+  }
+
+  // On first tick for selected_urls, auto-create SourceProduct stubs for URLs that don't exist yet
+  if (isFirstTick && isSelectedUrls && urlList) {
+    let stubsCreated = 0
+    for (const url of urlList) {
+      const urlDriver = getSourceDriver(url)
+      if (!urlDriver) continue
+      const exists = await payload.find({
+        collection: 'source-products',
+        where: { sourceUrl: { equals: url } },
+        limit: 1,
+      })
+      if (exists.docs.length === 0) {
+        await payload.create({
+          collection: 'source-products',
+          data: { sourceUrl: url, source: urlDriver.slug, status: 'uncrawled' },
+        })
+        stubsCreated++
+      }
+    }
+    if (stubsCreated > 0) {
+      console.log(`[Source Crawl] Created ${stubsCreated} SourceProduct stub(s) for selected URLs`)
+    }
   }
 
   // On first tick, reset products to uncrawled if scope includes re-crawl
@@ -660,7 +644,7 @@ async function processSourceCrawl(
       console.log(`[Source Crawl] Re-crawl with minCrawlAge: ${minCrawlAge} ${minCrawlAgeUnit} (crawledBefore: ${crawledBefore.toISOString()})`)
     }
     for (const driver of drivers) {
-      await driver.resetProducts(payload, gtinList, crawledBefore)
+      await driver.resetProducts(payload, urlList, crawledBefore)
     }
     console.log(`[Source Crawl] Reset products to uncrawled`)
   }
@@ -669,7 +653,7 @@ async function processSourceCrawl(
   if (isFirstTick) {
     let totalUncrawled = 0
     for (const driver of drivers) {
-      totalUncrawled += await driver.countUncrawled(payload, gtinList ? { gtins: gtinList } : undefined)
+      totalUncrawled += await driver.countUncrawled(payload, urlList ? { sourceUrls: urlList } : undefined)
     }
     await payload.update({
       collection: 'source-crawls',
@@ -689,7 +673,7 @@ async function processSourceCrawl(
       if (remainingBudget <= 0) break
 
       const products = await driver.findUncrawledProducts(payload, {
-        gtins: gtinList,
+        sourceUrls: urlList,
         limit: remainingBudget,
       })
 
@@ -698,11 +682,11 @@ async function processSourceCrawl(
         continue
       }
 
-      console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.gtin).join(', ')}`)
+      console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.sourceUrl).join(', ')}`)
 
       for (const product of products) {
         const productId = await driver.crawlProduct(
-          product.gtin,
+          product.sourceUrl,
           payload,
           { debug: crawl.debug ?? false },
         )
@@ -710,11 +694,11 @@ async function processSourceCrawl(
         if (productId !== null) {
           await driver.markProductStatus(payload, product.id, 'crawled')
           crawled++
-          console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.gtin} -> source-product #${productId}`)
+          console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
         } else {
           await driver.markProductStatus(payload, product.id, 'failed')
           errors++
-          console.log(`[Source Crawl] [${driver.slug}] Failed to crawl ${product.gtin}`)
+          console.log(`[Source Crawl] [${driver.slug}] Failed to crawl ${product.sourceUrl}`)
         }
 
         processedThisTick++
@@ -731,7 +715,7 @@ async function processSourceCrawl(
     // Check completion: sum uncrawled across all drivers
     let totalRemaining = 0
     for (const driver of drivers) {
-      totalRemaining += await driver.countUncrawled(payload, gtinList ? { gtins: gtinList } : undefined)
+      totalRemaining += await driver.countUncrawled(payload, urlList ? { sourceUrls: urlList } : undefined)
     }
 
     if (totalRemaining === 0) {

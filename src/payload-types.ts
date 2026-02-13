@@ -386,9 +386,9 @@ export interface SourceDiscovery {
   startedAt?: string | null;
   completedAt?: string | null;
   /**
-   * Discovered GTINs, one per line
+   * Discovered product URLs, one per line
    */
-  gtins?: string | null;
+  productUrls?: string | null;
   /**
    * Max products to save per tick. Leave empty for unlimited.
    */
@@ -409,11 +409,11 @@ export interface SourceCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   source: 'all' | 'dm' | 'rossmann';
-  type: 'all' | 'selected_gtins';
+  type: 'all' | 'selected_urls';
   /**
-   * GTINs to crawl, one per line
+   * Product URLs to crawl, one per line
    */
-  gtins?: string | null;
+  urls?: string | null;
   /**
    * Uncrawled Only skips already-crawled products. Re-crawl includes them.
    */
@@ -831,6 +831,10 @@ export interface SourceProduct {
   gtin?: string | null;
   status?: ('uncrawled' | 'crawled' | 'failed') | null;
   /**
+   * URL from which this product was crawled
+   */
+  sourceUrl?: string | null;
+  /**
    * Source identifier (e.g., dm)
    */
   source?: string | null;
@@ -931,10 +935,6 @@ export interface SourceProduct {
         id?: string | null;
       }[]
     | null;
-  /**
-   * URL from which this product was crawled
-   */
-  sourceUrl?: string | null;
   /**
    * When this product was last crawled
    */
@@ -1253,6 +1253,7 @@ export interface ProductsSelect<T extends boolean = true> {
 export interface SourceProductsSelect<T extends boolean = true> {
   gtin?: T;
   status?: T;
+  sourceUrl?: T;
   source?: T;
   sourceArticleNumber?: T;
   brandName?: T;
@@ -1309,7 +1310,6 @@ export interface SourceProductsSelect<T extends boolean = true> {
         name?: T;
         id?: T;
       };
-  sourceUrl?: T;
   crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1326,7 +1326,7 @@ export interface SourceDiscoveriesSelect<T extends boolean = true> {
   existing?: T;
   startedAt?: T;
   completedAt?: T;
-  gtins?: T;
+  productUrls?: T;
   itemsPerTick?: T;
   events?: T;
   updatedAt?: T;
@@ -1340,7 +1340,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   status?: T;
   source?: T;
   type?: T;
-  gtins?: T;
+  urls?: T;
   scope?: T;
   minCrawlAge?: T;
   minCrawlAgeUnit?: T;

@@ -118,12 +118,12 @@ export const SourceDiscoveries: CollectionConfig = {
           label: 'Output',
           fields: [
             {
-              name: 'gtins',
+              name: 'productUrls',
               type: 'textarea',
-              label: 'Discovered GTINs',
+              label: 'Discovered Product URLs',
               admin: {
                 readOnly: true,
-                description: 'Discovered GTINs, one per line',
+                description: 'Discovered product URLs, one per line',
               },
             },
           ],

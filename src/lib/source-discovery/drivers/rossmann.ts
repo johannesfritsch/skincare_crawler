@@ -55,7 +55,7 @@ export const rossmannDriver: SourceDriver = {
 
     const browser = await launchBrowser()
     const allProducts: DiscoveredProduct[] = []
-    const seenGtins = new Set<string>()
+    const seenUrls = new Set<string>()
 
     try {
       const page = await browser.newPage()
@@ -118,11 +118,12 @@ export const rossmannDriver: SourceDriver = {
 
       function collectProducts(products: Awaited<ReturnType<typeof scrapeProductCards>>, category: string) {
         for (const p of products) {
-          if (!p.gtin || seenGtins.has(p.gtin)) continue
-          seenGtins.add(p.gtin)
+          const productUrl = p.href ? `https://www.rossmann.de${p.href}` : null
+          if (!productUrl || seenUrls.has(productUrl)) continue
+          seenUrls.add(productUrl)
           allProducts.push({
-            gtin: p.gtin,
-            productUrl: p.href ? `https://www.rossmann.de${p.href}` : null,
+            gtin: p.gtin || undefined,
+            productUrl,
             brandName: p.brand || undefined,
             name: p.name || undefined,
             price: p.priceCents ?? undefined,
@@ -211,28 +212,25 @@ export const rossmannDriver: SourceDriver = {
   },
 
   async crawlProduct(
-    gtin: string,
+    sourceUrl: string,
     payload: Payload,
     options?: { debug?: boolean },
   ): Promise<number | null> {
     try {
-      // Find existing source-product to get its sourceUrl
+      // Find existing source-product by sourceUrl
       const existing = await payload.find({
         collection: 'source-products',
-        where: { and: [{ gtin: { equals: gtin } }, SOURCE_ROSSMANN_FILTER] },
+        where: { and: [{ sourceUrl: { equals: sourceUrl } }, SOURCE_ROSSMANN_FILTER] },
         limit: 1,
       })
 
-      const productUrl =
-        existing.docs[0]?.sourceUrl || `https://www.rossmann.de/de/p/${gtin}`
-
-      console.log(`[Rossmann] Crawling product ${gtin}: ${productUrl}`)
+      console.log(`[Rossmann] Crawling product: ${sourceUrl}`)
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
       try {
         const page = await browser.newPage()
-        await page.goto(productUrl, { waitUntil: 'networkidle' })
+        await page.goto(sourceUrl, { waitUntil: 'networkidle' })
         await sleep(randomDelay(1000, 2000))
 
         // Wait for BazaarVoice rating widget to render (loads async via JS)
@@ -243,7 +241,7 @@ export const rossmannDriver: SourceDriver = {
           .catch(() => {})
 
         if (debug) {
-          console.log(`[Rossmann] Debug mode: browser kept open for GTIN ${gtin}. Press Ctrl+C to continue.`)
+          console.log(`[Rossmann] Debug mode: browser kept open for ${sourceUrl}. Press Ctrl+C to continue.`)
           await page.pause()
         }
 
@@ -260,6 +258,10 @@ export const rossmannDriver: SourceDriver = {
           // Source article number (DAN)
           const danEl = document.querySelector('[data-jsevent="obj:product__dan"]')
           const sourceArticleNumber = danEl?.getAttribute('data-value') || null
+
+          // GTIN from EAN data attribute or URL
+          const eanEl = document.querySelector('[data-item-ean]')
+          const gtinFromPage = eanEl?.getAttribute('data-item-ean') || null
 
           // Type from category breadcrumbs
           const cartBtn = document.querySelector('button[data-jsevent="ctrl:add-to-cart"]')
@@ -392,13 +394,14 @@ export const rossmannDriver: SourceDriver = {
             if (countMatch) ratingNum = parseInt(countMatch[1], 10)
           }
 
-          // Current page URL (in case of redirect from /de/p/GTIN)
+          // Current page URL (in case of redirect)
           const currentUrl = window.location.href
 
           return {
             name,
             brandName,
             sourceArticleNumber,
+            gtinFromPage,
             type,
             description,
             ingredientsRaw,
@@ -415,17 +418,20 @@ export const rossmannDriver: SourceDriver = {
           }
         })
 
-        console.log(`[Rossmann] Variant debug for GTIN ${gtin}:`, JSON.stringify(scraped._variantDebug, null, 2))
+        console.log(`[Rossmann] Variant debug for ${sourceUrl}:`, JSON.stringify(scraped._variantDebug, null, 2))
 
         if (!scraped.name) {
-          console.log(`[Rossmann] No product name found on page for GTIN ${gtin}`)
+          console.log(`[Rossmann] No product name found on page for ${sourceUrl}`)
           return null
         }
+
+        // Extract GTIN from page or URL
+        const gtin = scraped.gtinFromPage || sourceUrl.match(/\/p\/(\d+)/)?.[1] || null
 
         // Parse ingredients
         let ingredients: string[] = []
         if (scraped.ingredientsRaw) {
-          console.log(`[Rossmann] Raw ingredients for GTIN ${gtin}:`, scraped.ingredientsRaw)
+          console.log(`[Rossmann] Raw ingredients for ${sourceUrl}:`, scraped.ingredientsRaw)
           ingredients = await parseIngredients(scraped.ingredientsRaw)
           console.log(`[Rossmann] Parsed ${ingredients.length} ingredients`)
         }
@@ -465,9 +471,8 @@ export const rossmannDriver: SourceDriver = {
           ? (existing.docs[0].priceHistory ?? [])
           : []
 
-        const sourceUrl = existing.docs[0]?.sourceUrl || scraped.currentUrl
-
         const productPayload = {
+          ...(gtin ? { gtin } : {}),
           status: 'crawled' as const,
           sourceArticleNumber: scraped.sourceArticleNumber,
           brandName: scraped.brandName,
@@ -499,7 +504,6 @@ export const rossmannDriver: SourceDriver = {
           const newProduct = await payload.create({
             collection: 'source-products',
             data: {
-              gtin,
               source: 'rossmann',
               ...productPayload,
             },
@@ -507,24 +511,24 @@ export const rossmannDriver: SourceDriver = {
           productId = newProduct.id
         }
 
-        console.log(`[Rossmann] Crawled product ${gtin}: ${scraped.name} (id: ${productId})`)
+        console.log(`[Rossmann] Crawled product ${sourceUrl}: ${scraped.name} (id: ${productId})`)
         return productId
       } finally {
         await browser.close()
       }
     } catch (error) {
-      console.error(`[Rossmann] Error crawling product (gtin: ${gtin}):`, error)
+      console.error(`[Rossmann] Error crawling product (url: ${sourceUrl}):`, error)
       return null
     }
   },
 
   async findUncrawledProducts(
     payload: Payload,
-    options: { gtins?: string[]; limit: number },
-  ): Promise<Array<{ id: number; gtin: string; sourceUrl: string | null }>> {
+    options: { sourceUrls?: string[]; limit: number },
+  ): Promise<Array<{ id: number; sourceUrl: string; gtin?: string }>> {
     const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_ROSSMANN_FILTER]
-    if (options.gtins && options.gtins.length > 0) {
-      where.push({ gtin: { in: options.gtins.join(',') } })
+    if (options.sourceUrls && options.sourceUrls.length > 0) {
+      where.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
     }
 
     const result = await payload.find({
@@ -533,12 +537,12 @@ export const rossmannDriver: SourceDriver = {
       limit: options.limit,
     })
 
-    console.log(`[Rossmann] findUncrawledProducts: found ${result.docs.length} (query: gtins=${options.gtins?.join(',') ?? 'all'}, limit=${options.limit})`)
+    console.log(`[Rossmann] findUncrawledProducts: found ${result.docs.length} (query: sourceUrls=${options.sourceUrls?.join(',') ?? 'all'}, limit=${options.limit})`)
 
     return result.docs.map((doc) => ({
       id: doc.id,
-      gtin: doc.gtin!,
-      sourceUrl: doc.sourceUrl || null,
+      sourceUrl: doc.sourceUrl || '',
+      gtin: doc.gtin || undefined,
     }))
   },
 
@@ -550,10 +554,10 @@ export const rossmannDriver: SourceDriver = {
     })
   },
 
-  async countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number> {
+  async countUncrawled(payload: Payload, options?: { sourceUrls?: string[] }): Promise<number> {
     const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_ROSSMANN_FILTER]
-    if (options?.gtins && options.gtins.length > 0) {
-      where.push({ gtin: { in: options.gtins.join(',') } })
+    if (options?.sourceUrls && options.sourceUrls.length > 0) {
+      where.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
     }
 
     const result = await payload.count({
@@ -565,12 +569,12 @@ export const rossmannDriver: SourceDriver = {
     return result.totalDocs
   },
 
-  async resetProducts(payload: Payload, gtins?: string[], crawledBefore?: Date): Promise<void> {
-    if (gtins && gtins.length === 0) return
+  async resetProducts(payload: Payload, sourceUrls?: string[], crawledBefore?: Date): Promise<void> {
+    if (sourceUrls && sourceUrls.length === 0) return
 
     const conditions: Where[] = [{ status: { in: 'crawled,failed' } }, SOURCE_ROSSMANN_FILTER]
-    if (gtins) {
-      conditions.push({ gtin: { in: gtins.join(',') } })
+    if (sourceUrls) {
+      conditions.push({ sourceUrl: { in: sourceUrls.join(',') } })
     }
     if (crawledBefore) {
       conditions.push({

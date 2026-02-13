@@ -11,7 +11,7 @@ export const SourceProducts: CollectionConfig = {
     defaultColumns: ['name', 'brandName', 'source', 'status', 'crawledAt', 'createdAt'],
     group: 'Content',
     description: 'Products crawled from source stores',
-    listSearchableFields: ['name', 'brandName', 'gtin'],
+    listSearchableFields: ['name', 'brandName', 'gtin', 'sourceUrl'],
   },
   fields: [
     {
@@ -36,6 +36,16 @@ export const SourceProducts: CollectionConfig = {
       ],
       index: true,
       admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'sourceUrl',
+      type: 'text',
+      label: 'Source URL',
+      index: true,
+      admin: {
+        description: 'URL from which this product was crawled',
         position: 'sidebar',
       },
     },
@@ -346,14 +356,6 @@ export const SourceProducts: CollectionConfig = {
         {
           label: 'Crawling',
           fields: [
-            {
-              name: 'sourceUrl',
-              type: 'text',
-              label: 'Source URL',
-              admin: {
-                description: 'URL from which this product was crawled',
-              },
-            },
             {
               name: 'crawledAt',
               type: 'date',

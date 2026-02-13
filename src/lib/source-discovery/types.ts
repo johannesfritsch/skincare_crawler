@@ -7,8 +7,8 @@ export interface DiscoveryStats {
 }
 
 export interface DiscoveredProduct {
-  gtin: string
-  productUrl: string | null
+  gtin?: string
+  productUrl: string
   brandName?: string
   name?: string
   price?: number       // cents
@@ -34,7 +34,7 @@ export interface SourceDriver {
   // Crawl a single product via API and save to database
   // Returns the product ID if successful, null if failed
   crawlProduct(
-    gtin: string,
+    sourceUrl: string,
     payload: Payload,
     options?: { debug?: boolean },
   ): Promise<number | null>
@@ -42,12 +42,12 @@ export interface SourceDriver {
   // Collection-query methods
   findUncrawledProducts(
     payload: Payload,
-    options: { gtins?: string[]; limit: number },
-  ): Promise<Array<{ id: number; gtin: string; sourceUrl: string | null }>>
+    options: { sourceUrls?: string[]; limit: number },
+  ): Promise<Array<{ id: number; sourceUrl: string; gtin?: string }>>
 
   markProductStatus(payload: Payload, productId: number, status: 'crawled' | 'failed'): Promise<void>
 
-  countUncrawled(payload: Payload, options?: { gtins?: string[] }): Promise<number>
+  countUncrawled(payload: Payload, options?: { sourceUrls?: string[] }): Promise<number>
 
-  resetProducts(payload: Payload, gtins?: string[], crawledBefore?: Date): Promise<void>
+  resetProducts(payload: Payload, sourceUrls?: string[], crawledBefore?: Date): Promise<void>
 }

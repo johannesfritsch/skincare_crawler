@@ -54,16 +54,16 @@ export const SourceCrawls: CollectionConfig = {
               defaultValue: 'all',
               options: [
                 { label: 'All Products', value: 'all' },
-                { label: 'Selected GTINs', value: 'selected_gtins' },
+                { label: 'Selected URLs', value: 'selected_urls' },
               ],
             },
             {
-              name: 'gtins',
+              name: 'urls',
               type: 'textarea',
-              label: 'GTINs',
+              label: 'Product URLs',
               admin: {
-                description: 'GTINs to crawl, one per line',
-                condition: (data) => data?.type === 'selected_gtins',
+                description: 'Product URLs to crawl, one per line',
+                condition: (data) => data?.type === 'selected_urls',
               },
             },
             {
@@ -77,7 +77,8 @@ export const SourceCrawls: CollectionConfig = {
                 { label: 'Re-crawl', value: 'recrawl' },
               ],
               admin: {
-                description: 'Uncrawled Only skips already-crawled products. Re-crawl includes them.',
+                description:
+                  'Uncrawled Only skips already-crawled products. Re-crawl includes them.',
               },
             },
             {
@@ -93,7 +94,8 @@ export const SourceCrawls: CollectionConfig = {
                   min: 1,
                   admin: {
                     width: '50%',
-                    description: 'Only re-crawl products older than this. Leave empty to re-crawl all.',
+                    description:
+                      'Only re-crawl products older than this. Leave empty to re-crawl all.',
                   },
                 },
                 {
@@ -194,7 +196,8 @@ export const SourceCrawls: CollectionConfig = {
               label: 'Debug Mode',
               defaultValue: false,
               admin: {
-                description: 'Keep browser visible for inspection (non-headless). Only works for browser-based drivers.',
+                description:
+                  'Keep browser visible for inspection (non-headless). Only works for browser-based drivers.',
               },
             },
             {
