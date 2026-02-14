@@ -579,52 +579,161 @@ export const muellerDriver: SourceDriver = {
           unit: perUnitUnit ?? null,
         }
 
-        const existingHistory = existing.docs.length > 0
-          ? (existing.docs[0].priceHistory ?? [])
-          : []
+        // Collect variant records with GTINs
+        const variantRecords: Array<{ gtin: string; label: string; variantSourceUrl: string; isPageSelected: boolean }> = []
+        const baseUrl = sourceUrl.split('?')[0].split('#')[0]
 
-        const productPayload = {
-          ...(scraped.gtin ? { gtin: scraped.gtin } : {}),
-          status: 'crawled' as const,
-          sourceArticleNumber: scraped.sourceArticleNumber,
-          brandName: scraped.brandName,
-          name: scraped.name,
-          type: scraped.type ?? undefined,
-          description: scraped.description,
-          amount: scraped.amount,
-          amountUnit: scraped.amountUnit,
-          images: scraped.images,
-          variants: scraped.variants,
-          priceHistory: [priceEntry, ...existingHistory],
-          rating: scraped.rating,
-          ratingNum: scraped.ratingNum,
-          ingredients: ingredients.map((n: string) => ({ name: n })),
-          sourceUrl,
-          crawledAt: now,
+        for (const dim of scraped.variants) {
+          for (const opt of dim.options) {
+            if (!opt.gtin) continue
+            let variantSourceUrl: string
+            if (opt.isSelected) {
+              variantSourceUrl = sourceUrl
+            } else if (opt.value) {
+              variantSourceUrl = `${baseUrl}?itemId=${opt.value}`
+            } else {
+              variantSourceUrl = `${baseUrl}#gtin=${opt.gtin}`
+            }
+            variantRecords.push({ gtin: opt.gtin, label: opt.label, variantSourceUrl, isPageSelected: opt.isSelected })
+          }
         }
 
-        let productId: number
+        let primaryProductId: number | null = null
 
-        if (existing.docs.length > 0) {
-          productId = existing.docs[0].id
-          await payload.update({
-            collection: 'source-products',
-            id: productId,
-            data: { source: 'mueller', ...productPayload },
-          })
+        if (variantRecords.length > 0) {
+          // Upsert one source-product per variant
+          for (const variant of variantRecords) {
+            // Build adjusted variants array with only this variant marked as selected
+            const adjustedVariants = scraped.variants.map((dim) => ({
+              dimension: dim.dimension,
+              options: dim.options.map((opt) => ({
+                ...opt,
+                isSelected: opt.gtin === variant.gtin,
+              })),
+            }))
+
+            // Look up existing source-product by this variant's URL
+            const existingVariant = await payload.find({
+              collection: 'source-products',
+              where: { and: [{ sourceUrl: { equals: variant.variantSourceUrl } }, SOURCE_MUELLER_FILTER] },
+              limit: 1,
+            })
+
+            const existingHistory = existingVariant.docs.length > 0
+              ? (existingVariant.docs[0].priceHistory ?? [])
+              : []
+
+            const variantName = variant.label
+              ? `${scraped.name} (${variant.label})`
+              : scraped.name
+
+            const productPayload = {
+              gtin: variant.gtin,
+              status: 'crawled' as const,
+              sourceArticleNumber: scraped.sourceArticleNumber,
+              brandName: scraped.brandName,
+              name: variantName,
+              type: scraped.type ?? undefined,
+              description: scraped.description,
+              amount: scraped.amount,
+              amountUnit: scraped.amountUnit,
+              images: scraped.images,
+              variants: adjustedVariants,
+              priceHistory: [priceEntry, ...existingHistory],
+              rating: scraped.rating,
+              ratingNum: scraped.ratingNum,
+              ingredients: ingredients.map((n: string) => ({ name: n })),
+              sourceUrl: variant.variantSourceUrl,
+              crawledAt: now,
+            }
+
+            let productId: number
+
+            if (existingVariant.docs.length > 0) {
+              productId = existingVariant.docs[0].id
+              await payload.update({
+                collection: 'source-products',
+                id: productId,
+                data: { source: 'mueller', ...productPayload },
+              })
+            } else {
+              const newProduct = await payload.create({
+                collection: 'source-products',
+                data: {
+                  source: 'mueller',
+                  ...productPayload,
+                },
+              })
+              productId = newProduct.id
+            }
+
+            console.log(`[Mueller] Crawled variant ${variant.gtin} (url: ${variant.variantSourceUrl}, id: ${productId})`)
+
+            // Track the primary product (the one matching the original sourceUrl)
+            if (variant.variantSourceUrl === sourceUrl) {
+              primaryProductId = productId
+            }
+          }
+
+          // If no variant matched the original sourceUrl (shouldn't happen, but be safe),
+          // use the first variant's product
+          if (primaryProductId === null) {
+            primaryProductId = (await payload.find({
+              collection: 'source-products',
+              where: { and: [{ sourceUrl: { equals: variantRecords[0].variantSourceUrl } }, SOURCE_MUELLER_FILTER] },
+              limit: 1,
+            })).docs[0]?.id ?? null
+          }
+
+          console.log(`[Mueller] Crawled product ${sourceUrl}: ${scraped.name} — ${variantRecords.length} variant(s)`)
         } else {
-          const newProduct = await payload.create({
-            collection: 'source-products',
-            data: {
-              source: 'mueller',
-              ...productPayload,
-            },
-          })
-          productId = newProduct.id
+          // No-variant fallback: single product behavior
+          const existingHistory = existing.docs.length > 0
+            ? (existing.docs[0].priceHistory ?? [])
+            : []
+
+          const productPayload = {
+            ...(scraped.gtin ? { gtin: scraped.gtin } : {}),
+            status: 'crawled' as const,
+            sourceArticleNumber: scraped.sourceArticleNumber,
+            brandName: scraped.brandName,
+            name: scraped.name,
+            type: scraped.type ?? undefined,
+            description: scraped.description,
+            amount: scraped.amount,
+            amountUnit: scraped.amountUnit,
+            images: scraped.images,
+            variants: scraped.variants,
+            priceHistory: [priceEntry, ...existingHistory],
+            rating: scraped.rating,
+            ratingNum: scraped.ratingNum,
+            ingredients: ingredients.map((n: string) => ({ name: n })),
+            sourceUrl,
+            crawledAt: now,
+          }
+
+          if (existing.docs.length > 0) {
+            primaryProductId = existing.docs[0].id
+            await payload.update({
+              collection: 'source-products',
+              id: primaryProductId,
+              data: { source: 'mueller', ...productPayload },
+            })
+          } else {
+            const newProduct = await payload.create({
+              collection: 'source-products',
+              data: {
+                source: 'mueller',
+                ...productPayload,
+              },
+            })
+            primaryProductId = newProduct.id
+          }
+
+          console.log(`[Mueller] Crawled product ${sourceUrl}: ${scraped.name} (id: ${primaryProductId})`)
         }
 
-        console.log(`[Mueller] Crawled product ${sourceUrl}: ${scraped.name} (id: ${productId})`)
-        return productId
+        return primaryProductId
       } finally {
         await browser.close()
       }
