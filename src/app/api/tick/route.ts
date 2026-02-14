@@ -674,6 +674,7 @@ async function processSourceCrawl(
 
   let crawled = crawl.crawled || 0
   let errors = crawl.errors || 0
+  let crawledGtins = crawl.crawledGtins || ''
   let processedThisTick = 0
   let remainingBudget = itemsPerTick
 
@@ -704,6 +705,16 @@ async function processSourceCrawl(
           await driver.markProductStatus(payload, product.id, 'crawled')
           crawled++
           console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
+
+          // Fetch GTIN from the crawled product to track in output
+          const crawledProduct = await payload.findByID({
+            collection: 'source-products',
+            id: productId,
+          })
+          const newGtin = crawledProduct?.gtin
+          if (newGtin) {
+            crawledGtins = crawledGtins ? `${crawledGtins}\n${newGtin}` : newGtin
+          }
         } else {
           await driver.markProductStatus(payload, product.id, 'failed')
           errors++
@@ -716,7 +727,7 @@ async function processSourceCrawl(
         await payload.update({
           collection: 'source-crawls',
           id: crawlId,
-          data: { crawled, errors },
+          data: { crawled, errors, crawledGtins },
         })
       }
     }
@@ -735,6 +746,7 @@ async function processSourceCrawl(
           status: 'completed',
           crawled,
           errors,
+          crawledGtins,
           completedAt: new Date().toISOString(),
         },
       })

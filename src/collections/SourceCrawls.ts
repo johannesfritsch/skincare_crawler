@@ -225,6 +225,20 @@ export const SourceCrawls: CollectionConfig = {
           ],
         },
         {
+          label: 'Output',
+          fields: [
+            {
+              name: 'crawledGtins',
+              type: 'textarea',
+              label: 'Crawled GTINs',
+              admin: {
+                readOnly: true,
+                description: 'GTINs of successfully crawled products, one per line',
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {

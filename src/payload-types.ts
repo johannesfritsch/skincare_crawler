@@ -449,6 +449,10 @@ export interface SourceCrawl {
    * Number of products to crawl per tick.
    */
   itemsPerTick?: number | null;
+  /**
+   * GTINs of successfully crawled products, one per line
+   */
+  crawledGtins?: string | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1356,6 +1360,7 @@ export interface SourceCrawlsSelect<T extends boolean = true> {
   completedAt?: T;
   debug?: T;
   itemsPerTick?: T;
+  crawledGtins?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
