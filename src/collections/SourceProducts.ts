@@ -51,11 +51,15 @@ export const SourceProducts: CollectionConfig = {
     },
     {
       name: 'source',
-      type: 'text',
+      type: 'select',
       label: 'Source',
       index: true,
+      options: [
+        { label: 'DM', value: 'dm' },
+        { label: 'Mueller', value: 'mueller' },
+        { label: 'Rossmann', value: 'rossmann' },
+      ],
       admin: {
-        description: 'Source identifier (e.g., dm)',
         position: 'sidebar',
       },
     },

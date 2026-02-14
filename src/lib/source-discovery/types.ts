@@ -18,8 +18,10 @@ export interface DiscoveredProduct {
   category?: string    // "Make-up -> Augen -> Lidschatten Primer & Base"
 }
 
+export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
+
 export interface SourceDriver {
-  slug: string       // e.g., 'dm'
+  slug: SourceSlug
   label: string      // e.g., 'DM' (for admin UI)
 
   // Check if this driver handles the given URL

@@ -897,19 +897,25 @@ async function processProductAggregation(
         continue
       }
 
-      // Check if Product with same GTIN already has lastAggregatedAt set
+      // Find all crawled source products with this GTIN
+      const allSourcesForGtin = await payload.find({
+        collection: 'source-products',
+        where: {
+          and: [
+            { gtin: { equals: sourceProduct.gtin } },
+            { status: { equals: 'crawled' } },
+          ],
+        },
+        limit: 100,
+      })
+
+      // Find or create Product
       const existingProducts = await payload.find({
         collection: 'products',
         where: { gtin: { equals: sourceProduct.gtin } },
         limit: 1,
       })
 
-      if (existingProducts.docs.length > 0 && existingProducts.docs[0].lastAggregatedAt) {
-        // Already aggregated, skip
-        continue
-      }
-
-      // Find or create Product
       let productId: number
       if (existingProducts.docs.length > 0) {
         productId = existingProducts.docs[0].id
@@ -924,8 +930,8 @@ async function processProductAggregation(
         productId = newProduct.id
       }
 
-      // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm', job.language || 'de')
+      // Run per-GTIN aggregation logic with ALL source products
+      const result = await aggregateProduct(payload, productId, allSourcesForGtin.docs, job.language || 'de')
       processedAggregations++
       tokensUsed += result.tokensUsed ?? 0
 
@@ -943,7 +949,7 @@ async function processProductAggregation(
       await payload.update({
         collection: 'product-aggregations',
         id: jobId,
-        data: { aggregated, errors, tokensUsed, lastCheckedSourceId: lastId },
+        data: { aggregated, errors, tokensUsed, product: productId, lastCheckedSourceId: lastId },
       })
     }
 
@@ -1021,8 +1027,8 @@ async function processProductAggregationSelectedGtins(
 
   try {
     for (const gtin of gtinList) {
-      // Find source product with this GTIN
-      const sourceProducts = await payload.find({
+      // Find ALL crawled source products with this GTIN
+      const allSourcesForGtin = await payload.find({
         collection: 'source-products',
         where: {
           and: [
@@ -1030,10 +1036,10 @@ async function processProductAggregationSelectedGtins(
             { status: { equals: 'crawled' } },
           ],
         },
-        limit: 1,
+        limit: 100,
       })
 
-      if (sourceProducts.docs.length === 0) {
+      if (allSourcesForGtin.docs.length === 0) {
         // No source found, create warning event
         await payload.create({
           collection: 'events',
@@ -1046,8 +1052,6 @@ async function processProductAggregationSelectedGtins(
         errors++
         continue
       }
-
-      const sourceProduct = sourceProducts.docs[0]
 
       // Find or create Product
       const existingProducts = await payload.find({
@@ -1064,14 +1068,14 @@ async function processProductAggregationSelectedGtins(
           collection: 'products',
           data: {
             gtin,
-            name: sourceProduct.name || undefined,
+            name: allSourcesForGtin.docs[0].name || undefined,
           },
         })
         productId = newProduct.id
       }
 
-      // Run per-GTIN aggregation logic
-      const result = await aggregateProduct(payload, productId, sourceProduct, sourceProduct.source || 'dm', job.language || 'de')
+      // Run per-GTIN aggregation logic with ALL source products
+      const result = await aggregateProduct(payload, productId, allSourcesForGtin.docs, job.language || 'de')
       tokensUsed += result.tokensUsed ?? 0
 
       if (result.success) {
@@ -1088,7 +1092,7 @@ async function processProductAggregationSelectedGtins(
       await payload.update({
         collection: 'product-aggregations',
         id: jobId,
-        data: { aggregated, errors, tokensUsed },
+        data: { aggregated, errors, tokensUsed, product: productId },
       })
     }
 

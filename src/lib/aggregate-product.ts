@@ -21,22 +21,46 @@ interface SourceProductData {
   name?: string | null
   brandName?: string | null
   type?: string | null
+  source?: string | null
   ingredients?: Array<{ name?: string | null }> | null
 }
 
-// Aggregate data from a source product
-export function aggregateFromSources(sourceProduct: SourceProductData): AggregatedData | null {
+// Aggregate data from multiple source products for the same GTIN
+export function aggregateFromSources(sourceProducts: SourceProductData[]): AggregatedData | null {
+  if (sourceProducts.length === 0) return null
+
   const aggregated: AggregatedData = {}
 
-  if (sourceProduct.gtin) aggregated.gtin = sourceProduct.gtin
-  if (sourceProduct.name) aggregated.name = sourceProduct.name
-  if (sourceProduct.brandName) aggregated.brandName = sourceProduct.brandName
-  if (sourceProduct.type) aggregated.categoryBreadcrumb = sourceProduct.type
+  // GTIN: take from first source (they all share the same GTIN)
+  const gtin = sourceProducts.find((sp) => sp.gtin)?.gtin
+  if (gtin) aggregated.gtin = gtin
 
-  if (sourceProduct.ingredients && Array.isArray(sourceProduct.ingredients) && sourceProduct.ingredients.length > 0) {
-    aggregated.ingredientNames = sourceProduct.ingredients
-      .map((i) => i.name)
-      .filter((n): n is string => !!n)
+  // Name: pick the longest non-null name (most complete, e.g. includes variant label)
+  const names = sourceProducts.map((sp) => sp.name).filter((n): n is string => !!n)
+  if (names.length > 0) {
+    aggregated.name = names.reduce((a, b) => (b.length > a.length ? b : a))
+  }
+
+  // Brand: first non-null (should agree across sources)
+  aggregated.brandName = sourceProducts.find((sp) => sp.brandName)?.brandName ?? undefined
+
+  // Category: first non-null (placeholder — will be fixed separately)
+  aggregated.categoryBreadcrumb = sourceProducts.find((sp) => sp.type)?.type ?? undefined
+
+  // Ingredients: pick the source with the longest ingredient list (most complete INCI)
+  let bestIngredients: string[] = []
+  for (const sp of sourceProducts) {
+    if (sp.ingredients && Array.isArray(sp.ingredients) && sp.ingredients.length > 0) {
+      const ingredientNames = sp.ingredients
+        .map((i) => i.name)
+        .filter((n): n is string => !!n)
+      if (ingredientNames.length > bestIngredients.length) {
+        bestIngredients = ingredientNames
+      }
+    }
+  }
+  if (bestIngredients.length > 0) {
+    aggregated.ingredientNames = bestIngredients
   }
 
   if (Object.keys(aggregated).length === 0) {
@@ -50,11 +74,10 @@ export function aggregateFromSources(sourceProduct: SourceProductData): Aggregat
 export async function aggregateProduct(
   payload: Payload,
   productId: number,
-  sourceProduct: SourceProductData,
-  sourceSlug: string,
+  allSourceProducts: SourceProductData[],
   language: string = 'de',
 ): Promise<{ success: boolean; error?: string; warning?: string; tokensUsed?: number }> {
-  const aggregated = aggregateFromSources(sourceProduct)
+  const aggregated = aggregateFromSources(allSourceProducts)
 
   if (!aggregated) {
     return { success: false, error: 'No data to aggregate from source' }
@@ -65,20 +88,20 @@ export async function aggregateProduct(
     id: productId,
   })
 
-  // Build sourceProducts array, appending new source if not already present
+  // Build sourceProducts array, merging all source IDs with any already linked
   const existingSourceIds = (product.sourceProducts ?? []).map((sp: unknown) =>
     typeof sp === 'object' && sp !== null && 'id' in sp ? (sp as { id: number }).id : sp,
   ) as number[]
-  const sourceProducts = existingSourceIds.includes(sourceProduct.id)
-    ? existingSourceIds
-    : [...existingSourceIds, sourceProduct.id]
+  const allIds = new Set([...existingSourceIds, ...allSourceProducts.map((sp) => sp.id)])
+  const sourceProducts = [...allIds]
 
   const updateData: Record<string, unknown> = {
     lastAggregatedAt: new Date().toISOString(),
     sourceProducts,
   }
 
-  if (aggregated.name && !product.name) {
+  // Always update name to best (longest) from sources
+  if (aggregated.name) {
     updateData.name = aggregated.name
   }
 
@@ -103,8 +126,9 @@ export async function aggregateProduct(
 
   // Match category
   if (aggregated.categoryBreadcrumb) {
+    const categorySourceSlug = allSourceProducts.find((sp) => sp.type)?.source || 'dm'
     try {
-      const categoryResult = await matchCategory(payload, aggregated.categoryBreadcrumb, sourceSlug)
+      const categoryResult = await matchCategory(payload, aggregated.categoryBreadcrumb, categorySourceSlug)
       tokensUsed += categoryResult.tokensUsed.totalTokens
       updateData.category = categoryResult.categoryId
     } catch (error) {
@@ -136,14 +160,14 @@ export async function aggregateProduct(
 
   // Classify product attributes & claims
   try {
-    const allSourceProducts = await payload.find({
+    const fetchedSourceProducts = await payload.find({
       collection: 'source-products',
       where: { id: { in: sourceProducts } },
       limit: sourceProducts.length,
     })
 
     const classifySources: { id: number; description?: string; ingredientNames?: string[] }[] = []
-    for (const sp of allSourceProducts.docs) {
+    for (const sp of fetchedSourceProducts.docs) {
       const ingredientNames = (sp.ingredients ?? [])
         .map((i: { name?: string | null }) => i.name)
         .filter((n): n is string => !!n)

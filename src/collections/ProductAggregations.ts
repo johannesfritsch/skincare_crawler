@@ -166,6 +166,21 @@ export const ProductAggregations: CollectionConfig = {
           ],
         },
         {
+          label: 'Output',
+          fields: [
+            {
+              name: 'product',
+              type: 'relationship',
+              relationTo: 'products',
+              label: 'Aggregated Product',
+              admin: {
+                readOnly: true,
+                description: 'The product created or updated by this aggregation',
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {

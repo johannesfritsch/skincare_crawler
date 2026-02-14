@@ -499,218 +499,16 @@ export interface ProductAggregation {
    * Number of products to aggregate per tick.
    */
   itemsPerTick?: number | null;
+  /**
+   * The product created or updated by this aggregation
+   */
+  product?: (number | null) | Product;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
   lastCheckedSourceId?: number | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-discoveries".
- */
-export interface VideoDiscovery {
-  id: number;
-  /**
-   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
-   */
-  channelUrl: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Videos found on the channel
-   */
-  discovered?: number | null;
-  /**
-   * New videos created
-   */
-  created?: number | null;
-  /**
-   * Videos already in database
-   */
-  existing?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Max videos to save per tick. Leave empty for unlimited.
-   */
-  itemsPerTick?: number | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-processings".
- */
-export interface VideoProcessing {
-  id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  type: 'all_unprocessed' | 'single_video' | 'selected_urls';
-  /**
-   * The video to process
-   */
-  video?: (number | null) | Video;
-  /**
-   * Video or channel URLs to process, one per line
-   */
-  urls?: string | null;
-  /**
-   * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
-   */
-  sceneThreshold?: number | null;
-  /**
-   * Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.
-   */
-  clusterThreshold?: number | null;
-  /**
-   * Total videos to process
-   */
-  total?: number | null;
-  /**
-   * Videos successfully processed
-   */
-  processed?: number | null;
-  /**
-   * Videos that failed to process
-   */
-  errors?: number | null;
-  /**
-   * Total LLM tokens consumed during visual recognition
-   */
-  tokensUsed?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Number of videos to process per tick.
-   */
-  itemsPerTick?: number | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "videos".
- */
-export interface Video {
-  id: number;
-  channel: number | Channel;
-  title: string;
-  image?: (number | null) | Media;
-  publishedAt?: string | null;
-  processingStatus?: ('unprocessed' | 'processed') | null;
-  /**
-   * Duration in seconds
-   */
-  duration?: number | null;
-  viewCount?: number | null;
-  likeCount?: number | null;
-  externalUrl?: string | null;
-  videoSnippets?: {
-    docs?: (number | VideoSnippet)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "channels".
- */
-export interface Channel {
-  id: number;
-  creator: number | Creator;
-  image?: (number | null) | Media;
-  platform: 'youtube' | 'instagram' | 'tiktok';
-  externalUrl?: string | null;
-  videos?: {
-    docs?: (number | Video)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "creators".
- */
-export interface Creator {
-  id: number;
-  name: string;
-  image?: (number | null) | Media;
-  channels?: {
-    docs?: (number | Channel)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-snippets".
- */
-export interface VideoSnippet {
-  id: number;
-  matchingType?: ('barcode' | 'visual') | null;
-  video: number | Video;
-  image?: (number | null) | Media;
-  /**
-   * Start time in seconds
-   */
-  timestampStart?: number | null;
-  /**
-   * End time in seconds
-   */
-  timestampEnd?: number | null;
-  screenshots?:
-    | {
-        image: number | Media;
-        /**
-         * 64x64 grayscale thumbnail used for image hashing
-         */
-        thumbnail?: (number | null) | Media;
-        /**
-         * Perceptual hash of the thumbnail
-         */
-        hash?: string | null;
-        /**
-         * Hamming distance to assigned cluster representative hash
-         */
-        distance?: number | null;
-        /**
-         * Cluster ID — screenshots with similar visual content share a cluster
-         */
-        screenshotGroup?: number | null;
-        /**
-         * EAN-13/EAN-8 barcode detected in this screenshot
-         */
-        barcode?: string | null;
-        /**
-         * Whether this screenshot was selected as a cluster representative for product recognition
-         */
-        recognitionCandidate?: boolean | null;
-        /**
-         * 128x128 color thumbnail used for product classification
-         */
-        recognitionThumbnail?: (number | null) | Media;
-        id?: string | null;
-      }[]
-    | null;
-  referencedProducts?: (number | Product)[] | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -842,10 +640,7 @@ export interface SourceProduct {
    * URL from which this product was crawled
    */
   sourceUrl?: string | null;
-  /**
-   * Source identifier (e.g., dm)
-   */
-  source?: string | null;
+  source?: ('dm' | 'mueller' | 'rossmann') | null;
   /**
    * Source-specific article number (e.g., DM Artikelnummer)
    */
@@ -947,6 +742,212 @@ export interface SourceProduct {
    * When this product was last crawled
    */
   crawledAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-snippets".
+ */
+export interface VideoSnippet {
+  id: number;
+  matchingType?: ('barcode' | 'visual') | null;
+  video: number | Video;
+  image?: (number | null) | Media;
+  /**
+   * Start time in seconds
+   */
+  timestampStart?: number | null;
+  /**
+   * End time in seconds
+   */
+  timestampEnd?: number | null;
+  screenshots?:
+    | {
+        image: number | Media;
+        /**
+         * 64x64 grayscale thumbnail used for image hashing
+         */
+        thumbnail?: (number | null) | Media;
+        /**
+         * Perceptual hash of the thumbnail
+         */
+        hash?: string | null;
+        /**
+         * Hamming distance to assigned cluster representative hash
+         */
+        distance?: number | null;
+        /**
+         * Cluster ID — screenshots with similar visual content share a cluster
+         */
+        screenshotGroup?: number | null;
+        /**
+         * EAN-13/EAN-8 barcode detected in this screenshot
+         */
+        barcode?: string | null;
+        /**
+         * Whether this screenshot was selected as a cluster representative for product recognition
+         */
+        recognitionCandidate?: boolean | null;
+        /**
+         * 128x128 color thumbnail used for product classification
+         */
+        recognitionThumbnail?: (number | null) | Media;
+        id?: string | null;
+      }[]
+    | null;
+  referencedProducts?: (number | Product)[] | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "videos".
+ */
+export interface Video {
+  id: number;
+  channel: number | Channel;
+  title: string;
+  image?: (number | null) | Media;
+  publishedAt?: string | null;
+  processingStatus?: ('unprocessed' | 'processed') | null;
+  /**
+   * Duration in seconds
+   */
+  duration?: number | null;
+  viewCount?: number | null;
+  likeCount?: number | null;
+  externalUrl?: string | null;
+  videoSnippets?: {
+    docs?: (number | VideoSnippet)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "channels".
+ */
+export interface Channel {
+  id: number;
+  creator: number | Creator;
+  image?: (number | null) | Media;
+  platform: 'youtube' | 'instagram' | 'tiktok';
+  externalUrl?: string | null;
+  videos?: {
+    docs?: (number | Video)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "creators".
+ */
+export interface Creator {
+  id: number;
+  name: string;
+  image?: (number | null) | Media;
+  channels?: {
+    docs?: (number | Channel)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-discoveries".
+ */
+export interface VideoDiscovery {
+  id: number;
+  /**
+   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
+   */
+  channelUrl: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Videos found on the channel
+   */
+  discovered?: number | null;
+  /**
+   * New videos created
+   */
+  created?: number | null;
+  /**
+   * Videos already in database
+   */
+  existing?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Max videos to save per tick. Leave empty for unlimited.
+   */
+  itemsPerTick?: number | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-processings".
+ */
+export interface VideoProcessing {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  type: 'all_unprocessed' | 'single_video' | 'selected_urls';
+  /**
+   * The video to process
+   */
+  video?: (number | null) | Video;
+  /**
+   * Video or channel URLs to process, one per line
+   */
+  urls?: string | null;
+  /**
+   * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
+   */
+  sceneThreshold?: number | null;
+  /**
+   * Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.
+   */
+  clusterThreshold?: number | null;
+  /**
+   * Total videos to process
+   */
+  total?: number | null;
+  /**
+   * Videos successfully processed
+   */
+  processed?: number | null;
+  /**
+   * Videos that failed to process
+   */
+  errors?: number | null;
+  /**
+   * Total LLM tokens consumed during visual recognition
+   */
+  tokensUsed?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Number of videos to process per tick.
+   */
+  itemsPerTick?: number | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1381,6 +1382,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   itemsPerTick?: T;
+  product?: T;
   events?: T;
   lastCheckedSourceId?: T;
   updatedAt?: T;
