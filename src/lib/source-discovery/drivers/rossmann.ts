@@ -116,7 +116,7 @@ export const rossmannDriver: SourceDriver = {
         )
       }
 
-      function collectProducts(products: Awaited<ReturnType<typeof scrapeProductCards>>, category: string) {
+      function collectProducts(products: Awaited<ReturnType<typeof scrapeProductCards>>, category: string, categoryUrl: string) {
         for (const p of products) {
           const productUrl = p.href ? `https://www.rossmann.de${p.href}` : null
           if (!productUrl || seenUrls.has(productUrl)) continue
@@ -131,6 +131,7 @@ export const rossmannDriver: SourceDriver = {
             rating: p.rating ?? undefined,
             ratingCount: p.ratingCount ?? undefined,
             category,
+            categoryUrl,
           })
         }
       }
@@ -159,7 +160,7 @@ export const rossmannDriver: SourceDriver = {
           // Leaf page — scrape products and paginate
           const category = buildCategoryFromUrl(pageUrl)
           const products = await scrapeProductCards()
-          collectProducts(products, category)
+          collectProducts(products, category, pageUrl)
           console.log(`[Rossmann] Leaf page 0: found ${products.length} product cards (${allProducts.length} total unique)`)
 
           let pageIndex = 0
@@ -180,7 +181,7 @@ export const rossmannDriver: SourceDriver = {
             await sleep(randomDelay(500, 1500))
 
             const pageProducts = await scrapeProductCards()
-            collectProducts(pageProducts, category)
+            collectProducts(pageProducts, category, pageUrl)
             console.log(`[Rossmann] Leaf page ${pageIndex}: found ${pageProducts.length} product cards (${allProducts.length} total unique)`)
           }
         } else {
@@ -263,12 +264,7 @@ export const rossmannDriver: SourceDriver = {
           const eanEl = document.querySelector('[data-item-ean]')
           const gtinFromPage = eanEl?.getAttribute('data-item-ean') || null
 
-          // Type from category breadcrumbs
-          const cartBtn = document.querySelector('button[data-jsevent="ctrl:add-to-cart"]')
-          const rawCategory = cartBtn?.getAttribute('data-product-category') || null
-          const type = rawCategory
-            ? rawCategory.split('/').map((s: string) => s.trim()).join(' -> ')
-            : null
+          // Category is now handled via sourceCategory relationship (no type string needed)
 
           // Description: find all h2 headings, take innerText, then
           // go to parent and get the first direct child div's innerText as body
@@ -402,7 +398,6 @@ export const rossmannDriver: SourceDriver = {
             brandName,
             sourceArticleNumber,
             gtinFromPage,
-            type,
             description,
             ingredientsRaw,
             priceCents,
@@ -471,13 +466,16 @@ export const rossmannDriver: SourceDriver = {
           ? (existing.docs[0].priceHistory ?? [])
           : []
 
+        // Look up SourceCategory by URL (not available for Rossmann crawl yet)
+        const sourceCategoryId: number | null = null
+
         const productPayload = {
           ...(gtin ? { gtin } : {}),
           status: 'crawled' as const,
           sourceArticleNumber: scraped.sourceArticleNumber,
           brandName: scraped.brandName,
           name: scraped.name,
-          type: scraped.type ?? undefined,
+          sourceCategory: sourceCategoryId,
           description: scraped.description,
           amount: scraped.amount,
           amountUnit: scraped.amountUnit,

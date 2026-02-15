@@ -280,7 +280,7 @@ export const dmDriver: SourceDriver = {
     }
 
     // Step 3: Collect leaf categories (or treat the URL itself as a leaf)
-    const categoryLeaves: { categoryId: string; breadcrumb: string }[] = []
+    const categoryLeaves: { categoryId: string; breadcrumb: string; categoryUrl: string }[] = []
 
     if (!subtree) {
       // No subtree found — treat the URL directly as a leaf category
@@ -293,7 +293,7 @@ export const dmDriver: SourceDriver = {
       const breadcrumb = targetPath.split('/').filter(Boolean)
         .map((seg) => seg.replace(/-und-/g, ' & ').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
         .join(' -> ')
-      categoryLeaves.push({ categoryId, breadcrumb })
+      categoryLeaves.push({ categoryId, breadcrumb, categoryUrl: `https://www.dm.de${targetPath}` })
       console.log(`[DM] Direct leaf resolved: ${targetPath} -> category ${categoryId} (${breadcrumb})`)
     } else {
       console.log(`[DM] Found subtree: ${subtree.title} (${subtree.id})`)
@@ -305,7 +305,7 @@ export const dmDriver: SourceDriver = {
       for (const leaf of leaves) {
         const categoryId = await fetchCategoryId(leaf.node.link)
         if (categoryId) {
-          categoryLeaves.push({ categoryId, breadcrumb: leaf.breadcrumb })
+          categoryLeaves.push({ categoryId, breadcrumb: leaf.breadcrumb, categoryUrl: `https://www.dm.de${leaf.node.link}` })
           console.log(`[DM] Resolved ${leaf.node.link} -> category ${categoryId}`)
         } else {
           console.log(`[DM] No category ID found for ${leaf.node.link}, skipping`)
@@ -321,7 +321,7 @@ export const dmDriver: SourceDriver = {
     let totalCount = 0
     const seenUrls = new Set<string>()
 
-    for (const { categoryId, breadcrumb } of categoryLeaves) {
+    for (const { categoryId, breadcrumb, categoryUrl } of categoryLeaves) {
       const { products, totalCount: catTotal } = await fetchProducts(categoryId)
       totalCount += catTotal
       console.log(`[DM] Category ${categoryId}: ${products.length} products (${breadcrumb})`)
@@ -348,6 +348,7 @@ export const dmDriver: SourceDriver = {
           rating: ratingData?.ratingValue as number | undefined,
           ratingCount: ratingData?.ratingCount as number | undefined,
           category: breadcrumb,
+          categoryUrl,
         })
       }
 
@@ -416,7 +417,6 @@ export const dmDriver: SourceDriver = {
 
       // Extract new structured fields
       const sourceArticleNumber = data.dan != null ? String(data.dan) : null
-      const type = data.breadcrumbs?.length ? data.breadcrumbs.join(' -> ') : undefined
       const labels = data.pills?.length ? data.pills.map((p) => ({ label: p })) : []
       const images =
         data.images
@@ -477,7 +477,7 @@ export const dmDriver: SourceDriver = {
         sourceArticleNumber,
         brandName: data.brand?.name ?? null,
         name,
-        type,
+        sourceCategory: null,
         description,
         amount: productAmount?.amount ?? null,
         amountUnit: productAmount?.unit ?? null,

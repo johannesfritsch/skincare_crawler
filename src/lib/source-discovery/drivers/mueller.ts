@@ -110,7 +110,7 @@ export const muellerDriver: SourceDriver = {
         )
       }
 
-      function collectProducts(products: Awaited<ReturnType<typeof scrapeProductTiles>>, category: string) {
+      function collectProducts(products: Awaited<ReturnType<typeof scrapeProductTiles>>, category: string, categoryUrl: string) {
         for (const p of products) {
           const productUrl = p.href
             ? (p.href.startsWith('http') ? p.href : `https://www.mueller.de${p.href}`)
@@ -124,6 +124,7 @@ export const muellerDriver: SourceDriver = {
             currency: 'EUR',
             rating: p.rating ?? undefined,
             category,
+            categoryUrl,
           })
         }
       }
@@ -161,7 +162,7 @@ export const muellerDriver: SourceDriver = {
 
           // Scrape page 1 (already loaded)
           const products = await scrapeProductTiles()
-          collectProducts(products, category)
+          collectProducts(products, category, pageUrl)
           console.log(`[Mueller] Page 1: found ${products.length} product tiles (${allProducts.length} total unique)`)
 
           // Paginate through remaining pages
@@ -173,7 +174,7 @@ export const muellerDriver: SourceDriver = {
             await sleep(randomDelay(500, 1500))
 
             const pageProducts = await scrapeProductTiles()
-            collectProducts(pageProducts, category)
+            collectProducts(pageProducts, category, pageUrl)
             console.log(`[Mueller] Page ${pageNum}: found ${pageProducts.length} product tiles (${allProducts.length} total unique)`)
           }
         } else {
@@ -298,14 +299,16 @@ export const muellerDriver: SourceDriver = {
             }
           }
 
-          // Category from breadcrumbs
+          // Category URL from last breadcrumb link
           const breadcrumbLinks = document.querySelectorAll('[class*="breadcrumps_component_breadcrumbs__item"] a')
-          const crumbs: string[] = []
-          breadcrumbLinks.forEach((a) => {
-            const text = a.textContent?.trim()
-            if (text && text !== 'Startseite') crumbs.push(text)
-          })
-          const type = crumbs.length > 0 ? crumbs.join(' -> ') : null
+          let categoryUrl: string | null = null
+          if (breadcrumbLinks.length > 0) {
+            const lastLink = breadcrumbLinks[breadcrumbLinks.length - 1] as HTMLAnchorElement
+            const href = lastLink.getAttribute('href')
+            if (href) {
+              categoryUrl = href.startsWith('http') ? href : `https://www.mueller.de${href}`
+            }
+          }
 
           // Price — from JSON-LD offers first, then from priceContainer
           let priceCents: number | null = null
@@ -516,7 +519,7 @@ export const muellerDriver: SourceDriver = {
             brandName,
             sourceArticleNumber,
             gtin,
-            type,
+            categoryUrl,
             description,
             ingredientsRaw: mutable.ingredientsRaw,
             priceCents,
@@ -537,6 +540,17 @@ export const muellerDriver: SourceDriver = {
         if (!scraped.name) {
           console.log(`[Mueller] No product name found on page for ${sourceUrl}`)
           return null
+        }
+
+        // Look up SourceCategory by URL
+        let sourceCategoryId: number | null = null
+        if (scraped.categoryUrl) {
+          const catMatch = await payload.find({
+            collection: 'source-categories',
+            where: { and: [{ url: { equals: scraped.categoryUrl } }, { source: { equals: 'mueller' } }] },
+            limit: 1,
+          })
+          if (catMatch.docs.length > 0) sourceCategoryId = catMatch.docs[0].id
         }
 
         // Parse ingredients
@@ -633,7 +647,7 @@ export const muellerDriver: SourceDriver = {
               sourceArticleNumber: scraped.sourceArticleNumber,
               brandName: scraped.brandName,
               name: variantName,
-              type: scraped.type ?? undefined,
+              sourceCategory: sourceCategoryId,
               description: scraped.description,
               amount: scraped.amount,
               amountUnit: scraped.amountUnit,
@@ -698,7 +712,7 @@ export const muellerDriver: SourceDriver = {
             sourceArticleNumber: scraped.sourceArticleNumber,
             brandName: scraped.brandName,
             name: scraped.name,
-            type: scraped.type ?? undefined,
+            sourceCategory: sourceCategoryId,
             description: scraped.description,
             amount: scraped.amount,
             amountUnit: scraped.amountUnit,

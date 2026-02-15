@@ -13,6 +13,7 @@ import { Ingredients } from './collections/Ingredients'
 import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
 import { SourceProducts } from './collections/SourceProducts'
+import { SourceCategories } from './collections/SourceCategories'
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
 import { ProductCrawls } from './collections/ProductCrawls'
 import { ProductAggregations } from './collections/ProductAggregations'
@@ -35,7 +36,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CategoryDiscoveries, Events, Creators, Channels, Videos, VideoSnippets, VideoDiscoveries, VideoProcessings],
+  collections: [Users, Media, Brands, Categories, SourceCategories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CategoryDiscoveries, Events, Creators, Channels, Videos, VideoSnippets, VideoDiscoveries, VideoProcessings],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

@@ -16,6 +16,7 @@ export interface DiscoveredProduct {
   rating?: number
   ratingCount?: number
   category?: string    // "Make-up -> Augen -> Lidschatten Primer & Base"
+  categoryUrl?: string  // URL of the category page from discovery
 }
 
 export type SourceSlug = 'dm' | 'mueller' | 'rossmann'

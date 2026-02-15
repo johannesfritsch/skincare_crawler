@@ -3,13 +3,11 @@ import type { BasePayload, Where } from 'payload'
 import type { TokenUsage } from './match-ingredients'
 
 export interface MatchCategoryResult {
-  categoryId: number
+  categoryId: number | null
   categoryPath: string
   created: boolean
   tokensUsed: TokenUsage
 }
-
-const LEADING_SOURCE_SLUG = process.env.LEADING_SOURCE_SLUG || 'dm'
 
 const CATEGORY_MATCH_SYSTEM_PROMPT = `You are a cosmetics product category expert. Given a category name and a list of candidate category names from a database (all at the same hierarchy level), select the best match.
 
@@ -36,7 +34,7 @@ async function resolveSegment(
   segment: string,
   parentId: number | null,
   tokensUsed: TokenUsage,
-): Promise<{ categoryId: number; created: boolean }> {
+): Promise<{ categoryId: number | null }> {
   // Exact match at this hierarchy level
   const parentFilter = parentId === null
     ? { parent: { equals: null } }
@@ -55,7 +53,7 @@ async function resolveSegment(
 
   if (exactResult.docs.length === 1) {
     console.log(`[matchCategory]   "${segment}" (parent: ${parentId}) → EXACT MATCH (id: ${exactResult.docs[0].id})`)
-    return { categoryId: exactResult.docs[0].id, created: false }
+    return { categoryId: exactResult.docs[0].id }
   }
 
   // Fuzzy search at same hierarchy level
@@ -74,7 +72,7 @@ async function resolveSegment(
 
   if (fuzzyResult.docs.length === 1) {
     console.log(`[matchCategory]   AUTO-MATCH → "${fuzzyResult.docs[0].name}" (id: ${fuzzyResult.docs[0].id})`)
-    return { categoryId: fuzzyResult.docs[0].id, created: false }
+    return { categoryId: fuzzyResult.docs[0].id }
   }
 
   if (fuzzyResult.docs.length >= 2) {
@@ -111,7 +109,7 @@ async function resolveSegment(
           const match = fuzzyResult.docs.find((d) => d.name === parsed.selectedName)
           if (match) {
             console.log(`[matchCategory]   LLM selected → "${match.name}" (id: ${match.id})`)
-            return { categoryId: match.id, created: false }
+            return { categoryId: match.id }
           }
         }
       } catch {
@@ -120,47 +118,22 @@ async function resolveSegment(
     }
   }
 
-  // Create — re-check for race conditions
-  const recheck = await payload.find({
-    collection: 'categories',
-    where: whereClause,
-    limit: 1,
-  })
-
-  if (recheck.docs.length === 1) {
-    console.log(`[matchCategory]   Race condition avoided — found "${recheck.docs[0].name}" (id: ${recheck.docs[0].id})`)
-    return { categoryId: recheck.docs[0].id, created: false }
-  }
-
-  const newCategory = await payload.create({
-    collection: 'categories',
-    data: {
-      name: segment,
-      parent: parentId ?? undefined,
-    },
-  })
-
-  console.log(`[matchCategory]   Created category "${segment}" (id: ${newCategory.id}, parent: ${parentId})`)
-  return { categoryId: newCategory.id, created: true }
+  // No match found — return null (don't create new categories)
+  console.log(`[matchCategory]   No match for "${segment}" (parent: ${parentId})`)
+  return { categoryId: null }
 }
 
 export async function matchCategory(
   payload: BasePayload,
   categoryBreadcrumb: string,
-  sourceSlug: string,
 ): Promise<MatchCategoryResult> {
   const tokensUsed: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
-
-  if (sourceSlug !== LEADING_SOURCE_SLUG) {
-    // TODO: non-leading source category mapping
-    throw new Error(`Category mapping for non-leading source "${sourceSlug}" is not yet implemented. Only "${LEADING_SOURCE_SLUG}" is supported.`)
-  }
 
   // Parse breadcrumb
   const segments = categoryBreadcrumb.split(' -> ').map((s) => s.trim()).filter(Boolean)
 
   if (segments.length === 0) {
-    throw new Error(`Empty category breadcrumb: "${categoryBreadcrumb}"`)
+    return { categoryId: null, categoryPath: categoryBreadcrumb, created: false, tokensUsed }
   }
 
   console.log(`\n[matchCategory] ── Resolving category hierarchy ──`)
@@ -168,20 +141,25 @@ export async function matchCategory(
 
   // Walk hierarchy from root to leaf
   let parentId: number | null = null
-  let anyCreated = false
+  let deepestMatchedId: number | null = null
 
   for (const segment of segments) {
     const result = await resolveSegment(payload, segment, parentId, tokensUsed)
+    if (result.categoryId === null) {
+      // Stop walking — use deepest matched category
+      console.log(`[matchCategory] Stopped at "${segment}" — using deepest match: ${deepestMatchedId}`)
+      break
+    }
     parentId = result.categoryId
-    if (result.created) anyCreated = true
+    deepestMatchedId = result.categoryId
   }
 
-  console.log(`[matchCategory] Resolved to leaf category id: ${parentId}, path: "${categoryBreadcrumb}", created: ${anyCreated}`)
+  console.log(`[matchCategory] Resolved to category id: ${deepestMatchedId}, path: "${categoryBreadcrumb}"`)
 
   return {
-    categoryId: parentId!,
+    categoryId: deepestMatchedId,
     categoryPath: categoryBreadcrumb,
-    created: anyCreated,
+    created: false,
     tokensUsed,
   }
 }

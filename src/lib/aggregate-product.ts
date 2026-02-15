@@ -11,7 +11,7 @@ interface AggregatedData {
   name?: string
   description?: string
   brandName?: string
-  categoryBreadcrumb?: string
+  sourceCategoryId?: number
   ingredientNames?: string[]
 }
 
@@ -20,7 +20,7 @@ interface SourceProductData {
   gtin?: string | null
   name?: string | null
   brandName?: string | null
-  type?: string | null
+  sourceCategory?: number | { id: number; name?: string; parent?: unknown } | null
   source?: string | null
   ingredients?: Array<{ name?: string | null }> | null
 }
@@ -44,8 +44,13 @@ export function aggregateFromSources(sourceProducts: SourceProductData[]): Aggre
   // Brand: first non-null (should agree across sources)
   aggregated.brandName = sourceProducts.find((sp) => sp.brandName)?.brandName ?? undefined
 
-  // Category: first non-null (placeholder — will be fixed separately)
-  aggregated.categoryBreadcrumb = sourceProducts.find((sp) => sp.type)?.type ?? undefined
+  // Category: first non-null sourceCategory ID
+  for (const sp of sourceProducts) {
+    if (sp.sourceCategory) {
+      aggregated.sourceCategoryId = typeof sp.sourceCategory === 'object' ? sp.sourceCategory.id : sp.sourceCategory
+      break
+    }
+  }
 
   // Ingredients: pick the source with the longest ingredient list (most complete INCI)
   let bestIngredients: string[] = []
@@ -124,13 +129,28 @@ export async function aggregateProduct(
     }
   }
 
-  // Match category
-  if (aggregated.categoryBreadcrumb) {
-    const categorySourceSlug = allSourceProducts.find((sp) => sp.type)?.source || 'dm'
+  // Match category — walk SourceCategory parent chain to build breadcrumb
+  if (aggregated.sourceCategoryId) {
     try {
-      const categoryResult = await matchCategory(payload, aggregated.categoryBreadcrumb, categorySourceSlug)
+      // Build breadcrumb by walking up the SourceCategory parent chain
+      const breadcrumbParts: string[] = []
+      let currentCatId: number | null = aggregated.sourceCategoryId
+      while (currentCatId) {
+        const cat: { name: string; parent?: number | { id: number } | null } = await payload.findByID({
+          collection: 'source-categories',
+          id: currentCatId,
+        })
+        breadcrumbParts.unshift(cat.name)
+        currentCatId = cat.parent
+          ? (typeof cat.parent === 'object' ? cat.parent.id : cat.parent)
+          : null
+      }
+      const categoryBreadcrumb = breadcrumbParts.join(' -> ')
+      const categoryResult = await matchCategory(payload, categoryBreadcrumb)
       tokensUsed += categoryResult.tokensUsed.totalTokens
-      updateData.category = categoryResult.categoryId
+      if (categoryResult.categoryId) {
+        updateData.category = categoryResult.categoryId
+      }
     } catch (error) {
       errorMessages.push(`Category matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }

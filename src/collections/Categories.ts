@@ -19,6 +19,12 @@ export const Categories: CollectionConfig = {
       required: true,
     },
     {
+      name: 'slug',
+      type: 'text',
+      label: 'Slug',
+      index: true,
+    },
+    {
       name: 'parent',
       type: 'relationship',
       relationTo: 'categories',

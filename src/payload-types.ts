@@ -71,6 +71,7 @@ export interface Config {
     media: Media;
     brands: Brand;
     categories: Category;
+    'source-categories': SourceCategory;
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
     products: Product;
@@ -131,6 +132,7 @@ export interface Config {
     media: MediaSelect<false> | MediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
+    'source-categories': SourceCategoriesSelect<false> | SourceCategoriesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
@@ -245,11 +247,26 @@ export interface Brand {
 export interface Category {
   id: number;
   name: string;
+  slug?: string | null;
   /**
    * Select a parent category to create a subcategory
    */
   parent?: (number | null) | Category;
   description?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-categories".
+ */
+export interface SourceCategory {
+  id: number;
+  name: string;
+  slug: string;
+  parent?: (number | null) | SourceCategory;
+  source: 'dm' | 'mueller' | 'rossmann';
+  url?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -659,10 +676,7 @@ export interface SourceProduct {
    */
   brandName?: string | null;
   name?: string | null;
-  /**
-   * Product category (e.g., Make-up)
-   */
-  type?: string | null;
+  sourceCategory?: (number | null) | SourceCategory;
   /**
    * Average rating (0-5)
    */
@@ -1042,6 +1056,10 @@ export interface PayloadLockedDocument {
         value: number | Category;
       } | null)
     | ({
+        relationTo: 'source-categories';
+        value: number | SourceCategory;
+      } | null)
+    | ({
         relationTo: 'ingredients';
         value: number | Ingredient;
       } | null)
@@ -1199,8 +1217,22 @@ export interface BrandsSelect<T extends boolean = true> {
  */
 export interface CategoriesSelect<T extends boolean = true> {
   name?: T;
+  slug?: T;
   parent?: T;
   description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-categories_select".
+ */
+export interface SourceCategoriesSelect<T extends boolean = true> {
+  name?: T;
+  slug?: T;
+  parent?: T;
+  source?: T;
+  url?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1321,7 +1353,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
   sourceArticleNumber?: T;
   brandName?: T;
   name?: T;
-  type?: T;
+  sourceCategory?: T;
   rating?: T;
   ratingNum?: T;
   amount?: T;

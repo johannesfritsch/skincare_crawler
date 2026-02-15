@@ -92,12 +92,10 @@ export const SourceProducts: CollectionConfig = {
               label: 'Product Name',
             },
             {
-              name: 'type',
-              type: 'text',
-              label: 'Category',
-              admin: {
-                description: 'Product category (e.g., Make-up)',
-              },
+              name: 'sourceCategory',
+              type: 'relationship',
+              relationTo: 'source-categories',
+              label: 'Source Category',
               index: true,
             },
             {

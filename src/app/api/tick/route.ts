@@ -428,6 +428,17 @@ async function processProductDiscovery(
         limit: 1,
       })
 
+      // Look up SourceCategory by URL
+      let sourceCategoryId: number | null = null
+      if (product.categoryUrl) {
+        const catMatch = await payload.find({
+          collection: 'source-categories',
+          where: { and: [{ url: { equals: product.categoryUrl } }, { source: { equals: driver.slug } }] },
+          limit: 1,
+        })
+        if (catMatch.docs.length > 0) sourceCategoryId = catMatch.docs[0].id
+      }
+
       const now = new Date().toISOString()
       const priceEntry = product.price != null ? {
         recordedAt: now,
@@ -439,7 +450,7 @@ async function processProductDiscovery(
         sourceUrl: product.productUrl,
         brandName: product.brandName,
         name: product.name,
-        type: product.category,
+        sourceCategory: sourceCategoryId,
         rating: product.rating,
         ratingNum: product.ratingCount,
         ...(product.gtin ? { gtin: product.gtin } : {}),
@@ -1791,7 +1802,10 @@ async function processCategoryDiscovery(
       data: { discovered: allCategories.length },
     })
 
-    // Create Category records, maintaining a map of path-key -> category ID for parent resolution
+    // Derive source slug from the driver
+    const source = driver.slug as 'dm' | 'mueller' | 'rossmann'
+
+    // Create SourceCategory records, maintaining a map of path-key -> category ID for parent resolution
     const pathToId = new Map<string, number>()
     let created = 0
     let existing = 0
@@ -1802,12 +1816,23 @@ async function processCategoryDiscovery(
       const parentKey = parentPathParts.join(' > ')
       const parentId = parentKey ? (pathToId.get(parentKey) ?? null) : null
 
-      // Query for existing category with same name + parent
+      // Derive slug from URL path: last segment
+      let slug = cat.name.toLowerCase().replace(/\s+/g, '-')
+      try {
+        const urlPath = new URL(cat.url).pathname
+        const segments = urlPath.split('/').filter(Boolean)
+        if (segments.length > 0) {
+          slug = segments[segments.length - 1]
+        }
+      } catch { /* use name-derived slug */ }
+
+      // Query for existing source-category with same slug + source + parent
       const existingCat = await payload.find({
-        collection: 'categories',
+        collection: 'source-categories',
         where: {
           and: [
-            { name: { equals: cat.name } },
+            { slug: { equals: slug } },
+            { source: { equals: source } },
             parentId
               ? { parent: { equals: parentId } }
               : { parent: { exists: false } },
@@ -1820,12 +1845,23 @@ async function processCategoryDiscovery(
 
       if (existingCat.docs.length > 0) {
         existing++
+        // Update URL if changed
+        if (existingCat.docs[0].url !== cat.url) {
+          await payload.update({
+            collection: 'source-categories',
+            id: existingCat.docs[0].id,
+            data: { url: cat.url, name: cat.name },
+          })
+        }
         pathToId.set(currentKey, existingCat.docs[0].id)
       } else {
         const newCat = await payload.create({
-          collection: 'categories',
+          collection: 'source-categories',
           data: {
             name: cat.name,
+            slug,
+            source,
+            url: cat.url,
             ...(parentId ? { parent: parentId } : {}),
           },
         })
