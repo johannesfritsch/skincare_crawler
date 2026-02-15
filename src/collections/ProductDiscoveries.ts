@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const SourceDiscoveries: CollectionConfig = {
-  slug: 'source-discoveries',
+export const ProductDiscoveries: CollectionConfig = {
+  slug: 'product-discoveries',
   labels: {
-    singular: 'Source Discovery',
-    plural: 'Source Discoveries',
+    singular: 'Product Discovery',
+    plural: 'Product Discoveries',
   },
   admin: {
     useAsTitle: 'sourceUrls',

@@ -75,8 +75,8 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscovery;
     products: Product;
     'source-products': SourceProduct;
-    'source-discoveries': SourceDiscovery;
-    'source-crawls': SourceCrawl;
+    'product-discoveries': ProductDiscovery;
+    'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
     'category-discoveries': CategoryDiscovery;
     events: Event;
@@ -98,10 +98,10 @@ export interface Config {
     products: {
       videoSnippets: 'video-snippets';
     };
-    'source-discoveries': {
+    'product-discoveries': {
       events: 'events';
     };
-    'source-crawls': {
+    'product-crawls': {
       events: 'events';
     };
     'product-aggregations': {
@@ -135,8 +135,8 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
-    'source-discoveries': SourceDiscoveriesSelect<false> | SourceDiscoveriesSelect<true>;
-    'source-crawls': SourceCrawlsSelect<false> | SourceCrawlsSelect<true>;
+    'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
+    'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
     'category-discoveries': CategoryDiscoveriesSelect<false> | CategoryDiscoveriesSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
@@ -339,12 +339,12 @@ export interface Event {
   message: string;
   job?:
     | ({
-        relationTo: 'source-discoveries';
-        value: number | SourceDiscovery;
+        relationTo: 'product-discoveries';
+        value: number | ProductDiscovery;
       } | null)
     | ({
-        relationTo: 'source-crawls';
-        value: number | SourceCrawl;
+        relationTo: 'product-crawls';
+        value: number | ProductCrawl;
       } | null)
     | ({
         relationTo: 'ingredients-discoveries';
@@ -371,9 +371,9 @@ export interface Event {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-discoveries".
+ * via the `definition` "product-discoveries".
  */
-export interface SourceDiscovery {
+export interface ProductDiscovery {
   id: number;
   /**
    * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
@@ -412,9 +412,9 @@ export interface SourceDiscovery {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-crawls".
+ * via the `definition` "product-crawls".
  */
-export interface SourceCrawl {
+export interface ProductCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   source: 'all' | 'dm' | 'rossmann' | 'mueller';
@@ -426,7 +426,7 @@ export interface SourceCrawl {
   /**
    * Use product URLs from this completed discovery
    */
-  discovery?: (number | null) | SourceDiscovery;
+  discovery?: (number | null) | ProductDiscovery;
   /**
    * Uncrawled Only skips already-crawled products. Re-crawl includes them.
    */
@@ -1058,12 +1058,12 @@ export interface PayloadLockedDocument {
         value: number | SourceProduct;
       } | null)
     | ({
-        relationTo: 'source-discoveries';
-        value: number | SourceDiscovery;
+        relationTo: 'product-discoveries';
+        value: number | ProductDiscovery;
       } | null)
     | ({
-        relationTo: 'source-crawls';
-        value: number | SourceCrawl;
+        relationTo: 'product-crawls';
+        value: number | ProductCrawl;
       } | null)
     | ({
         relationTo: 'product-aggregations';
@@ -1379,9 +1379,9 @@ export interface SourceProductsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-discoveries_select".
+ * via the `definition` "product-discoveries_select".
  */
-export interface SourceDiscoveriesSelect<T extends boolean = true> {
+export interface ProductDiscoveriesSelect<T extends boolean = true> {
   sourceUrls?: T;
   status?: T;
   discovered?: T;
@@ -1397,9 +1397,9 @@ export interface SourceDiscoveriesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-crawls_select".
+ * via the `definition` "product-crawls_select".
  */
-export interface SourceCrawlsSelect<T extends boolean = true> {
+export interface ProductCrawlsSelect<T extends boolean = true> {
   status?: T;
   source?: T;
   type?: T;

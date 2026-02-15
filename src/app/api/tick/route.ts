@@ -12,14 +12,14 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 interface ActiveJob {
-  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation' | 'video-discovery' | 'video-processing' | 'category-discovery'
+  type: 'ingredients-discovery' | 'product-discovery' | 'product-crawl' | 'product-aggregation' | 'video-discovery' | 'video-processing' | 'category-discovery'
   id: number
   status: string
   crawlType?: string
   aggregationType?: string
 }
 
-type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries' | 'video-processings' | 'category-discoveries'
+type JobCollection = 'product-discoveries' | 'product-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries' | 'video-processings' | 'category-discoveries'
 type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 
 async function createEvent(
@@ -47,7 +47,7 @@ export const POST = async () => {
 
   const [
     ingredientsInProgress, ingredientsPending,
-    sourceDiscInProgress, sourceDiscPending,
+    prodDiscInProgress, prodDiscPending,
     crawlInProgress, crawlPending,
     aggInProgress, aggPending,
     videoDiscInProgress, videoDiscPending,
@@ -56,10 +56,10 @@ export const POST = async () => {
   ] = await Promise.all([
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
-    payload.find({ collection: 'source-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
-    payload.find({ collection: 'source-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
-    payload.find({ collection: 'source-crawls', where: { status: { equals: 'in_progress' } }, limit: 10 }),
-    payload.find({ collection: 'source-crawls', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'product-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'product-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'product-crawls', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'product-crawls', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
     payload.find({ collection: 'product-aggregations', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'product-aggregations', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
     payload.find({ collection: 'video-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
@@ -73,10 +73,10 @@ export const POST = async () => {
   activeJobs.push(
     ...ingredientsInProgress.docs.map((d) => ({ type: 'ingredients-discovery' as const, id: d.id, status: d.status! })),
     ...ingredientsPending.docs.map((d) => ({ type: 'ingredients-discovery' as const, id: d.id, status: d.status! })),
-    ...sourceDiscInProgress.docs.map((d) => ({ type: 'source-discovery' as const, id: d.id, status: d.status! })),
-    ...sourceDiscPending.docs.map((d) => ({ type: 'source-discovery' as const, id: d.id, status: d.status! })),
-    ...crawlInProgress.docs.map((d) => ({ type: 'source-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
-    ...crawlPending.docs.map((d) => ({ type: 'source-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
+    ...prodDiscInProgress.docs.map((d) => ({ type: 'product-discovery' as const, id: d.id, status: d.status! })),
+    ...prodDiscPending.docs.map((d) => ({ type: 'product-discovery' as const, id: d.id, status: d.status! })),
+    ...crawlInProgress.docs.map((d) => ({ type: 'product-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
+    ...crawlPending.docs.map((d) => ({ type: 'product-crawl' as const, id: d.id, status: d.status!, crawlType: d.type || 'all' })),
     ...aggInProgress.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
     ...aggPending.docs.map((d) => ({ type: 'product-aggregation' as const, id: d.id, status: d.status!, aggregationType: d.type || 'all' })),
     ...videoDiscInProgress.docs.map((d) => ({ type: 'video-discovery' as const, id: d.id, status: d.status! })),
@@ -93,7 +93,7 @@ export const POST = async () => {
 
   // Prioritize selected jobs, otherwise random
   const selectedTargetJobs = activeJobs.filter(
-    (j) => (j.type === 'source-crawl' && (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery')) ||
+    (j) => (j.type === 'product-crawl' && (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery')) ||
            (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
   const selected = selectedTargetJobs.length > 0
@@ -102,8 +102,8 @@ export const POST = async () => {
 
   if (selected.type === 'ingredients-discovery') {
     return processIngredientsDiscovery(payload, selected.id)
-  } else if (selected.type === 'source-discovery') {
-    return processSourceDiscovery(payload, selected.id)
+  } else if (selected.type === 'product-discovery') {
+    return processProductDiscovery(payload, selected.id)
   } else if (selected.type === 'product-aggregation') {
     return processProductAggregation(payload, selected.id)
   } else if (selected.type === 'video-discovery') {
@@ -113,7 +113,7 @@ export const POST = async () => {
   } else if (selected.type === 'category-discovery') {
     return processCategoryDiscovery(payload, selected.id)
   } else {
-    return processSourceCrawl(payload, selected.id)
+    return processProductCrawl(payload, selected.id)
   }
 }
 
@@ -321,28 +321,28 @@ async function processIngredientsDiscovery(
   }
 }
 
-async function processSourceDiscovery(
+async function processProductDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
 ) {
   const discovery = await payload.findByID({
-    collection: 'source-discoveries',
+    collection: 'product-discoveries',
     id: discoveryId,
   })
 
   const itemsPerTick = discovery.itemsPerTick ?? undefined
-  console.log(`[Source Discovery] Starting with itemsPerTick: ${itemsPerTick ?? 'unlimited'}`)
+  console.log(`[Product Discovery] Starting with itemsPerTick: ${itemsPerTick ?? 'unlimited'}`)
 
   // Parse semicolon-separated URLs
   const sourceUrls = (discovery.sourceUrls ?? '').split('\n').map((u) => u.trim()).filter(Boolean)
   if (sourceUrls.length === 0) {
     await payload.update({
-      collection: 'source-discoveries',
+      collection: 'product-discoveries',
       id: discoveryId,
       data: { status: 'failed', completedAt: new Date().toISOString() },
     })
-    await createEvent(payload, 'error', 'source-discoveries', discoveryId, 'No URLs provided')
-    return Response.json({ error: 'No URLs provided', jobId: discoveryId, type: 'source-discovery' }, { status: 400 })
+    await createEvent(payload, 'error', 'product-discoveries', discoveryId, 'No URLs provided')
+    return Response.json({ error: 'No URLs provided', jobId: discoveryId, type: 'product-discovery' }, { status: 400 })
   }
 
   // Check that we have a driver for at least the first URL
@@ -350,25 +350,25 @@ async function processSourceDiscovery(
   if (!driver) {
     const errorMsg = `No driver found for URL: ${sourceUrls[0]}`
     await payload.update({
-      collection: 'source-discoveries',
+      collection: 'product-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createEvent(payload, 'error', 'source-discoveries', discoveryId, errorMsg)
+    await createEvent(payload, 'error', 'product-discoveries', discoveryId, errorMsg)
     return Response.json({
       error: errorMsg,
       jobId: discoveryId,
-      type: 'source-discovery',
+      type: 'product-discovery',
     }, { status: 400 })
   }
 
   // Mark as in_progress if pending
   if (discovery.status === 'pending') {
     await payload.update({
-      collection: 'source-discoveries',
+      collection: 'product-discoveries',
       id: discoveryId,
       data: {
         status: 'in_progress',
@@ -378,7 +378,7 @@ async function processSourceDiscovery(
         existing: 0,
       },
     })
-    await createEvent(payload, 'start', 'source-discoveries', discoveryId, `Started source discovery for ${sourceUrls.length} URL(s)`)
+    await createEvent(payload, 'start', 'product-discoveries', discoveryId, `Started product discovery for ${sourceUrls.length} URL(s)`)
   }
 
   try {
@@ -398,11 +398,11 @@ async function processSourceDiscovery(
     }
 
     const products = allDiscoveredProducts
-    console.log(`[Source Discovery] Total unique products: ${products.length}`)
+    console.log(`[Product Discovery] Total unique products: ${products.length}`)
 
     // Update discovered count
     await payload.update({
-      collection: 'source-discoveries',
+      collection: 'product-discoveries',
       id: discoveryId,
       data: {
         discovered: products.length,
@@ -472,7 +472,7 @@ async function processSourceDiscovery(
 
       // Update stats after each product
       await payload.update({
-        collection: 'source-discoveries',
+        collection: 'product-discoveries',
         id: discoveryId,
         data: {
           created,
@@ -485,7 +485,7 @@ async function processSourceDiscovery(
     if (created + existing >= products.length) {
       const discoveredProductUrls = products.map((p) => p.productUrl).join('\n')
       await payload.update({
-        collection: 'source-discoveries',
+        collection: 'product-discoveries',
         id: discoveryId,
         data: {
           status: 'completed',
@@ -493,12 +493,12 @@ async function processSourceDiscovery(
           productUrls: discoveredProductUrls,
         },
       })
-      await createEvent(payload, 'success', 'source-discoveries', discoveryId, `Completed: ${products.length} discovered, ${created} created, ${existing} existing`)
+      await createEvent(payload, 'success', 'product-discoveries', discoveryId, `Completed: ${products.length} discovered, ${created} created, ${existing} existing`)
 
       return Response.json({
         message: 'Discovery completed',
         jobId: discoveryId,
-        type: 'source-discovery',
+        type: 'product-discovery',
         discovered: products.length,
         created,
         existing,
@@ -509,51 +509,51 @@ async function processSourceDiscovery(
     return Response.json({
       message: 'Tick completed',
       jobId: discoveryId,
-      type: 'source-discovery',
+      type: 'product-discovery',
       discovered: products.length,
       created,
       existing,
       remaining: products.length - (created + existing),
     })
   } catch (error) {
-    console.error('Source discovery error:', error)
+    console.error('Product discovery error:', error)
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
-      collection: 'source-discoveries',
+      collection: 'product-discoveries',
       id: discoveryId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createEvent(payload, 'error', 'source-discoveries', discoveryId, errorMsg)
+    await createEvent(payload, 'error', 'product-discoveries', discoveryId, errorMsg)
 
     return Response.json({
       error: errorMsg,
       jobId: discoveryId,
-      type: 'source-discovery',
+      type: 'product-discovery',
     }, { status: 500 })
   }
 }
 
-async function processSourceCrawl(
+async function processProductCrawl(
   payload: Awaited<ReturnType<typeof getPayload>>,
   crawlId: number,
 ) {
   let crawl = await payload.findByID({
-    collection: 'source-crawls',
+    collection: 'product-crawls',
     id: crawlId,
   })
 
   const itemsPerTick = crawl.itemsPerTick ?? 10
-  console.log(`[Source Crawl] Starting with itemsPerTick: ${itemsPerTick}`)
+  console.log(`[Product Crawl] Starting with itemsPerTick: ${itemsPerTick}`)
 
   // Initialize if pending
   const isFirstTick = crawl.status === 'pending'
   if (isFirstTick) {
     await payload.update({
-      collection: 'source-crawls',
+      collection: 'product-crawls',
       id: crawlId,
       data: {
         status: 'in_progress',
@@ -562,9 +562,9 @@ async function processSourceCrawl(
         errors: 0,
       },
     })
-    await createEvent(payload, 'start', 'source-crawls', crawlId, `Started source crawl (source=${crawl.source || 'all'}, type=${crawl.type || 'all'}, scope=${crawl.scope ?? 'uncrawled_only'})`)
+    await createEvent(payload, 'start', 'product-crawls', crawlId, `Started product crawl (source=${crawl.source || 'all'}, type=${crawl.type || 'all'}, scope=${crawl.scope ?? 'uncrawled_only'})`)
     crawl = await payload.findByID({
-      collection: 'source-crawls',
+      collection: 'product-crawls',
       id: crawlId,
     })
   }
@@ -579,15 +579,15 @@ async function processSourceCrawl(
     const driver = getSourceDriverBySlug(resolvedSource)
     if (!driver) {
       await payload.update({
-        collection: 'source-crawls',
+        collection: 'product-crawls',
         id: crawlId,
         data: { status: 'failed', completedAt: new Date().toISOString() },
       })
-      await createEvent(payload, 'error', 'source-crawls', crawlId, `No driver found for source: ${resolvedSource}`)
+      await createEvent(payload, 'error', 'product-crawls', crawlId, `No driver found for source: ${resolvedSource}`)
       return Response.json({
         error: `No driver found for source: ${resolvedSource}`,
         jobId: crawlId,
-        type: 'source-crawl',
+        type: 'product-crawl',
       }, { status: 400 })
     }
     drivers = [driver]
@@ -602,7 +602,7 @@ async function processSourceCrawl(
     urlList = (crawl.urls || '').split('\n').map((u) => u.trim()).filter(Boolean)
   } else if (isFromDiscovery && crawl.discovery) {
     const discoveryId = typeof crawl.discovery === 'object' ? crawl.discovery.id : crawl.discovery
-    const discovery = await payload.findByID({ collection: 'source-discoveries', id: discoveryId })
+    const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId })
     urlList = (discovery.productUrls || '').split('\n').map((u) => u.trim()).filter(Boolean)
   }
 
@@ -613,18 +613,18 @@ async function processSourceCrawl(
   const minCrawlAge = crawl.minCrawlAge
   const minCrawlAgeUnit = crawl.minCrawlAgeUnit
 
-  console.log(`[Source Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, scope=${scope}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, urls=${urlList ? urlList.join(',') : 'all'}`)
+  console.log(`[Product Crawl] id=${crawlId}, source=${resolvedSource}, type=${crawl.type}, scope=${scope}, drivers=[${drivers.map((d) => d.slug).join(', ')}], isFirstTick=${isFirstTick}, urls=${urlList ? urlList.join(',') : 'all'}`)
 
   if (hasUrlList && (!urlList || urlList.length === 0)) {
     await payload.update({
-      collection: 'source-crawls',
+      collection: 'product-crawls',
       id: crawlId,
       data: { status: 'completed', completedAt: new Date().toISOString() },
     })
     return Response.json({
       message: 'Crawl completed - no URLs specified',
       jobId: crawlId,
-      type: 'source-crawl',
+      type: 'product-crawl',
     })
   }
 
@@ -648,7 +648,7 @@ async function processSourceCrawl(
       }
     }
     if (stubsCreated > 0) {
-      console.log(`[Source Crawl] Created ${stubsCreated} SourceProduct stub(s) for selected URLs`)
+      console.log(`[Product Crawl] Created ${stubsCreated} SourceProduct stub(s) for selected URLs`)
     }
   }
 
@@ -658,12 +658,12 @@ async function processSourceCrawl(
     if (minCrawlAge && minCrawlAgeUnit) {
       const multipliers: Record<string, number> = { minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }
       crawledBefore = new Date(Date.now() - minCrawlAge * (multipliers[minCrawlAgeUnit] ?? 86400000))
-      console.log(`[Source Crawl] Re-crawl with minCrawlAge: ${minCrawlAge} ${minCrawlAgeUnit} (crawledBefore: ${crawledBefore.toISOString()})`)
+      console.log(`[Product Crawl] Re-crawl with minCrawlAge: ${minCrawlAge} ${minCrawlAgeUnit} (crawledBefore: ${crawledBefore.toISOString()})`)
     }
     for (const driver of drivers) {
       await driver.resetProducts(payload, urlList, crawledBefore)
     }
-    console.log(`[Source Crawl] Reset products to uncrawled`)
+    console.log(`[Product Crawl] Reset products to uncrawled`)
   }
 
   // Count total on first tick
@@ -673,11 +673,11 @@ async function processSourceCrawl(
       totalUncrawled += await driver.countUncrawled(payload, urlList ? { sourceUrls: urlList } : undefined)
     }
     await payload.update({
-      collection: 'source-crawls',
+      collection: 'product-crawls',
       id: crawlId,
       data: { total: totalUncrawled },
     })
-    console.log(`[Source Crawl] Total products to crawl: ${totalUncrawled}`)
+    console.log(`[Product Crawl] Total products to crawl: ${totalUncrawled}`)
   }
 
   let crawled = crawl.crawled || 0
@@ -696,11 +696,11 @@ async function processSourceCrawl(
       })
 
       if (products.length === 0) {
-        console.log(`[Source Crawl] [${driver.slug}] No uncrawled products found, skipping`)
+        console.log(`[Product Crawl] [${driver.slug}] No uncrawled products found, skipping`)
         continue
       }
 
-      console.log(`[Source Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.sourceUrl).join(', ')}`)
+      console.log(`[Product Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.sourceUrl).join(', ')}`)
 
       for (const product of products) {
         const productId = await driver.crawlProduct(
@@ -712,7 +712,7 @@ async function processSourceCrawl(
         if (productId !== null) {
           await driver.markProductStatus(payload, product.id, 'crawled')
           crawled++
-          console.log(`[Source Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
+          console.log(`[Product Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
 
           // Fetch GTIN from the crawled product to track in output
           const crawledProduct = await payload.findByID({
@@ -726,14 +726,14 @@ async function processSourceCrawl(
         } else {
           await driver.markProductStatus(payload, product.id, 'failed')
           errors++
-          console.log(`[Source Crawl] [${driver.slug}] Failed to crawl ${product.sourceUrl}`)
+          console.log(`[Product Crawl] [${driver.slug}] Failed to crawl ${product.sourceUrl}`)
         }
 
         processedThisTick++
         remainingBudget--
 
         await payload.update({
-          collection: 'source-crawls',
+          collection: 'product-crawls',
           id: crawlId,
           data: { crawled, errors, crawledGtins },
         })
@@ -748,7 +748,7 @@ async function processSourceCrawl(
 
     if (totalRemaining === 0) {
       await payload.update({
-        collection: 'source-crawls',
+        collection: 'product-crawls',
         id: crawlId,
         data: {
           status: 'completed',
@@ -758,46 +758,46 @@ async function processSourceCrawl(
           completedAt: new Date().toISOString(),
         },
       })
-      await createEvent(payload, 'success', 'source-crawls', crawlId, `Completed: ${crawled} crawled, ${errors} errors`)
+      await createEvent(payload, 'success', 'product-crawls', crawlId, `Completed: ${crawled} crawled, ${errors} errors`)
 
       return Response.json({
         message: 'Crawl completed',
         jobId: crawlId,
-        type: 'source-crawl',
+        type: 'product-crawl',
         crawled,
         errors,
       })
     }
 
-    await createEvent(payload, 'info', 'source-crawls', crawlId, `Tick: ${processedThisTick} processed (${crawled} crawled, ${errors} errors, ${totalRemaining} remaining)`)
+    await createEvent(payload, 'info', 'product-crawls', crawlId, `Tick: ${processedThisTick} processed (${crawled} crawled, ${errors} errors, ${totalRemaining} remaining)`)
 
     return Response.json({
       message: 'Tick completed',
       jobId: crawlId,
-      type: 'source-crawl',
+      type: 'product-crawl',
       processedThisTick,
       crawled,
       errors,
       remaining: totalRemaining,
     })
   } catch (error) {
-    console.error('Source crawl error:', error)
+    console.error('Product crawl error:', error)
 
     const errorMsg = error instanceof Error ? error.message : String(error)
     await payload.update({
-      collection: 'source-crawls',
+      collection: 'product-crawls',
       id: crawlId,
       data: {
         status: 'failed',
         completedAt: new Date().toISOString(),
       },
     })
-    await createEvent(payload, 'error', 'source-crawls', crawlId, errorMsg)
+    await createEvent(payload, 'error', 'product-crawls', crawlId, errorMsg)
 
     return Response.json({
       error: errorMsg,
       jobId: crawlId,
-      type: 'source-crawl',
+      type: 'product-crawl',
     }, { status: 500 })
   }
 }

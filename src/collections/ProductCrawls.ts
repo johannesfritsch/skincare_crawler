@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const SourceCrawls: CollectionConfig = {
-  slug: 'source-crawls',
+export const ProductCrawls: CollectionConfig = {
+  slug: 'product-crawls',
   labels: {
-    singular: 'Source Crawl',
-    plural: 'Source Crawls',
+    singular: 'Product Crawl',
+    plural: 'Product Crawls',
   },
   admin: {
     useAsTitle: 'id',
@@ -71,7 +71,7 @@ export const SourceCrawls: CollectionConfig = {
             {
               name: 'discovery',
               type: 'relationship',
-              relationTo: 'source-discoveries',
+              relationTo: 'product-discoveries',
               label: 'Discovery',
               admin: {
                 description: 'Use product URLs from this completed discovery',
