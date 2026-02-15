@@ -1816,13 +1816,16 @@ async function processCategoryDiscovery(
       const parentKey = parentPathParts.join(' > ')
       const parentId = parentKey ? (pathToId.get(parentKey) ?? null) : null
 
-      // Derive slug from URL path: last segment
+      // Derive slug from URL path: last meaningful segment
+      // Rossmann URLs end with /c/olcat3_... so we skip ID-like trailing segments
       let slug = cat.name.toLowerCase().replace(/\s+/g, '-')
       try {
         const urlPath = new URL(cat.url).pathname
         const segments = urlPath.split('/').filter(Boolean)
-        if (segments.length > 0) {
-          slug = segments[segments.length - 1]
+        // Drop trailing segments that are 'c', 'de', or look like IDs (e.g. olcat3_6076443)
+        const meaningful = segments.filter((s) => s !== 'c' && s !== 'de' && !/^olcat\d/.test(s))
+        if (meaningful.length > 0) {
+          slug = meaningful[meaningful.length - 1]
         }
       } catch { /* use name-derived slug */ }
 
