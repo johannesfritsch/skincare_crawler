@@ -78,6 +78,7 @@ export interface Config {
     'source-discoveries': SourceDiscovery;
     'source-crawls': SourceCrawl;
     'product-aggregations': ProductAggregation;
+    'category-discoveries': CategoryDiscovery;
     events: Event;
     creators: Creator;
     channels: Channel;
@@ -104,6 +105,9 @@ export interface Config {
       events: 'events';
     };
     'product-aggregations': {
+      events: 'events';
+    };
+    'category-discoveries': {
       events: 'events';
     };
     creators: {
@@ -134,6 +138,7 @@ export interface Config {
     'source-discoveries': SourceDiscoveriesSelect<false> | SourceDiscoveriesSelect<true>;
     'source-crawls': SourceCrawlsSelect<false> | SourceCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
+    'category-discoveries': CategoryDiscoveriesSelect<false> | CategoryDiscoveriesSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
@@ -356,6 +361,10 @@ export interface Event {
     | ({
         relationTo: 'video-processings';
         value: number | VideoProcessing;
+      } | null)
+    | ({
+        relationTo: 'category-discoveries';
+        value: number | CategoryDiscovery;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -953,6 +962,47 @@ export interface VideoProcessing {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "category-discoveries".
+ */
+export interface CategoryDiscovery {
+  id: number;
+  /**
+   * Store URLs to discover categories from (e.g. dm.de, mueller.de), one per line.
+   */
+  storeUrls: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Categories found
+   */
+  discovered?: number | null;
+  /**
+   * New categories created
+   */
+  created?: number | null;
+  /**
+   * Categories already in database
+   */
+  existing?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Discovered category URLs, one per line
+   */
+  categoryUrls?: string | null;
+  /**
+   * Max categories to save per tick. Leave empty for unlimited.
+   */
+  itemsPerTick?: number | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -1018,6 +1068,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'product-aggregations';
         value: number | ProductAggregation;
+      } | null)
+    | ({
+        relationTo: 'category-discoveries';
+        value: number | CategoryDiscovery;
       } | null)
     | ({
         relationTo: 'events';
@@ -1385,6 +1439,24 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   product?: T;
   events?: T;
   lastCheckedSourceId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "category-discoveries_select".
+ */
+export interface CategoryDiscoveriesSelect<T extends boolean = true> {
+  storeUrls?: T;
+  status?: T;
+  discovered?: T;
+  created?: T;
+  existing?: T;
+  startedAt?: T;
+  completedAt?: T;
+  categoryUrls?: T;
+  itemsPerTick?: T;
+  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }

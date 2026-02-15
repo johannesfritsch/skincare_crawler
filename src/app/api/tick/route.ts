@@ -6,19 +6,20 @@ import type { SourceDriver, DiscoveredProduct } from '@/lib/source-discovery/typ
 import { aggregateProduct } from '@/lib/aggregate-product'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { processVideo } from '@/lib/video-processing/process-video'
+import { getCategoryDriver } from '@/lib/category-discovery/driver'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 interface ActiveJob {
-  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation' | 'video-discovery' | 'video-processing'
+  type: 'ingredients-discovery' | 'source-discovery' | 'source-crawl' | 'product-aggregation' | 'video-discovery' | 'video-processing' | 'category-discovery'
   id: number
   status: string
   crawlType?: string
   aggregationType?: string
 }
 
-type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries' | 'video-processings'
+type JobCollection = 'source-discoveries' | 'source-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries' | 'video-processings' | 'category-discoveries'
 type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 
 async function createEvent(
@@ -51,6 +52,7 @@ export const POST = async () => {
     aggInProgress, aggPending,
     videoDiscInProgress, videoDiscPending,
     videoProcInProgress, videoProcPending,
+    catDiscInProgress, catDiscPending,
   ] = await Promise.all([
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'ingredients-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
@@ -64,6 +66,8 @@ export const POST = async () => {
     payload.find({ collection: 'video-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
     payload.find({ collection: 'video-processings', where: { status: { equals: 'in_progress' } }, limit: 10 }),
     payload.find({ collection: 'video-processings', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
+    payload.find({ collection: 'category-discoveries', where: { status: { equals: 'in_progress' } }, limit: 10 }),
+    payload.find({ collection: 'category-discoveries', where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
   ])
 
   activeJobs.push(
@@ -79,6 +83,8 @@ export const POST = async () => {
     ...videoDiscPending.docs.map((d) => ({ type: 'video-discovery' as const, id: d.id, status: d.status! })),
     ...videoProcInProgress.docs.map((d) => ({ type: 'video-processing' as const, id: d.id, status: d.status! })),
     ...videoProcPending.docs.map((d) => ({ type: 'video-processing' as const, id: d.id, status: d.status! })),
+    ...catDiscInProgress.docs.map((d) => ({ type: 'category-discovery' as const, id: d.id, status: d.status! })),
+    ...catDiscPending.docs.map((d) => ({ type: 'category-discovery' as const, id: d.id, status: d.status! })),
   )
 
   if (activeJobs.length === 0) {
@@ -104,6 +110,8 @@ export const POST = async () => {
     return processVideoDiscovery(payload, selected.id)
   } else if (selected.type === 'video-processing') {
     return processVideoProcessing(payload, selected.id)
+  } else if (selected.type === 'category-discovery') {
+    return processCategoryDiscovery(payload, selected.id)
   } else {
     return processSourceCrawl(payload, selected.id)
   }
@@ -1706,6 +1714,175 @@ async function processVideoProcessing(
       error: errorMsg,
       jobId,
       type: 'video-processing',
+    }, { status: 500 })
+  }
+}
+
+async function processCategoryDiscovery(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  jobId: number,
+) {
+  const discovery = await payload.findByID({
+    collection: 'category-discoveries',
+    id: jobId,
+  })
+
+  // Parse newline-separated URLs
+  const storeUrls = (discovery.storeUrls ?? '').split('\n').map((u) => u.trim()).filter(Boolean)
+  if (storeUrls.length === 0) {
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: { status: 'failed', completedAt: new Date().toISOString() },
+    })
+    await createEvent(payload, 'error', 'category-discoveries', jobId, 'No URLs provided')
+    return Response.json({ error: 'No URLs provided', jobId, type: 'category-discovery' }, { status: 400 })
+  }
+
+  const driver = getCategoryDriver(storeUrls[0])
+  if (!driver) {
+    const errorMsg = `No category discovery driver found for URL: ${storeUrls[0]}`
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: { status: 'failed', completedAt: new Date().toISOString() },
+    })
+    await createEvent(payload, 'error', 'category-discoveries', jobId, errorMsg)
+    return Response.json({ error: errorMsg, jobId, type: 'category-discovery' }, { status: 400 })
+  }
+
+  // Mark as in_progress
+  if (discovery.status === 'pending') {
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        discovered: 0,
+        created: 0,
+        existing: 0,
+      },
+    })
+    await createEvent(payload, 'start', 'category-discoveries', jobId, `Started category discovery for ${storeUrls.length} URL(s)`)
+  }
+
+  try {
+    // Discover categories from all URLs, deduplicate by URL
+    const allCategories: Array<{ url: string; name: string; path: string[] }> = []
+    const seenUrls = new Set<string>()
+
+    for (const url of storeUrls) {
+      const urlDriver = getCategoryDriver(url) ?? driver
+      const categories = await urlDriver.discoverCategories(url)
+      for (const cat of categories) {
+        if (!seenUrls.has(cat.url)) {
+          seenUrls.add(cat.url)
+          allCategories.push(cat)
+        }
+      }
+    }
+
+    console.log(`[Category Discovery] Total unique categories: ${allCategories.length}`)
+
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: { discovered: allCategories.length },
+    })
+
+    // Create Category records, maintaining a map of path-key -> category ID for parent resolution
+    const pathToId = new Map<string, number>()
+    let created = 0
+    let existing = 0
+
+    for (const cat of allCategories) {
+      // Build parent path key (all elements except the last)
+      const parentPathParts = cat.path.slice(0, -1)
+      const parentKey = parentPathParts.join(' > ')
+      const parentId = parentKey ? (pathToId.get(parentKey) ?? null) : null
+
+      // Query for existing category with same name + parent
+      const existingCat = await payload.find({
+        collection: 'categories',
+        where: {
+          and: [
+            { name: { equals: cat.name } },
+            parentId
+              ? { parent: { equals: parentId } }
+              : { parent: { exists: false } },
+          ],
+        },
+        limit: 1,
+      })
+
+      const currentKey = cat.path.join(' > ')
+
+      if (existingCat.docs.length > 0) {
+        existing++
+        pathToId.set(currentKey, existingCat.docs[0].id)
+      } else {
+        const newCat = await payload.create({
+          collection: 'categories',
+          data: {
+            name: cat.name,
+            ...(parentId ? { parent: parentId } : {}),
+          },
+        })
+        created++
+        pathToId.set(currentKey, newCat.id)
+      }
+
+      // Update progress
+      await payload.update({
+        collection: 'category-discoveries',
+        id: jobId,
+        data: { created, existing },
+      })
+    }
+
+    // Write output and mark completed
+    const categoryUrls = allCategories.map((c) => c.url).join('\n')
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: {
+        status: 'completed',
+        discovered: allCategories.length,
+        created,
+        existing,
+        categoryUrls,
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createEvent(payload, 'success', 'category-discoveries', jobId, `Completed: ${allCategories.length} discovered, ${created} created, ${existing} existing`)
+
+    return Response.json({
+      message: 'Category discovery completed',
+      jobId,
+      type: 'category-discovery',
+      discovered: allCategories.length,
+      created,
+      existing,
+    })
+  } catch (error) {
+    console.error('Category discovery error:', error)
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    await createEvent(payload, 'error', 'category-discoveries', jobId, errorMsg)
+
+    return Response.json({
+      error: errorMsg,
+      jobId,
+      type: 'category-discovery',
     }, { status: 500 })
   }
 }
