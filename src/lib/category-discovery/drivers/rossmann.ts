@@ -48,11 +48,49 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
         await page.waitForSelector('nav[data-testid="category-nav-desktop"]', { timeout: 10000 }).catch(() => {})
         await sleep(randomDelay(500, 1500))
 
+        // On the first call, extract ancestor categories from breadcrumb HTML
+        let effectiveParentPath = parentPath
+        if (parentPath.length === 0) {
+          try {
+            const breadcrumbLinks = await page.$$eval(
+              '[data-testid="category-breadcrumbs"] li a',
+              (links) => links.map((a) => ({
+                href: a.getAttribute('href') || '',
+                text: a.textContent?.trim() || '',
+              })),
+            )
+
+            if (breadcrumbLinks.length > 2) {
+              // Skip first (home link) and last (current page)
+              const ancestorLinks = breadcrumbLinks.slice(1, -1)
+              const ancestorPath: string[] = []
+              for (const link of ancestorLinks) {
+                ancestorPath.push(link.text)
+                const ancestorUrl = link.href.startsWith('http')
+                  ? link.href
+                  : `https://www.rossmann.de${link.href}`
+                if (!seenUrls.has(ancestorUrl)) {
+                  seenUrls.add(ancestorUrl)
+                  allCategories.push({
+                    url: ancestorUrl,
+                    name: link.text,
+                    path: [...ancestorPath],
+                  })
+                  console.log(`[Rossmann CategoryDiscovery] Ancestor: ${ancestorPath.join(' > ')} -> ${ancestorUrl}`)
+                }
+              }
+              effectiveParentPath = ancestorPath
+            }
+          } catch (e) {
+            console.log(`[Rossmann CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
+          }
+        }
+
         // Get category name from h1 heading on the page, or use name passed from parent
         const h1Raw = await page.$eval('h1', (el) => el.textContent?.trim() || '').catch(() => '')
         const categoryName = cleanCategoryName(nameFromParent || h1Raw || pageUrl)
 
-        const fullPath = [...parentPath, categoryName]
+        const fullPath = [...effectiveParentPath, categoryName]
 
         // Record this category
         const canonicalUrl = pageUrl.startsWith('http')

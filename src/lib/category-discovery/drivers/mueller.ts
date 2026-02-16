@@ -48,11 +48,56 @@ export const muellerDriver: CategoryDiscoveryDriver = {
         await page.waitForSelector('[class*="category-navigation"]', { timeout: 10000 }).catch(() => {})
         await sleep(randomDelay(500, 1500))
 
+        // On the first call, extract ancestor categories from ld+json breadcrumb
+        let effectiveParentPath = parentPath
+        if (parentPath.length === 0) {
+          try {
+            const breadcrumbItems = await page.$$eval(
+              'script[type="application/ld+json"]',
+              (scripts) => {
+                for (const script of scripts) {
+                  try {
+                    const data = JSON.parse(script.textContent || '')
+                    if (data['@type'] === 'BreadcrumbList' && data.itemListElement) {
+                      return data.itemListElement as { position: number; name: string; item?: string }[]
+                    }
+                  } catch { /* skip invalid JSON */ }
+                }
+                return null
+              },
+            )
+
+            if (breadcrumbItems && breadcrumbItems.length > 2) {
+              // Skip position 1 (store root) and last item (current page)
+              const ancestorItems = breadcrumbItems.slice(1, -1)
+              const ancestorPath: string[] = []
+              for (const item of ancestorItems) {
+                ancestorPath.push(item.name)
+                const ancestorUrl = item.item
+                  ? (item.item.startsWith('http') ? item.item : `https://www.mueller.de${item.item}`)
+                  : pageUrl
+                if (!seenUrls.has(ancestorUrl)) {
+                  seenUrls.add(ancestorUrl)
+                  allCategories.push({
+                    url: ancestorUrl,
+                    name: item.name,
+                    path: [...ancestorPath],
+                  })
+                  console.log(`[Mueller CategoryDiscovery] Ancestor: ${ancestorPath.join(' > ')} -> ${ancestorUrl}`)
+                }
+              }
+              effectiveParentPath = ancestorPath
+            }
+          } catch (e) {
+            console.log(`[Mueller CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
+          }
+        }
+
         // Get category name from h1 heading on the page, or use name passed from parent
         const h1Raw = await page.$eval('h1', (el) => el.textContent?.trim() || '').catch(() => '')
         const categoryName = cleanCategoryName(nameFromParent || h1Raw || pageUrl)
 
-        const fullPath = [...parentPath, categoryName]
+        const fullPath = [...effectiveParentPath, categoryName]
 
         // Record this category
         const canonicalUrl = pageUrl.startsWith('http')
