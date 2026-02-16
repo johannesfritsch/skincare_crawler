@@ -1,4 +1,4 @@
-import type { CategoryDiscoveryDriver, DiscoveredCategory } from '../types'
+import type { CategoryDiscoveryDriver, DiscoverOptions, DriverProgress } from '../types'
 
 // Navigation tree node shape (matches source discovery driver)
 interface NavNode {
@@ -25,28 +25,6 @@ function findSubtreeWithAncestors(
   return null
 }
 
-// Collect all non-hidden nodes (both parent and leaf) as DiscoveredCategory[]
-function collectAll(node: NavNode, parentPath: string[]): DiscoveredCategory[] {
-  if (node.hidden) return []
-
-  const path = [...parentPath, node.title]
-  const result: DiscoveredCategory[] = [
-    {
-      url: `https://www.dm.de${node.link}`,
-      name: node.title,
-      path,
-    },
-  ]
-
-  if (node.children) {
-    for (const child of node.children) {
-      result.push(...collectAll(child, path))
-    }
-  }
-
-  return result
-}
-
 export const dmDriver: CategoryDiscoveryDriver = {
   slug: 'dm',
   label: 'DM',
@@ -60,7 +38,8 @@ export const dmDriver: CategoryDiscoveryDriver = {
     }
   },
 
-  async discoverCategories(url: string): Promise<DiscoveredCategory[]> {
+  async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
+    const { url, onCategory, onProgress } = options
     console.log(`[DM CategoryDiscovery] Starting for ${url}`)
 
     const targetPath = new URL(url).pathname.replace(/\/$/, '') || '/'
@@ -102,7 +81,9 @@ export const dmDriver: CategoryDiscoveryDriver = {
         )
         .pop() || targetPath
 
-      return [{ url, name, path: [name] }]
+      await onCategory({ url, name, path: [name] })
+      await onProgress?.({ visitedUrls: [], queue: [] })
+      return { visitedUrls: [], queue: [] }
     }
 
     const { node: subtree, ancestors } = result
@@ -111,12 +92,11 @@ export const dmDriver: CategoryDiscoveryDriver = {
     )
 
     // Emit ancestor categories (building path incrementally)
-    const categories: DiscoveredCategory[] = []
     const ancestorPath: string[] = []
     for (const ancestor of ancestors) {
       if (ancestor.hidden) continue
       ancestorPath.push(ancestor.title)
-      categories.push({
+      await onCategory({
         url: `https://www.dm.de${ancestor.link}`,
         name: ancestor.title,
         path: [...ancestorPath],
@@ -124,12 +104,27 @@ export const dmDriver: CategoryDiscoveryDriver = {
     }
 
     // Collect subtree categories with ancestor path as prefix
-    categories.push(...collectAll(subtree, ancestorPath))
+    async function emitAll(node: NavNode, parentPath: string[]): Promise<void> {
+      if (node.hidden) return
 
-    for (const cat of categories) {
-      console.log(`[DM CategoryDiscovery]   ${cat.path.join(' > ')} -> ${cat.url}`)
+      const path = [...parentPath, node.title]
+      await onCategory({
+        url: `https://www.dm.de${node.link}`,
+        name: node.title,
+        path,
+      })
+
+      if (node.children) {
+        for (const child of node.children) {
+          await emitAll(child, path)
+        }
+      }
     }
-    console.log(`[DM CategoryDiscovery] Done: ${categories.length} categories`)
-    return categories
+
+    await emitAll(subtree, ancestorPath)
+
+    await onProgress?.({ visitedUrls: [], queue: [] })
+    console.log(`[DM CategoryDiscovery] Done`)
+    return { visitedUrls: [], queue: [] }
   },
 }

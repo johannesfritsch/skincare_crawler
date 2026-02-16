@@ -997,6 +997,18 @@ export interface CategoryDiscovery {
    * Categories already in database
    */
   existing?: number | null;
+  /**
+   * Internal state for resumable discovery
+   */
+  progress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   startedAt?: string | null;
   completedAt?: string | null;
   /**
@@ -1484,6 +1496,7 @@ export interface CategoryDiscoveriesSelect<T extends boolean = true> {
   discovered?: T;
   created?: T;
   existing?: T;
+  progress?: T;
   startedAt?: T;
   completedAt?: T;
   categoryUrls?: T;

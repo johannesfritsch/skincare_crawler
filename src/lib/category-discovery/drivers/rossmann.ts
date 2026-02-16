@@ -1,4 +1,4 @@
-import type { CategoryDiscoveryDriver, DiscoveredCategory } from '../types'
+import type { CategoryDiscoveryDriver, DiscoverOptions, DriverProgress, QueueItem } from '../types'
 import { launchBrowser } from '@/lib/browser'
 
 function randomDelay(min: number, max: number): number {
@@ -27,121 +27,128 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
     }
   },
 
-  async discoverCategories(url: string): Promise<DiscoveredCategory[]> {
+  async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
+    const { url, onCategory, onProgress, progress, maxPages } = options
     console.log(`[Rossmann CategoryDiscovery] Starting for ${url}`)
 
+    const visitedUrls = new Set<string>(progress?.visitedUrls ?? [])
+    const queue: QueueItem[] = progress?.queue?.length
+      ? [...progress.queue]
+      : [{ url, parentPath: [] }]
+
+    let pagesVisited = 0
     const browser = await launchBrowser()
-    const allCategories: DiscoveredCategory[] = []
-    const seenUrls = new Set<string>()
 
     try {
       const page = await browser.newPage()
 
-      async function walkCategory(
-        pageUrl: string,
-        parentPath: string[],
-        nameFromParent?: string,
-      ): Promise<void> {
-        console.log(`[Rossmann CategoryDiscovery] Visiting: ${pageUrl}`)
-        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-        // Wait for category nav to render (present on both leaf and non-leaf pages)
-        await page.waitForSelector('nav[data-testid="category-nav-desktop"]', { timeout: 10000 }).catch(() => {})
-        await sleep(randomDelay(500, 1500))
+      while (queue.length > 0) {
+        if (maxPages !== undefined && pagesVisited >= maxPages) break
 
-        // On the first call, extract ancestor categories from breadcrumb HTML
-        let effectiveParentPath = parentPath
-        if (parentPath.length === 0) {
-          try {
-            const breadcrumbLinks = await page.$$eval(
-              '[data-testid="category-breadcrumbs"] li a',
-              (links) => links.map((a) => ({
-                href: a.getAttribute('href') || '',
-                text: a.textContent?.trim() || '',
-              })),
-            )
+        const item = queue.shift()!
+        const canonicalUrl = item.url.startsWith('http')
+          ? item.url
+          : `https://www.rossmann.de${item.url}`
 
-            if (breadcrumbLinks.length > 2) {
-              // Skip first (home link) and last (current page)
-              const ancestorLinks = breadcrumbLinks.slice(1, -1)
-              const ancestorPath: string[] = []
-              for (const link of ancestorLinks) {
-                ancestorPath.push(link.text)
-                const ancestorUrl = link.href.startsWith('http')
-                  ? link.href
-                  : `https://www.rossmann.de${link.href}`
-                if (!seenUrls.has(ancestorUrl)) {
-                  seenUrls.add(ancestorUrl)
-                  allCategories.push({
+        if (visitedUrls.has(canonicalUrl)) continue
+        visitedUrls.add(canonicalUrl)
+        pagesVisited++
+
+        try {
+          console.log(`[Rossmann CategoryDiscovery] Visiting: ${canonicalUrl}`)
+          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await page.waitForSelector('nav[data-testid="category-nav-desktop"]', { timeout: 10000 }).catch(() => {})
+          await sleep(randomDelay(500, 1500))
+
+          // On the first page of a fresh start, extract ancestors from breadcrumb HTML
+          let effectiveParentPath = item.parentPath
+          if (item.parentPath.length === 0 && !progress?.queue?.length) {
+            try {
+              const breadcrumbLinks = await page.$$eval(
+                '[data-testid="category-breadcrumbs"] li a',
+                (links) => links.map((a) => ({
+                  href: a.getAttribute('href') || '',
+                  text: a.textContent?.trim() || '',
+                })),
+              )
+
+              if (breadcrumbLinks.length > 2) {
+                const ancestorLinks = breadcrumbLinks.slice(1, -1)
+                const ancestorPath: string[] = []
+                for (const link of ancestorLinks) {
+                  ancestorPath.push(link.text)
+                  const ancestorUrl = link.href.startsWith('http')
+                    ? link.href
+                    : `https://www.rossmann.de${link.href}`
+                  await onCategory({
                     url: ancestorUrl,
                     name: link.text,
                     path: [...ancestorPath],
                   })
-                  console.log(`[Rossmann CategoryDiscovery] Ancestor: ${ancestorPath.join(' > ')} -> ${ancestorUrl}`)
                 }
+                effectiveParentPath = ancestorPath
               }
-              effectiveParentPath = ancestorPath
+            } catch (e) {
+              console.log(`[Rossmann CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
             }
-          } catch (e) {
-            console.log(`[Rossmann CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
           }
-        }
 
-        // Get category name from h1 heading on the page, or use name passed from parent
-        const h1Raw = await page.$eval('h1', (el) => el.textContent?.trim() || '').catch(() => '')
-        const categoryName = cleanCategoryName(nameFromParent || h1Raw || pageUrl)
+          // Get category name
+          const h1Raw = await page.$eval('h1', (el) => el.textContent?.trim() || '').catch(() => '')
+          const categoryName = cleanCategoryName(item.nameFromParent || h1Raw || canonicalUrl)
+          const fullPath = [...effectiveParentPath, categoryName]
 
-        const fullPath = [...effectiveParentPath, categoryName]
-
-        // Record this category
-        const canonicalUrl = pageUrl.startsWith('http')
-          ? pageUrl
-          : `https://www.rossmann.de${pageUrl}`
-        if (!seenUrls.has(canonicalUrl)) {
-          seenUrls.add(canonicalUrl)
-          allCategories.push({
+          // Emit this category
+          await onCategory({
             url: canonicalUrl,
             name: categoryName,
             path: fullPath,
           })
-        }
 
-        // Leaf detection: check if any nav link has font-bold class (indicates current/selected)
-        const isLeaf = await page.$('nav[data-testid="category-nav-desktop"] ul li a.font-bold') !== null
+          // Leaf detection
+          const isLeaf = await page.$('nav[data-testid="category-nav-desktop"] ul li a.font-bold') !== null
 
-        if (isLeaf) {
-          console.log(`[Rossmann CategoryDiscovery] Leaf: ${fullPath.join(' > ')}`)
-          return
-        }
+          if (!isLeaf) {
+            // Non-leaf: extract children and add to queue (BFS)
+            const children = await page.$$eval(
+              'nav[data-testid="category-nav-desktop"] ul li a',
+              (links) => links.map((a) => ({
+                href: a.getAttribute('href') || '',
+                text: a.textContent?.trim() || '',
+              })).filter((c) => c.href),
+            )
 
-        // Non-leaf: extract child links + text and recurse
-        const children = await page.$$eval(
-          'nav[data-testid="category-nav-desktop"] ul li a',
-          (links) => links.map((a) => ({
-            href: a.getAttribute('href') || '',
-            text: a.textContent?.trim() || '',
-          })).filter((c) => c.href),
-        )
+            if (children.length > 0) {
+              console.log(`[Rossmann CategoryDiscovery] ${children.length} children under ${categoryName}`)
+              for (const child of children) {
+                const childUrl = child.href.startsWith('http')
+                  ? child.href
+                  : `https://www.rossmann.de${child.href}`
+                queue.push({
+                  url: childUrl,
+                  parentPath: fullPath,
+                  nameFromParent: cleanCategoryName(child.text),
+                })
+              }
+            } else {
+              console.log(`[Rossmann CategoryDiscovery] No child links on ${canonicalUrl}, treating as leaf`)
+            }
+          } else {
+            console.log(`[Rossmann CategoryDiscovery] Leaf: ${fullPath.join(' > ')}`)
+          }
 
-        if (children.length === 0) {
-          console.log(`[Rossmann CategoryDiscovery] No child links on ${pageUrl}, treating as leaf`)
-          return
-        }
-
-        console.log(`[Rossmann CategoryDiscovery] ${children.length} children under ${categoryName}`)
-        for (const child of children) {
-          const childUrl = child.href.startsWith('http')
-            ? child.href
-            : `https://www.rossmann.de${child.href}`
-          await walkCategory(childUrl, fullPath, cleanCategoryName(child.text))
+          // Persist progress after each page is fully processed
+          await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
+        } catch (e) {
+          console.warn(`[Rossmann CategoryDiscovery] Error visiting ${canonicalUrl}, skipping: ${e}`)
+          await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         }
       }
-
-      await walkCategory(url, [])
     } finally {
       await browser.close()
     }
 
-    console.log(`[Rossmann CategoryDiscovery] Done: ${allCategories.length} categories`)
-    return allCategories
+    console.log(`[Rossmann CategoryDiscovery] Tick done: ${pagesVisited} pages visited, ${queue.length} remaining in queue`)
+    return { visitedUrls: [...visitedUrls], queue }
   },
 }

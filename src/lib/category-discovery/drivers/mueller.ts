@@ -1,4 +1,4 @@
-import type { CategoryDiscoveryDriver, DiscoveredCategory } from '../types'
+import type { CategoryDiscoveryDriver, DiscoverOptions, DriverProgress, QueueItem } from '../types'
 import { launchBrowser } from '@/lib/browser'
 
 function randomDelay(min: number, max: number): number {
@@ -27,128 +27,135 @@ export const muellerDriver: CategoryDiscoveryDriver = {
     }
   },
 
-  async discoverCategories(url: string): Promise<DiscoveredCategory[]> {
+  async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
+    const { url, onCategory, onProgress, progress, maxPages } = options
     console.log(`[Mueller CategoryDiscovery] Starting for ${url}`)
 
+    const visitedUrls = new Set<string>(progress?.visitedUrls ?? [])
+    const queue: QueueItem[] = progress?.queue?.length
+      ? [...progress.queue]
+      : [{ url, parentPath: [] }]
+
+    let pagesVisited = 0
     const browser = await launchBrowser()
-    const allCategories: DiscoveredCategory[] = []
-    const seenUrls = new Set<string>()
 
     try {
       const page = await browser.newPage()
 
-      async function walkCategory(
-        pageUrl: string,
-        parentPath: string[],
-        nameFromParent?: string,
-      ): Promise<void> {
-        console.log(`[Mueller CategoryDiscovery] Visiting: ${pageUrl}`)
-        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-        // Wait for category nav to render (present on both leaf and non-leaf pages)
-        await page.waitForSelector('[class*="category-navigation"]', { timeout: 10000 }).catch(() => {})
-        await sleep(randomDelay(500, 1500))
+      while (queue.length > 0) {
+        if (maxPages !== undefined && pagesVisited >= maxPages) break
 
-        // On the first call, extract ancestor categories from ld+json breadcrumb
-        let effectiveParentPath = parentPath
-        if (parentPath.length === 0) {
-          try {
-            const breadcrumbItems = await page.$$eval(
-              'script[type="application/ld+json"]',
-              (scripts) => {
-                for (const script of scripts) {
-                  try {
-                    const data = JSON.parse(script.textContent || '')
-                    if (data['@type'] === 'BreadcrumbList' && data.itemListElement) {
-                      return data.itemListElement as { position: number; name: string; item?: string }[]
-                    }
-                  } catch { /* skip invalid JSON */ }
-                }
-                return null
-              },
-            )
+        const item = queue.shift()!
+        const canonicalUrl = item.url.startsWith('http')
+          ? item.url
+          : `https://www.mueller.de${item.url}`
 
-            if (breadcrumbItems && breadcrumbItems.length > 2) {
-              // Skip position 1 (store root) and last item (current page)
-              const ancestorItems = breadcrumbItems.slice(1, -1)
-              const ancestorPath: string[] = []
-              for (const item of ancestorItems) {
-                ancestorPath.push(item.name)
-                const ancestorUrl = item.item
-                  ? (item.item.startsWith('http') ? item.item : `https://www.mueller.de${item.item}`)
-                  : pageUrl
-                if (!seenUrls.has(ancestorUrl)) {
-                  seenUrls.add(ancestorUrl)
-                  allCategories.push({
+        if (visitedUrls.has(canonicalUrl)) continue
+        visitedUrls.add(canonicalUrl)
+        pagesVisited++
+
+        try {
+          console.log(`[Mueller CategoryDiscovery] Visiting: ${canonicalUrl}`)
+          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await page.waitForSelector('[class*="category-navigation"]', { timeout: 10000 }).catch(() => {})
+          await sleep(randomDelay(500, 1500))
+
+          // On the first page of a fresh start, extract ancestors from breadcrumb
+          let effectiveParentPath = item.parentPath
+          if (item.parentPath.length === 0 && !progress?.queue?.length) {
+            try {
+              const breadcrumbItems = await page.$$eval(
+                'script[type="application/ld+json"]',
+                (scripts) => {
+                  for (const script of scripts) {
+                    try {
+                      const data = JSON.parse(script.textContent || '')
+                      if (data['@type'] === 'BreadcrumbList' && data.itemListElement) {
+                        return data.itemListElement as { position: number; name: string; item?: string }[]
+                      }
+                    } catch { /* skip invalid JSON */ }
+                  }
+                  return null
+                },
+              )
+
+              if (breadcrumbItems && breadcrumbItems.length > 2) {
+                const ancestorItems = breadcrumbItems.slice(1, -1)
+                const ancestorPath: string[] = []
+                for (const bi of ancestorItems) {
+                  ancestorPath.push(bi.name)
+                  const ancestorUrl = bi.item
+                    ? (bi.item.startsWith('http') ? bi.item : `https://www.mueller.de${bi.item}`)
+                    : canonicalUrl
+                  await onCategory({
                     url: ancestorUrl,
-                    name: item.name,
+                    name: bi.name,
                     path: [...ancestorPath],
                   })
-                  console.log(`[Mueller CategoryDiscovery] Ancestor: ${ancestorPath.join(' > ')} -> ${ancestorUrl}`)
                 }
+                effectiveParentPath = ancestorPath
               }
-              effectiveParentPath = ancestorPath
+            } catch (e) {
+              console.log(`[Mueller CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
             }
-          } catch (e) {
-            console.log(`[Mueller CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
           }
-        }
 
-        // Get category name from h1 heading on the page, or use name passed from parent
-        const h1Raw = await page.$eval('h1', (el) => el.textContent?.trim() || '').catch(() => '')
-        const categoryName = cleanCategoryName(nameFromParent || h1Raw || pageUrl)
+          // Get category name
+          const h1Raw = await page.$eval('h1', (el) => el.textContent?.trim() || '').catch(() => '')
+          const categoryName = cleanCategoryName(item.nameFromParent || h1Raw || canonicalUrl)
+          const fullPath = [...effectiveParentPath, categoryName]
 
-        const fullPath = [...effectiveParentPath, categoryName]
-
-        // Record this category
-        const canonicalUrl = pageUrl.startsWith('http')
-          ? pageUrl
-          : `https://www.mueller.de${pageUrl}`
-        if (!seenUrls.has(canonicalUrl)) {
-          seenUrls.add(canonicalUrl)
-          allCategories.push({
+          // Emit this category
+          await onCategory({
             url: canonicalUrl,
             name: categoryName,
             path: fullPath,
           })
-        }
 
-        // Leaf detection: check for selected category nav option
-        const isLeaf = await page.$('[class*="category-navigation__option--selected"]') !== null
+          // Leaf detection
+          const isLeaf = await page.$('[class*="category-navigation__option--selected"]') !== null
 
-        if (isLeaf) {
-          console.log(`[Mueller CategoryDiscovery] Leaf: ${fullPath.join(' > ')}`)
-          return
-        }
+          if (!isLeaf) {
+            // Non-leaf: extract children and add to queue (BFS)
+            const children = await page.$$eval(
+              '[class*="category-navigation__list"] a[href]',
+              (links) => links.map((a) => ({
+                href: a.getAttribute('href') || '',
+                text: a.textContent?.trim() || '',
+              })).filter((c) => c.href),
+            )
 
-        // Non-leaf: extract child links + text and recurse
-        const children = await page.$$eval(
-          '[class*="category-navigation__list"] a[href]',
-          (links) => links.map((a) => ({
-            href: a.getAttribute('href') || '',
-            text: a.textContent?.trim() || '',
-          })).filter((c) => c.href),
-        )
+            if (children.length > 0) {
+              console.log(`[Mueller CategoryDiscovery] ${children.length} children under ${categoryName}`)
+              for (const child of children) {
+                const childUrl = child.href.startsWith('http')
+                  ? child.href
+                  : `https://www.mueller.de${child.href}`
+                queue.push({
+                  url: childUrl,
+                  parentPath: fullPath,
+                  nameFromParent: cleanCategoryName(child.text),
+                })
+              }
+            } else {
+              console.log(`[Mueller CategoryDiscovery] No child links on ${canonicalUrl}, treating as leaf`)
+            }
+          } else {
+            console.log(`[Mueller CategoryDiscovery] Leaf: ${fullPath.join(' > ')}`)
+          }
 
-        if (children.length === 0) {
-          console.log(`[Mueller CategoryDiscovery] No child links on ${pageUrl}, treating as leaf`)
-          return
-        }
-
-        console.log(`[Mueller CategoryDiscovery] ${children.length} children under ${categoryName}`)
-        for (const child of children) {
-          const childUrl = child.href.startsWith('http')
-            ? child.href
-            : `https://www.mueller.de${child.href}`
-          await walkCategory(childUrl, fullPath, cleanCategoryName(child.text))
+          // Persist progress after each page is fully processed
+          await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
+        } catch (e) {
+          console.warn(`[Mueller CategoryDiscovery] Error visiting ${canonicalUrl}, skipping: ${e}`)
+          await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         }
       }
-
-      await walkCategory(url, [])
     } finally {
       await browser.close()
     }
 
-    console.log(`[Mueller CategoryDiscovery] Done: ${allCategories.length} categories`)
-    return allCategories
+    console.log(`[Mueller CategoryDiscovery] Tick done: ${pagesVisited} pages visited, ${queue.length} remaining in queue`)
+    return { visitedUrls: [...visitedUrls], queue }
   },
 }

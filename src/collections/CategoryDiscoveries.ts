@@ -82,6 +82,15 @@ export const CategoryDiscoveries: CollectionConfig = {
               ],
             },
             {
+              name: 'progress',
+              type: 'json',
+              label: 'Progress State',
+              admin: {
+                readOnly: true,
+                description: 'Internal state for resumable discovery',
+              },
+            },
+            {
               type: 'row',
               fields: [
                 {

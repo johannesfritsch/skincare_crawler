@@ -7,6 +7,7 @@ import { aggregateProduct } from '@/lib/aggregate-product'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { processVideo } from '@/lib/video-processing/process-video'
 import { getCategoryDriver } from '@/lib/category-discovery/driver'
+import type { DriverProgress, DiscoveredCategory } from '@/lib/category-discovery/types'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -1729,6 +1730,14 @@ async function processVideoProcessing(
   }
 }
 
+interface CategoryDiscoveryProgress {
+  currentUrlIndex: number
+  driverProgress: DriverProgress | null
+  pathToId: Record<string, number>
+  seenUrls: string[]
+  categoryUrls: string[]
+}
+
 async function processCategoryDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   jobId: number,
@@ -1778,136 +1787,204 @@ async function processCategoryDiscovery(
     await createEvent(payload, 'start', 'category-discoveries', jobId, `Started category discovery for ${storeUrls.length} URL(s)`)
   }
 
-  try {
-    // Discover categories from all URLs, deduplicate by URL
-    const allCategories: Array<{ url: string; name: string; path: string[] }> = []
-    const seenUrls = new Set<string>()
+  // Restore or initialize progress state
+  const rawProgress = discovery.progress
+  const savedProgress: CategoryDiscoveryProgress | null =
+    typeof rawProgress === 'string' ? JSON.parse(rawProgress) :
+    (rawProgress && typeof rawProgress === 'object' && 'currentUrlIndex' in rawProgress) ? rawProgress as unknown as CategoryDiscoveryProgress :
+    null
+  let currentUrlIndex = savedProgress?.currentUrlIndex ?? 0
+  let driverProgress: DriverProgress | null = savedProgress?.driverProgress ?? null
+  const pathToId = new Map<string, number>(Object.entries(savedProgress?.pathToId ?? {}).map(([k, v]) => [k, v]))
+  const seenUrls = new Set<string>(savedProgress?.seenUrls ?? [])
+  const categoryUrls: string[] = savedProgress?.categoryUrls ?? []
+  let created = discovery.created ?? 0
+  let existing = discovery.existing ?? 0
+  let discovered = discovery.discovered ?? 0
 
-    for (const url of storeUrls) {
-      const urlDriver = getCategoryDriver(url) ?? driver
-      const categories = await urlDriver.discoverCategories(url)
-      for (const cat of categories) {
-        if (!seenUrls.has(cat.url)) {
-          seenUrls.add(cat.url)
-          allCategories.push(cat)
-        }
+  const source = driver.slug as 'dm' | 'mueller' | 'rossmann'
+  const maxPages = discovery.itemsPerTick ?? undefined
+
+  console.log(`[Category Discovery] Job ${jobId}: restored progress — type=${typeof rawProgress}, urlIndex=${currentUrlIndex}, visited=${driverProgress?.visitedUrls?.length ?? 0}, queue=${driverProgress?.queue?.length ?? 0}, seenUrls=${seenUrls.size}, maxPages=${maxPages ?? 'unlimited'}`)
+
+  // Derive slug from URL path
+  function deriveSlug(cat: DiscoveredCategory): string {
+    let slug = cat.name.toLowerCase().replace(/\s+/g, '-')
+    try {
+      const urlPath = new URL(cat.url).pathname
+      const segments = urlPath.split('/').filter(Boolean)
+      const meaningful = segments.filter((s) => s !== 'c' && s !== 'de' && !/^olcat\d/.test(s))
+      if (meaningful.length > 0) {
+        slug = meaningful[meaningful.length - 1]
       }
+    } catch { /* use name-derived slug */ }
+    return slug
+  }
+
+  // Save full progress state to DB
+  async function saveProgress(currentDriverProgress: DriverProgress | null): Promise<void> {
+    const progressState: CategoryDiscoveryProgress = {
+      currentUrlIndex,
+      driverProgress: currentDriverProgress,
+      pathToId: Object.fromEntries(pathToId),
+      seenUrls: [...seenUrls],
+      categoryUrls,
     }
-
-    console.log(`[Category Discovery] Total unique categories: ${allCategories.length}`)
-
-    await payload.update({
-      collection: 'category-discoveries',
-      id: jobId,
-      data: { discovered: allCategories.length },
-    })
-
-    // Derive source slug from the driver
-    const source = driver.slug as 'dm' | 'mueller' | 'rossmann'
-
-    // Create SourceCategory records, maintaining a map of path-key -> category ID for parent resolution
-    const pathToId = new Map<string, number>()
-    let created = 0
-    let existing = 0
-
-    for (const cat of allCategories) {
-      // Build parent path key (all elements except the last)
-      const parentPathParts = cat.path.slice(0, -1)
-      const parentKey = parentPathParts.join(' > ')
-      const parentId = parentKey ? (pathToId.get(parentKey) ?? null) : null
-
-      // Derive slug from URL path: last meaningful segment
-      // Rossmann URLs end with /c/olcat3_... so we skip ID-like trailing segments
-      let slug = cat.name.toLowerCase().replace(/\s+/g, '-')
-      try {
-        const urlPath = new URL(cat.url).pathname
-        const segments = urlPath.split('/').filter(Boolean)
-        // Drop trailing segments that are 'c', 'de', or look like IDs (e.g. olcat3_6076443)
-        const meaningful = segments.filter((s) => s !== 'c' && s !== 'de' && !/^olcat\d/.test(s))
-        if (meaningful.length > 0) {
-          slug = meaningful[meaningful.length - 1]
-        }
-      } catch { /* use name-derived slug */ }
-
-      // Query for existing source-category with same slug + source + parent
-      const existingCat = await payload.find({
-        collection: 'source-categories',
-        where: {
-          and: [
-            { slug: { equals: slug } },
-            { source: { equals: source } },
-            parentId
-              ? { parent: { equals: parentId } }
-              : { parent: { exists: false } },
-          ],
-        },
-        limit: 1,
-      })
-
-      const currentKey = cat.path.join(' > ')
-
-      if (existingCat.docs.length > 0) {
-        existing++
-        // Update URL if changed
-        if (existingCat.docs[0].url !== cat.url) {
-          await payload.update({
-            collection: 'source-categories',
-            id: existingCat.docs[0].id,
-            data: { url: cat.url, name: cat.name },
-          })
-        }
-        pathToId.set(currentKey, existingCat.docs[0].id)
-      } else {
-        const newCat = await payload.create({
-          collection: 'source-categories',
-          data: {
-            name: cat.name,
-            slug,
-            source,
-            url: cat.url,
-            ...(parentId ? { parent: parentId } : {}),
-          },
-        })
-        created++
-        pathToId.set(currentKey, newCat.id)
-      }
-
-      // Update progress
-      await payload.update({
-        collection: 'category-discoveries',
-        id: jobId,
-        data: { created, existing },
-      })
-    }
-
-    // Write output and mark completed
-    const categoryUrls = allCategories.map((c) => c.url).join('\n')
     await payload.update({
       collection: 'category-discoveries',
       id: jobId,
       data: {
-        status: 'completed',
-        discovered: allCategories.length,
+        discovered,
         created,
         existing,
-        categoryUrls,
-        completedAt: new Date().toISOString(),
+        progress: JSON.parse(JSON.stringify(progressState)),
       },
     })
-    await createEvent(payload, 'success', 'category-discoveries', jobId, `Completed: ${allCategories.length} discovered, ${created} created, ${existing} existing`)
+  }
 
-    return Response.json({
-      message: 'Category discovery completed',
-      jobId,
-      type: 'category-discovery',
-      discovered: allCategories.length,
-      created,
-      existing,
+  // onProgress callback: called by drivers after each page, persists full state
+  async function onProgress(dp: DriverProgress): Promise<void> {
+    driverProgress = dp
+    await saveProgress(dp)
+  }
+
+  // onCategory callback: saves each SourceCategory immediately
+  async function onCategory(cat: DiscoveredCategory): Promise<void> {
+    if (seenUrls.has(cat.url)) return
+    seenUrls.add(cat.url)
+    categoryUrls.push(cat.url)
+    discovered++
+
+    const parentPathParts = cat.path.slice(0, -1)
+    const parentKey = parentPathParts.join(' > ')
+    const parentId = parentKey ? (pathToId.get(parentKey) ?? null) : null
+    const slug = deriveSlug(cat)
+    const currentKey = cat.path.join(' > ')
+
+    const existingCat = await payload.find({
+      collection: 'source-categories',
+      where: {
+        and: [
+          { slug: { equals: slug } },
+          { source: { equals: source } },
+          parentId
+            ? { parent: { equals: parentId } }
+            : { parent: { exists: false } },
+        ],
+      },
+      limit: 1,
     })
+
+    if (existingCat.docs.length > 0) {
+      existing++
+      if (existingCat.docs[0].url !== cat.url) {
+        await payload.update({
+          collection: 'source-categories',
+          id: existingCat.docs[0].id,
+          data: { url: cat.url, name: cat.name },
+        })
+      }
+      pathToId.set(currentKey, existingCat.docs[0].id)
+    } else {
+      const newCat = await payload.create({
+        collection: 'source-categories',
+        data: {
+          name: cat.name,
+          slug,
+          source,
+          url: cat.url,
+          ...(parentId ? { parent: parentId } : {}),
+        },
+      })
+      created++
+      pathToId.set(currentKey, newCat.id)
+    }
+  }
+
+  try {
+    let pagesRemaining = maxPages
+
+    while (currentUrlIndex < storeUrls.length) {
+      if (pagesRemaining !== undefined && pagesRemaining <= 0) break
+
+      const url = storeUrls[currentUrlIndex]
+      const urlDriver = getCategoryDriver(url) ?? driver
+
+      // Capture visited count before the call (onProgress updates driverProgress during execution)
+      const prevVisited = driverProgress?.visitedUrls?.length ?? 0
+
+      const result = await urlDriver.discoverCategories({
+        url,
+        onCategory,
+        onProgress,
+        progress: driverProgress ?? undefined,
+        maxPages: pagesRemaining,
+      })
+
+      const pagesUsed = result.visitedUrls.length - prevVisited
+
+      if (result.queue.length === 0) {
+        // This URL is fully discovered
+        currentUrlIndex++
+        driverProgress = null
+        if (pagesRemaining !== undefined) {
+          pagesRemaining -= pagesUsed
+        }
+      } else {
+        // Budget exhausted mid-URL, save driver progress for next tick
+        driverProgress = result
+        break
+      }
+    }
+
+    const allDone = currentUrlIndex >= storeUrls.length
+
+    if (allDone) {
+      await payload.update({
+        collection: 'category-discoveries',
+        id: jobId,
+        data: {
+          status: 'completed',
+          discovered,
+          created,
+          existing,
+          categoryUrls: categoryUrls.join('\n'),
+          progress: null,
+          completedAt: new Date().toISOString(),
+        },
+      })
+      await createEvent(payload, 'success', 'category-discoveries', jobId, `Completed: ${discovered} discovered, ${created} created, ${existing} existing`)
+
+      return Response.json({
+        message: 'Category discovery completed',
+        jobId,
+        type: 'category-discovery',
+        discovered,
+        created,
+        existing,
+      })
+    } else {
+      // Save final state (currentUrlIndex may have advanced since last onProgress)
+      await saveProgress(driverProgress)
+      await createEvent(payload, 'info', 'category-discoveries', jobId, `Tick done: ${discovered} discovered so far, URL ${currentUrlIndex + 1}/${storeUrls.length}, queue ${driverProgress?.queue?.length ?? 0} remaining`)
+
+      return Response.json({
+        message: 'Category discovery tick completed',
+        jobId,
+        type: 'category-discovery',
+        discovered,
+        created,
+        existing,
+        progress: true,
+      })
+    }
   } catch (error) {
     console.error('Category discovery error:', error)
 
     const errorMsg = error instanceof Error ? error.message : String(error)
+
+    // Save progress even on failure so we can resume
+    await saveProgress(driverProgress)
     await payload.update({
       collection: 'category-discoveries',
       id: jobId,
