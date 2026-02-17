@@ -211,6 +211,17 @@ export async function aggregateProduct(
         updateData.description = classifyResult.description
       }
 
+      if (classifyResult.productType) {
+        const ptDoc = await payload.find({
+          collection: 'product-types',
+          where: { slug: { equals: classifyResult.productType } },
+          limit: 1,
+        })
+        if (ptDoc.docs.length > 0) {
+          updateData.productType = ptDoc.docs[0].id
+        }
+      }
+
       const mapEvidence = (entry: { sourceIndex: number; type: 'ingredient' | 'descriptionSnippet'; snippet?: string; ingredientNames?: string[] }) => {
         const source = classifySources[entry.sourceIndex]
         const result: Record<string, unknown> = {

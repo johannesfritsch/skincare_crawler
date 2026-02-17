@@ -71,6 +71,7 @@ export interface Config {
     media: Media;
     brands: Brand;
     categories: Category;
+    'product-types': ProductType;
     'source-categories': SourceCategory;
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
@@ -132,6 +133,7 @@ export interface Config {
     media: MediaSelect<false> | MediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
+    'product-types': ProductTypesSelect<false> | ProductTypesSelect<true>;
     'source-categories': SourceCategoriesSelect<false> | SourceCategoriesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
@@ -253,6 +255,18 @@ export interface Category {
    */
   parent?: (number | null) | Category;
   description?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-types".
+ */
+export interface ProductType {
+  id: number;
+  name: string;
+  nameDE: string;
+  slug: string;
   updatedAt: string;
   createdAt: string;
 }
@@ -552,6 +566,7 @@ export interface Product {
   description?: string | null;
   brand?: (number | null) | Brand;
   category?: (number | null) | Category;
+  productType?: (number | null) | ProductType;
   publishedAt?: string | null;
   /**
    * Product ingredients (aggregated from sources)
@@ -1068,6 +1083,10 @@ export interface PayloadLockedDocument {
         value: number | Category;
       } | null)
     | ({
+        relationTo: 'product-types';
+        value: number | ProductType;
+      } | null)
+    | ({
         relationTo: 'source-categories';
         value: number | SourceCategory;
       } | null)
@@ -1237,6 +1256,17 @@ export interface CategoriesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-types_select".
+ */
+export interface ProductTypesSelect<T extends boolean = true> {
+  name?: T;
+  nameDE?: T;
+  slug?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "source-categories_select".
  */
 export interface SourceCategoriesSelect<T extends boolean = true> {
@@ -1305,6 +1335,7 @@ export interface ProductsSelect<T extends boolean = true> {
   description?: T;
   brand?: T;
   category?: T;
+  productType?: T;
   publishedAt?: T;
   ingredients?:
     | T

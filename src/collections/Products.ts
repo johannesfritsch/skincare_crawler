@@ -57,6 +57,12 @@ export const Products: CollectionConfig = {
               label: 'Category',
             },
             {
+              name: 'productType',
+              type: 'relationship',
+              relationTo: 'product-types',
+              label: 'Product Type',
+            },
+            {
               name: 'publishedAt',
               type: 'date',
               label: 'Published At',

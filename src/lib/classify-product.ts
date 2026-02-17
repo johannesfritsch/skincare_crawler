@@ -15,6 +15,7 @@ interface EvidenceEntry {
 
 export interface ClassifyProductResult {
   description: string
+  productType: string
   productAttributes: Array<{ attribute: string } & EvidenceEntry>
   productClaims: Array<{ claim: string } & EvidenceEntry>
   tokensUsed: TokenUsage
@@ -25,6 +26,11 @@ const SYSTEM_PROMPT = `You are an expert cosmetic chemist analyzing cosmetics/pe
 You will receive one or more sources for the same product, each with a description and/or ingredient list.
 
 First, write a short neutral product description (2-4 sentences) in {{LANGUAGE}}. State what the product is, what it does, and any notable claims. No advertising language, no superlatives, no promotional tone. Just factual information.
+
+Then classify the product into exactly one product type from this list:
+cleanser, toner, moisturizer, sunCream, peeling, treatment, mask, eyeCream, lipcare, serum, eyelashSerum, other
+
+Pick the single most appropriate type. Use "other" only if none of the specific types fit.
 
 Then identify which product attributes and claims apply, providing evidence for each.
 
@@ -66,6 +72,7 @@ Then identify which product attributes and claims apply, providing evidence for 
 Return ONLY JSON:
 {
   "description": "A neutral 2-4 sentence product description.",
+  "productType": "moisturizer",
   "productAttributes": [
     { "attribute": "containsParabens", "sourceIndex": 0, "type": "ingredient", "ingredientNames": ["Methylparaben", "Propylparaben"] }
   ],
@@ -75,6 +82,11 @@ Return ONLY JSON:
 }
 
 No explanation, no markdown fences.`
+
+const VALID_PRODUCT_TYPES = new Set([
+  'cleanser', 'toner', 'moisturizer', 'sunCream', 'peeling', 'treatment',
+  'mask', 'eyeCream', 'lipcare', 'serum', 'eyelashSerum', 'other',
+])
 
 const VALID_ATTRIBUTES = new Set([
   'containsAllergens', 'containsSimpleAlcohol', 'containsGluten', 'containsSilicones',
@@ -148,8 +160,15 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   const result = parsed as {
     description?: string
+    productType?: string
     productAttributes?: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
     productClaims?: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
+  }
+
+  let productType = result.productType ?? 'other'
+  if (!VALID_PRODUCT_TYPES.has(productType)) {
+    console.log(`[classifyProduct] Invalid productType "${productType}", falling back to "other"`)
+    productType = 'other'
   }
 
   const rawAttributes = (result.productAttributes ?? []).filter((entry) => {
@@ -170,6 +189,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   return {
     description: result.description ?? '',
+    productType,
     productAttributes: rawAttributes.map((entry) => ({
       attribute: entry.attribute,
       sourceIndex: entry.sourceIndex,
