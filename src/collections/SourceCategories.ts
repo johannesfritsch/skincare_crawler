@@ -9,7 +9,7 @@ export const SourceCategories: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'slug', 'source', 'parent', 'createdAt'],
-    group: 'Content',
+    group: 'Sources',
   },
   fields: [
     {
