@@ -12,6 +12,11 @@ export const SourceProducts: CollectionConfig = {
     group: 'Sources',
     description: 'Products crawled from source stores',
     listSearchableFields: ['name', 'brandName', 'gtin', 'sourceUrl'],
+    components: {
+      edit: {
+        SaveButton: '@/components/SourceProductSaveButton',
+      },
+    },
   },
   fields: [
     {

@@ -739,7 +739,7 @@ export const muellerDriver: SourceDriver = {
               sourceArticleNumber: scraped.sourceArticleNumber,
               brandName: scraped.brandName,
               name: variantName,
-              sourceCategory: sourceCategoryId,
+              ...(sourceCategoryId ? { sourceCategory: sourceCategoryId } : {}),
               description: scraped.description,
               amount: scraped.amount,
               amountUnit: scraped.amountUnit,
