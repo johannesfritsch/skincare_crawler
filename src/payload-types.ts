@@ -104,6 +104,7 @@ export interface Config {
       events: 'events';
     };
     'product-crawls': {
+      crawledProducts: 'source-products';
       events: 'events';
     };
     'product-aggregations': {
@@ -423,6 +424,18 @@ export interface ProductDiscovery {
    * Products already in database
    */
   existing?: number | null;
+  /**
+   * Internal state for resumable discovery
+   */
+  progress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   startedAt?: string | null;
   completedAt?: string | null;
   /**
@@ -430,9 +443,17 @@ export interface ProductDiscovery {
    */
   productUrls?: string | null;
   /**
-   * Max products to save per tick. Leave empty for unlimited.
+   * URLs that failed during discovery (e.g. 429 rate limits, timeouts), one per line.
+   */
+  errorUrls?: string | null;
+  /**
+   * Max pages to process per tick. Leave empty for unlimited.
    */
   itemsPerTick?: number | null;
+  /**
+   * Milliseconds between requests. Default: 2000.
+   */
+  delay?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -449,11 +470,15 @@ export interface ProductCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   source: 'all' | 'dm' | 'rossmann' | 'mueller';
-  type: 'all' | 'selected_urls' | 'from_discovery';
+  type: 'all' | 'selected_urls' | 'selected_gtins' | 'from_discovery';
   /**
    * Product URLs to crawl, one per line
    */
   urls?: string | null;
+  /**
+   * GTINs to crawl (all sources), one per line
+   */
+  gtins?: string | null;
   /**
    * Use product URLs from this completed discovery
    */
@@ -489,15 +514,139 @@ export interface ProductCrawl {
    * Number of products to crawl per tick.
    */
   itemsPerTick?: number | null;
-  /**
-   * GTINs of successfully crawled products, one per line
-   */
-  crawledGtins?: string | null;
+  crawledProducts?: {
+    docs?: (number | SourceProduct)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Products crawled from source stores
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-products".
+ */
+export interface SourceProduct {
+  id: number;
+  /**
+   * Global Trade Item Number
+   */
+  gtin?: string | null;
+  status?: ('uncrawled' | 'crawled' | 'failed') | null;
+  /**
+   * URL from which this product was crawled
+   */
+  sourceUrl?: string | null;
+  source?: ('dm' | 'mueller' | 'rossmann') | null;
+  /**
+   * Source-specific article number (e.g., DM Artikelnummer)
+   */
+  sourceArticleNumber?: string | null;
+  /**
+   * Product brand name
+   */
+  brandName?: string | null;
+  name?: string | null;
+  sourceCategory?: (number | null) | SourceCategory;
+  /**
+   * Average rating (0-5)
+   */
+  rating?: number | null;
+  /**
+   * Total number of reviews
+   */
+  ratingNum?: number | null;
+  /**
+   * Product amount (e.g., 3, 100, 250)
+   */
+  amount?: number | null;
+  /**
+   * Unit of measurement (e.g., ml, g, Stück)
+   */
+  amountUnit?: string | null;
+  /**
+   * Product labels (e.g., Neu, Limitiert, dm-Marke)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Full product description extracted from source page (markdown)
+   */
+  description?: string | null;
+  images?:
+    | {
+        url: string;
+        alt?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  variants?:
+    | {
+        dimension: string;
+        options?:
+          | {
+              label: string;
+              value?: string | null;
+              gtin?: string | null;
+              isSelected?: boolean | null;
+              id?: string | null;
+            }[]
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Timestamped price entries from each crawl
+   */
+  priceHistory?:
+    | {
+        recordedAt: string;
+        /**
+         * Price in cents
+         */
+        amount?: number | null;
+        currency?: string | null;
+        perUnitAmount?: number | null;
+        perUnitCurrency?: string | null;
+        /**
+         * Reference quantity (e.g., 100 for "per 100 ml")
+         */
+        perUnitQuantity?: number | null;
+        /**
+         * Unit of measurement (e.g., ml, g, l, kg)
+         */
+        unit?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Raw ingredient strings as crawled from source
+   */
+  ingredients?:
+    | {
+        name: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * When this product was last crawled
+   */
+  crawledAt?: string | null;
+  /**
+   * The crawl job that last crawled this product
+   */
+  productCrawl?: (number | null) | ProductCrawl;
   updatedAt: string;
   createdAt: string;
 }
@@ -661,125 +810,6 @@ export interface Product {
    * Links to crawled source product data
    */
   sourceProducts?: (number | SourceProduct)[] | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * Products crawled from source stores
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-products".
- */
-export interface SourceProduct {
-  id: number;
-  /**
-   * Global Trade Item Number
-   */
-  gtin?: string | null;
-  status?: ('uncrawled' | 'crawled' | 'failed') | null;
-  /**
-   * URL from which this product was crawled
-   */
-  sourceUrl?: string | null;
-  source?: ('dm' | 'mueller' | 'rossmann') | null;
-  /**
-   * Source-specific article number (e.g., DM Artikelnummer)
-   */
-  sourceArticleNumber?: string | null;
-  /**
-   * Product brand name
-   */
-  brandName?: string | null;
-  name?: string | null;
-  sourceCategory?: (number | null) | SourceCategory;
-  /**
-   * Average rating (0-5)
-   */
-  rating?: number | null;
-  /**
-   * Total number of reviews
-   */
-  ratingNum?: number | null;
-  /**
-   * Product amount (e.g., 3, 100, 250)
-   */
-  amount?: number | null;
-  /**
-   * Unit of measurement (e.g., ml, g, Stück)
-   */
-  amountUnit?: string | null;
-  /**
-   * Product labels (e.g., Neu, Limitiert, dm-Marke)
-   */
-  labels?:
-    | {
-        label: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Full product description extracted from source page (markdown)
-   */
-  description?: string | null;
-  images?:
-    | {
-        url: string;
-        alt?: string | null;
-        id?: string | null;
-      }[]
-    | null;
-  variants?:
-    | {
-        dimension: string;
-        options?:
-          | {
-              label: string;
-              value?: string | null;
-              gtin?: string | null;
-              isSelected?: boolean | null;
-              id?: string | null;
-            }[]
-          | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Timestamped price entries from each crawl
-   */
-  priceHistory?:
-    | {
-        recordedAt: string;
-        /**
-         * Price in cents
-         */
-        amount?: number | null;
-        currency?: string | null;
-        perUnitAmount?: number | null;
-        perUnitCurrency?: string | null;
-        /**
-         * Reference quantity (e.g., 100 for "per 100 ml")
-         */
-        perUnitQuantity?: number | null;
-        /**
-         * Unit of measurement (e.g., ml, g, l, kg)
-         */
-        unit?: string | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Raw ingredient strings as crawled from source
-   */
-  ingredients?:
-    | {
-        name: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * When this product was last crawled
-   */
-  crawledAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1030,6 +1060,10 @@ export interface CategoryDiscovery {
    * Discovered category URLs, one per line
    */
   categoryUrls?: string | null;
+  /**
+   * URLs that failed during discovery (e.g. timeouts), one per line. Can be copied into Store URLs to retry.
+   */
+  errorUrls?: string | null;
   /**
    * Max categories to save per tick. Leave empty for unlimited.
    */
@@ -1449,6 +1483,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
         id?: T;
       };
   crawledAt?: T;
+  productCrawl?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1462,10 +1497,13 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   discovered?: T;
   created?: T;
   existing?: T;
+  progress?: T;
   startedAt?: T;
   completedAt?: T;
   productUrls?: T;
+  errorUrls?: T;
   itemsPerTick?: T;
+  delay?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1479,6 +1517,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   source?: T;
   type?: T;
   urls?: T;
+  gtins?: T;
   discovery?: T;
   scope?: T;
   minCrawlAge?: T;
@@ -1490,7 +1529,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   completedAt?: T;
   debug?: T;
   itemsPerTick?: T;
-  crawledGtins?: T;
+  crawledProducts?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1531,6 +1570,7 @@ export interface CategoryDiscoveriesSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   categoryUrls?: T;
+  errorUrls?: T;
   itemsPerTick?: T;
   events?: T;
   updatedAt?: T;

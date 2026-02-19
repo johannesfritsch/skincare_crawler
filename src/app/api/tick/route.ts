@@ -94,7 +94,7 @@ export const POST = async () => {
 
   // Prioritize selected jobs, otherwise random
   const selectedTargetJobs = activeJobs.filter(
-    (j) => (j.type === 'product-crawl' && (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery')) ||
+    (j) => (j.type === 'product-crawl' && (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery' || j.crawlType === 'selected_gtins')) ||
            (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
   const selected = selectedTargetJobs.length > 0
@@ -322,6 +322,11 @@ async function processIngredientsDiscovery(
   }
 }
 
+interface ProductDiscoveryJobProgress {
+  currentUrlIndex: number
+  driverProgress: unknown | null
+}
+
 async function processProductDiscovery(
   payload: Awaited<ReturnType<typeof getPayload>>,
   discoveryId: number,
@@ -331,10 +336,7 @@ async function processProductDiscovery(
     id: discoveryId,
   })
 
-  const itemsPerTick = discovery.itemsPerTick ?? undefined
-  console.log(`[Product Discovery] Starting with itemsPerTick: ${itemsPerTick ?? 'unlimited'}`)
-
-  // Parse semicolon-separated URLs
+  // Parse newline-separated URLs
   const sourceUrls = (discovery.sourceUrls ?? '').split('\n').map((u) => u.trim()).filter(Boolean)
   if (sourceUrls.length === 0) {
     await payload.update({
@@ -346,25 +348,18 @@ async function processProductDiscovery(
     return Response.json({ error: 'No URLs provided', jobId: discoveryId, type: 'product-discovery' }, { status: 400 })
   }
 
-  // Check that we have a driver for at least the first URL
-  const driver = getSourceDriver(sourceUrls[0])
-  if (!driver) {
+  const maybeDriver = getSourceDriver(sourceUrls[0])
+  if (!maybeDriver) {
     const errorMsg = `No driver found for URL: ${sourceUrls[0]}`
     await payload.update({
       collection: 'product-discoveries',
       id: discoveryId,
-      data: {
-        status: 'failed',
-        completedAt: new Date().toISOString(),
-      },
+      data: { status: 'failed', completedAt: new Date().toISOString() },
     })
     await createEvent(payload, 'error', 'product-discoveries', discoveryId, errorMsg)
-    return Response.json({
-      error: errorMsg,
-      jobId: discoveryId,
-      type: 'product-discovery',
-    }, { status: 400 })
+    return Response.json({ error: errorMsg, jobId: discoveryId, type: 'product-discovery' }, { status: 400 })
   }
+  const driver: SourceDriver = maybeDriver
 
   // Mark as in_progress if pending
   if (discovery.status === 'pending') {
@@ -382,155 +377,198 @@ async function processProductDiscovery(
     await createEvent(payload, 'start', 'product-discoveries', discoveryId, `Started product discovery for ${sourceUrls.length} URL(s)`)
   }
 
-  try {
-    // Discover products from all URLs
-    const allDiscoveredProducts: DiscoveredProduct[] = []
-    const seenUrls = new Set<string>()
+  // Restore or initialize progress cursor
+  const rawProgress = discovery.progress as ProductDiscoveryJobProgress | null
+  let currentUrlIndex = rawProgress?.currentUrlIndex ?? 0
+  let driverProgress: unknown | null = rawProgress?.driverProgress ?? null
 
-    for (const url of sourceUrls) {
-      const urlDriver = getSourceDriver(url) ?? driver
-      const { products } = await urlDriver.discoverProducts(url)
-      for (const p of products) {
-        if (!seenUrls.has(p.productUrl)) {
-          seenUrls.add(p.productUrl)
-          allDiscoveredProducts.push(p)
-        }
-      }
-    }
+  // Local state — productUrls/errorUrls accumulate from textarea, seenProductUrls for within-tick dedup
+  const productUrls: string[] = (discovery.productUrls ?? '').split('\n').filter(Boolean)
+  const errorUrls: string[] = ((discovery as unknown as Record<string, unknown>).errorUrls as string ?? '').split('\n').filter(Boolean)
+  const seenProductUrls = new Set<string>(productUrls)
+  let created = discovery.created ?? 0
+  let existing = discovery.existing ?? 0
+  let discovered = discovery.discovered ?? 0
 
-    const products = allDiscoveredProducts
-    console.log(`[Product Discovery] Total unique products: ${products.length}`)
+  const maxPages = discovery.itemsPerTick ?? undefined
+  const delayMs = (discovery as unknown as Record<string, unknown>).delay as number | undefined ?? 2000
 
-    // Update discovered count
+  console.log(`[Product Discovery] Job ${discoveryId}: urlIndex=${currentUrlIndex}, discovered=${discovered}, maxPages=${maxPages ?? 'unlimited'}, delay=${delayMs}ms`)
+
+  // Save minimal progress cursor + counters
+  async function saveProgress(currentDriverProgress: unknown | null): Promise<void> {
     await payload.update({
       collection: 'product-discoveries',
       id: discoveryId,
       data: {
-        discovered: products.length,
+        discovered,
+        created,
+        existing,
+        progress: { currentUrlIndex, driverProgress: currentDriverProgress },
       },
     })
+  }
 
-    // Calculate offset from already-processed count
-    let created = discovery.created || 0
-    let existing = discovery.existing || 0
-    const offset = created + existing
+  // onProgress callback: called by drivers after each page
+  async function onProgress(dp: unknown): Promise<void> {
+    driverProgress = dp
+    await saveProgress(dp)
+  }
 
-    // Determine slice to process this tick
-    const end = itemsPerTick ? Math.min(offset + itemsPerTick, products.length) : products.length
-    const batch = products.slice(offset, end)
+  // onProduct callback: dedup, create/update SourceProduct
+  async function onProduct(product: DiscoveredProduct): Promise<void> {
+    if (seenProductUrls.has(product.productUrl)) return
+    seenProductUrls.add(product.productUrl)
+    productUrls.push(product.productUrl)
+    discovered++
 
-    for (const product of batch) {
-      const existingProduct = await payload.find({
-        collection: 'source-products',
-        where: { and: [
-          { sourceUrl: { equals: product.productUrl } },
-          { or: [{ source: { equals: driver.slug } }, { source: { exists: false } }] },
-        ] },
+    const urlDriver: SourceDriver = getSourceDriver(product.productUrl) ?? driver
+
+    const existingProduct = await payload.find({
+      collection: 'source-products',
+      where: { and: [
+        { sourceUrl: { equals: product.productUrl } },
+        { or: [{ source: { equals: urlDriver.slug } }, { source: { exists: false } }] },
+      ] },
+      limit: 1,
+    })
+
+    // Look up SourceCategory by URL
+    let sourceCategoryId: number | null = null
+    if (product.categoryUrl) {
+      const catMatch = await payload.find({
+        collection: 'source-categories',
+        where: { and: [{ url: { equals: product.categoryUrl } }, { source: { equals: urlDriver.slug } }] },
         limit: 1,
       })
-
-      // Look up SourceCategory by URL
-      let sourceCategoryId: number | null = null
-      if (product.categoryUrl) {
-        const catMatch = await payload.find({
-          collection: 'source-categories',
-          where: { and: [{ url: { equals: product.categoryUrl } }, { source: { equals: driver.slug } }] },
-          limit: 1,
-        })
-        if (catMatch.docs.length > 0) sourceCategoryId = catMatch.docs[0].id
-      }
-
-      const now = new Date().toISOString()
-      const priceEntry = product.price != null ? {
-        recordedAt: now,
-        amount: product.price,
-        currency: product.currency ?? 'EUR',
-      } : null
-
-      const discoveryData = {
-        sourceUrl: product.productUrl,
-        brandName: product.brandName,
-        name: product.name,
-        sourceCategory: sourceCategoryId,
-        rating: product.rating,
-        ratingNum: product.ratingCount,
-        ...(product.gtin ? { gtin: product.gtin } : {}),
-      }
-
-      if (existingProduct.docs.length === 0) {
-        await payload.create({
-          collection: 'source-products',
-          data: {
-            source: driver.slug,
-            status: 'uncrawled',
-            ...discoveryData,
-            priceHistory: priceEntry ? [priceEntry] : [],
-          },
-        })
-        created++
-      } else {
-        const existingHistory = existingProduct.docs[0].priceHistory ?? []
-        await payload.update({
-          collection: 'source-products',
-          id: existingProduct.docs[0].id,
-          data: {
-            source: driver.slug,
-            ...discoveryData,
-            ...(priceEntry ? { priceHistory: [...existingHistory, priceEntry] } : {}),
-          },
-        })
-        existing++
-      }
-
-      // Update stats after each product
-      await payload.update({
-        collection: 'product-discoveries',
-        id: discoveryId,
-        data: {
-          created,
-          existing,
-        },
-      })
+      if (catMatch.docs.length > 0) sourceCategoryId = catMatch.docs[0].id
     }
 
-    // Check if all products processed
-    if (created + existing >= products.length) {
-      const discoveredProductUrls = products.map((p) => p.productUrl).join('\n')
+    const now = new Date().toISOString()
+    const priceEntry = product.price != null ? {
+      recordedAt: now,
+      amount: product.price,
+      currency: product.currency ?? 'EUR',
+    } : null
+
+    const discoveryData = {
+      sourceUrl: product.productUrl,
+      brandName: product.brandName,
+      name: product.name,
+      sourceCategory: sourceCategoryId,
+      rating: product.rating,
+      ratingNum: product.ratingCount,
+      ...(product.gtin ? { gtin: product.gtin } : {}),
+    }
+
+    if (existingProduct.docs.length === 0) {
+      await payload.create({
+        collection: 'source-products',
+        data: {
+          source: urlDriver.slug,
+          status: 'uncrawled',
+          ...discoveryData,
+          priceHistory: priceEntry ? [priceEntry] : [],
+        },
+      })
+      created++
+    } else {
+      const existingHistory = existingProduct.docs[0].priceHistory ?? []
+      await payload.update({
+        collection: 'source-products',
+        id: existingProduct.docs[0].id,
+        data: {
+          source: urlDriver.slug,
+          ...discoveryData,
+          ...(priceEntry ? { priceHistory: [...existingHistory, priceEntry] } : {}),
+        },
+      })
+      existing++
+    }
+  }
+
+  try {
+    let pagesRemaining = maxPages
+
+    while (currentUrlIndex < sourceUrls.length) {
+      if (pagesRemaining !== undefined && pagesRemaining <= 0) break
+
+      const url = sourceUrls[currentUrlIndex]
+      const urlDriver = getSourceDriver(url) ?? driver
+
+      const result = await urlDriver.discoverProducts({
+        url,
+        onProduct,
+        onError: (failedUrl: string) => { errorUrls.push(failedUrl) },
+        onProgress,
+        progress: driverProgress ?? undefined,
+        maxPages: pagesRemaining,
+        delay: delayMs,
+      })
+
+      if (result.done) {
+        // This URL is fully discovered — save immediately so progress survives crashes
+        currentUrlIndex++
+        driverProgress = null
+        await saveProgress(null)
+        if (pagesRemaining !== undefined) {
+          pagesRemaining -= result.pagesUsed
+        }
+      } else {
+        // Budget exhausted mid-URL
+        break
+      }
+    }
+
+    const allDone = currentUrlIndex >= sourceUrls.length
+
+    if (allDone) {
       await payload.update({
         collection: 'product-discoveries',
         id: discoveryId,
         data: {
           status: 'completed',
+          discovered,
+          created,
+          existing,
+          productUrls: productUrls.length > 0 ? productUrls.join('\n') : null,
+          errorUrls: errorUrls.length > 0 ? errorUrls.join('\n') : null,
+          progress: null,
           completedAt: new Date().toISOString(),
-          productUrls: discoveredProductUrls,
         },
       })
-      await createEvent(payload, 'success', 'product-discoveries', discoveryId, `Completed: ${products.length} discovered, ${created} created, ${existing} existing`)
+      await createEvent(payload, 'success', 'product-discoveries', discoveryId, `Completed: ${discovered} discovered, ${created} created, ${existing} existing`)
 
       return Response.json({
         message: 'Discovery completed',
         jobId: discoveryId,
         type: 'product-discovery',
-        discovered: products.length,
+        discovered,
         created,
         existing,
       })
-    }
+    } else {
+      // Save final state
+      await saveProgress(driverProgress)
+      await createEvent(payload, 'info', 'product-discoveries', discoveryId, `Tick done: ${discovered} discovered so far, URL ${currentUrlIndex + 1}/${sourceUrls.length}`)
 
-    // More products remaining, stay in_progress
-    return Response.json({
-      message: 'Tick completed',
-      jobId: discoveryId,
-      type: 'product-discovery',
-      discovered: products.length,
-      created,
-      existing,
-      remaining: products.length - (created + existing),
-    })
+      return Response.json({
+        message: 'Product discovery tick completed',
+        jobId: discoveryId,
+        type: 'product-discovery',
+        discovered,
+        created,
+        existing,
+        progress: true,
+      })
+    }
   } catch (error) {
     console.error('Product discovery error:', error)
 
     const errorMsg = error instanceof Error ? error.message : String(error)
+
+    // Save progress even on failure so we can resume
+    await saveProgress(driverProgress)
     await payload.update({
       collection: 'product-discoveries',
       id: discoveryId,
@@ -608,6 +646,7 @@ async function processProductCrawl(
   // Parse URLs for selected_urls / from_discovery mode
   const isSelectedUrls = crawl.type === 'selected_urls'
   const isFromDiscovery = crawl.type === 'from_discovery'
+  const isSelectedGtins = crawl.type === 'selected_gtins'
 
   let urlList: string[] | undefined
   if (isSelectedUrls) {
@@ -616,6 +655,17 @@ async function processProductCrawl(
     const discoveryId = typeof crawl.discovery === 'object' ? crawl.discovery.id : crawl.discovery
     const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId })
     urlList = (discovery.productUrls || '').split('\n').map((u) => u.trim()).filter(Boolean)
+  } else if (isSelectedGtins) {
+    const gtinList = ((crawl as unknown as Record<string, unknown>).gtins as string || '')
+      .split('\n').map((g) => g.trim()).filter(Boolean)
+    if (gtinList.length > 0) {
+      const sourceProducts = await payload.find({
+        collection: 'source-products',
+        where: { gtin: { in: gtinList.join(',') } },
+        limit: 10000,
+      })
+      urlList = sourceProducts.docs.map((doc) => doc.sourceUrl).filter(Boolean) as string[]
+    }
   }
 
   const hasUrlList = !!urlList
@@ -641,7 +691,7 @@ async function processProductCrawl(
   }
 
   // On first tick for selected_urls/from_discovery, auto-create SourceProduct stubs for URLs that don't exist yet
-  if (isFirstTick && hasUrlList && urlList) {
+  if (isFirstTick && (isSelectedUrls || isFromDiscovery) && urlList) {
     let stubsCreated = 0
     for (const url of urlList) {
       const urlDriver = getSourceDriver(url)
@@ -694,7 +744,6 @@ async function processProductCrawl(
 
   let crawled = crawl.crawled || 0
   let errors = crawl.errors || 0
-  let crawledGtins = crawl.crawledGtins || ''
   let processedThisTick = 0
   let remainingBudget = itemsPerTick
 
@@ -723,18 +772,13 @@ async function processProductCrawl(
 
         if (productId !== null) {
           await driver.markProductStatus(payload, product.id, 'crawled')
-          crawled++
-          console.log(`[Product Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
-
-          // Fetch GTIN from the crawled product to track in output
-          const crawledProduct = await payload.findByID({
+          await payload.update({
             collection: 'source-products',
             id: productId,
+            data: { productCrawl: crawlId },
           })
-          const newGtin = crawledProduct?.gtin
-          if (newGtin) {
-            crawledGtins = crawledGtins ? `${crawledGtins}\n${newGtin}` : newGtin
-          }
+          crawled++
+          console.log(`[Product Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
         } else {
           await driver.markProductStatus(payload, product.id, 'failed')
           errors++
@@ -747,7 +791,7 @@ async function processProductCrawl(
         await payload.update({
           collection: 'product-crawls',
           id: crawlId,
-          data: { crawled, errors, crawledGtins },
+          data: { crawled, errors },
         })
       }
     }
@@ -766,7 +810,6 @@ async function processProductCrawl(
           status: 'completed',
           crawled,
           errors,
-          crawledGtins,
           completedAt: new Date().toISOString(),
         },
       })
@@ -1734,8 +1777,6 @@ interface CategoryDiscoveryProgress {
   currentUrlIndex: number
   driverProgress: DriverProgress | null
   pathToId: Record<string, number>
-  seenUrls: string[]
-  categoryUrls: string[]
 }
 
 async function processCategoryDiscovery(
@@ -1787,17 +1828,16 @@ async function processCategoryDiscovery(
     await createEvent(payload, 'start', 'category-discoveries', jobId, `Started category discovery for ${storeUrls.length} URL(s)`)
   }
 
-  // Restore or initialize progress state
-  const rawProgress = discovery.progress
-  const savedProgress: CategoryDiscoveryProgress | null =
-    typeof rawProgress === 'string' ? JSON.parse(rawProgress) :
-    (rawProgress && typeof rawProgress === 'object' && 'currentUrlIndex' in rawProgress) ? rawProgress as unknown as CategoryDiscoveryProgress :
-    null
-  let currentUrlIndex = savedProgress?.currentUrlIndex ?? 0
-  let driverProgress: DriverProgress | null = savedProgress?.driverProgress ?? null
-  const pathToId = new Map<string, number>(Object.entries(savedProgress?.pathToId ?? {}).map(([k, v]) => [k, v]))
-  const seenUrls = new Set<string>(savedProgress?.seenUrls ?? [])
-  const categoryUrls: string[] = savedProgress?.categoryUrls ?? []
+  // Restore or initialize progress cursor
+  const rawProgress = discovery.progress as CategoryDiscoveryProgress | null
+  let currentUrlIndex = rawProgress?.currentUrlIndex ?? 0
+  let driverProgress: DriverProgress | null = rawProgress?.driverProgress ?? null
+  const pathToId = new Map<string, number>(Object.entries(rawProgress?.pathToId ?? {}).map(([k, v]) => [k, v]))
+
+  // Local state — categoryUrls/errorUrls from textareas, seenUrls for within-tick dedup
+  const categoryUrls: string[] = (discovery.categoryUrls ?? '').split('\n').filter(Boolean)
+  const errorUrls: string[] = (discovery.errorUrls ?? '').split('\n').filter(Boolean)
+  const seenUrls = new Set<string>(categoryUrls)
   let created = discovery.created ?? 0
   let existing = discovery.existing ?? 0
   let discovered = discovery.discovered ?? 0
@@ -1805,7 +1845,7 @@ async function processCategoryDiscovery(
   const source = driver.slug as 'dm' | 'mueller' | 'rossmann'
   const maxPages = discovery.itemsPerTick ?? undefined
 
-  console.log(`[Category Discovery] Job ${jobId}: restored progress — type=${typeof rawProgress}, urlIndex=${currentUrlIndex}, visited=${driverProgress?.visitedUrls?.length ?? 0}, queue=${driverProgress?.queue?.length ?? 0}, seenUrls=${seenUrls.size}, maxPages=${maxPages ?? 'unlimited'}`)
+  console.log(`[Category Discovery] Job ${jobId}: urlIndex=${currentUrlIndex}, discovered=${discovered}, queue=${driverProgress?.queue?.length ?? 0}, maxPages=${maxPages ?? 'unlimited'}`)
 
   // Derive slug from URL path
   function deriveSlug(cat: DiscoveredCategory): string {
@@ -1821,14 +1861,12 @@ async function processCategoryDiscovery(
     return slug
   }
 
-  // Save full progress state to DB
+  // Save minimal progress cursor + counters
   async function saveProgress(currentDriverProgress: DriverProgress | null): Promise<void> {
     const progressState: CategoryDiscoveryProgress = {
       currentUrlIndex,
       driverProgress: currentDriverProgress,
       pathToId: Object.fromEntries(pathToId),
-      seenUrls: [...seenUrls],
-      categoryUrls,
     }
     await payload.update({
       collection: 'category-discoveries',
@@ -1916,6 +1954,7 @@ async function processCategoryDiscovery(
       const result = await urlDriver.discoverCategories({
         url,
         onCategory,
+        onError: (failedUrl: string) => { errorUrls.push(failedUrl) },
         onProgress,
         progress: driverProgress ?? undefined,
         maxPages: pagesRemaining,
@@ -1924,9 +1963,10 @@ async function processCategoryDiscovery(
       const pagesUsed = result.visitedUrls.length - prevVisited
 
       if (result.queue.length === 0) {
-        // This URL is fully discovered
+        // This URL is fully discovered — save immediately so progress survives crashes
         currentUrlIndex++
         driverProgress = null
+        await saveProgress(null)
         if (pagesRemaining !== undefined) {
           pagesRemaining -= pagesUsed
         }
@@ -1949,6 +1989,7 @@ async function processCategoryDiscovery(
           created,
           existing,
           categoryUrls: categoryUrls.join('\n'),
+          errorUrls: errorUrls.length > 0 ? errorUrls.join('\n') : null,
           progress: null,
           completedAt: new Date().toISOString(),
         },

@@ -369,6 +369,16 @@ export const SourceProducts: CollectionConfig = {
                 },
               },
             },
+            {
+              name: 'productCrawl',
+              type: 'relationship',
+              relationTo: 'product-crawls',
+              label: 'Product Crawl',
+              index: true,
+              admin: {
+                description: 'The crawl job that last crawled this product',
+              },
+            },
           ],
         },
       ],

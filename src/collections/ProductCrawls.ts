@@ -56,6 +56,7 @@ export const ProductCrawls: CollectionConfig = {
               options: [
                 { label: 'All Products', value: 'all' },
                 { label: 'Selected URLs', value: 'selected_urls' },
+                { label: 'Selected GTINs', value: 'selected_gtins' },
                 { label: 'From Discovery', value: 'from_discovery' },
               ],
             },
@@ -66,6 +67,15 @@ export const ProductCrawls: CollectionConfig = {
               admin: {
                 description: 'Product URLs to crawl, one per line',
                 condition: (data) => data?.type === 'selected_urls',
+              },
+            },
+            {
+              name: 'gtins',
+              type: 'textarea',
+              label: 'GTINs',
+              admin: {
+                description: 'GTINs to crawl (all sources), one per line',
+                condition: (data) => data?.type === 'selected_gtins',
               },
             },
             {
@@ -228,12 +238,21 @@ export const ProductCrawls: CollectionConfig = {
           label: 'Output',
           fields: [
             {
-              name: 'crawledGtins',
-              type: 'textarea',
-              label: 'Crawled GTINs',
+              name: 'crawledProducts',
+              type: 'join',
+              collection: 'source-products',
+              on: 'productCrawl',
               admin: {
-                readOnly: true,
-                description: 'GTINs of successfully crawled products, one per line',
+                allowCreate: false,
+              },
+            },
+            {
+              name: 'downloadGtins',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '@/components/DownloadCrawledGtinsButton',
+                },
               },
             },
           ],
