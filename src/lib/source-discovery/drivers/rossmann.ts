@@ -581,16 +581,12 @@ export const rossmannDriver: SourceDriver = {
           ? (existing.docs[0].priceHistory ?? [])
           : []
 
-        // Look up SourceCategory by URL (not available for Rossmann crawl yet)
-        const sourceCategoryId: number | null = null
-
         const productPayload = {
           ...(gtin ? { gtin } : {}),
           status: 'crawled' as const,
           sourceArticleNumber: scraped.sourceArticleNumber,
           brandName: scraped.brandName,
           name: scraped.name,
-          sourceCategory: sourceCategoryId,
           description: scraped.description,
           amount: scraped.amount,
           amountUnit: scraped.amountUnit,

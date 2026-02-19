@@ -586,7 +586,6 @@ export const dmDriver: SourceDriver = {
         sourceArticleNumber,
         brandName: data.brand?.name ?? null,
         name,
-        sourceCategory: null,
         description,
         amount: productAmount?.amount ?? null,
         amountUnit: productAmount?.unit ?? null,
