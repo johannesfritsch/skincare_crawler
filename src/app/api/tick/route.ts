@@ -382,9 +382,8 @@ async function processProductDiscovery(
   let currentUrlIndex = rawProgress?.currentUrlIndex ?? 0
   let driverProgress: unknown | null = rawProgress?.driverProgress ?? null
 
-  // Local state — productUrls/errorUrls accumulate from textarea, seenProductUrls for within-tick dedup
+  // Local state — productUrls accumulate from textarea, seenProductUrls for within-tick dedup
   const productUrls: string[] = (discovery.productUrls ?? '').split('\n').filter(Boolean)
-  const errorUrls: string[] = ((discovery as unknown as Record<string, unknown>).errorUrls as string ?? '').split('\n').filter(Boolean)
   const seenProductUrls = new Set<string>(productUrls)
   let created = discovery.created ?? 0
   let existing = discovery.existing ?? 0
@@ -415,7 +414,7 @@ async function processProductDiscovery(
     await saveProgress(dp)
   }
 
-  // onProduct callback: dedup, create/update SourceProduct
+  // onProduct callback: dedup, create/update SourceProduct, create DiscoveryResult
   async function onProduct(product: DiscoveredProduct): Promise<void> {
     if (seenProductUrls.has(product.productUrl)) return
     seenProductUrls.add(product.productUrl)
@@ -461,8 +460,9 @@ async function processProductDiscovery(
       ...(product.gtin ? { gtin: product.gtin } : {}),
     }
 
+    let sourceProductId: number
     if (existingProduct.docs.length === 0) {
-      await payload.create({
+      const newProduct = await payload.create({
         collection: 'source-products',
         data: {
           source: urlDriver.slug,
@@ -471,12 +471,14 @@ async function processProductDiscovery(
           priceHistory: priceEntry ? [priceEntry] : [],
         },
       })
+      sourceProductId = newProduct.id
       created++
     } else {
+      sourceProductId = existingProduct.docs[0].id
       const existingHistory = existingProduct.docs[0].priceHistory ?? []
       await payload.update({
         collection: 'source-products',
-        id: existingProduct.docs[0].id,
+        id: sourceProductId,
         data: {
           source: urlDriver.slug,
           ...discoveryData,
@@ -485,6 +487,11 @@ async function processProductDiscovery(
       })
       existing++
     }
+
+    await payload.create({
+      collection: 'discovery-results',
+      data: { discovery: discoveryId, sourceProduct: sourceProductId },
+    })
   }
 
   try {
@@ -499,7 +506,7 @@ async function processProductDiscovery(
       const result = await urlDriver.discoverProducts({
         url,
         onProduct,
-        onError: (failedUrl: string) => { errorUrls.push(failedUrl) },
+        onError: () => {},
         onProgress,
         progress: driverProgress ?? undefined,
         maxPages: pagesRemaining,
@@ -532,7 +539,6 @@ async function processProductDiscovery(
           created,
           existing,
           productUrls: productUrls.length > 0 ? productUrls.join('\n') : null,
-          errorUrls: errorUrls.length > 0 ? errorUrls.join('\n') : null,
           progress: null,
           completedAt: new Date().toISOString(),
         },
@@ -772,15 +778,18 @@ async function processProductCrawl(
 
         if (productId !== null) {
           await driver.markProductStatus(payload, product.id, 'crawled')
-          await payload.update({
-            collection: 'source-products',
-            id: productId,
-            data: { productCrawl: crawlId },
+          await payload.create({
+            collection: 'crawl-results',
+            data: { crawl: crawlId, sourceProduct: productId },
           })
           crawled++
           console.log(`[Product Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
         } else {
           await driver.markProductStatus(payload, product.id, 'failed')
+          await payload.create({
+            collection: 'crawl-results',
+            data: { crawl: crawlId, sourceProduct: product.id, error: `Failed to crawl ${product.sourceUrl}` },
+          })
           errors++
           console.log(`[Product Crawl] [${driver.slug}] Failed to crawl ${product.sourceUrl}`)
         }

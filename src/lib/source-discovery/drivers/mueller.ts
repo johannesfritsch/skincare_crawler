@@ -1,5 +1,5 @@
 import type { Payload, Where } from 'payload'
-import type { SourceDriver, DiscoveredProduct } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
 
@@ -13,6 +13,22 @@ function randomDelay(min: number, max: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function jitteredDelay(baseDelay: number): number {
+  const jitter = baseDelay * 0.25
+  return baseDelay + Math.floor(Math.random() * jitter * 2 - jitter)
+}
+
+interface MuellerProductDiscoveryProgress {
+  queue: string[]
+  visitedUrls: string[]
+  currentLeaf?: {
+    categoryUrl: string
+    category: string
+    lastPage: number
+    nextPage: number
+  }
 }
 
 function buildCategoryFromUrl(url: string): string {
@@ -50,13 +66,24 @@ export const muellerDriver: SourceDriver = {
   },
 
   async discoverProducts(
-    url: string,
-  ): Promise<{ totalCount: number; products: DiscoveredProduct[] }> {
-    console.log(`[Mueller] Starting browser-based discovery for ${url}`)
+    options: ProductDiscoveryOptions,
+  ): Promise<ProductDiscoveryResult> {
+    const { url, onProduct, onError, onProgress, delay = 2000, maxPages } = options
+    const savedProgress = options.progress as MuellerProductDiscoveryProgress | undefined
+
+    console.log(`[Mueller] Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
+
+    const visitedUrls = new Set<string>(savedProgress?.visitedUrls ?? [])
+    const seenProductUrls = new Set<string>() // within-tick dedup only, not persisted
+    const queue: string[] = savedProgress?.queue ?? [url]
+    let currentLeaf = savedProgress?.currentLeaf ?? undefined
+    let pagesUsed = 0
+
+    function budgetExhausted(): boolean {
+      return maxPages !== undefined && pagesUsed >= maxPages
+    }
 
     const browser = await launchBrowser()
-    const allProducts: DiscoveredProduct[] = []
-    const seenUrls = new Set<string>()
 
     try {
       const page = await browser.newPage()
@@ -68,15 +95,10 @@ export const muellerDriver: SourceDriver = {
             tiles
               .filter((el) => el.tagName === 'ARTICLE' || el.querySelector('a[data-track-id="product"]'))
               .map((tile) => {
-                // Product URL
                 const link = tile.querySelector('a[data-track-id="product"]') as HTMLAnchorElement | null
                 const href = link?.getAttribute('href') || ''
-
-                // Product name
                 const nameEl = tile.querySelector('[class*="product-tile__product-name"]')
                 const name = nameEl?.textContent?.trim() || ''
-
-                // Price: "0,99 €" → cents
                 const priceEl = tile.querySelector('[class*="product-price__main-price-accent"]')
                 const priceText = priceEl?.textContent?.trim() || ''
                 const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
@@ -84,12 +106,6 @@ export const muellerDriver: SourceDriver = {
                 if (priceMatch) {
                   priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
                 }
-
-                // Capacity: e.g. "/225 ml"
-                const capacityEl = tile.querySelector('[class*="product-price__capacity"]')
-                const capacity = capacityEl?.textContent?.trim() || ''
-
-                // Rating: count filled star icons (non-empty, i.e. not star-rating-empty.svg)
                 const starImages = tile.querySelectorAll('[class*="star-rating"] img, [class*="star-rating"] svg')
                 let rating: number | null = null
                 if (starImages.length > 0) {
@@ -97,27 +113,25 @@ export const muellerDriver: SourceDriver = {
                   starImages.forEach((img) => {
                     const src = img.getAttribute('src') || img.getAttribute('href') || ''
                     const cls = img.getAttribute('class') || ''
-                    // Count as filled if NOT empty
                     if (!src.includes('star-rating-empty') && !cls.includes('empty')) {
                       filled++
                     }
                   })
                   rating = filled
                 }
-
-                return { href, name, priceCents, capacity, rating }
+                return { href, name, priceCents, rating }
               }),
         )
       }
 
-      function collectProducts(products: Awaited<ReturnType<typeof scrapeProductTiles>>, category: string, categoryUrl: string) {
+      async function emitProducts(products: Awaited<ReturnType<typeof scrapeProductTiles>>, category: string, categoryUrl: string) {
         for (const p of products) {
           const productUrl = p.href
             ? (p.href.startsWith('http') ? p.href : `https://www.mueller.de${p.href}`)
             : null
-          if (!productUrl || seenUrls.has(productUrl)) continue
-          seenUrls.add(productUrl)
-          allProducts.push({
+          if (!productUrl || seenProductUrls.has(productUrl)) continue
+          seenProductUrls.add(productUrl)
+          await onProduct({
             productUrl,
             name: p.name || undefined,
             price: p.priceCents ?? undefined,
@@ -129,83 +143,160 @@ export const muellerDriver: SourceDriver = {
         }
       }
 
-      async function scrapeCategoryPage(pageUrl: string): Promise<void> {
-        console.log(`[Mueller] Visiting: ${pageUrl}`)
-        await page.goto(pageUrl, { waitUntil: 'networkidle' })
-        await sleep(randomDelay(500, 1500))
-
-        // Leaf detection: check for an element with class containing "category-navigation__option--selected"
-        const isLeaf = await page.$('[class*="category-navigation__option--selected"]') !== null
-
-        if (isLeaf) {
-          // Leaf page — scrape products and paginate
-          const category = buildCategoryFromUrl(pageUrl)
-
-          // Determine last page from paginator
-          const lastPage = await page.$$eval(
-            '[data-testid^="pageLink-"]',
-            (links) => {
-              let max = 1
-              for (const link of links) {
-                const testId = link.getAttribute('data-testid') || ''
-                const match = testId.match(/pageLink-(\d+)/)
-                if (match) {
-                  const num = parseInt(match[1], 10)
-                  if (num > max) max = num
-                }
-              }
-              return max
-            },
-          ).catch(() => 1)
-
-          console.log(`[Mueller] Leaf page, ${lastPage} page(s) detected`)
-
-          // Scrape page 1 (already loaded)
-          const products = await scrapeProductTiles()
-          collectProducts(products, category, pageUrl)
-          console.log(`[Mueller] Page 1: found ${products.length} product tiles (${allProducts.length} total unique)`)
-
-          // Paginate through remaining pages
-          for (let pageNum = 2; pageNum <= lastPage; pageNum++) {
-            const baseUrl = pageUrl.split('?')[0]
-            const pagedUrl = `${baseUrl}?page=${pageNum}`
-            console.log(`[Mueller] Navigating to page ${pageNum}: ${pagedUrl}`)
-            await page.goto(pagedUrl, { waitUntil: 'networkidle' })
-            await sleep(randomDelay(500, 1500))
-
-            const pageProducts = await scrapeProductTiles()
-            collectProducts(pageProducts, category, pageUrl)
-            console.log(`[Mueller] Page ${pageNum}: found ${pageProducts.length} product tiles (${allProducts.length} total unique)`)
-          }
-        } else {
-          // Non-leaf page — extract child category links and recurse
-          const childHrefs = await page.$$eval(
-            '[class*="category-navigation__list"] a[href]',
-            (links) => links.map((a) => a.getAttribute('href') || '').filter(Boolean),
-          )
-
-          if (childHrefs.length === 0) {
-            console.log(`[Mueller] No category nav links on ${pageUrl}, skipping`)
-            return
-          }
-
-          console.log(`[Mueller] Non-leaf page with ${childHrefs.length} child categories, recursing...`)
-          for (const href of childHrefs) {
-            const childUrl = href.startsWith('http')
-              ? href
-              : `https://www.mueller.de${href}`
-            await scrapeCategoryPage(childUrl)
-          }
-        }
+      async function saveProgress() {
+        await onProgress?.({
+          queue: [...queue],
+          visitedUrls: [...visitedUrls],
+          currentLeaf,
+        } satisfies MuellerProductDiscoveryProgress)
       }
 
-      await scrapeCategoryPage(url)
+      // Resume paginating a leaf if we were mid-leaf
+      if (currentLeaf) {
+        const { categoryUrl, category, lastPage, nextPage } = currentLeaf
+        for (let pageNum = nextPage; pageNum <= lastPage; pageNum++) {
+          if (budgetExhausted()) {
+            currentLeaf = { ...currentLeaf, nextPage: pageNum }
+            await saveProgress()
+            return { done: false, pagesUsed }
+          }
+
+          const baseUrl = categoryUrl.split('?')[0]
+          const pagedUrl = `${baseUrl}?page=${pageNum}`
+          console.log(`[Mueller] Resuming leaf page ${pageNum}: ${pagedUrl}`)
+
+          try {
+            await page.goto(pagedUrl, { waitUntil: 'domcontentloaded' })
+            await page.waitForSelector('[class*="product-tile"], [class*="category-navigation"]', { timeout: 15000 }).catch(() => {})
+            await sleep(jitteredDelay(delay))
+            pagesUsed++
+
+            const products = await scrapeProductTiles()
+            await emitProducts(products, category, categoryUrl)
+            console.log(`[Mueller] Page ${pageNum}: found ${products.length} product tiles`)
+          } catch (e) {
+            console.warn(`[Mueller] Error on page ${pagedUrl}: ${e}`)
+            onError?.(pagedUrl)
+            pagesUsed++
+          }
+
+          await saveProgress()
+        }
+        currentLeaf = undefined
+        await saveProgress()
+      }
+
+      // BFS loop
+      while (queue.length > 0) {
+        if (budgetExhausted()) break
+
+        const currentUrl = queue.shift()!
+        const canonicalUrl = currentUrl.startsWith('http')
+          ? currentUrl
+          : `https://www.mueller.de${currentUrl}`
+
+        if (visitedUrls.has(canonicalUrl)) continue
+        visitedUrls.add(canonicalUrl)
+
+        try {
+          console.log(`[Mueller] Visiting: ${canonicalUrl}`)
+          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
+          await page.waitForSelector('[class*="product-tile"], [class*="category-navigation"]', { timeout: 15000 }).catch(() => {})
+          await sleep(jitteredDelay(delay))
+          pagesUsed++
+
+          const isLeaf = await page.$('[class*="category-navigation__option--selected"]') !== null
+
+          if (isLeaf) {
+            const category = buildCategoryFromUrl(canonicalUrl)
+
+            const lastPage = await page.$$eval(
+              '[data-testid^="pageLink-"]',
+              (links) => {
+                let max = 1
+                for (const link of links) {
+                  const testId = link.getAttribute('data-testid') || ''
+                  const match = testId.match(/pageLink-(\d+)/)
+                  if (match) {
+                    const num = parseInt(match[1], 10)
+                    if (num > max) max = num
+                  }
+                }
+                return max
+              },
+            ).catch(() => 1)
+
+            console.log(`[Mueller] Leaf page, ${lastPage} page(s) detected`)
+
+            // Scrape page 1 (already loaded)
+            const products = await scrapeProductTiles()
+            await emitProducts(products, category, canonicalUrl)
+            console.log(`[Mueller] Page 1: found ${products.length} product tiles`)
+
+            await saveProgress()
+
+            // Paginate remaining pages
+            for (let pageNum = 2; pageNum <= lastPage; pageNum++) {
+              if (budgetExhausted()) {
+                currentLeaf = { categoryUrl: canonicalUrl, category, lastPage, nextPage: pageNum }
+                await saveProgress()
+                return { done: false, pagesUsed }
+              }
+
+              const baseUrl = canonicalUrl.split('?')[0]
+              const pagedUrl = `${baseUrl}?page=${pageNum}`
+              console.log(`[Mueller] Navigating to page ${pageNum}: ${pagedUrl}`)
+
+              try {
+                await page.goto(pagedUrl, { waitUntil: 'domcontentloaded' })
+                await page.waitForSelector('[class*="product-tile"]', { timeout: 15000 }).catch(() => {})
+                await sleep(jitteredDelay(delay))
+                pagesUsed++
+
+                const pageProducts = await scrapeProductTiles()
+                await emitProducts(pageProducts, category, canonicalUrl)
+                console.log(`[Mueller] Page ${pageNum}: found ${pageProducts.length} product tiles`)
+              } catch (e) {
+                console.warn(`[Mueller] Error on page ${pagedUrl}: ${e}`)
+                onError?.(pagedUrl)
+                pagesUsed++
+              }
+
+              await saveProgress()
+            }
+          } else {
+            const childHrefs = await page.$$eval(
+              '[class*="category-navigation__list"] a[href]',
+              (links) => links.map((a) => a.getAttribute('href') || '').filter(Boolean),
+            )
+
+            if (childHrefs.length === 0) {
+              console.log(`[Mueller] No category nav links on ${canonicalUrl}, skipping`)
+            } else {
+              console.log(`[Mueller] Non-leaf page with ${childHrefs.length} child categories`)
+              for (const href of childHrefs) {
+                const childUrl = href.startsWith('http')
+                  ? href
+                  : `https://www.mueller.de${href}`
+                queue.push(childUrl)
+              }
+            }
+          }
+
+          await saveProgress()
+        } catch (e) {
+          console.warn(`[Mueller] Error visiting ${canonicalUrl}: ${e}`)
+          onError?.(canonicalUrl)
+          await saveProgress()
+        }
+      }
     } finally {
       await browser.close()
     }
 
-    console.log(`[Mueller] Discovery complete: ${allProducts.length} unique products`)
-    return { totalCount: allProducts.length, products: allProducts }
+    const done = queue.length === 0 && !currentLeaf
+    console.log(`[Mueller] Tick done: ${pagesUsed} pages used, done=${done}`)
+    return { done, pagesUsed }
   },
 
   async crawlProduct(
@@ -227,7 +318,8 @@ export const muellerDriver: SourceDriver = {
       const browser = await launchBrowser({ headless: !debug })
       try {
         const page = await browser.newPage()
-        await page.goto(sourceUrl, { waitUntil: 'networkidle' })
+        await page.goto(sourceUrl, { waitUntil: 'domcontentloaded' })
+        await page.waitForSelector('h1, [class*="product-info"]', { timeout: 15000 }).catch(() => {})
         await sleep(randomDelay(1000, 2000))
 
         if (debug) {
@@ -658,7 +750,6 @@ export const muellerDriver: SourceDriver = {
               ratingNum: scraped.ratingNum,
               ingredients: ingredients.map((n: string) => ({ name: n })),
               sourceUrl: variant.variantSourceUrl,
-              crawledAt: now,
             }
 
             let productId: number
@@ -723,7 +814,6 @@ export const muellerDriver: SourceDriver = {
             ratingNum: scraped.ratingNum,
             ingredients: ingredients.map((n: string) => ({ name: n })),
             sourceUrl,
-            crawledAt: now,
           }
 
           if (existing.docs.length > 0) {
@@ -814,8 +904,7 @@ export const muellerDriver: SourceDriver = {
     if (crawledBefore) {
       conditions.push({
         or: [
-          { crawledAt: { less_than: crawledBefore.toISOString() } },
-          { crawledAt: { exists: false } },
+          { updatedAt: { less_than: crawledBefore.toISOString() } },
         ],
       })
     }

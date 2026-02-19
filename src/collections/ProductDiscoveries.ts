@@ -84,6 +84,15 @@ export const ProductDiscoveries: CollectionConfig = {
               ],
             },
             {
+              name: 'progress',
+              type: 'json',
+              label: 'Progress State',
+              admin: {
+                readOnly: true,
+                description: 'Internal state for resumable discovery',
+              },
+            },
+            {
               type: 'row',
               fields: [
                 {
@@ -118,9 +127,17 @@ export const ProductDiscoveries: CollectionConfig = {
           label: 'Output',
           fields: [
             {
+              name: 'discoveredProducts',
+              type: 'join',
+              collection: 'discovery-results',
+              on: 'discovery',
+              admin: { allowCreate: false },
+            },
+            {
               name: 'productUrls',
               type: 'textarea',
               label: 'Discovered Product URLs',
+              validate: () => true,
               admin: {
                 readOnly: true,
                 description: 'Discovered product URLs, one per line',
@@ -137,7 +154,16 @@ export const ProductDiscoveries: CollectionConfig = {
               label: 'Items Per Tick',
               min: 1,
               admin: {
-                description: 'Max products to save per tick. Leave empty for unlimited.',
+                description: 'Max pages to process per tick. Leave empty for unlimited.',
+              },
+            },
+            {
+              name: 'delay',
+              type: 'number',
+              label: 'Delay (ms)',
+              min: 0,
+              admin: {
+                description: 'Milliseconds between requests. Default: 2000.',
               },
             },
           ],

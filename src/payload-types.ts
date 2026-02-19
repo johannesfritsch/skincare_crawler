@@ -80,6 +80,8 @@ export interface Config {
     'product-discoveries': ProductDiscovery;
     'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
+    'crawl-results': CrawlResult;
+    'discovery-results': DiscoveryResult;
     'category-discoveries': CategoryDiscovery;
     events: Event;
     creators: Creator;
@@ -100,11 +102,16 @@ export interface Config {
     products: {
       videoSnippets: 'video-snippets';
     };
+    'source-products': {
+      discoveries: 'discovery-results';
+      crawls: 'crawl-results';
+    };
     'product-discoveries': {
+      discoveredProducts: 'discovery-results';
       events: 'events';
     };
     'product-crawls': {
-      crawledProducts: 'source-products';
+      crawledProducts: 'crawl-results';
       events: 'events';
     };
     'product-aggregations': {
@@ -143,6 +150,8 @@ export interface Config {
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
+    'crawl-results': CrawlResultsSelect<false> | CrawlResultsSelect<true>;
+    'discovery-results': DiscoveryResultsSelect<false> | DiscoveryResultsSelect<true>;
     'category-discoveries': CategoryDiscoveriesSelect<false> | CategoryDiscoveriesSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
@@ -438,14 +447,15 @@ export interface ProductDiscovery {
     | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  discoveredProducts?: {
+    docs?: (number | DiscoveryResult)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   /**
    * Discovered product URLs, one per line
    */
   productUrls?: string | null;
-  /**
-   * URLs that failed during discovery (e.g. 429 rate limits, timeouts), one per line.
-   */
-  errorUrls?: string | null;
   /**
    * Max pages to process per tick. Leave empty for unlimited.
    */
@@ -464,66 +474,16 @@ export interface ProductDiscovery {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-crawls".
+ * via the `definition` "discovery-results".
  */
-export interface ProductCrawl {
+export interface DiscoveryResult {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  source: 'all' | 'dm' | 'rossmann' | 'mueller';
-  type: 'all' | 'selected_urls' | 'selected_gtins' | 'from_discovery';
+  discovery: number | ProductDiscovery;
+  sourceProduct: number | SourceProduct;
   /**
-   * Product URLs to crawl, one per line
+   * Error message if this URL failed during discovery
    */
-  urls?: string | null;
-  /**
-   * GTINs to crawl (all sources), one per line
-   */
-  gtins?: string | null;
-  /**
-   * Use product URLs from this completed discovery
-   */
-  discovery?: (number | null) | ProductDiscovery;
-  /**
-   * Uncrawled Only skips already-crawled products. Re-crawl includes them.
-   */
-  scope: 'uncrawled_only' | 'recrawl';
-  /**
-   * Only re-crawl products older than this. Leave empty to re-crawl all.
-   */
-  minCrawlAge?: number | null;
-  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
-  /**
-   * Total products to crawl
-   */
-  total?: number | null;
-  /**
-   * Products successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Products that failed to crawl
-   */
-  errors?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Keep browser visible for inspection (non-headless). Only works for browser-based drivers.
-   */
-  debug?: boolean | null;
-  /**
-   * Number of products to crawl per tick.
-   */
-  itemsPerTick?: number | null;
-  crawledProducts?: {
-    docs?: (number | SourceProduct)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
+  error?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -639,14 +599,96 @@ export interface SourceProduct {
         id?: string | null;
       }[]
     | null;
+  discoveries?: {
+    docs?: (number | DiscoveryResult)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  crawls?: {
+    docs?: (number | CrawlResult)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "crawl-results".
+ */
+export interface CrawlResult {
+  id: number;
+  crawl: number | ProductCrawl;
+  sourceProduct: number | SourceProduct;
   /**
-   * When this product was last crawled
+   * Error message if the crawl failed for this product
    */
-  crawledAt?: string | null;
+  error?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-crawls".
+ */
+export interface ProductCrawl {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  source: 'all' | 'dm' | 'rossmann' | 'mueller';
+  type: 'all' | 'selected_urls' | 'selected_gtins' | 'from_discovery';
   /**
-   * The crawl job that last crawled this product
+   * Product URLs to crawl, one per line
    */
-  productCrawl?: (number | null) | ProductCrawl;
+  urls?: string | null;
+  /**
+   * GTINs to crawl (all sources), one per line
+   */
+  gtins?: string | null;
+  /**
+   * Use product URLs from this completed discovery
+   */
+  discovery?: (number | null) | ProductDiscovery;
+  /**
+   * Uncrawled Only skips already-crawled products. Re-crawl includes them.
+   */
+  scope: 'uncrawled_only' | 'recrawl';
+  /**
+   * Only re-crawl products older than this. Leave empty to re-crawl all.
+   */
+  minCrawlAge?: number | null;
+  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
+  /**
+   * Total products to crawl
+   */
+  total?: number | null;
+  /**
+   * Products successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Products that failed to crawl
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Keep browser visible for inspection (non-headless). Only works for browser-based drivers.
+   */
+  debug?: boolean | null;
+  /**
+   * Number of products to crawl per tick.
+   */
+  itemsPerTick?: number | null;
+  crawledProducts?: {
+    docs?: (number | CrawlResult)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1153,6 +1195,14 @@ export interface PayloadLockedDocument {
         value: number | ProductAggregation;
       } | null)
     | ({
+        relationTo: 'crawl-results';
+        value: number | CrawlResult;
+      } | null)
+    | ({
+        relationTo: 'discovery-results';
+        value: number | DiscoveryResult;
+      } | null)
+    | ({
         relationTo: 'category-discoveries';
         value: number | CategoryDiscovery;
       } | null)
@@ -1482,8 +1532,8 @@ export interface SourceProductsSelect<T extends boolean = true> {
         name?: T;
         id?: T;
       };
-  crawledAt?: T;
-  productCrawl?: T;
+  discoveries?: T;
+  crawls?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1500,8 +1550,8 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   progress?: T;
   startedAt?: T;
   completedAt?: T;
+  discoveredProducts?: T;
   productUrls?: T;
-  errorUrls?: T;
   itemsPerTick?: T;
   delay?: T;
   events?: T;
@@ -1553,6 +1603,28 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   product?: T;
   events?: T;
   lastCheckedSourceId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "crawl-results_select".
+ */
+export interface CrawlResultsSelect<T extends boolean = true> {
+  crawl?: T;
+  sourceProduct?: T;
+  error?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "discovery-results_select".
+ */
+export interface DiscoveryResultsSelect<T extends boolean = true> {
+  discovery?: T;
+  sourceProduct?: T;
+  error?: T;
   updatedAt?: T;
   createdAt?: T;
 }

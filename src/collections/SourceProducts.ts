@@ -8,7 +8,7 @@ export const SourceProducts: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'brandName', 'source', 'status', 'crawledAt', 'createdAt'],
+    defaultColumns: ['name', 'brandName', 'source', 'status', 'createdAt'],
     group: 'Sources',
     description: 'Products crawled from source stores',
     listSearchableFields: ['name', 'brandName', 'gtin', 'sourceUrl'],
@@ -356,28 +356,21 @@ export const SourceProducts: CollectionConfig = {
           ],
         },
         {
-          label: 'Crawling',
+          label: 'History',
           fields: [
             {
-              name: 'crawledAt',
-              type: 'date',
-              label: 'Crawled At',
-              admin: {
-                description: 'When this product was last crawled',
-                date: {
-                  pickerAppearance: 'dayAndTime',
-                },
-              },
+              name: 'discoveries',
+              type: 'join',
+              collection: 'discovery-results',
+              on: 'sourceProduct',
+              admin: { allowCreate: false },
             },
             {
-              name: 'productCrawl',
-              type: 'relationship',
-              relationTo: 'product-crawls',
-              label: 'Product Crawl',
-              index: true,
-              admin: {
-                description: 'The crawl job that last crawled this product',
-              },
+              name: 'crawls',
+              type: 'join',
+              collection: 'crawl-results',
+              on: 'sourceProduct',
+              admin: { allowCreate: false },
             },
           ],
         },

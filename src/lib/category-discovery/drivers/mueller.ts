@@ -28,7 +28,7 @@ export const muellerDriver: CategoryDiscoveryDriver = {
   },
 
   async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
-    const { url, onCategory, onProgress, progress, maxPages } = options
+    const { url, onCategory, onError, onProgress, progress, maxPages } = options
     console.log(`[Mueller CategoryDiscovery] Starting for ${url}`)
 
     const visitedUrls = new Set<string>(progress?.visitedUrls ?? [])
@@ -148,6 +148,7 @@ export const muellerDriver: CategoryDiscoveryDriver = {
           await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         } catch (e) {
           console.warn(`[Mueller CategoryDiscovery] Error visiting ${canonicalUrl}, skipping: ${e}`)
+          onError?.(canonicalUrl)
           await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         }
       }

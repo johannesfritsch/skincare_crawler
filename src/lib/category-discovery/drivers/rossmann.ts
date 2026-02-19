@@ -28,7 +28,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
   },
 
   async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
-    const { url, onCategory, onProgress, progress, maxPages } = options
+    const { url, onCategory, onError, onProgress, progress, maxPages } = options
     console.log(`[Rossmann CategoryDiscovery] Starting for ${url}`)
 
     const visitedUrls = new Set<string>(progress?.visitedUrls ?? [])
@@ -141,6 +141,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
           await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         } catch (e) {
           console.warn(`[Rossmann CategoryDiscovery] Error visiting ${canonicalUrl}, skipping: ${e}`)
+          onError?.(canonicalUrl)
           await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         }
       }

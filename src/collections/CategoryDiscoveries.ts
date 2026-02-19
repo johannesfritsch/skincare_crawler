@@ -128,9 +128,20 @@ export const CategoryDiscoveries: CollectionConfig = {
               name: 'categoryUrls',
               type: 'textarea',
               label: 'Discovered Category URLs',
+              validate: () => true,
               admin: {
                 readOnly: true,
                 description: 'Discovered category URLs, one per line',
+              },
+            },
+            {
+              name: 'errorUrls',
+              type: 'textarea',
+              label: 'Failed URLs',
+              validate: () => true,
+              admin: {
+                readOnly: true,
+                description: 'URLs that failed during discovery (e.g. timeouts), one per line. Can be copied into Store URLs to retry.',
               },
             },
           ],

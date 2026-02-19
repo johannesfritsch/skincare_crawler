@@ -1,5 +1,5 @@
 import type { Payload, Where } from 'payload'
-import type { SourceDriver, DiscoveredProduct } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
 
@@ -13,6 +13,21 @@ function randomDelay(min: number, max: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function jitteredDelay(baseDelay: number): number {
+  const jitter = baseDelay * 0.25
+  return baseDelay + Math.floor(Math.random() * jitter * 2 - jitter)
+}
+
+interface RossmannProductDiscoveryProgress {
+  queue: string[]
+  visitedUrls: string[]
+  currentLeaf?: {
+    categoryUrl: string
+    category: string
+    nextPageIndex: number
+  }
 }
 
 function buildCategoryFromUrl(url: string): string {
@@ -49,13 +64,24 @@ export const rossmannDriver: SourceDriver = {
   },
 
   async discoverProducts(
-    url: string,
-  ): Promise<{ totalCount: number; products: DiscoveredProduct[] }> {
-    console.log(`[Rossmann] Starting browser-based discovery for ${url}`)
+    options: ProductDiscoveryOptions,
+  ): Promise<ProductDiscoveryResult> {
+    const { url, onProduct, onError, onProgress, delay = 2000, maxPages } = options
+    const savedProgress = options.progress as RossmannProductDiscoveryProgress | undefined
+
+    console.log(`[Rossmann] Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
+
+    const visitedUrls = new Set<string>(savedProgress?.visitedUrls ?? [])
+    const seenProductUrls = new Set<string>() // within-tick dedup only, not persisted
+    const queue: string[] = savedProgress?.queue ?? [url]
+    let currentLeaf = savedProgress?.currentLeaf ?? undefined
+    let pagesUsed = 0
+
+    function budgetExhausted(): boolean {
+      return maxPages !== undefined && pagesUsed >= maxPages
+    }
 
     const browser = await launchBrowser()
-    const allProducts: DiscoveredProduct[] = []
-    const seenUrls = new Set<string>()
 
     try {
       const page = await browser.newPage()
@@ -68,12 +94,8 @@ export const rossmannDriver: SourceDriver = {
               const gtin = card.getAttribute('data-item-ean') || ''
               const name = card.getAttribute('data-item-name') || ''
               const brand = card.getAttribute('data-item-brand') || ''
-
-              // Product URL
               const imageLink = card.querySelector('figure[data-testid="product-image"] a[href]')
               const href = imageLink?.getAttribute('href') || ''
-
-              // Price from sr-only text
               const priceEl = card.querySelector('[data-testid="product-price"] .sr-only')
               const priceText = priceEl?.textContent || ''
               const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
@@ -81,16 +103,12 @@ export const rossmannDriver: SourceDriver = {
               if (priceMatch) {
                 priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
               }
-
-              // Rating: count filled star SVGs
               const ratingsContainer = card.querySelector('[data-testid="product-ratings"]')
               let rating: number | null = null
               let ratingCount: number | null = null
               if (ratingsContainer) {
                 const filledStars = ratingsContainer.querySelectorAll('svg.text-red')
                 rating = filledStars.length
-
-                // Check for partial star (clip-path based width)
                 const partialContainer = ratingsContainer.querySelector('[style*="width"]')
                 if (partialContainer) {
                   const style = partialContainer.getAttribute('style') || ''
@@ -99,8 +117,6 @@ export const rossmannDriver: SourceDriver = {
                     rating = (rating > 0 ? rating - 1 : 0) + parseFloat(widthMatch[1]) / 100
                   }
                 }
-
-                // Review count from trailing span
                 const spans = ratingsContainer.querySelectorAll('span')
                 const lastSpan = spans[spans.length - 1]
                 if (lastSpan) {
@@ -110,18 +126,17 @@ export const rossmannDriver: SourceDriver = {
                   }
                 }
               }
-
               return { gtin, name, brand, href, priceCents, rating, ratingCount }
             }),
         )
       }
 
-      function collectProducts(products: Awaited<ReturnType<typeof scrapeProductCards>>, category: string, categoryUrl: string) {
+      async function emitProducts(products: Awaited<ReturnType<typeof scrapeProductCards>>, category: string, categoryUrl: string) {
         for (const p of products) {
           const productUrl = p.href ? `https://www.rossmann.de${p.href}` : null
-          if (!productUrl || seenUrls.has(productUrl)) continue
-          seenUrls.add(productUrl)
-          allProducts.push({
+          if (!productUrl || seenProductUrls.has(productUrl)) continue
+          seenProductUrls.add(productUrl)
+          await onProduct({
             gtin: p.gtin || undefined,
             productUrl,
             brandName: p.brand || undefined,
@@ -136,80 +151,179 @@ export const rossmannDriver: SourceDriver = {
         }
       }
 
-      // Determine if a page is a leaf by checking the category nav:
-      // - Leaf page: nav shows siblings, current page is bold (font-bold class)
-      // - Parent page: nav shows children, none are bold
-      // Only scrape products from leaf pages.
-      async function scrapeCategoryPage(pageUrl: string): Promise<void> {
-        console.log(`[Rossmann] Visiting: ${pageUrl}`)
-        await page.goto(pageUrl, { waitUntil: 'networkidle' })
-        await sleep(randomDelay(500, 1500))
-
-        // Check if any nav link is bold (= current page among siblings = leaf)
-        const navInfo = await page.$$eval(
-          'nav[data-testid="category-nav-desktop"] ul li a',
-          (links) => links.map((a) => ({
-            href: a.getAttribute('href') || '',
-            isBold: a.classList.contains('font-bold'),
-          })),
-        )
-
-        const isLeaf = navInfo.some((link) => link.isBold)
-
-        if (isLeaf) {
-          // Leaf page — scrape products and paginate
-          const category = buildCategoryFromUrl(pageUrl)
-          const products = await scrapeProductCards()
-          collectProducts(products, category, pageUrl)
-          console.log(`[Rossmann] Leaf page 0: found ${products.length} product cards (${allProducts.length} total unique)`)
-
-          let pageIndex = 0
-          while (true) {
-            // The "Nächste Seite" link is always in the DOM, but its parent <li>
-            // gets `text-grey-light pointer-events-none` when on the last page.
-            const isNextDisabled = await page.$eval(
-              'a[aria-label="Nächste Seite"]',
-              (a) => a.closest('li')?.classList.contains('pointer-events-none') ?? true,
-            ).catch(() => true)
-            if (isNextDisabled) break
-
-            pageIndex++
-            const baseUrl = pageUrl.split('?')[0]
-            const nextUrl = `${baseUrl}?pageIndex=${pageIndex}`
-            console.log(`[Rossmann] Navigating to next page: ${nextUrl}`)
-            await page.goto(nextUrl, { waitUntil: 'networkidle' })
-            await sleep(randomDelay(500, 1500))
-
-            const pageProducts = await scrapeProductCards()
-            collectProducts(pageProducts, category, pageUrl)
-            console.log(`[Rossmann] Leaf page ${pageIndex}: found ${pageProducts.length} product cards (${allProducts.length} total unique)`)
-          }
-        } else {
-          // Parent page — nav shows children, recurse into each
-          const childHrefs = navInfo.map((link) => link.href).filter(Boolean)
-
-          if (childHrefs.length === 0) {
-            console.log(`[Rossmann] No nav links on ${pageUrl}, skipping`)
-            return
-          }
-
-          console.log(`[Rossmann] Parent page with ${childHrefs.length} child categories, recursing...`)
-          for (const href of childHrefs) {
-            const childUrl = href.startsWith('http')
-              ? href
-              : `https://www.rossmann.de${href}`
-            await scrapeCategoryPage(childUrl)
-          }
-        }
+      async function saveProgress() {
+        await onProgress?.({
+          queue: [...queue],
+          visitedUrls: [...visitedUrls],
+          currentLeaf,
+        } satisfies RossmannProductDiscoveryProgress)
       }
 
-      await scrapeCategoryPage(url)
+      // Get the 0-based index of the last page from numbered pagination links
+      // e.g. data-testid="search-page-2" means last page is index 1
+      function getLastPageIndex() {
+        return page.$$eval(
+          'a[data-testid^="search-page-"]',
+          (links) => {
+            let max = 0
+            for (const link of links) {
+              const testId = link.getAttribute('data-testid') || ''
+              const match = testId.match(/search-page-(\d+)/)
+              if (match) {
+                const idx = parseInt(match[1], 10) - 1
+                if (idx > max) max = idx
+              }
+            }
+            return max
+          },
+        ).catch(() => 0)
+      }
+
+      // Resume paginating a leaf if we were mid-leaf
+      if (currentLeaf) {
+        const { categoryUrl, category, nextPageIndex } = currentLeaf
+        let pageIndex = nextPageIndex
+
+        while (true) {
+          if (budgetExhausted()) {
+            currentLeaf = { ...currentLeaf, nextPageIndex: pageIndex }
+            await saveProgress()
+            return { done: false, pagesUsed }
+          }
+
+          const baseUrl = categoryUrl.split('?')[0]
+          const nextUrl = `${baseUrl}?pageIndex=${pageIndex}`
+          console.log(`[Rossmann] Resuming leaf page ${pageIndex}: ${nextUrl}`)
+
+          try {
+            await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
+            await page.waitForSelector('[data-testid="product-card"], nav[data-testid="category-nav-desktop"]', { timeout: 15000 }).catch(() => {})
+            await sleep(jitteredDelay(delay))
+            pagesUsed++
+
+            const products = await scrapeProductCards()
+            await emitProducts(products, category, categoryUrl)
+            console.log(`[Rossmann] Leaf page ${pageIndex}: found ${products.length} product cards`)
+
+            const lastIdx = await getLastPageIndex()
+            if (pageIndex >= lastIdx) break
+            pageIndex++
+          } catch (e) {
+            console.warn(`[Rossmann] Error on page ${nextUrl}: ${e}`)
+            onError?.(nextUrl)
+            pagesUsed++
+            break
+          }
+
+          await saveProgress()
+        }
+        currentLeaf = undefined
+        await saveProgress()
+      }
+
+      // BFS loop
+      while (queue.length > 0) {
+        if (budgetExhausted()) break
+
+        const currentUrl = queue.shift()!
+        const canonicalUrl = currentUrl.startsWith('http')
+          ? currentUrl
+          : `https://www.rossmann.de${currentUrl}`
+
+        if (visitedUrls.has(canonicalUrl)) continue
+        visitedUrls.add(canonicalUrl)
+
+        try {
+          console.log(`[Rossmann] Visiting: ${canonicalUrl}`)
+          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
+          await page.waitForSelector('[data-testid="product-card"], nav[data-testid="category-nav-desktop"]', { timeout: 15000 }).catch(() => {})
+          await sleep(jitteredDelay(delay))
+          pagesUsed++
+
+          const navInfo = await page.$$eval(
+            'nav[data-testid="category-nav-desktop"] ul li a',
+            (links) => links.map((a) => ({
+              href: a.getAttribute('href') || '',
+              isBold: a.classList.contains('font-bold'),
+            })),
+          )
+
+          const isLeaf = navInfo.some((link) => link.isBold)
+
+          if (isLeaf) {
+            const category = buildCategoryFromUrl(canonicalUrl)
+            const products = await scrapeProductCards()
+            await emitProducts(products, category, canonicalUrl)
+            console.log(`[Rossmann] Leaf page 0: found ${products.length} product cards`)
+
+            await saveProgress()
+
+            // Check for next page and paginate
+            let pageIndex = 0
+            while (true) {
+              const lastIdx = await getLastPageIndex()
+              if (pageIndex >= lastIdx) break
+
+              pageIndex++
+
+              if (budgetExhausted()) {
+                currentLeaf = { categoryUrl: canonicalUrl, category, nextPageIndex: pageIndex }
+                await saveProgress()
+                return { done: false, pagesUsed }
+              }
+
+              const baseUrl = canonicalUrl.split('?')[0]
+              const nextUrl = `${baseUrl}?pageIndex=${pageIndex}`
+              console.log(`[Rossmann] Navigating to next page: ${nextUrl}`)
+
+              try {
+                await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
+                await page.waitForSelector('[data-testid="product-card"]', { timeout: 15000 }).catch(() => {})
+                await sleep(jitteredDelay(delay))
+                pagesUsed++
+
+                const pageProducts = await scrapeProductCards()
+                await emitProducts(pageProducts, category, canonicalUrl)
+                console.log(`[Rossmann] Leaf page ${pageIndex}: found ${pageProducts.length} product cards`)
+              } catch (e) {
+                console.warn(`[Rossmann] Error on page ${nextUrl}: ${e}`)
+                onError?.(nextUrl)
+                pagesUsed++
+                break
+              }
+
+              await saveProgress()
+            }
+          } else {
+            const childHrefs = navInfo.map((link) => link.href).filter(Boolean)
+
+            if (childHrefs.length === 0) {
+              console.log(`[Rossmann] No nav links on ${canonicalUrl}, skipping`)
+            } else {
+              console.log(`[Rossmann] Parent page with ${childHrefs.length} child categories`)
+              for (const href of childHrefs) {
+                const childUrl = href.startsWith('http')
+                  ? href
+                  : `https://www.rossmann.de${href}`
+                queue.push(childUrl)
+              }
+            }
+          }
+
+          await saveProgress()
+        } catch (e) {
+          console.warn(`[Rossmann] Error visiting ${canonicalUrl}: ${e}`)
+          onError?.(canonicalUrl)
+          await saveProgress()
+        }
+      }
     } finally {
       await browser.close()
     }
 
-    console.log(`[Rossmann] Discovery complete: ${allProducts.length} unique products`)
-    return { totalCount: allProducts.length, products: allProducts }
+    const done = queue.length === 0 && !currentLeaf
+    console.log(`[Rossmann] Tick done: ${pagesUsed} pages used, done=${done}`)
+    return { done, pagesUsed }
   },
 
   async crawlProduct(
@@ -231,7 +345,8 @@ export const rossmannDriver: SourceDriver = {
       const browser = await launchBrowser({ headless: !debug })
       try {
         const page = await browser.newPage()
-        await page.goto(sourceUrl, { waitUntil: 'networkidle' })
+        await page.goto(sourceUrl, { waitUntil: 'domcontentloaded' })
+        await page.waitForSelector('.rm-product__title', { timeout: 15000 }).catch(() => {})
         await sleep(randomDelay(1000, 2000))
 
         // Wait for BazaarVoice rating widget to render (loads async via JS)
@@ -486,7 +601,6 @@ export const rossmannDriver: SourceDriver = {
           ratingNum: scraped.ratingNum,
           ingredients: ingredients.map((n: string) => ({ name: n })),
           sourceUrl,
-          crawledAt: now,
         }
 
         let productId: number
@@ -577,8 +691,7 @@ export const rossmannDriver: SourceDriver = {
     if (crawledBefore) {
       conditions.push({
         or: [
-          { crawledAt: { less_than: crawledBefore.toISOString() } },
-          { crawledAt: { exists: false } },
+          { updatedAt: { less_than: crawledBefore.toISOString() } },
         ],
       })
     }

@@ -19,6 +19,21 @@ export interface DiscoveredProduct {
   categoryUrl?: string  // URL of the category page from discovery
 }
 
+export interface ProductDiscoveryOptions {
+  url: string
+  onProduct: (product: DiscoveredProduct) => Promise<void>
+  onError?: (url: string) => void
+  onProgress?: (progress: unknown) => Promise<void>
+  progress?: unknown
+  maxPages?: number
+  delay?: number  // ms between requests, default 2000
+}
+
+export interface ProductDiscoveryResult {
+  done: boolean
+  pagesUsed: number
+}
+
 export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
 
 export interface SourceDriver {
@@ -28,11 +43,10 @@ export interface SourceDriver {
   // Check if this driver handles the given URL
   matches(url: string): boolean
 
-  // Discover all products from a category URL (API-based)
-  // Returns the products found and total count
+  // Discover products from a category URL with callbacks for incremental saving
   discoverProducts(
-    url: string,
-  ): Promise<{ totalCount: number; products: DiscoveredProduct[] }>
+    options: ProductDiscoveryOptions,
+  ): Promise<ProductDiscoveryResult>
 
   // Crawl a single product via API and save to database
   // Returns the product ID if successful, null if failed

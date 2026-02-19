@@ -240,8 +240,8 @@ export const ProductCrawls: CollectionConfig = {
             {
               name: 'crawledProducts',
               type: 'join',
-              collection: 'source-products',
-              on: 'productCrawl',
+              collection: 'crawl-results',
+              on: 'crawl',
               admin: {
                 allowCreate: false,
               },

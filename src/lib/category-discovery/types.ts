@@ -18,6 +18,7 @@ export interface DriverProgress {
 export interface DiscoverOptions {
   url: string
   onCategory: (cat: DiscoveredCategory) => Promise<void>
+  onError?: (url: string) => void
   onProgress?: (progress: DriverProgress) => Promise<void>
   progress?: DriverProgress
   maxPages?: number

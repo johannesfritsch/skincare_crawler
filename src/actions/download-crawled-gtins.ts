@@ -8,15 +8,15 @@ export async function downloadCrawledGtins(
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   const payload = await getPayload({ config })
 
-  const sourceProducts = await payload.find({
-    collection: 'source-products',
-    where: { productCrawl: { equals: crawlId } },
+  const results = await payload.find({
+    collection: 'crawl-results',
+    where: { crawl: { equals: crawlId } },
     limit: 50000,
-    select: { gtin: true },
+    depth: 1,
   })
 
-  const gtins = sourceProducts.docs
-    .map((doc) => doc.gtin)
+  const gtins = results.docs
+    .map((doc) => (typeof doc.sourceProduct === 'object' ? doc.sourceProduct.gtin : null))
     .filter(Boolean) as string[]
 
   const unique = [...new Set(gtins)]
