@@ -1,7 +1,8 @@
 import type { Payload, Where } from 'payload'
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, CrawlProductResult } from '../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { lookupCategoryByPath } from '@/lib/lookup-source-category'
 
 const DM_PRODUCT_API = 'https://products.dm.de/product/products/detail/DE/gtin'
 const DM_REFERER = 'https://www.dm.de/'
@@ -471,27 +472,28 @@ export const dmDriver: SourceDriver = {
   async crawlProduct(
     sourceUrl: string,
     payload: Payload,
-  ): Promise<number | null> {
+  ): Promise<CrawlProductResult> {
+    const warnings: string[] = []
     try {
       // Extract GTIN from URL to call DM API
       const gtin = extractGtinFromDmUrl(sourceUrl)
       if (!gtin) {
         console.log(`[DM] Could not extract GTIN from URL: ${sourceUrl}`)
-        return null
+        return { productId: null, warnings }
       }
 
       // Fetch product details from DM API
       const res = await stealthFetch(`${DM_PRODUCT_API}/${gtin}`, { headers: DM_HEADERS })
       if (!res.ok) {
         console.log(`[DM] API returned ${res.status} for GTIN ${gtin}`)
-        return null
+        return { productId: null, warnings }
       }
       const data: DmProductDetail = await res.json()
 
       const name = data.title?.headline
       if (!name) {
         console.log(`[DM] No product name in API response for GTIN ${gtin}`)
-        return null
+        return { productId: null, warnings }
       }
 
       // Extract description as markdown
@@ -558,6 +560,15 @@ export const dmDriver: SourceDriver = {
         }
       }
 
+      // Look up SourceCategory by breadcrumbs path
+      let sourceCategoryId: number | null = null
+      if (data.breadcrumbs && data.breadcrumbs.length > 0) {
+        sourceCategoryId = await lookupCategoryByPath(payload, data.breadcrumbs, 'dm')
+        if (!sourceCategoryId) {
+          warnings.push(`No SourceCategory found for path: ${data.breadcrumbs.join(' > ')}`)
+        }
+      }
+
       // Find existing product by sourceUrl
       const existing = await payload.find({
         collection: 'source-products',
@@ -586,6 +597,7 @@ export const dmDriver: SourceDriver = {
         sourceArticleNumber,
         brandName: data.brand?.name ?? null,
         name,
+        ...(sourceCategoryId ? { sourceCategory: sourceCategoryId } : {}),
         description,
         amount: productAmount?.amount ?? null,
         amountUnit: productAmount?.unit ?? null,
@@ -620,10 +632,10 @@ export const dmDriver: SourceDriver = {
       }
 
       console.log(`[DM] Crawled product ${sourceUrl}: ${name} (id: ${productId})`)
-      return productId
+      return { productId, warnings }
     } catch (error) {
       console.error(`[DM] Error crawling product (url: ${sourceUrl}):`, error)
-      return null
+      return { productId: null, warnings }
     }
   },
 

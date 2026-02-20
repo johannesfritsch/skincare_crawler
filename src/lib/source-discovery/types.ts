@@ -34,6 +34,11 @@ export interface ProductDiscoveryResult {
   pagesUsed: number
 }
 
+export interface CrawlProductResult {
+  productId: number | null
+  warnings: string[]
+}
+
 export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
 
 export interface SourceDriver {
@@ -49,12 +54,11 @@ export interface SourceDriver {
   ): Promise<ProductDiscoveryResult>
 
   // Crawl a single product via API and save to database
-  // Returns the product ID if successful, null if failed
   crawlProduct(
     sourceUrl: string,
     payload: Payload,
     options?: { debug?: boolean },
-  ): Promise<number | null>
+  ): Promise<CrawlProductResult>
 
   // Collection-query methods
   findUncrawledProducts(

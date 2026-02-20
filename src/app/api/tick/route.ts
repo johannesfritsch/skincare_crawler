@@ -770,20 +770,20 @@ async function processProductCrawl(
       console.log(`[Product Crawl] [${driver.slug}] Found ${products.length} uncrawled products: ${products.map((p) => p.sourceUrl).join(', ')}`)
 
       for (const product of products) {
-        const productId = await driver.crawlProduct(
+        const result = await driver.crawlProduct(
           product.sourceUrl,
           payload,
           { debug: crawl.debug ?? false },
         )
 
-        if (productId !== null) {
+        if (result.productId !== null) {
           await driver.markProductStatus(payload, product.id, 'crawled')
           await payload.create({
             collection: 'crawl-results',
-            data: { crawl: crawlId, sourceProduct: productId },
+            data: { crawl: crawlId, sourceProduct: result.productId },
           })
           crawled++
-          console.log(`[Product Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${productId}`)
+          console.log(`[Product Crawl] [${driver.slug}] Crawled ${product.sourceUrl} -> source-product #${result.productId}`)
         } else {
           await driver.markProductStatus(payload, product.id, 'failed')
           await payload.create({
@@ -792,6 +792,10 @@ async function processProductCrawl(
           })
           errors++
           console.log(`[Product Crawl] [${driver.slug}] Failed to crawl ${product.sourceUrl}`)
+        }
+
+        for (const warning of result.warnings) {
+          await createEvent(payload, 'warning', 'product-crawls', crawlId, warning)
         }
 
         processedThisTick++

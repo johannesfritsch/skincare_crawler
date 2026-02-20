@@ -1,7 +1,8 @@
 import type { Payload, Where } from 'payload'
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, CrawlProductResult } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { lookupCategoryByUrl } from '@/lib/lookup-source-category'
 
 const SOURCE_MUELLER_FILTER: Where = {
   source: { equals: 'mueller' },
@@ -303,7 +304,8 @@ export const muellerDriver: SourceDriver = {
     sourceUrl: string,
     payload: Payload,
     options?: { debug?: boolean },
-  ): Promise<number | null> {
+  ): Promise<CrawlProductResult> {
+    const warnings: string[] = []
     try {
       // Find existing source-product by sourceUrl
       const existing = await payload.find({
@@ -391,15 +393,21 @@ export const muellerDriver: SourceDriver = {
             }
           }
 
-          // Category URL from last breadcrumb link
-          const breadcrumbLinks = document.querySelectorAll('[class*="breadcrumps_component_breadcrumbs__item"] a')
+          // Category URL from BreadcrumbList JSON-LD
           let categoryUrl: string | null = null
-          if (breadcrumbLinks.length > 0) {
-            const lastLink = breadcrumbLinks[breadcrumbLinks.length - 1] as HTMLAnchorElement
-            const href = lastLink.getAttribute('href')
-            if (href) {
-              categoryUrl = href.startsWith('http') ? href : `https://www.mueller.de${href}`
-            }
+          for (const script of ldScripts) {
+            try {
+              const parsed = JSON.parse(script.textContent || '')
+              if (parsed['@type'] === 'BreadcrumbList' && Array.isArray(parsed.itemListElement)) {
+                // Skip first (Startseite) and last (product name) — take deepest category
+                const items = parsed.itemListElement as Array<{ item?: string }>
+                const categoryItems = items.slice(1, -1).filter((el: { item?: string }) => el.item)
+                if (categoryItems.length > 0) {
+                  const deepest = categoryItems[categoryItems.length - 1]
+                  categoryUrl = deepest.item ?? null
+                }
+              }
+            } catch { /* ignore */ }
           }
 
           // Price — from JSON-LD offers first, then from priceContainer
@@ -631,18 +639,16 @@ export const muellerDriver: SourceDriver = {
 
         if (!scraped.name) {
           console.log(`[Mueller] No product name found on page for ${sourceUrl}`)
-          return null
+          return { productId: null, warnings }
         }
 
         // Look up SourceCategory by URL
         let sourceCategoryId: number | null = null
         if (scraped.categoryUrl) {
-          const catMatch = await payload.find({
-            collection: 'source-categories',
-            where: { and: [{ url: { equals: scraped.categoryUrl } }, { source: { equals: 'mueller' } }] },
-            limit: 1,
-          })
-          if (catMatch.docs.length > 0) sourceCategoryId = catMatch.docs[0].id
+          sourceCategoryId = await lookupCategoryByUrl(payload, scraped.categoryUrl, 'mueller')
+          if (!sourceCategoryId) {
+            warnings.push(`No SourceCategory found for URL: ${scraped.categoryUrl}`)
+          }
         }
 
         // Parse ingredients
@@ -837,13 +843,13 @@ export const muellerDriver: SourceDriver = {
           console.log(`[Mueller] Crawled product ${sourceUrl}: ${scraped.name} (id: ${primaryProductId})`)
         }
 
-        return primaryProductId
+        return { productId: primaryProductId, warnings }
       } finally {
         await browser.close()
       }
     } catch (error) {
       console.error(`[Mueller] Error crawling product (url: ${sourceUrl}):`, error)
-      return null
+      return { productId: null, warnings }
     }
   },
 

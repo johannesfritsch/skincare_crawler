@@ -1,7 +1,8 @@
 import type { Payload, Where } from 'payload'
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, CrawlProductResult } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { lookupCategoryByPath } from '@/lib/lookup-source-category'
 
 const SOURCE_ROSSMANN_FILTER: Where = {
   source: { equals: 'rossmann' },
@@ -330,7 +331,8 @@ export const rossmannDriver: SourceDriver = {
     sourceUrl: string,
     payload: Payload,
     options?: { debug?: boolean },
-  ): Promise<number | null> {
+  ): Promise<CrawlProductResult> {
+    const warnings: string[] = []
     try {
       // Find existing source-product by sourceUrl
       const existing = await payload.find({
@@ -505,6 +507,24 @@ export const rossmannDriver: SourceDriver = {
             if (countMatch) ratingNum = parseInt(countMatch[1], 10)
           }
 
+          // Category path from dataLayer
+          let categoryPath: string[] | null = null
+          try {
+            const dl = (window as unknown as Record<string, unknown[]>).dataLayer
+            if (Array.isArray(dl)) {
+              for (const entry of dl) {
+                const ecom = (entry as Record<string, unknown>).ecommerce as Record<string, unknown> | undefined
+                const viewItem = ecom?.view_item as Record<string, unknown> | undefined
+                const items = viewItem?.items as Array<Record<string, unknown>> | undefined
+                const itemCategory = items?.[0]?.item_category as string | undefined
+                if (itemCategory) {
+                  categoryPath = itemCategory.split('/').filter(Boolean)
+                  break
+                }
+              }
+            }
+          } catch { /* dataLayer not available */ }
+
           // Current page URL (in case of redirect)
           const currentUrl = window.location.href
 
@@ -524,6 +544,7 @@ export const rossmannDriver: SourceDriver = {
             _variantDebug,
             rating,
             ratingNum,
+            categoryPath,
             currentUrl,
           }
         })
@@ -532,11 +553,20 @@ export const rossmannDriver: SourceDriver = {
 
         if (!scraped.name) {
           console.log(`[Rossmann] No product name found on page for ${sourceUrl}`)
-          return null
+          return { productId: null, warnings }
         }
 
         // Extract GTIN from page or URL
         const gtin = scraped.gtinFromPage || sourceUrl.match(/\/p\/(\d+)/)?.[1] || null
+
+        // Look up SourceCategory by path
+        let sourceCategoryId: number | null = null
+        if (scraped.categoryPath && scraped.categoryPath.length > 0) {
+          sourceCategoryId = await lookupCategoryByPath(payload, scraped.categoryPath, 'rossmann')
+          if (!sourceCategoryId) {
+            warnings.push(`No SourceCategory found for path: ${scraped.categoryPath.join(' > ')}`)
+          }
+        }
 
         // Parse ingredients
         let ingredients: string[] = []
@@ -587,6 +617,7 @@ export const rossmannDriver: SourceDriver = {
           sourceArticleNumber: scraped.sourceArticleNumber,
           brandName: scraped.brandName,
           name: scraped.name,
+          ...(sourceCategoryId ? { sourceCategory: sourceCategoryId } : {}),
           description: scraped.description,
           amount: scraped.amount,
           amountUnit: scraped.amountUnit,
@@ -620,13 +651,13 @@ export const rossmannDriver: SourceDriver = {
         }
 
         console.log(`[Rossmann] Crawled product ${sourceUrl}: ${scraped.name} (id: ${productId})`)
-        return productId
+        return { productId, warnings }
       } finally {
         await browser.close()
       }
     } catch (error) {
       console.error(`[Rossmann] Error crawling product (url: ${sourceUrl}):`, error)
-      return null
+      return { productId: null, warnings }
     }
   },
 
