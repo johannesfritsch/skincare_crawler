@@ -1,2 +1,6 @@
 - Aggregate reviews from stores
-- Make sure leaf pages are all found for rossmann/mueller and the tick can be resumed
+- ✅ Make sure leaf pages are all found for rossmann/mueller and the tick can be resumed
+- Aggregate ph level and usageInterval (and other properties from the Google Sheet)
+- Sentiment analysis for VideoSnippets
+- Find out why not recognition candidates are found sometimes
+- Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers

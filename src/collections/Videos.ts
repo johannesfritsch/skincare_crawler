@@ -94,7 +94,7 @@ export const Videos: CollectionConfig = {
       on: 'video',
       defaultSort: 'timestampStart',
       admin: {
-        defaultColumns: ['image', 'timestampStart', 'timestampEnd', 'referencedProducts'],
+        defaultColumns: ['timestampStart', 'image', 'referencedProducts', 'matchingType'],
       },
     },
   ],

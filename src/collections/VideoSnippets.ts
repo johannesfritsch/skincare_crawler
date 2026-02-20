@@ -8,7 +8,7 @@ export const VideoSnippets: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'video',
-    defaultColumns: ['video', 'timestampStart', 'timestampEnd', 'createdAt'],
+    defaultColumns: ['video', 'timestampStart', 'matchingType', 'referencedProducts'],
     group: 'Social Media',
   },
   fields: [
@@ -122,7 +122,8 @@ export const VideoSnippets: CollectionConfig = {
           type: 'checkbox',
           label: 'Recognition Candidate',
           admin: {
-            description: 'Whether this screenshot was selected as a cluster representative for product recognition',
+            description:
+              'Whether this screenshot was selected as a cluster representative for product recognition',
             condition: (data) => data?.matchingType === 'visual',
           },
         },
