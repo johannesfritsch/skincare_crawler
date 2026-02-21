@@ -1,0 +1,21 @@
+{
+  "name": "anyskin-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "worker": "tsx src/worker.ts"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "^133.0.0",
+    "dotenv": "16.4.7",
+    "openai": "^6.16.0",
+    "playwright-core": "1.56.1",
+    "sharp": "^0.34.2",
+    "sharp-phash": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "tsx": "^4.0.0",
+    "typescript": "5.7.3"
+  }
+}

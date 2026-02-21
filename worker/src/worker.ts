@@ -1,0 +1,975 @@
+/**
+ * Standalone worker process for the crawler.
+ *
+ * Communicates with the server via Payload's standard REST API.
+ * All business logic (claiming, persisting, matching) runs locally.
+ *
+ * Env vars:
+ *   WORKER_SERVER_URL    — base URL of the server (e.g. http://localhost:3000)
+ *   WORKER_API_KEY       — API key for the workers collection
+ *   WORKER_POLL_INTERVAL — seconds between polls when idle (default: 10)
+ *   OPENAI_API_KEY       — for video processing and aggregation (optional)
+ */
+
+import 'dotenv/config'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
+import { PayloadRestClient } from '@/lib/payload-client'
+import { claimWork } from '@/lib/work-protocol/claim'
+import { submitWork } from '@/lib/work-protocol/submit'
+import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
+import { getSourceDriverBySlug } from '@/lib/source-discovery/driver'
+import { getSourceDriver } from '@/lib/source-discovery/driver'
+import { getCategoryDriver } from '@/lib/category-discovery/driver'
+import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
+import { getVideoDriver } from '@/lib/video-discovery/driver'
+import {
+  downloadVideo,
+  getVideoDuration,
+  detectSceneChanges,
+  extractScreenshots,
+  scanBarcode,
+  createThumbnailAndHash,
+  createRecognitionThumbnail,
+  hammingDistance,
+  formatTime,
+} from '@/lib/video-processing/process-video'
+import { classifyScreenshots, recognizeProduct } from '@/lib/video-processing/recognize-product'
+import { aggregateFromSources } from '@/lib/aggregate-product'
+import { classifyProduct } from '@/lib/classify-product'
+import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
+import type { DiscoveredCategory } from '@/lib/category-discovery/types'
+
+// ─── Config ───
+
+const SERVER_URL = process.env.WORKER_SERVER_URL ?? 'http://localhost:3000'
+const API_KEY = process.env.WORKER_API_KEY ?? ''
+const DEFAULT_POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL ?? '10', 10) * 1000
+
+if (!API_KEY) {
+  console.error('[Worker] WORKER_API_KEY is required')
+  process.exit(1)
+}
+
+// ─── REST Client & Worker Identity ───
+
+const client = new PayloadRestClient(SERVER_URL, API_KEY)
+let worker: AuthenticatedWorker
+
+// ─── Heartbeat & Collection Map ───
+
+const COLLECTION_MAP: Record<string, string> = {
+  'product-crawl': 'product-crawls',
+  'product-discovery': 'product-discoveries',
+  'category-discovery': 'category-discoveries',
+  'ingredients-discovery': 'ingredients-discoveries',
+  'video-discovery': 'video-discoveries',
+  'video-processing': 'video-processings',
+  'product-aggregation': 'product-aggregations',
+}
+
+async function heartbeat(jobId: number, type: string, progress?: unknown): Promise<void> {
+  try {
+    await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } })
+    if (progress !== undefined) {
+      const collection = COLLECTION_MAP[type]
+      if (collection) {
+        await client.update({ collection, id: jobId, data: { progress } as Record<string, unknown> })
+      }
+    }
+  } catch (e) {
+    console.warn(`[Worker] Heartbeat failed: ${e instanceof Error ? e.message : e}`)
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function uploadMedia(filePath: string, alt: string, mimetype: string): Promise<number> {
+  const buffer = fs.readFileSync(filePath)
+  const sizeKB = (buffer.length / 1024).toFixed(1)
+  console.log(`[Worker] Uploading media: ${path.basename(filePath)} (${sizeKB} KB, ${mimetype})`)
+
+  const blob = new Blob([buffer], { type: mimetype })
+  const formData = new FormData()
+  formData.append('file', blob, path.basename(filePath))
+  formData.append('alt', alt)
+
+  const url = `${SERVER_URL}/api/media`
+  const start = Date.now()
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `workers API-Key ${API_KEY}`,
+    },
+    body: formData,
+  })
+
+  const elapsed = Date.now() - start
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error(`[Worker] Media upload failed (${elapsed}ms) → ${res.status}: ${text.slice(0, 200)}`)
+    throw new Error(`Media upload failed (${res.status}): ${text}`)
+  }
+
+  const data = (await res.json()) as { doc: { id: number } }
+  console.log(`[Worker] Media uploaded (${elapsed}ms) → media #${data.doc.id}`)
+  return data.doc.id
+}
+
+// ─── Job Handlers ───
+
+async function handleProductCrawl(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const workItems = work.workItems as Array<{
+    sourceProductId: number
+    sourceUrl: string
+    source: string
+  }>
+  const debug = work.debug as boolean
+
+  console.log(`[Worker] Product crawl job #${jobId}: ${workItems.length} items`)
+
+  if (workItems.length === 0) {
+    console.warn(`[Worker] No work items for job #${jobId}, skipping submit`)
+    return
+  }
+
+  const results: Array<{
+    sourceProductId: number
+    sourceUrl: string
+    source: string
+    data: ScrapedProductData | null
+    error?: string
+  }> = []
+
+  for (const item of workItems) {
+    const driver = getSourceDriverBySlug(item.source)
+    if (!driver) {
+      results.push({
+        ...item,
+        data: null,
+        error: `No driver for source: ${item.source}`,
+      })
+      continue
+    }
+
+    console.log(`[Worker]   Scraping ${item.sourceUrl}`)
+    try {
+      const data = await driver.scrapeProduct(item.sourceUrl, { debug })
+      results.push({ ...item, data })
+      if (!data) {
+        results[results.length - 1].error = 'scrapeProduct returned null'
+      }
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      console.error(`[Worker]   Error: ${error}`)
+      results.push({ ...item, data: null, error })
+    }
+  }
+
+  await submitWork(client, worker, { type: 'product-crawl', jobId, results } as Parameters<typeof submitWork>[2])
+  console.log(`[Worker] Submitted crawl results for job #${jobId}`)
+}
+
+async function handleProductDiscovery(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const sourceUrls = work.sourceUrls as string[]
+  let currentUrlIndex = work.currentUrlIndex as number
+  let driverProgress = work.driverProgress as unknown
+  const maxPages = work.maxPages as number | undefined
+  const delay = work.delay as number
+
+  console.log(
+    `[Worker] Product discovery job #${jobId}: ${sourceUrls.length} URLs, starting at ${currentUrlIndex}`,
+  )
+
+  const discoveredProducts: DiscoveredProduct[] = []
+  let totalPagesUsed = 0
+
+  let pagesRemaining = maxPages
+
+  while (currentUrlIndex < sourceUrls.length) {
+    if (pagesRemaining !== undefined && pagesRemaining <= 0) break
+
+    const url = sourceUrls[currentUrlIndex]
+    const driver = getSourceDriver(url)
+    if (!driver) {
+      console.warn(`[Worker]   No driver for URL: ${url}`)
+      currentUrlIndex++
+      driverProgress = null
+      continue
+    }
+
+    console.log(`[Worker]   Discovering from ${url}`)
+
+    const result = await driver.discoverProducts({
+      url,
+      onProduct: async (product) => {
+        discoveredProducts.push(product)
+      },
+      onError: () => {},
+      onProgress: async (dp) => {
+        driverProgress = dp
+        // Heartbeat during long-running discovery
+        await heartbeat(jobId, 'product-discovery', { currentUrlIndex, driverProgress: dp })
+      },
+      progress: driverProgress ?? undefined,
+      maxPages: pagesRemaining,
+      delay,
+    })
+
+    totalPagesUsed += result.pagesUsed
+
+    if (result.done) {
+      currentUrlIndex++
+      driverProgress = null
+      if (pagesRemaining !== undefined) {
+        pagesRemaining -= result.pagesUsed
+      }
+    } else {
+      break
+    }
+  }
+
+  const done = currentUrlIndex >= sourceUrls.length
+
+  await submitWork(client, worker, {
+    type: 'product-discovery',
+    jobId,
+    products: discoveredProducts,
+    currentUrlIndex,
+    driverProgress,
+    done,
+    pagesUsed: totalPagesUsed,
+  } as Parameters<typeof submitWork>[2])
+
+  console.log(
+    `[Worker] Submitted discovery results: ${discoveredProducts.length} products, done=${done}`,
+  )
+}
+
+async function handleCategoryDiscovery(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const storeUrls = work.storeUrls as string[]
+  let currentUrlIndex = work.currentUrlIndex as number
+  let driverProgress = work.driverProgress as unknown
+  const maxPages = work.maxPages as number | undefined
+  const pathToId = work.pathToId as Record<string, number>
+
+  console.log(
+    `[Worker] Category discovery job #${jobId}: ${storeUrls.length} URLs, starting at ${currentUrlIndex}`,
+  )
+
+  const discoveredCategories: DiscoveredCategory[] = []
+
+  while (currentUrlIndex < storeUrls.length) {
+    const url = storeUrls[currentUrlIndex]
+    const driver = getCategoryDriver(url)
+    if (!driver) {
+      console.warn(`[Worker]   No category driver for URL: ${url}`)
+      currentUrlIndex++
+      driverProgress = null
+      continue
+    }
+
+    console.log(`[Worker]   Discovering categories from ${url}`)
+
+    const result = await driver.discoverCategories({
+      url,
+      onCategory: async (cat) => {
+        discoveredCategories.push(cat)
+      },
+      onError: () => {},
+      onProgress: async (dp) => {
+        driverProgress = dp
+        await heartbeat(jobId, 'category-discovery')
+      },
+      progress: driverProgress as
+        | import('@/lib/category-discovery/types').DriverProgress
+        | undefined,
+      maxPages,
+    })
+
+    // discoverCategories returns the final progress state
+    if (result) {
+      // Check if done: queue is empty
+      const isDone = result.queue.length === 0
+      if (isDone) {
+        currentUrlIndex++
+        driverProgress = null
+      } else {
+        driverProgress = result
+        break
+      }
+    }
+  }
+
+  const done = currentUrlIndex >= storeUrls.length
+
+  await submitWork(client, worker, {
+    type: 'category-discovery',
+    jobId,
+    categories: discoveredCategories,
+    currentUrlIndex,
+    driverProgress,
+    pathToId,
+    done,
+  } as Parameters<typeof submitWork>[2])
+
+  console.log(
+    `[Worker] Submitted category discovery: ${discoveredCategories.length} categories, done=${done}`,
+  )
+}
+
+async function handleIngredientsDiscovery(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const sourceUrl = work.sourceUrl as string
+  let currentTerm = work.currentTerm as string | null
+  let currentPage = work.currentPage as number
+  let totalPagesForTerm = work.totalPagesForTerm as number
+  let termQueue = work.termQueue as string[]
+  const pagesPerTick = work.pagesPerTick as number | undefined
+
+  console.log(`[Worker] Ingredients discovery job #${jobId}`)
+
+  const driver = getIngredientsDriver(sourceUrl)
+  if (!driver) {
+    console.error(`[Worker] No ingredients driver for URL: ${sourceUrl}`)
+    return
+  }
+
+  const allIngredients: import('@/lib/ingredients-discovery/types').ScrapedIngredientData[] = []
+  let pagesProcessed = 0
+
+  while (true) {
+    if (pagesPerTick && pagesProcessed >= pagesPerTick) break
+
+    // Get next term if needed
+    if (!currentTerm) {
+      if (termQueue.length === 0) break
+      currentTerm = termQueue.shift()!
+      currentPage = 1
+      totalPagesForTerm = 0
+
+      // Check term
+      const check = await driver.checkTerm(currentTerm)
+      if (check.split) {
+        termQueue = [...check.subTerms, ...termQueue]
+        currentTerm = null
+        continue
+      }
+      totalPagesForTerm = check.totalPages
+      if (totalPagesForTerm === 0) {
+        currentTerm = null
+        continue
+      }
+    }
+
+    // Fetch page
+    console.log(`[Worker]   Fetching "${currentTerm}" page ${currentPage}/${totalPagesForTerm}`)
+    const ingredients = await driver.fetchPage(currentTerm, currentPage)
+    allIngredients.push(...ingredients)
+    pagesProcessed++
+
+    currentPage++
+    if (currentPage > totalPagesForTerm) {
+      currentTerm = null
+      currentPage = 1
+      totalPagesForTerm = 0
+    }
+
+    // Heartbeat
+    await heartbeat(jobId, 'ingredients-discovery')
+  }
+
+  const done = !currentTerm && termQueue.length === 0
+
+  await submitWork(client, worker, {
+    type: 'ingredients-discovery',
+    jobId,
+    ingredients: allIngredients,
+    currentTerm,
+    currentPage,
+    totalPagesForTerm,
+    termQueue,
+    done,
+  } as Parameters<typeof submitWork>[2])
+
+  console.log(`[Worker] Submitted ingredients: ${allIngredients.length} items, done=${done}`)
+}
+
+async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const channelUrl = work.channelUrl as string
+  const itemsPerTick = work.itemsPerTick as number
+  const previousCreated = work.created as number
+  const previousExisting = work.existing as number
+
+  console.log(`[Worker] Video discovery job #${jobId}: ${channelUrl}`)
+
+  const driver = getVideoDriver(channelUrl)
+  if (!driver) {
+    console.error(`[Worker] No video driver for URL: ${channelUrl}`)
+    return
+  }
+
+  const videos = await driver.discoverVideos(channelUrl)
+  const offset = previousCreated + previousExisting
+  const batchSize = itemsPerTick
+
+  console.log(`[Worker] Found ${videos.length} videos, submitting batch from offset ${offset}`)
+
+  await submitWork(client, worker, {
+    type: 'video-discovery',
+    jobId,
+    channelUrl,
+    videos,
+    totalVideos: videos.length,
+    offset,
+    batchSize,
+  } as Parameters<typeof submitWork>[2])
+
+  console.log(`[Worker] Submitted video discovery results`)
+}
+
+async function handleVideoProcessing(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const videos = work.videos as Array<{
+    videoId: number
+    externalUrl: string
+    title: string
+  }>
+  const sceneThreshold = (work.sceneThreshold as number) ?? 0.4
+  const clusterThreshold = (work.clusterThreshold as number) ?? 25
+
+  console.log(`[Worker] Video processing job #${jobId}: ${videos.length} videos`)
+
+  const results: Array<Record<string, unknown>> = []
+
+  for (const video of videos) {
+    console.log(`\n[Worker] ════════════════════════════════════════════════════`)
+    console.log(`[Worker] Processing: "${video.title}" (id=${video.videoId})`)
+    console.log(`[Worker] URL: ${video.externalUrl}`)
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-video-'))
+    const videoPath = path.join(tmpDir, 'video.mp4')
+    const screenshotsDir = path.join(tmpDir, 'screenshots')
+    fs.mkdirSync(screenshotsDir)
+
+    let totalTokensUsed = 0
+
+    try {
+      // Step 1: Download video
+      await downloadVideo(video.externalUrl, videoPath)
+      await heartbeat(jobId, 'video-processing')
+
+      // Step 2: Upload video mp4 as media
+      console.log(`[Worker] ── Upload video to media ──`)
+      const videoMediaId = await uploadMedia(videoPath, video.title || `Video ${video.videoId}`, 'video/mp4')
+      console.log(`[Worker] Uploaded video as media #${videoMediaId}`)
+      await heartbeat(jobId, 'video-processing')
+
+      // Step 3: Get duration + scene detection
+      const duration = await getVideoDuration(videoPath)
+      const sceneChanges = await detectSceneChanges(videoPath, sceneThreshold)
+      await heartbeat(jobId, 'video-processing')
+
+      // Step 4: Build segments
+      const timestamps = [0, ...sceneChanges.map((s) => s.time), duration]
+      const segments: { start: number; end: number }[] = []
+      for (let i = 0; i < timestamps.length - 1; i++) {
+        const start = timestamps[i]
+        const end = timestamps[i + 1]
+        if (end - start >= 0.5) {
+          segments.push({ start, end })
+        }
+      }
+
+      console.log(`[Worker] ${segments.length} segments from ${sceneChanges.length} scene changes`)
+
+      // Step 5: Process each segment
+      const segmentResults: Array<Record<string, unknown>> = []
+
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i]
+        const segDuration = seg.end - seg.start
+        const segLabel = `Segment ${i + 1}/${segments.length}`
+        const segTime = `[${formatTime(seg.start)} – ${formatTime(seg.end)}]`
+
+        const log: string[] = []
+        log.push(`── ${segLabel} ${segTime} (${segDuration.toFixed(1)}s) ──`)
+
+        console.log(`\n[Worker] ── ${segLabel}: ${seg.start.toFixed(1)}s – ${seg.end.toFixed(1)}s ──`)
+
+        // Extract screenshots
+        const prefix = `seg${String(i).padStart(3, '0')}`
+        const screenshotFiles = await extractScreenshots(videoPath, screenshotsDir, prefix, seg.start, segDuration)
+
+        log.push(`Screenshots: ${screenshotFiles.length} extracted (1fps)`)
+
+        // First pass: scan for barcodes (stop at first hit)
+        console.log(`[Worker]   Scanning ${screenshotFiles.length} screenshots for barcodes...`)
+        let foundBarcode: string | null = null
+        let barcodeScreenshotIndex: number | null = null
+
+        for (let j = 0; j < screenshotFiles.length; j++) {
+          const barcode = await scanBarcode(screenshotFiles[j])
+          if (barcode) {
+            foundBarcode = barcode
+            barcodeScreenshotIndex = j
+            console.log(`[Worker]   Barcode found in screenshot ${j + 1}, skipping remaining`)
+            break
+          }
+        }
+
+        if (foundBarcode) {
+          // ── Barcode path ──
+          console.log(`[Worker]   Barcode path: ${foundBarcode}`)
+          log.push(``)
+          log.push(`Path: BARCODE`)
+          log.push(`Barcode scan: found ${foundBarcode} in screenshot ${barcodeScreenshotIndex! + 1}/${screenshotFiles.length}`)
+
+          const screenshots: Array<Record<string, unknown>> = []
+          for (let j = 0; j < screenshotFiles.length; j++) {
+            const ts = Math.floor(seg.start) + j
+            console.log(`[Worker]   Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
+            const imageMediaId = await uploadMedia(screenshotFiles[j], `${video.title} – ${ts}s`, 'image/jpeg')
+
+            const entry: Record<string, unknown> = { imageMediaId }
+            if (j === barcodeScreenshotIndex) {
+              entry.barcode = foundBarcode
+            }
+            screenshots.push(entry)
+          }
+
+          log.push(``)
+          log.push(`Uploaded ${screenshots.length} screenshots`)
+
+          segmentResults.push({
+            timestampStart: Math.round(seg.start),
+            timestampEnd: Math.round(seg.end),
+            matchingType: 'barcode',
+            barcode: foundBarcode,
+            screenshots,
+            eventLog: log.join('\n'),
+          })
+        } else {
+          // ── Visual path ──
+          console.log(`[Worker]   No barcode found, using visual recognition path`)
+          log.push(`Barcode scan: no barcode found (scanned ${screenshotFiles.length} screenshots)`)
+          log.push(``)
+          log.push(`Path: VISUAL`)
+
+          // Compute hashes and cluster
+          const hashResults: { thumbnailPath: string; hash: string; distance: number | null; screenshotGroup: number }[] = []
+          const clusterRepresentatives: { hash: string; group: number; screenshotIndex: number }[] = []
+
+          for (let j = 0; j < screenshotFiles.length; j++) {
+            const { thumbnailPath, hash } = await createThumbnailAndHash(screenshotFiles[j])
+
+            let bestDistance: number | null = null
+            let bestGroup = -1
+            for (const rep of clusterRepresentatives) {
+              const d = hammingDistance(hash, rep.hash)
+              if (bestDistance === null || d < bestDistance) {
+                bestDistance = d
+                bestGroup = rep.group
+              }
+            }
+
+            let assignedGroup: number
+            if (bestDistance !== null && bestDistance <= clusterThreshold) {
+              assignedGroup = bestGroup
+            } else {
+              assignedGroup = clusterRepresentatives.length
+              clusterRepresentatives.push({ hash, group: assignedGroup, screenshotIndex: j })
+            }
+
+            hashResults.push({ thumbnailPath, hash, distance: bestDistance, screenshotGroup: assignedGroup })
+          }
+
+          console.log(`[Worker]   ${clusterRepresentatives.length} clusters formed`)
+
+          log.push(``)
+          log.push(`Clustering: ${clusterRepresentatives.length} clusters from ${screenshotFiles.length} screenshots`)
+          for (const rep of clusterRepresentatives) {
+            const memberCount = hashResults.filter((h) => h.screenshotGroup === rep.group).length
+            log.push(`  Group ${rep.group}: ${memberCount} screenshot${memberCount !== 1 ? 's' : ''} (rep: screenshot ${rep.screenshotIndex + 1})`)
+          }
+
+          // Phase 1: Classify cluster reps
+          const recogThumbnails: { clusterGroup: number; imagePath: string; recogPath: string }[] = []
+          for (const rep of clusterRepresentatives) {
+            const recogPath = await createRecognitionThumbnail(screenshotFiles[rep.screenshotIndex])
+            recogThumbnails.push({ clusterGroup: rep.group, imagePath: recogPath, recogPath })
+          }
+
+          const classifyResult = await classifyScreenshots(
+            recogThumbnails.map((r) => ({ clusterGroup: r.clusterGroup, imagePath: r.imagePath })),
+          )
+          totalTokensUsed += classifyResult.tokensUsed.totalTokens
+          const candidateClusters = new Set(classifyResult.candidates)
+          console.log(`[Worker]   Phase 1: ${candidateClusters.size} product clusters out of ${clusterRepresentatives.length}`)
+          await heartbeat(jobId, 'video-processing')
+
+          log.push(``)
+          if (candidateClusters.size > 0) {
+            log.push(`Phase 1 — Classification: ${candidateClusters.size} product cluster${candidateClusters.size !== 1 ? 's' : ''} [${classifyResult.candidates.join(', ')}] out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
+          } else {
+            log.push(`Phase 1 — Classification: no product clusters detected out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
+          }
+
+          // Phase 2: Recognize products in candidate clusters
+          const recognitionResults: Array<{ clusterGroup: number; brand: string | null; productName: string | null; searchTerms: string[] }> = []
+
+          if (candidateClusters.size > 0) {
+            log.push(``)
+            log.push(`Phase 2 — Recognition:`)
+          }
+
+          for (const clusterGroup of candidateClusters) {
+            const clusterScreenshots = screenshotFiles
+              .map((file, idx) => ({ file, idx }))
+              .filter((_, idx) => hashResults[idx].screenshotGroup === clusterGroup)
+
+            const selected: string[] = []
+            if (clusterScreenshots.length <= 4) {
+              selected.push(...clusterScreenshots.map((s) => s.file))
+            } else {
+              const step = (clusterScreenshots.length - 1) / 3
+              for (let k = 0; k < 4; k++) {
+                selected.push(clusterScreenshots[Math.round(k * step)].file)
+              }
+            }
+
+            console.log(`[Worker]   Phase 2: Recognizing product from cluster ${clusterGroup} (${selected.length} screenshots)`)
+            const recognition = await recognizeProduct(selected)
+            if (recognition) {
+              totalTokensUsed += recognition.tokensUsed.totalTokens
+              recognitionResults.push({
+                clusterGroup,
+                brand: recognition.brand,
+                productName: recognition.productName,
+                searchTerms: recognition.searchTerms,
+              })
+              const brandStr = recognition.brand ? `"${recognition.brand}"` : 'unknown'
+              const productStr = recognition.productName ? `"${recognition.productName}"` : 'unknown'
+              const termsStr = recognition.searchTerms.length > 0 ? recognition.searchTerms.map((t: string) => `"${t}"`).join(', ') : 'none'
+              log.push(`  Cluster ${clusterGroup}: brand=${brandStr}, product=${productStr}, terms=[${termsStr}] (${recognition.tokensUsed.totalTokens} tokens)`)
+            } else {
+              log.push(`  Cluster ${clusterGroup}: recognition failed (${selected.length} screenshots sent)`)
+            }
+            await heartbeat(jobId, 'video-processing')
+          }
+
+          // Upload screenshots with metadata
+          const repScreenshotIndices = new Set(clusterRepresentatives.map((r) => r.screenshotIndex))
+          const recogPathByGroup = new Map<number, string>()
+          for (const rt of recogThumbnails) {
+            if (candidateClusters.has(rt.clusterGroup)) {
+              recogPathByGroup.set(rt.clusterGroup, rt.recogPath)
+            }
+          }
+
+          const screenshots: Array<Record<string, unknown>> = []
+          let recogThumbnailCount = 0
+
+          for (let j = 0; j < screenshotFiles.length; j++) {
+            const file = screenshotFiles[j]
+            const hr = hashResults[j]
+            const ts = Math.floor(seg.start) + j
+            console.log(`[Worker]   Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
+
+            const imageMediaId = await uploadMedia(file, `${video.title} – ${ts}s`, 'image/jpeg')
+            const thumbnailMediaId = await uploadMedia(hr.thumbnailPath, `${video.title} – ${ts}s thumb`, 'image/png')
+
+            const entry: Record<string, unknown> = {
+              imageMediaId,
+              thumbnailMediaId,
+              hash: hr.hash,
+              screenshotGroup: hr.screenshotGroup,
+            }
+            if (hr.distance !== null) {
+              entry.distance = hr.distance
+            }
+
+            if (repScreenshotIndices.has(j) && candidateClusters.has(hr.screenshotGroup)) {
+              entry.recognitionCandidate = true
+              const recogPath = recogPathByGroup.get(hr.screenshotGroup)
+              if (recogPath) {
+                entry.recognitionThumbnailMediaId = await uploadMedia(recogPath, `${video.title} – ${ts}s recog`, 'image/png')
+                recogThumbnailCount++
+              }
+            }
+
+            screenshots.push(entry)
+          }
+
+          log.push(``)
+          log.push(`Uploaded ${screenshots.length} screenshots${recogThumbnailCount > 0 ? ` (${recogThumbnailCount} with recognition thumbnails)` : ''}`)
+
+          segmentResults.push({
+            timestampStart: Math.round(seg.start),
+            timestampEnd: Math.round(seg.end),
+            matchingType: 'visual',
+            screenshots,
+            recognitionResults,
+            eventLog: log.join('\n'),
+          })
+        }
+
+        await heartbeat(jobId, 'video-processing')
+      }
+
+      console.log(`\n[Worker] Done processing video #${video.videoId}: ${segmentResults.length} segments, ${totalTokensUsed} tokens`)
+
+      results.push({
+        videoId: video.videoId,
+        success: true,
+        tokensUsed: totalTokensUsed,
+        videoMediaId,
+        segments: segmentResults,
+      })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.error(`[Worker] FAILED processing video #${video.videoId}: ${msg}`)
+      results.push({
+        videoId: video.videoId,
+        success: false,
+        error: msg,
+        tokensUsed: totalTokensUsed,
+      })
+    } finally {
+      console.log(`[Worker] Cleaning up: ${tmpDir}`)
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+      } catch (e) {
+        console.warn(`[Worker] Cleanup failed: ${e}`)
+      }
+    }
+  }
+
+  await submitWork(client, worker, { type: 'video-processing', jobId, results } as Parameters<typeof submitWork>[2])
+  console.log(`[Worker] Submitted video processing results for job #${jobId}`)
+}
+
+async function handleProductAggregation(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const language = work.language as string
+  const aggregationType = work.aggregationType as string
+  const lastCheckedSourceId = work.lastCheckedSourceId as number
+  const workItems = work.workItems as Array<{
+    gtin: string
+    categoryBreadcrumb: string | null
+    sourceProducts: Array<{
+      id: number
+      gtin: string | null
+      name: string | null
+      brandName: string | null
+      sourceCategoryId: number | null
+      source: string | null
+      ingredients: Array<{ name: string | null }> | null
+      description: string | null
+    }>
+  }>
+
+  console.log(`[Worker] Product aggregation job #${jobId}: ${workItems.length} items (type=${aggregationType})`)
+
+  if (workItems.length === 0) {
+    console.warn(`[Worker] No work items for aggregation job #${jobId}, skipping submit`)
+    return
+  }
+
+  const results: Array<Record<string, unknown>> = []
+
+  for (const item of workItems) {
+    console.log(`[Worker]   Aggregating GTIN ${item.gtin} (${item.sourceProducts.length} sources)`)
+
+    try {
+      // Step 1: Aggregate from sources (pure)
+      const aggregated = aggregateFromSources(
+        item.sourceProducts.map((sp) => ({
+          id: sp.id,
+          gtin: sp.gtin ?? undefined,
+          name: sp.name ?? undefined,
+          brandName: sp.brandName ?? undefined,
+          sourceCategory: sp.sourceCategoryId ?? undefined,
+          source: sp.source ?? undefined,
+          ingredients: sp.ingredients
+            ? sp.ingredients.map((i) => ({ name: i.name ?? undefined }))
+            : undefined,
+        })),
+      )
+
+      // Step 2: Build classify inputs
+      const classifySources: { id: number; description?: string; ingredientNames?: string[] }[] = []
+      for (const sp of item.sourceProducts) {
+        const ingredientNames = (sp.ingredients ?? [])
+          .map((i) => i.name)
+          .filter((n): n is string => !!n)
+        if (sp.description || ingredientNames.length > 0) {
+          classifySources.push({
+            id: sp.id,
+            description: sp.description || undefined,
+            ingredientNames: ingredientNames.length > 0 ? ingredientNames : undefined,
+          })
+        }
+      }
+
+      // Step 3: Classify product (OpenAI)
+      let classification: Record<string, unknown> | undefined
+      let classifySourceProductIds: number[] | undefined
+      let tokensUsed = 0
+
+      if (classifySources.length > 0) {
+        try {
+          const classifyResult = await classifyProduct(
+            classifySources.map((s) => ({ description: s.description, ingredientNames: s.ingredientNames })),
+            language,
+          )
+          tokensUsed = classifyResult.tokensUsed.totalTokens
+
+          classification = {
+            description: classifyResult.description,
+            productType: classifyResult.productType,
+            productAttributes: classifyResult.productAttributes,
+            productClaims: classifyResult.productClaims,
+            tokensUsed: classifyResult.tokensUsed,
+          }
+
+          // Map sourceIndex → sourceProduct.id for evidence
+          classifySourceProductIds = classifySources.map((s) => s.id)
+        } catch (e) {
+          const error = e instanceof Error ? e.message : String(e)
+          console.error(`[Worker]   Classification error for GTIN ${item.gtin}: ${error}`)
+          // Continue without classification
+        }
+      }
+
+      results.push({
+        gtin: item.gtin,
+        sourceProductIds: item.sourceProducts.map((sp) => sp.id),
+        aggregated,
+        classification,
+        classifySourceProductIds,
+        tokensUsed,
+      })
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      console.error(`[Worker]   Error aggregating GTIN ${item.gtin}: ${error}`)
+      results.push({
+        gtin: item.gtin,
+        sourceProductIds: item.sourceProducts.map((sp) => sp.id),
+        aggregated: null,
+        tokensUsed: 0,
+        error,
+      })
+    }
+
+    await heartbeat(jobId, 'product-aggregation')
+  }
+
+  await submitWork(client, worker, {
+    type: 'product-aggregation',
+    jobId,
+    lastCheckedSourceId,
+    aggregationType,
+    results,
+  } as Parameters<typeof submitWork>[2])
+  console.log(`[Worker] Submitted aggregation results for job #${jobId}: ${results.length} items`)
+}
+
+// ─── Main Loop ───
+
+async function main(): Promise<void> {
+  console.log(`[Worker] Starting worker`)
+  console.log(`[Worker] Server: ${SERVER_URL}`)
+  console.log(`[Worker] Default poll interval: ${DEFAULT_POLL_INTERVAL / 1000}s`)
+
+  // Authenticate via REST API
+  const meResult = await client.me()
+  if (!meResult.user) {
+    console.error('[Worker] Authentication failed: no user returned from /workers/me')
+    process.exit(1)
+  }
+
+  const me = meResult.user as { id: number; name: string; capabilities: string[]; status: string; collection?: string }
+  if (me.status !== 'active') {
+    console.error(`[Worker] Worker "${me.name}" (#${me.id}) is not active (status="${me.status}")`)
+    process.exit(1)
+  }
+
+  worker = {
+    id: me.id,
+    name: me.name,
+    capabilities: me.capabilities ?? [],
+    status: me.status,
+  }
+
+  console.log(`[Worker] Authenticated as "${worker.name}" (#${worker.id}), capabilities=[${worker.capabilities.join(', ')}]`)
+
+  // Update lastSeenAt on startup
+  await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } })
+
+  while (true) {
+    let currentJobType: string | undefined
+    let currentJobId: unknown | undefined
+    try {
+      // Update worker lastSeenAt each loop iteration
+      await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } }).catch(() => {})
+
+      const work = await claimWork(client, worker)
+
+      if (work.type === 'none') {
+        console.log(`[Worker] No work, sleeping ${DEFAULT_POLL_INTERVAL / 1000}s`)
+        await sleep(DEFAULT_POLL_INTERVAL)
+        continue
+      }
+
+      currentJobType = work.type as string
+      currentJobId = work.jobId
+      console.log(`[Worker] Dispatching ${work.type} job #${work.jobId}`)
+
+      switch (work.type) {
+        case 'product-crawl':
+          await handleProductCrawl(work)
+          break
+        case 'product-discovery':
+          await handleProductDiscovery(work)
+          break
+        case 'category-discovery':
+          await handleCategoryDiscovery(work)
+          break
+        case 'ingredients-discovery':
+          await handleIngredientsDiscovery(work)
+          break
+        case 'video-discovery':
+          await handleVideoDiscovery(work)
+          break
+        case 'video-processing':
+          await handleVideoProcessing(work)
+          break
+        case 'product-aggregation':
+          await handleProductAggregation(work)
+          break
+        default:
+          console.warn(`[Worker] Unknown job type: ${work.type}`)
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const jobCtx = currentJobType ? ` (${currentJobType} #${currentJobId})` : ''
+      console.error(`[Worker] Error in main loop${jobCtx}: ${msg}`)
+      // Wait before retrying after errors
+      await sleep(DEFAULT_POLL_INTERVAL)
+    }
+  }
+}
+
+main().catch((e) => {
+  console.error('[Worker] Fatal error:', e)
+  process.exit(1)
+})
