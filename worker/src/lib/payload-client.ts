@@ -138,11 +138,7 @@ export class PayloadRestClient {
       const formData = new FormData()
       const blob = new Blob([args.file.data], { type: args.file.mimetype })
       formData.append('file', blob, args.file.name)
-      for (const [key, value] of Object.entries(args.data)) {
-        if (value !== undefined && value !== null) {
-          formData.append(key, typeof value === 'string' ? value : JSON.stringify(value))
-        }
-      }
+      formData.append('_payload', JSON.stringify(args.data))
 
       const url = `${this.baseUrl}/api/${args.collection}`
       const res = await fetch(url, {

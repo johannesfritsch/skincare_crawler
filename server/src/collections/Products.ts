@@ -9,6 +9,7 @@ export const Products: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'gtin', 'brand', 'category', 'createdAt'],
+    listSearchableFields: ['name', 'gtin'],
     group: 'Content',
   },
   fields: [
@@ -280,6 +281,18 @@ export const Products: CollectionConfig = {
               type: 'join',
               collection: 'video-snippets',
               on: 'referencedProducts',
+            },
+          ],
+        },
+        {
+          label: 'History',
+          fields: [
+            {
+              name: 'aggregations',
+              type: 'join',
+              collection: 'product-aggregations',
+              on: 'product',
+              admin: { allowCreate: false },
             },
           ],
         },

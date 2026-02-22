@@ -95,7 +95,7 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string): Pro
   const blob = new Blob([buffer], { type: mimetype })
   const formData = new FormData()
   formData.append('file', blob, path.basename(filePath))
-  formData.append('alt', alt)
+  formData.append('_payload', JSON.stringify({ alt }))
 
   const url = `${SERVER_URL}/api/media`
   const start = Date.now()

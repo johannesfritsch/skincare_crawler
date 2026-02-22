@@ -103,6 +103,7 @@ export interface Config {
     };
     products: {
       videoSnippets: 'video-snippets';
+      aggregations: 'product-aggregations';
     };
     'source-products': {
       discoveries: 'discovery-results';
@@ -869,6 +870,11 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  aggregations?: {
+    docs?: (number | ProductAggregation)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   /**
    * When data sources were last aggregated into name, category, and description
    */
@@ -1526,6 +1532,7 @@ export interface ProductsSelect<T extends boolean = true> {
         id?: T;
       };
   videoSnippets?: T;
+  aggregations?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
   updatedAt?: T;
