@@ -6,6 +6,9 @@ import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
 import { matchCategory } from '@/lib/match-category'
 import { matchIngredients } from '@/lib/match-ingredients'
+import { createLogger, type JobCollection } from '@/lib/logger'
+
+const log = createLogger('WorkProtocol')
 
 interface ScrapedProductData {
   gtin?: string
@@ -87,25 +90,6 @@ interface DiscoveredVideo {
   channelUrl?: string
 }
 
-type JobCollection = 'product-discoveries' | 'product-crawls' | 'ingredients-discoveries' | 'product-aggregations' | 'video-discoveries' | 'video-processings' | 'category-discoveries'
-
-export async function createEvent(
-  payload: PayloadRestClient,
-  type: 'start' | 'success' | 'info' | 'warning' | 'error',
-  jobCollection: JobCollection,
-  jobId: number,
-  message: string,
-) {
-  try {
-    await payload.create({
-      collection: 'events',
-      data: { type, message, job: { relationTo: jobCollection, value: jobId } },
-    })
-  } catch (e) {
-    console.error('Failed to create event:', e)
-  }
-}
-
 // ─── Product Crawl ───
 
 export interface PersistCrawlResultInput {
@@ -121,7 +105,8 @@ export async function persistCrawlResult(
   input: PersistCrawlResultInput,
 ): Promise<{ productId: number; warnings: string[] }> {
   const { crawlId, sourceProductId, sourceUrl, source, data } = input
-  console.log(`[WorkProtocol] persistCrawlResult: crawl #${crawlId}, sourceProduct #${sourceProductId}, source=${source}`)
+  const jlog = log.forJob('product-crawls' as JobCollection, crawlId)
+  log.info(`persistCrawlResult: crawl #${crawlId}, sourceProduct #${sourceProductId}, source=${source}`)
   const warnings = [...data.warnings]
 
   // Look up SourceCategory
@@ -130,11 +115,13 @@ export async function persistCrawlResult(
     sourceCategoryId = await lookupCategoryByUrl(payload, data.categoryUrl, source)
     if (!sourceCategoryId) {
       warnings.push(`No SourceCategory found for URL: ${data.categoryUrl}`)
+      jlog.warn(`No SourceCategory found for URL: ${data.categoryUrl}`, { event: true, labels: ['scraping', 'category-matching'] })
     }
   } else if (data.categoryBreadcrumbs && data.categoryBreadcrumbs.length > 0) {
     sourceCategoryId = await lookupCategoryByPath(payload, data.categoryBreadcrumbs, source)
     if (!sourceCategoryId) {
       warnings.push(`No SourceCategory found for path: ${data.categoryBreadcrumbs.join(' > ')}`)
+      jlog.warn(`No SourceCategory found for path: ${data.categoryBreadcrumbs.join(' > ')}`, { event: true, labels: ['scraping', 'category-matching'] })
     }
   }
 
@@ -189,7 +176,7 @@ export async function persistCrawlResult(
 
   if (existing.docs.length > 0) {
     productId = (existing.docs[0] as Record<string, unknown>).id as number
-    console.log(`[WorkProtocol] persistCrawlResult: updating existing source-product #${productId}`)
+    log.info(`persistCrawlResult: updating existing source-product #${productId}`)
     await payload.update({
       collection: 'source-products',
       id: productId,
@@ -201,7 +188,7 @@ export async function persistCrawlResult(
       data: { source, ...productPayload },
     }) as { id: number }
     productId = newProduct.id
-    console.log(`[WorkProtocol] persistCrawlResult: created new source-product #${productId}`)
+    log.info(`persistCrawlResult: created new source-product #${productId}`)
   }
 
   // Mark source-product status
@@ -219,10 +206,10 @@ export async function persistCrawlResult(
 
   // Log warnings
   if (warnings.length > 0) {
-    console.log(`[WorkProtocol] persistCrawlResult: source-product #${productId} has ${warnings.length} warning(s)`)
+    log.info(`persistCrawlResult: source-product #${productId} has ${warnings.length} warning(s)`)
   }
   for (const warning of warnings) {
-    await createEvent(payload, 'warning', 'product-crawls', crawlId, warning)
+    jlog.warn(warning, { event: true })
   }
 
   return { productId, warnings }
@@ -254,7 +241,7 @@ export async function persistDiscoveredProduct(
 ): Promise<{ sourceProductId: number; isNew: boolean }> {
   const { discoveryId, product, source } = input
   const effectiveSource = getSourceSlugFromUrl(product.productUrl) ?? source
-  console.log(`[WorkProtocol] persistDiscoveredProduct: discovery #${discoveryId}, url=${product.productUrl}, source=${effectiveSource}`)
+  log.info(`persistDiscoveredProduct: discovery #${discoveryId}, url=${product.productUrl}, source=${effectiveSource}`)
 
   const existingProduct = await payload.find({
     collection: 'source-products',
@@ -310,7 +297,7 @@ export async function persistDiscoveredProduct(
     }) as { id: number }
     sourceProductId = newProduct.id
     isNew = true
-    console.log(`[WorkProtocol] persistDiscoveredProduct: created new source-product #${sourceProductId}`)
+    log.info(`persistDiscoveredProduct: created new source-product #${sourceProductId}`)
   } else {
     sourceProductId = (existingProduct.docs[0] as Record<string, unknown>).id as number
     const existingHistory = (existingProduct.docs[0] as Record<string, unknown>).priceHistory as unknown[] ?? []
@@ -324,7 +311,7 @@ export async function persistDiscoveredProduct(
       },
     })
     isNew = false
-    console.log(`[WorkProtocol] persistDiscoveredProduct: updated existing source-product #${sourceProductId}`)
+    log.info(`persistDiscoveredProduct: updated existing source-product #${sourceProductId}`)
   }
 
   // Create DiscoveryResult join record
@@ -569,7 +556,7 @@ export async function persistVideoDiscoveryResult(
           imageId = media.id
         }
       } catch (e) {
-        console.warn(`[VideoDiscovery] Failed to download thumbnail for ${video.externalUrl}:`, e)
+        log.warn(`Failed to download thumbnail for ${video.externalUrl}: ${String(e)}`)
       }
     }
 
@@ -642,7 +629,8 @@ export async function persistVideoProcessingResult(
   videoMediaId: number | undefined,
   segments: VideoProcessingSegment[],
 ): Promise<void> {
-  console.log(`[WorkProtocol] persistVideoProcessingResult: video #${videoId}, ${segments.length} segments`)
+  const jlog = log.forJob('video-processings' as JobCollection, jobId)
+  log.info(`persistVideoProcessingResult: video #${videoId}, ${segments.length} segments`)
   // Delete existing snippets for this video
   const existingSnippets = await payload.find({
     collection: 'video-snippets',
@@ -654,7 +642,7 @@ export async function persistVideoProcessingResult(
       collection: 'video-snippets',
       where: { video: { equals: videoId } },
     })
-    console.log(`[Persist] Deleted ${existingSnippets.docs.length} existing snippets for video #${videoId}`)
+    log.info(`Deleted ${existingSnippets.docs.length} existing snippets for video #${videoId}`)
   }
 
   for (const segment of segments) {
@@ -669,18 +657,18 @@ export async function persistVideoProcessingResult(
       })
       if (products.docs.length > 0) {
         referencedProductIds = [(products.docs[0] as { id: number }).id]
-        console.log(`[Persist] GTIN ${segment.barcode} → product #${(products.docs[0] as { id: number }).id}`)
+        log.info(`GTIN ${segment.barcode} → product #${(products.docs[0] as { id: number }).id}`)
       } else {
-        console.log(`[Persist] No product found for GTIN ${segment.barcode}`)
+        log.info(`No product found for GTIN ${segment.barcode}`)
       }
     } else if (segment.matchingType === 'visual' && segment.recognitionResults) {
       // Match each recognition result via DB + LLM
       for (const recog of segment.recognitionResults) {
         if (recog.brand || recog.productName || recog.searchTerms.length > 0) {
-          const matchResult = await matchProduct(payload, recog.brand, recog.productName, recog.searchTerms)
+          const matchResult = await matchProduct(payload, recog.brand, recog.productName, recog.searchTerms, jlog)
           if (matchResult) {
             referencedProductIds.push(matchResult.productId)
-            console.log(`[Persist] Cluster ${recog.clusterGroup} → product #${matchResult.productId} ("${matchResult.productName}")`)
+            log.info(`Cluster ${recog.clusterGroup} → product #${matchResult.productId} ("${matchResult.productName}")`)
           }
         }
       }
@@ -716,7 +704,7 @@ export async function persistVideoProcessingResult(
     })
 
     // Emit event with segment log
-    await createEvent(payload, 'info', 'video-processings', jobId, segment.eventLog)
+    jlog.info(segment.eventLog, { event: true })
   }
 
   // Mark video as processed
@@ -726,7 +714,7 @@ export async function persistVideoProcessingResult(
     data: { processingStatus: 'processed' },
   })
 
-  console.log(`[Persist] Video #${videoId}: ${segments.length} segments persisted, marked as processed`)
+  log.info(`Video #${videoId}: ${segments.length} segments persisted, marked as processed`)
 }
 
 // ─── Product Aggregation ───
@@ -753,17 +741,18 @@ export interface PersistProductAggregationInput {
 
 export async function persistProductAggregationResult(
   payload: PayloadRestClient,
-  _jobId: number,
+  jobId: number,
   input: PersistProductAggregationInput,
 ): Promise<{ productId: number; tokensUsed: number; error?: string; warning?: string }> {
   const { gtin, sourceProductIds, aggregated, classification, classifySourceProductIds } = input
-  console.log(`[WorkProtocol] persistProductAggregationResult: GTIN=${gtin}, ${sourceProductIds.length} source products`)
+  const jlog = log.forJob('product-aggregations' as JobCollection, jobId)
+  log.info(`persistProductAggregationResult: GTIN=${gtin}, ${sourceProductIds.length} source products`)
   let tokensUsed = 0
   const errorMessages: string[] = []
   const warningMessages: string[] = []
 
   if (!aggregated) {
-    console.log(`[WorkProtocol] persistProductAggregationResult: GTIN=${gtin} — no data to aggregate`)
+    log.info(`persistProductAggregationResult: GTIN=${gtin} — no data to aggregate`)
     return { productId: 0, tokensUsed: 0, error: 'No data to aggregate from sources' }
   }
 
@@ -777,7 +766,7 @@ export async function persistProductAggregationResult(
   let productId: number
   if (existingProducts.docs.length > 0) {
     productId = (existingProducts.docs[0] as { id: number }).id
-    console.log(`[WorkProtocol] persistProductAggregationResult: GTIN=${gtin} → existing product #${productId}`)
+    log.info(`persistProductAggregationResult: GTIN=${gtin} → existing product #${productId}`)
   } else {
     const newProduct = await payload.create({
       collection: 'products',
@@ -787,7 +776,7 @@ export async function persistProductAggregationResult(
       },
     }) as { id: number }
     productId = newProduct.id
-    console.log(`[WorkProtocol] persistProductAggregationResult: GTIN=${gtin} → new product #${productId}`)
+    log.info(`persistProductAggregationResult: GTIN=${gtin} → new product #${productId}`)
   }
 
   const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
@@ -814,10 +803,11 @@ export async function persistProductAggregationResult(
   // Match brand
   if (aggregated.brandName) {
     try {
-      const brandResult = await matchBrand(payload, aggregated.brandName)
+      const brandResult = await matchBrand(payload, aggregated.brandName, jlog)
       tokensUsed += brandResult.tokensUsed.totalTokens
       updateData.brand = brandResult.brandId
-      console.log(`[WorkProtocol] persistProductAggregationResult: brand "${aggregated.brandName}" → brand #${brandResult.brandId}`)
+      log.info(`persistProductAggregationResult: brand "${aggregated.brandName}" → brand #${brandResult.brandId}`)
+      jlog.info(`Brand "${aggregated.brandName}" → #${brandResult.brandId}`, { event: true, labels: ['brand-matching', 'persistence'] })
     } catch (error) {
       errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
@@ -839,13 +829,14 @@ export async function persistProductAggregationResult(
           : null
       }
       const categoryBreadcrumb = breadcrumbParts.join(' -> ')
-      const categoryResult = await matchCategory(payload, categoryBreadcrumb)
+      const categoryResult = await matchCategory(payload, categoryBreadcrumb, jlog)
       tokensUsed += categoryResult.tokensUsed.totalTokens
       if (categoryResult.categoryId) {
         updateData.category = categoryResult.categoryId
-        console.log(`[WorkProtocol] persistProductAggregationResult: category "${categoryBreadcrumb}" → category #${categoryResult.categoryId}`)
+        log.info(`persistProductAggregationResult: category "${categoryBreadcrumb}" → category #${categoryResult.categoryId}`)
+        jlog.info(`Category "${categoryBreadcrumb}" → #${categoryResult.categoryId}`, { event: true, labels: ['category-matching', 'persistence'] })
       } else {
-        console.log(`[WorkProtocol] persistProductAggregationResult: category "${categoryBreadcrumb}" → no match`)
+        log.info(`persistProductAggregationResult: category "${categoryBreadcrumb}" → no match`)
       }
     } catch (error) {
       errorMessages.push(`Category matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -855,7 +846,7 @@ export async function persistProductAggregationResult(
   // Match ingredients
   if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
     try {
-      const matchResult = await matchIngredients(payload, aggregated.ingredientNames)
+      const matchResult = await matchIngredients(payload, aggregated.ingredientNames, jlog)
       tokensUsed += matchResult.tokensUsed.totalTokens
 
       const matchedMap = new Map(
@@ -866,7 +857,8 @@ export async function persistProductAggregationResult(
         ingredient: matchedMap.get(name) ?? null,
       }))
 
-      console.log(`[WorkProtocol] persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`)
+      log.info(`persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`)
+      jlog.info(`Ingredients: ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`, { event: true, labels: ['ingredient-matching', 'persistence'] })
 
       if (matchResult.unmatched.length > 0) {
         warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
@@ -878,7 +870,8 @@ export async function persistProductAggregationResult(
 
   // Apply classification
   if (classification) {
-    console.log(`[WorkProtocol] persistProductAggregationResult: applying classification (type=${classification.productType}, ${classification.productAttributes.length} attributes, ${classification.productClaims.length} claims)`)
+    log.info(`persistProductAggregationResult: applying classification (type=${classification.productType}, ${classification.productAttributes.length} attributes, ${classification.productClaims.length} claims)`)
+    jlog.info(`Classification: type=${classification.productType}, ${classification.productAttributes.length} attrs, ${classification.productClaims.length} claims`, { event: true, labels: ['classification', 'persistence'] })
     if (classification.description) {
       updateData.description = classification.description
     }

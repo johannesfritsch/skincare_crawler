@@ -8,6 +8,7 @@
  *   WORKER_SERVER_URL    — base URL of the server (e.g. http://localhost:3000)
  *   WORKER_API_KEY       — API key for the workers collection
  *   WORKER_POLL_INTERVAL — seconds between polls when idle (default: 10)
+ *   LOG_LEVEL            — debug|info|warn|error (default: info)
  *   OPENAI_API_KEY       — for video processing and aggregation (optional)
  */
 
@@ -16,6 +17,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { PayloadRestClient } from '@/lib/payload-client'
+import { initLogger, createLogger, type JobCollection } from '@/lib/logger'
 import { claimWork } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
@@ -55,6 +57,8 @@ if (!API_KEY) {
 // ─── REST Client & Worker Identity ───
 
 const client = new PayloadRestClient(SERVER_URL, API_KEY)
+initLogger(client)
+const log = createLogger('Worker')
 let worker: AuthenticatedWorker
 
 // ─── Heartbeat & Collection Map ───
@@ -79,7 +83,7 @@ async function heartbeat(jobId: number, type: string, progress?: unknown): Promi
       }
     }
   } catch (e) {
-    console.warn(`[Worker] Heartbeat failed: ${e instanceof Error ? e.message : e}`)
+    log.warn(`Heartbeat failed: ${e instanceof Error ? e.message : e}`)
   }
 }
 
@@ -90,7 +94,7 @@ function sleep(ms: number): Promise<void> {
 async function uploadMedia(filePath: string, alt: string, mimetype: string): Promise<number> {
   const buffer = fs.readFileSync(filePath)
   const sizeKB = (buffer.length / 1024).toFixed(1)
-  console.log(`[Worker] Uploading media: ${path.basename(filePath)} (${sizeKB} KB, ${mimetype})`)
+  log.debug(`Uploading media: ${path.basename(filePath)} (${sizeKB} KB, ${mimetype})`)
 
   const blob = new Blob([buffer], { type: mimetype })
   const formData = new FormData()
@@ -111,12 +115,12 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string): Pro
 
   if (!res.ok) {
     const text = await res.text()
-    console.error(`[Worker] Media upload failed (${elapsed}ms) → ${res.status}: ${text.slice(0, 200)}`)
+    log.error(`Media upload failed (${elapsed}ms) → ${res.status}: ${text.slice(0, 200)}`)
     throw new Error(`Media upload failed (${res.status}): ${text}`)
   }
 
   const data = (await res.json()) as { doc: { id: number } }
-  console.log(`[Worker] Media uploaded (${elapsed}ms) → media #${data.doc.id}`)
+  log.debug(`Media uploaded (${elapsed}ms) → media #${data.doc.id}`)
   return data.doc.id
 }
 
@@ -124,6 +128,7 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string): Pro
 
 async function handleProductCrawl(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
+  const jlog = log.forJob('product-crawls' as JobCollection, jobId)
   const workItems = work.workItems as Array<{
     sourceProductId: number
     sourceUrl: string
@@ -131,10 +136,10 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   }>
   const debug = work.debug as boolean
 
-  console.log(`[Worker] Product crawl job #${jobId}: ${workItems.length} items`)
+  log.info(`Product crawl job #${jobId}: ${workItems.length} items`)
 
   if (workItems.length === 0) {
-    console.warn(`[Worker] No work items for job #${jobId}, skipping submit`)
+    log.warn(`No work items for job #${jobId}, skipping submit`)
     return
   }
 
@@ -149,6 +154,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   for (const item of workItems) {
     const driver = getSourceDriverBySlug(item.source)
     if (!driver) {
+      jlog.error(`No driver for source: ${item.source}`, { event: true, labels: ['scraping'] })
       results.push({
         ...item,
         data: null,
@@ -157,7 +163,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
       continue
     }
 
-    console.log(`[Worker]   Scraping ${item.sourceUrl}`)
+    log.info(`  Scraping ${item.sourceUrl}`)
     try {
       const data = await driver.scrapeProduct(item.sourceUrl, { debug })
       results.push({ ...item, data })
@@ -166,13 +172,13 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
       }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      console.error(`[Worker]   Error: ${error}`)
+      log.error(`  Error: ${error}`)
       results.push({ ...item, data: null, error })
     }
   }
 
   await submitWork(client, worker, { type: 'product-crawl', jobId, results } as Parameters<typeof submitWork>[2])
-  console.log(`[Worker] Submitted crawl results for job #${jobId}`)
+  log.info(`Submitted crawl results for job #${jobId}`)
 }
 
 async function handleProductDiscovery(work: Record<string, unknown>): Promise<void> {
@@ -183,8 +189,8 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
   const maxPages = work.maxPages as number | undefined
   const delay = work.delay as number
 
-  console.log(
-    `[Worker] Product discovery job #${jobId}: ${sourceUrls.length} URLs, starting at ${currentUrlIndex}`,
+  log.info(
+    `Product discovery job #${jobId}: ${sourceUrls.length} URLs, starting at ${currentUrlIndex}`,
   )
 
   const discoveredProducts: DiscoveredProduct[] = []
@@ -198,13 +204,13 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
     const url = sourceUrls[currentUrlIndex]
     const driver = getSourceDriver(url)
     if (!driver) {
-      console.warn(`[Worker]   No driver for URL: ${url}`)
+      log.warn(`No driver for URL: ${url}`)
       currentUrlIndex++
       driverProgress = null
       continue
     }
 
-    console.log(`[Worker]   Discovering from ${url}`)
+    log.info(`Discovering from ${url}`)
 
     const result = await driver.discoverProducts({
       url,
@@ -247,8 +253,8 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
     pagesUsed: totalPagesUsed,
   } as Parameters<typeof submitWork>[2])
 
-  console.log(
-    `[Worker] Submitted discovery results: ${discoveredProducts.length} products, done=${done}`,
+  log.info(
+    `Submitted discovery results: ${discoveredProducts.length} products, done=${done}`,
   )
 }
 
@@ -260,8 +266,8 @@ async function handleCategoryDiscovery(work: Record<string, unknown>): Promise<v
   const maxPages = work.maxPages as number | undefined
   const pathToId = work.pathToId as Record<string, number>
 
-  console.log(
-    `[Worker] Category discovery job #${jobId}: ${storeUrls.length} URLs, starting at ${currentUrlIndex}`,
+  log.info(
+    `Category discovery job #${jobId}: ${storeUrls.length} URLs, starting at ${currentUrlIndex}`,
   )
 
   const discoveredCategories: DiscoveredCategory[] = []
@@ -270,13 +276,13 @@ async function handleCategoryDiscovery(work: Record<string, unknown>): Promise<v
     const url = storeUrls[currentUrlIndex]
     const driver = getCategoryDriver(url)
     if (!driver) {
-      console.warn(`[Worker]   No category driver for URL: ${url}`)
+      log.warn(`No category driver for URL: ${url}`)
       currentUrlIndex++
       driverProgress = null
       continue
     }
 
-    console.log(`[Worker]   Discovering categories from ${url}`)
+    log.info(`Discovering categories from ${url}`)
 
     const result = await driver.discoverCategories({
       url,
@@ -320,8 +326,8 @@ async function handleCategoryDiscovery(work: Record<string, unknown>): Promise<v
     done,
   } as Parameters<typeof submitWork>[2])
 
-  console.log(
-    `[Worker] Submitted category discovery: ${discoveredCategories.length} categories, done=${done}`,
+  log.info(
+    `Submitted category discovery: ${discoveredCategories.length} categories, done=${done}`,
   )
 }
 
@@ -334,11 +340,11 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
   let termQueue = work.termQueue as string[]
   const pagesPerTick = work.pagesPerTick as number | undefined
 
-  console.log(`[Worker] Ingredients discovery job #${jobId}`)
+  log.info(`Ingredients discovery job #${jobId}`)
 
   const driver = getIngredientsDriver(sourceUrl)
   if (!driver) {
-    console.error(`[Worker] No ingredients driver for URL: ${sourceUrl}`)
+    log.error(`No ingredients driver for URL: ${sourceUrl}`)
     return
   }
 
@@ -370,7 +376,7 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
     }
 
     // Fetch page
-    console.log(`[Worker]   Fetching "${currentTerm}" page ${currentPage}/${totalPagesForTerm}`)
+    log.info(`Fetching "${currentTerm}" page ${currentPage}/${totalPagesForTerm}`)
     const ingredients = await driver.fetchPage(currentTerm, currentPage)
     allIngredients.push(...ingredients)
     pagesProcessed++
@@ -399,7 +405,7 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
     done,
   } as Parameters<typeof submitWork>[2])
 
-  console.log(`[Worker] Submitted ingredients: ${allIngredients.length} items, done=${done}`)
+  log.info(`Submitted ingredients: ${allIngredients.length} items, done=${done}`)
 }
 
 async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void> {
@@ -409,11 +415,11 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const previousCreated = work.created as number
   const previousExisting = work.existing as number
 
-  console.log(`[Worker] Video discovery job #${jobId}: ${channelUrl}`)
+  log.info(`Video discovery job #${jobId}: ${channelUrl}`)
 
   const driver = getVideoDriver(channelUrl)
   if (!driver) {
-    console.error(`[Worker] No video driver for URL: ${channelUrl}`)
+    log.error(`No video driver for URL: ${channelUrl}`)
     return
   }
 
@@ -421,7 +427,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const offset = previousCreated + previousExisting
   const batchSize = itemsPerTick
 
-  console.log(`[Worker] Found ${videos.length} videos, submitting batch from offset ${offset}`)
+  log.info(`Found ${videos.length} videos, submitting batch from offset ${offset}`)
 
   await submitWork(client, worker, {
     type: 'video-discovery',
@@ -433,11 +439,12 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
     batchSize,
   } as Parameters<typeof submitWork>[2])
 
-  console.log(`[Worker] Submitted video discovery results`)
+  log.info(`Submitted video discovery results`)
 }
 
 async function handleVideoProcessing(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
+  const jlog = log.forJob('video-processings' as JobCollection, jobId)
   const videos = work.videos as Array<{
     videoId: number
     externalUrl: string
@@ -446,14 +453,14 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
   const sceneThreshold = (work.sceneThreshold as number) ?? 0.4
   const clusterThreshold = (work.clusterThreshold as number) ?? 25
 
-  console.log(`[Worker] Video processing job #${jobId}: ${videos.length} videos`)
+  log.info(`Video processing job #${jobId}: ${videos.length} videos`)
 
   const results: Array<Record<string, unknown>> = []
 
   for (const video of videos) {
-    console.log(`\n[Worker] ════════════════════════════════════════════════════`)
-    console.log(`[Worker] Processing: "${video.title}" (id=${video.videoId})`)
-    console.log(`[Worker] URL: ${video.externalUrl}`)
+    log.info(`════════════════════════════════════════════════════`)
+    log.info(`Processing: "${video.title}" (id=${video.videoId})`)
+    log.info(`URL: ${video.externalUrl}`)
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-video-'))
     const videoPath = path.join(tmpDir, 'video.mp4')
@@ -465,12 +472,14 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
     try {
       // Step 1: Download video
       await downloadVideo(video.externalUrl, videoPath)
+      const fileSizeMB = (fs.statSync(videoPath).size / (1024 * 1024)).toFixed(1)
+      jlog.info(`Video "${video.title}": downloaded (${fileSizeMB} MB)`, { event: true, labels: ['video-processing'] })
       await heartbeat(jobId, 'video-processing')
 
       // Step 2: Upload video mp4 as media
-      console.log(`[Worker] ── Upload video to media ──`)
+      log.info(`── Upload video to media ──`)
       const videoMediaId = await uploadMedia(videoPath, video.title || `Video ${video.videoId}`, 'video/mp4')
-      console.log(`[Worker] Uploaded video as media #${videoMediaId}`)
+      log.info(`Uploaded video as media #${videoMediaId}`)
       await heartbeat(jobId, 'video-processing')
 
       // Step 3: Get duration + scene detection
@@ -489,7 +498,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         }
       }
 
-      console.log(`[Worker] ${segments.length} segments from ${sceneChanges.length} scene changes`)
+      log.info(`${segments.length} segments from ${sceneChanges.length} scene changes`)
+      jlog.info(`Video "${video.title}": ${sceneChanges.length} scene changes, ${segments.length} segments`, { event: true, labels: ['video-processing', 'scene-detection'] })
 
       // Step 5: Process each segment
       const segmentResults: Array<Record<string, unknown>> = []
@@ -500,19 +510,19 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         const segLabel = `Segment ${i + 1}/${segments.length}`
         const segTime = `[${formatTime(seg.start)} – ${formatTime(seg.end)}]`
 
-        const log: string[] = []
-        log.push(`── ${segLabel} ${segTime} (${segDuration.toFixed(1)}s) ──`)
+        const eventLog: string[] = []
+        eventLog.push(`── ${segLabel} ${segTime} (${segDuration.toFixed(1)}s) ──`)
 
-        console.log(`\n[Worker] ── ${segLabel}: ${seg.start.toFixed(1)}s – ${seg.end.toFixed(1)}s ──`)
+        log.info(`── ${segLabel}: ${seg.start.toFixed(1)}s – ${seg.end.toFixed(1)}s ──`)
 
         // Extract screenshots
         const prefix = `seg${String(i).padStart(3, '0')}`
         const screenshotFiles = await extractScreenshots(videoPath, screenshotsDir, prefix, seg.start, segDuration)
 
-        log.push(`Screenshots: ${screenshotFiles.length} extracted (1fps)`)
+        eventLog.push(`Screenshots: ${screenshotFiles.length} extracted (1fps)`)
 
         // First pass: scan for barcodes (stop at first hit)
-        console.log(`[Worker]   Scanning ${screenshotFiles.length} screenshots for barcodes...`)
+        log.info(`Scanning ${screenshotFiles.length} screenshots for barcodes...`)
         let foundBarcode: string | null = null
         let barcodeScreenshotIndex: number | null = null
 
@@ -521,22 +531,23 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           if (barcode) {
             foundBarcode = barcode
             barcodeScreenshotIndex = j
-            console.log(`[Worker]   Barcode found in screenshot ${j + 1}, skipping remaining`)
+            log.info(`Barcode found in screenshot ${j + 1}, skipping remaining`)
             break
           }
         }
 
         if (foundBarcode) {
           // ── Barcode path ──
-          console.log(`[Worker]   Barcode path: ${foundBarcode}`)
-          log.push(``)
-          log.push(`Path: BARCODE`)
-          log.push(`Barcode scan: found ${foundBarcode} in screenshot ${barcodeScreenshotIndex! + 1}/${screenshotFiles.length}`)
+          log.info(`Barcode path: ${foundBarcode}`)
+          jlog.info(`Video "${video.title}" seg ${i + 1}: barcode ${foundBarcode}`, { event: true, labels: ['video-processing', 'barcode'] })
+          eventLog.push(``)
+          eventLog.push(`Path: BARCODE`)
+          eventLog.push(`Barcode scan: found ${foundBarcode} in screenshot ${barcodeScreenshotIndex! + 1}/${screenshotFiles.length}`)
 
           const screenshots: Array<Record<string, unknown>> = []
           for (let j = 0; j < screenshotFiles.length; j++) {
             const ts = Math.floor(seg.start) + j
-            console.log(`[Worker]   Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
+            log.info(`Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
             const imageMediaId = await uploadMedia(screenshotFiles[j], `${video.title} – ${ts}s`, 'image/jpeg')
 
             const entry: Record<string, unknown> = { imageMediaId }
@@ -546,8 +557,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             screenshots.push(entry)
           }
 
-          log.push(``)
-          log.push(`Uploaded ${screenshots.length} screenshots`)
+          eventLog.push(``)
+          eventLog.push(`Uploaded ${screenshots.length} screenshots`)
 
           segmentResults.push({
             timestampStart: Math.round(seg.start),
@@ -555,14 +566,14 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             matchingType: 'barcode',
             barcode: foundBarcode,
             screenshots,
-            eventLog: log.join('\n'),
+            eventLog: eventLog.join('\n'),
           })
         } else {
           // ── Visual path ──
-          console.log(`[Worker]   No barcode found, using visual recognition path`)
-          log.push(`Barcode scan: no barcode found (scanned ${screenshotFiles.length} screenshots)`)
-          log.push(``)
-          log.push(`Path: VISUAL`)
+          log.info(`No barcode found, using visual recognition path`)
+          eventLog.push(`Barcode scan: no barcode found (scanned ${screenshotFiles.length} screenshots)`)
+          eventLog.push(``)
+          eventLog.push(`Path: VISUAL`)
 
           // Compute hashes and cluster
           const hashResults: { thumbnailPath: string; hash: string; distance: number | null; screenshotGroup: number }[] = []
@@ -592,13 +603,14 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             hashResults.push({ thumbnailPath, hash, distance: bestDistance, screenshotGroup: assignedGroup })
           }
 
-          console.log(`[Worker]   ${clusterRepresentatives.length} clusters formed`)
+          log.info(`${clusterRepresentatives.length} clusters formed`)
+          jlog.info(`Video "${video.title}" seg ${i + 1}: no barcode, ${clusterRepresentatives.length} clusters`, { event: true, labels: ['video-processing'] })
 
-          log.push(``)
-          log.push(`Clustering: ${clusterRepresentatives.length} clusters from ${screenshotFiles.length} screenshots`)
+          eventLog.push(``)
+          eventLog.push(`Clustering: ${clusterRepresentatives.length} clusters from ${screenshotFiles.length} screenshots`)
           for (const rep of clusterRepresentatives) {
             const memberCount = hashResults.filter((h) => h.screenshotGroup === rep.group).length
-            log.push(`  Group ${rep.group}: ${memberCount} screenshot${memberCount !== 1 ? 's' : ''} (rep: screenshot ${rep.screenshotIndex + 1})`)
+            eventLog.push(`  Group ${rep.group}: ${memberCount} screenshot${memberCount !== 1 ? 's' : ''} (rep: screenshot ${rep.screenshotIndex + 1})`)
           }
 
           // Phase 1: Classify cluster reps
@@ -613,22 +625,23 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           )
           totalTokensUsed += classifyResult.tokensUsed.totalTokens
           const candidateClusters = new Set(classifyResult.candidates)
-          console.log(`[Worker]   Phase 1: ${candidateClusters.size} product clusters out of ${clusterRepresentatives.length}`)
+          log.info(`Phase 1: ${candidateClusters.size} product clusters out of ${clusterRepresentatives.length}`)
+          jlog.info(`Video "${video.title}" seg ${i + 1}: ${candidateClusters.size} product candidates`, { event: true, labels: ['video-processing', 'recognition'] })
           await heartbeat(jobId, 'video-processing')
 
-          log.push(``)
+          eventLog.push(``)
           if (candidateClusters.size > 0) {
-            log.push(`Phase 1 — Classification: ${candidateClusters.size} product cluster${candidateClusters.size !== 1 ? 's' : ''} [${classifyResult.candidates.join(', ')}] out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
+            eventLog.push(`Phase 1 — Classification: ${candidateClusters.size} product cluster${candidateClusters.size !== 1 ? 's' : ''} [${classifyResult.candidates.join(', ')}] out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
           } else {
-            log.push(`Phase 1 — Classification: no product clusters detected out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
+            eventLog.push(`Phase 1 — Classification: no product clusters detected out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
           }
 
           // Phase 2: Recognize products in candidate clusters
           const recognitionResults: Array<{ clusterGroup: number; brand: string | null; productName: string | null; searchTerms: string[] }> = []
 
           if (candidateClusters.size > 0) {
-            log.push(``)
-            log.push(`Phase 2 — Recognition:`)
+            eventLog.push(``)
+            eventLog.push(`Phase 2 — Recognition:`)
           }
 
           for (const clusterGroup of candidateClusters) {
@@ -646,10 +659,11 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
               }
             }
 
-            console.log(`[Worker]   Phase 2: Recognizing product from cluster ${clusterGroup} (${selected.length} screenshots)`)
+            log.info(`Phase 2: Recognizing product from cluster ${clusterGroup} (${selected.length} screenshots)`)
             const recognition = await recognizeProduct(selected)
             if (recognition) {
               totalTokensUsed += recognition.tokensUsed.totalTokens
+              jlog.info(`Video "${video.title}" seg ${i + 1}: "${recognition.brand ?? 'unknown'}" / "${recognition.productName ?? 'unknown'}"`, { event: true, labels: ['video-processing', 'recognition'] })
               recognitionResults.push({
                 clusterGroup,
                 brand: recognition.brand,
@@ -659,9 +673,9 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
               const brandStr = recognition.brand ? `"${recognition.brand}"` : 'unknown'
               const productStr = recognition.productName ? `"${recognition.productName}"` : 'unknown'
               const termsStr = recognition.searchTerms.length > 0 ? recognition.searchTerms.map((t: string) => `"${t}"`).join(', ') : 'none'
-              log.push(`  Cluster ${clusterGroup}: brand=${brandStr}, product=${productStr}, terms=[${termsStr}] (${recognition.tokensUsed.totalTokens} tokens)`)
+              eventLog.push(`  Cluster ${clusterGroup}: brand=${brandStr}, product=${productStr}, terms=[${termsStr}] (${recognition.tokensUsed.totalTokens} tokens)`)
             } else {
-              log.push(`  Cluster ${clusterGroup}: recognition failed (${selected.length} screenshots sent)`)
+              eventLog.push(`  Cluster ${clusterGroup}: recognition failed (${selected.length} screenshots sent)`)
             }
             await heartbeat(jobId, 'video-processing')
           }
@@ -682,7 +696,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             const file = screenshotFiles[j]
             const hr = hashResults[j]
             const ts = Math.floor(seg.start) + j
-            console.log(`[Worker]   Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
+            log.info(`Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
 
             const imageMediaId = await uploadMedia(file, `${video.title} – ${ts}s`, 'image/jpeg')
             const thumbnailMediaId = await uploadMedia(hr.thumbnailPath, `${video.title} – ${ts}s thumb`, 'image/png')
@@ -709,8 +723,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             screenshots.push(entry)
           }
 
-          log.push(``)
-          log.push(`Uploaded ${screenshots.length} screenshots${recogThumbnailCount > 0 ? ` (${recogThumbnailCount} with recognition thumbnails)` : ''}`)
+          eventLog.push(``)
+          eventLog.push(`Uploaded ${screenshots.length} screenshots${recogThumbnailCount > 0 ? ` (${recogThumbnailCount} with recognition thumbnails)` : ''}`)
 
           segmentResults.push({
             timestampStart: Math.round(seg.start),
@@ -718,14 +732,15 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             matchingType: 'visual',
             screenshots,
             recognitionResults,
-            eventLog: log.join('\n'),
+            eventLog: eventLog.join('\n'),
           })
         }
 
         await heartbeat(jobId, 'video-processing')
       }
 
-      console.log(`\n[Worker] Done processing video #${video.videoId}: ${segmentResults.length} segments, ${totalTokensUsed} tokens`)
+      log.info(`Done processing video #${video.videoId}: ${segmentResults.length} segments, ${totalTokensUsed} tokens`)
+      jlog.info(`Video "${video.title}": ${segmentResults.length} segments, ${totalTokensUsed} tokens`, { event: true, labels: ['video-processing'] })
 
       results.push({
         videoId: video.videoId,
@@ -736,7 +751,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
       })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      console.error(`[Worker] FAILED processing video #${video.videoId}: ${msg}`)
+      log.error(`FAILED processing video #${video.videoId}: ${msg}`)
+      jlog.error(`Video "${video.title}": failed — ${msg}`, { event: true, labels: ['video-processing'] })
       results.push({
         videoId: video.videoId,
         success: false,
@@ -744,17 +760,17 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         tokensUsed: totalTokensUsed,
       })
     } finally {
-      console.log(`[Worker] Cleaning up: ${tmpDir}`)
+      log.info(`Cleaning up: ${tmpDir}`)
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true })
       } catch (e) {
-        console.warn(`[Worker] Cleanup failed: ${e}`)
+        log.warn(`Cleanup failed: ${e}`)
       }
     }
   }
 
   await submitWork(client, worker, { type: 'video-processing', jobId, results } as Parameters<typeof submitWork>[2])
-  console.log(`[Worker] Submitted video processing results for job #${jobId}`)
+  log.info(`Submitted video processing results for job #${jobId}`)
 }
 
 async function handleProductAggregation(work: Record<string, unknown>): Promise<void> {
@@ -777,17 +793,17 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     }>
   }>
 
-  console.log(`[Worker] Product aggregation job #${jobId}: ${workItems.length} items (type=${aggregationType})`)
+  log.info(`Product aggregation job #${jobId}: ${workItems.length} items (type=${aggregationType})`)
 
   if (workItems.length === 0) {
-    console.warn(`[Worker] No work items for aggregation job #${jobId}, skipping submit`)
+    log.warn(`No work items for aggregation job #${jobId}, skipping submit`)
     return
   }
 
   const results: Array<Record<string, unknown>> = []
 
   for (const item of workItems) {
-    console.log(`[Worker]   Aggregating GTIN ${item.gtin} (${item.sourceProducts.length} sources)`)
+    log.info(`Aggregating GTIN ${item.gtin} (${item.sourceProducts.length} sources)`)
 
     try {
       // Step 1: Aggregate from sources (pure)
@@ -845,7 +861,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           classifySourceProductIds = classifySources.map((s) => s.id)
         } catch (e) {
           const error = e instanceof Error ? e.message : String(e)
-          console.error(`[Worker]   Classification error for GTIN ${item.gtin}: ${error}`)
+          log.error(`Classification error for GTIN ${item.gtin}: ${error}`)
           // Continue without classification
         }
       }
@@ -860,7 +876,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       })
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      console.error(`[Worker]   Error aggregating GTIN ${item.gtin}: ${error}`)
+      log.error(`Error aggregating GTIN ${item.gtin}: ${error}`)
       results.push({
         gtin: item.gtin,
         sourceProductIds: item.sourceProducts.map((sp) => sp.id),
@@ -880,15 +896,15 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     aggregationType,
     results,
   } as Parameters<typeof submitWork>[2])
-  console.log(`[Worker] Submitted aggregation results for job #${jobId}: ${results.length} items`)
+  log.info(`Submitted aggregation results for job #${jobId}: ${results.length} items`)
 }
 
 // ─── Main Loop ───
 
 async function main(): Promise<void> {
-  console.log(`[Worker] Starting worker`)
-  console.log(`[Worker] Server: ${SERVER_URL}`)
-  console.log(`[Worker] Default poll interval: ${DEFAULT_POLL_INTERVAL / 1000}s`)
+  log.info(`Starting worker`)
+  log.info(`Server: ${SERVER_URL}`)
+  log.info(`Default poll interval: ${DEFAULT_POLL_INTERVAL / 1000}s`)
 
   // Authenticate via REST API
   const meResult = await client.me()
@@ -910,7 +926,7 @@ async function main(): Promise<void> {
     status: me.status,
   }
 
-  console.log(`[Worker] Authenticated as "${worker.name}" (#${worker.id}), capabilities=[${worker.capabilities.join(', ')}]`)
+  log.info(`Authenticated as "${worker.name}" (#${worker.id}), capabilities=[${worker.capabilities.join(', ')}]`)
 
   // Update lastSeenAt on startup
   await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } })
@@ -925,14 +941,14 @@ async function main(): Promise<void> {
       const work = await claimWork(client, worker)
 
       if (work.type === 'none') {
-        console.log(`[Worker] No work, sleeping ${DEFAULT_POLL_INTERVAL / 1000}s`)
+        log.debug(`No work, sleeping ${DEFAULT_POLL_INTERVAL / 1000}s`)
         await sleep(DEFAULT_POLL_INTERVAL)
         continue
       }
 
       currentJobType = work.type as string
       currentJobId = work.jobId
-      console.log(`[Worker] Dispatching ${work.type} job #${work.jobId}`)
+      log.info(`Dispatching ${work.type} job #${work.jobId}`)
 
       switch (work.type) {
         case 'product-crawl':
@@ -957,12 +973,12 @@ async function main(): Promise<void> {
           await handleProductAggregation(work)
           break
         default:
-          console.warn(`[Worker] Unknown job type: ${work.type}`)
+          log.warn(`Unknown job type: ${work.type}`)
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       const jobCtx = currentJobType ? ` (${currentJobType} #${currentJobId})` : ''
-      console.error(`[Worker] Error in main loop${jobCtx}: ${msg}`)
+      log.error(`Error in main loop${jobCtx}: ${msg}`)
       // Wait before retrying after errors
       await sleep(DEFAULT_POLL_INTERVAL)
     }
