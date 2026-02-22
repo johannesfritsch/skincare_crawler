@@ -126,6 +126,16 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 6. Product aggregation merges source-products by GTIN → classifyProduct (LLM) → unified products
 ```
 
+## Keeping AGENTS.md Up to Date
+
+Whenever you make changes to the codebase, **update the relevant AGENTS.md file(s)** to reflect those changes. This is mandatory — documentation must stay in sync with the code.
+
+- **Root `AGENTS.md`** (this file): Update when changes affect the overall repository layout, database schema (adding/removing/renaming collections), end-to-end data flow, environment variables, or cross-cutting development notes.
+- **`server/AGENTS.md`**: Update when changes affect Payload CMS collections, fields, hooks, access control, components, actions, endpoints, or server-side patterns.
+- **`worker/AGENTS.md`**: Update when changes affect job handlers, the work protocol, source drivers, matching/classification functions, the REST client, logging, or worker-side patterns.
+
+If a change spans both server and worker (e.g. adding a new job type with a new collection and a new handler), update all three files accordingly.
+
 ## Development Notes
 
 - **TypeScript** throughout; worker uses `@/` path aliases via tsconfig

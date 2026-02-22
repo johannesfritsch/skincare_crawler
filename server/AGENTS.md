@@ -1132,6 +1132,12 @@ For deeper exploration of specific topics, refer to the context files located in
     - Performance best practices
     - Styling components
 
+## Keeping This File Up to Date
+
+Whenever you make changes to the server codebase, **update this file** to reflect those changes. This includes additions or modifications to collections, fields, hooks, access control, components, actions, endpoints, or any server-side patterns documented here. Documentation must stay in sync with the code.
+
+For changes that affect the overall repository layout or cross both server and worker, also update the root `AGENTS.md`. See the root file for the full policy.
+
 ## Resources
 
 - Docs: https://payloadcms.com/docs

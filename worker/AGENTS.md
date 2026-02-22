@@ -343,3 +343,9 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Deduplication**: Source-products are matched by `sourceUrl + source` to prevent duplicates
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
+
+## Keeping This File Up to Date
+
+Whenever you make changes to the worker codebase, **update this file** to reflect those changes. This includes additions or modifications to job handlers, the work protocol, source drivers, matching/classification functions, the REST client, logging, or any worker-side patterns documented here. Documentation must stay in sync with the code.
+
+For changes that affect the overall repository layout or cross both server and worker, also update the root `AGENTS.md`. See the root file for the full policy.
