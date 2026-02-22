@@ -403,6 +403,14 @@ export interface IngredientsDiscovery {
 export interface Event {
   id: number;
   type: 'start' | 'success' | 'info' | 'warning' | 'error';
+  level?: ('debug' | 'info' | 'warn' | 'error') | null;
+  component?: ('worker' | 'server') | null;
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
   message: string;
   job?:
     | ({
@@ -1724,6 +1732,14 @@ export interface CategoryDiscoveriesSelect<T extends boolean = true> {
  */
 export interface EventsSelect<T extends boolean = true> {
   type?: T;
+  level?: T;
+  component?: T;
+  labels?:
+    | T
+    | {
+        label?: T;
+        id?: T;
+      };
   message?: T;
   job?: T;
   updatedAt?: T;

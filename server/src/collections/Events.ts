@@ -8,7 +8,7 @@ export const Events: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'message',
-    defaultColumns: ['type', 'message', 'job', 'createdAt'],
+    defaultColumns: ['type', 'level', 'component', 'message', 'job', 'createdAt'],
     group: 'System',
   },
   fields: [
@@ -25,6 +25,33 @@ export const Events: CollectionConfig = {
         { label: 'Error', value: 'error' },
       ],
       index: true,
+    },
+    {
+      name: 'level',
+      type: 'select',
+      options: [
+        { label: 'Debug', value: 'debug' },
+        { label: 'Info', value: 'info' },
+        { label: 'Warn', value: 'warn' },
+        { label: 'Error', value: 'error' },
+      ],
+      defaultValue: 'info',
+      index: true,
+    },
+    {
+      name: 'component',
+      type: 'select',
+      options: [
+        { label: 'Worker', value: 'worker' },
+        { label: 'Server', value: 'server' },
+      ],
+      defaultValue: 'worker',
+      index: true,
+    },
+    {
+      name: 'labels',
+      type: 'array',
+      fields: [{ name: 'label', type: 'text', required: true }],
     },
     {
       name: 'message',
