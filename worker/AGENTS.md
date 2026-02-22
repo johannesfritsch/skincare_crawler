@@ -1,0 +1,345 @@
+# Worker — Architecture & Internals
+
+Standalone Node.js process that claims jobs from the server and processes them. All business logic runs locally — the server is just a data store accessed via Payload's REST API.
+
+## Source Layout
+
+```
+worker/src/
+├── worker.ts                         # Main loop + 7 job handlers (~1000 lines)
+└── lib/
+    ├── payload-client.ts             # REST client mirroring Payload's local API
+    ├── logger.ts                     # Structured logger with event emission
+    ├── browser.ts                    # Playwright browser management
+    ├── stealth-fetch.ts              # Fetch with anti-bot headers
+    ├── parse-ingredients.ts          # Ingredient string parser
+    ├── source-product-queries.ts     # Source-product DB query helpers
+    ├── lookup-source-category.ts     # Category lookup by path or URL
+    │
+    ├── work-protocol/
+    │   ├── types.ts                  # AuthenticatedWorker interface
+    │   ├── claim.ts                  # claimWork() — find & build work units
+    │   ├── submit.ts                 # submitWork() — persist results, update job status
+    │   └── persist.ts                # persist*() — DB write operations for each job type
+    │
+    ├── source-discovery/
+    │   ├── types.ts                  # SourceDriver, ScrapedProductData, DiscoveredProduct
+    │   ├── driver.ts                 # getSourceDriver(url), getSourceDriverBySlug(slug)
+    │   └── drivers/
+    │       ├── dm.ts                 # DM drugstore driver
+    │       ├── mueller.ts            # Mueller driver
+    │       └── rossmann.ts           # Rossmann driver
+    │
+    ├── category-discovery/
+    │   ├── types.ts                  # DiscoveredCategory, CategoryDiscoveryOptions
+    │   ├── driver.ts                 # getCategoryDriver(url)
+    │   └── drivers/                  # dm.ts, mueller.ts, rossmann.ts
+    │
+    ├── ingredients-discovery/
+    │   ├── types.ts                  # ScrapedIngredientData
+    │   ├── driver.ts                 # getDriver(url)
+    │   └── drivers/cosing.ts         # EU CosIng database crawler
+    │
+    ├── video-discovery/
+    │   ├── types.ts                  # DiscoveredVideo
+    │   ├── driver.ts                 # getVideoDriver(url)
+    │   └── drivers/youtube.ts        # YouTube channel video lister
+    │
+    ├── video-processing/
+    │   ├── process-video.ts          # downloadVideo, detectSceneChanges, extractScreenshots,
+    │   │                             # scanBarcode, createThumbnailAndHash, hammingDistance
+    │   └── recognize-product.ts      # classifyScreenshots (LLM), recognizeProduct (LLM)
+    │
+    ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
+    ├── match-category.ts             # matchCategory(client, breadcrumb) — LLM-powered
+    ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
+    ├── match-product.ts              # matchProduct(client, brand, name, terms) — LLM-powered
+    ├── classify-product.ts           # classifyProduct(client, sources, lang) — LLM-powered
+    └── aggregate-product.ts          # aggregateFromSources(sourceProducts) — pure logic
+```
+
+## Main Loop (`worker.ts`)
+
+```
+1. Authenticate         GET /api/workers/me  →  AuthenticatedWorker
+2. claimWork(client)     Query all job collections for pending/in_progress
+                         Prioritize "selected target" jobs, else pick random
+                         Build work unit with all data needed by handler
+3. Run handler           handleProductCrawl / handleProductDiscovery / etc.
+4. submitWork(client)    Persist results → update job status/progress
+5. Sleep (POLL_INTERVAL) Repeat from step 2
+```
+
+### Env vars
+
+```
+WORKER_SERVER_URL       Base URL of the server (default: http://localhost:3000)
+WORKER_API_KEY          API key from workers collection (required)
+WORKER_POLL_INTERVAL    Seconds between polls when idle (default: 10)
+LOG_LEVEL               debug|info|warn|error (default: info)
+OPENAI_API_KEY          For LLM tasks: matching, classification, video recognition
+```
+
+## REST Client (`PayloadRestClient`)
+
+`lib/payload-client.ts` mirrors Payload's local API for use over HTTP. The worker never imports Payload directly.
+
+```typescript
+const client = new PayloadRestClient(serverUrl, apiKey)
+
+client.find({ collection, where?, limit?, sort? })    → { docs, totalDocs }
+client.findByID({ collection, id })                   → document
+client.create({ collection, data, file? })            → document  // file = multipart upload
+client.update({ collection, id, data })               → document  // by ID
+client.update({ collection, where, data })             → document  // bulk by where clause
+client.delete({ collection, where })                   → result
+client.count({ collection, where? })                   → { totalDocs }
+client.me()                                            → AuthenticatedWorker
+```
+
+All requests use `Authorization: workers API-Key <key>` header.
+
+## Work Protocol
+
+### claimWork (`work-protocol/claim.ts`)
+
+1. For each job type the worker's capabilities include:
+   - Query `in_progress` and `pending` jobs (limit 10 each)
+2. Collect all active jobs across types
+3. Priority: "selected target" jobs first (selected_urls, selected_gtins, from_discovery), else random
+4. Call `build*Work()` for the selected job type — this:
+   - Fetches the full job document
+   - Initializes the job if pending (set status=in_progress, count totals, create stubs)
+   - Builds and returns a typed work unit with all data needed by the handler
+   - May complete the job early if no work remains (returns `{ type: 'none' }`)
+
+### submitWork (`work-protocol/submit.ts`)
+
+Dispatches to per-type submit handlers. Each handler:
+1. Calls the appropriate `persist*()` function for each result item
+2. Updates job progress counters (crawled, errors, discovered, created, etc.)
+3. Checks completion condition and marks job `completed` if done
+4. Emits events via the logger
+
+### persist (`work-protocol/persist.ts`)
+
+| Function | What it writes |
+|----------|---------------|
+| `persistCrawlResult()` | Updates/creates `source-products` with scraped data, price history, source category lookup; creates `crawl-results` join record |
+| `persistCrawlFailure()` | Creates `crawl-results` with error |
+| `persistDiscoveredProduct()` | Creates/updates `source-products` (status=uncrawled); creates `discovery-results` join record |
+| `persistDiscoveredCategory()` | Creates/updates `source-categories` with parent chain; uses `pathToId` map for hierarchy |
+| `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
+| `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails |
+| `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); marks video as processed |
+| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence) |
+
+## 7 Job Types — Detailed
+
+### 1. product-crawl
+
+**Handler**: `handleProductCrawl()`
+**Flow**: For each work item → `getSourceDriverBySlug(source)` → `driver.scrapeProduct(url)` → collect results → `submitWork()`
+
+**Crawl types**:
+- `all` — all uncrawled source-products for given source(s)
+- `selected_urls` — specific URLs from the job's `urls` field
+- `selected_gtins` — look up source-products by GTIN, crawl their URLs
+- `from_discovery` — crawl URLs from a linked product-discovery job
+
+**Scope**: `recrawl` resets matching products back to `uncrawled` (optionally filtered by `minCrawlAge`)
+
+**Resumption**: Source-products with `status=uncrawled` are the implicit work queue. Each batch fetches `itemsPerTick` (default 10) uncrawled items.
+
+### 2. product-discovery
+
+**Handler**: `handleProductDiscovery()`
+**Flow**: For each source URL → `getSourceDriver(url)` → `driver.discoverProducts()` with callbacks → yields `DiscoveredProduct[]` → submit
+
+**Resumption**: Stores `currentUrlIndex` + `driverProgress` (driver-specific pagination state) in the job's `progress` JSON field. The driver receives `progress` on the next claim to continue where it left off.
+
+**Key params**: `maxPages` (pages per tick), `delay` (ms between requests, default 2000)
+
+### 3. category-discovery
+
+**Handler**: `handleCategoryDiscovery()`
+**Flow**: For each store URL → `getCategoryDriver(url)` → discovers category tree → yields `DiscoveredCategory[]` → submit
+
+**Resumption**: Stores `currentUrlIndex` + `driverProgress` + `pathToId` (maps category path strings → DB IDs for building parent relationships)
+
+### 4. ingredients-discovery
+
+**Handler**: `handleIngredientsDiscovery()`
+**Flow**: `getIngredientsDriver(url)` → crawls CosIng → yields `ScrapedIngredientData[]` → submit
+
+**Resumption**: Stores `currentTerm`, `currentPage`, `totalPagesForTerm`, `termQueue` (list of search terms to process)
+
+### 5. video-discovery
+
+**Handler**: `handleVideoDiscovery()`
+**Flow**: `getVideoDriver(channelUrl)` → lists all videos → submit in batches
+
+**Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails.
+
+### 6. video-processing
+
+**Handler**: `handleVideoProcessing()` (~500 lines, most complex handler)
+**Flow per video**:
+
+```
+1. downloadVideo(url)              → local file path
+2. uploadMedia(path)               → media record ID
+3. detectSceneChanges(path, threshold=0.4)  → scene boundaries
+4. For each segment:
+   a. extractScreenshots(path, start, end, fps=1)
+   b. Upload each screenshot as media
+   c. scanBarcode(screenshotPath)
+      → If barcode found: matchingType='barcode', done
+      → If no barcode:
+        d. createThumbnailAndHash(path) → 64x64 grayscale perceptual hash
+        e. Cluster screenshots by hammingDistance (threshold=25)
+        f. classifyScreenshots(clusters) → LLM: "is this a product?"
+        g. recognizeProduct(candidates) → LLM: brand, product name, search terms
+        h. createRecognitionThumbnail(path) → 128x128 for matched clusters
+5. Submit results with segments, screenshots, recognition data
+```
+
+**Processing types**: `all_unprocessed`, `single_video`, `selected_urls`
+
+**Persistence**: Creates `video-snippets` per segment. For visual matches, calls `matchProduct()` to find/create product records.
+
+### 7. product-aggregation
+
+**Handler**: `handleProductAggregation()`
+**Flow per GTIN**:
+
+```
+1. aggregateFromSources(sourceProducts)    → merged data (pure logic)
+   - GTIN: first non-null
+   - Name: longest string
+   - Brand: first non-null
+   - Category: first source-category ID
+   - Ingredients: from source with longest list
+2. classifyProduct(client, sources, lang)  → LLM classification
+   - Product type, attributes, claims with evidence
+3. Submit results
+```
+
+**Persistence** (`persistProductAggregationResult`):
+- Creates/updates `products` record
+- Calls `matchBrand()` → links brand
+- Calls `matchCategory()` → walks source-category parent chain for breadcrumb → links category
+- Calls `matchIngredients()` → links ingredient records
+- Applies classification: productType, attributes (with evidence), claims (with evidence)
+
+**Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
+
+## Source Drivers
+
+### Interface (`source-discovery/types.ts`)
+
+```typescript
+interface SourceDriver {
+  slug: SourceSlug           // 'dm' | 'mueller' | 'rossmann'
+  label: string
+  matches(url: string): boolean
+  discoverProducts(options: ProductDiscoveryOptions): Promise<ProductDiscoveryResult>
+  scrapeProduct(url: string, options?: { debug?: boolean }): Promise<ScrapedProductData | null>
+}
+```
+
+**Resolution**:
+- `getSourceDriver(url)` — matches URL against all drivers
+- `getSourceDriverBySlug(slug)` — direct lookup
+
+### ScrapedProductData
+
+Returned by `driver.scrapeProduct()`:
+
+```typescript
+interface ScrapedProductData {
+  gtin?: string
+  name: string
+  brandName?: string
+  description?: string
+  ingredientNames: string[]
+  priceCents?: number
+  currency?: string
+  priceInfos?: string[]
+  amount?: number
+  amountUnit?: string
+  images: Array<{ url: string; alt?: string | null }>
+  variants: Array<{ dimension: string; options: Array<{ label, value, gtin, isSelected }> }>
+  labels?: string[]
+  rating?: number
+  ratingNum?: number
+  sourceArticleNumber?: string
+  categoryBreadcrumbs?: string[]
+  categoryUrl?: string
+  canonicalUrl?: string
+  perUnitAmount?: number
+  perUnitQuantity?: number
+  perUnitUnit?: string
+  warnings: string[]
+}
+```
+
+### DiscoveredProduct
+
+Returned by `driver.discoverProducts()`:
+
+```typescript
+interface DiscoveredProduct {
+  gtin?: string
+  productUrl: string
+  brandName?: string
+  name?: string
+  price?: number          // cents
+  currency?: string
+  rating?: number
+  ratingCount?: number
+  category?: string       // "Make-up -> Augen -> Lidschatten"
+  categoryUrl?: string
+}
+```
+
+## Matching Functions (LLM-powered)
+
+All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
+
+| Function | Input | Output | Called by |
+|----------|-------|--------|-----------|
+| `matchBrand(client, brandName, logger)` | brand name string | `{ brandId, tokensUsed }` | `persistProductAggregationResult` |
+| `matchCategory(client, breadcrumb, logger)` | category breadcrumb string | `{ categoryId, tokensUsed }` | `persistProductAggregationResult` |
+| `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `persistProductAggregationResult` |
+| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `persistVideoProcessingResult` |
+| `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, productAttributes[], productClaims[], tokensUsed }` | `handleProductAggregation` |
+
+## Logging (`lib/logger.ts`)
+
+```typescript
+const log = createLogger('ComponentName')
+
+log.debug('message')                              // console only (if LOG_LEVEL allows)
+log.info('message')                               // console only
+log.info('message', { event: true })              // console + creates Events record in DB
+log.info('message', { event: 'start' })           // console + Events with explicit type
+log.info('message', { labels: ['scraping'] })     // add labels for filtering
+
+const jlog = log.forJob('product-crawls', 42)     // scoped to a job (required for event emission)
+jlog.info('scraped product', { event: true })      // creates Events linked to job #42
+```
+
+**Levels**: `debug` < `info` < `warn` < `error`. Set via `LOG_LEVEL` env var.
+
+**Event types**: `start`, `success`, `info`, `warning`, `error`. Auto-derived from log level, or set explicitly.
+
+## Key Patterns
+
+- **Batch processing**: All jobs process `itemsPerTick` items per claim cycle (default 10, video processing default 1)
+- **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and job progress
+- **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
+- **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
+- **Deduplication**: Source-products are matched by `sourceUrl + source` to prevent duplicates
+- **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
+- **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
