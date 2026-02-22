@@ -2,6 +2,8 @@ import OpenAI from 'openai'
 import type { PayloadRestClient } from './payload-client'
 import { matchBrand } from './match-brand'
 import type { TokenUsage } from './match-ingredients'
+import { createLogger, type Logger } from '@/lib/logger'
+const log = createLogger('matchProduct')
 
 export interface MatchProductResult {
   productId: number
@@ -40,6 +42,7 @@ export async function matchProduct(
   brand: string | null,
   productName: string | null,
   searchTerms: string[],
+  jlog?: Logger,
 ): Promise<MatchProductResult | null> {
   const tokensUsed: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
@@ -50,17 +53,18 @@ export async function matchProduct(
   // Step 1: Match brand if provided
   let brandId: number | undefined
   if (brand) {
-    console.log(`\n[matchProduct] ── Step 1: Match Brand "${brand}" ──`)
-    const brandResult = await matchBrand(payload, brand)
+    log.info(`── Step 1: Match Brand "${brand}" ──`)
+    const brandResult = await matchBrand(payload, brand, jlog)
     brandId = brandResult.brandId
     tokensUsed.promptTokens += brandResult.tokensUsed.promptTokens
     tokensUsed.completionTokens += brandResult.tokensUsed.completionTokens
     tokensUsed.totalTokens += brandResult.tokensUsed.totalTokens
-    console.log(`[matchProduct] Brand matched: "${brandResult.brandName}" (id: ${brandId}, created: ${brandResult.created})`)
+    log.info(`Brand matched: "${brandResult.brandName}" (id: ${brandId}, created: ${brandResult.created})`)
+    jlog?.info(`Product brand "${brand}" — matched "${brandResult.brandName}" #${brandId}`, { event: true, labels: ['product-matching', 'brand-matching'] })
   }
 
   // Step 2: Search products — cast a wide net with many cheap DB queries
-  console.log(`\n[matchProduct] ── Step 2: Search Products ──`)
+  log.info(`── Step 2: Search Products ──`)
   const allTerms = [...searchTerms]
   if (productName && !allTerms.includes(productName)) {
     allTerms.unshift(productName)
@@ -81,7 +85,7 @@ export async function matchProduct(
   }
 
   const keywords = Array.from(searchKeywords)
-  console.log(`[matchProduct] Search keywords (${keywords.length}): [${keywords.join(', ')}]`)
+  log.info(`Search keywords (${keywords.length}): [${keywords.join(', ')}]`)
 
   const candidateMap = new Map<number, ProductCandidate>()
 
@@ -124,16 +128,19 @@ export async function matchProduct(
   }
 
   const candidates = Array.from(candidateMap.values())
-  console.log(`[matchProduct] Found ${candidates.length} unique candidates: [${candidates.map((c) => `${c.name} (#${c.id})`).join(', ')}]`)
+  log.info(`Found ${candidates.length} unique candidates: [${candidates.map((c) => `${c.name} (#${c.id})`).join(', ')}]`)
+  jlog?.info(`Product: ${candidates.length} candidates for "${productName}"`, { event: true, labels: ['product-matching'] })
 
   // Step 3: Select match
   if (candidates.length === 0) {
-    console.log('[matchProduct] No candidates found, returning null')
+    log.info('No candidates found, returning null')
+    jlog?.warn(`Product "${productName}" — no match`, { event: true, labels: ['product-matching'] })
     return null
   }
 
   if (candidates.length === 1) {
-    console.log(`[matchProduct] Single candidate, auto-matching: "${candidates[0].name}" (#${candidates[0].id})`)
+    log.info(`Single candidate, auto-matching: "${candidates[0].name}" (#${candidates[0].id})`)
+    jlog?.info(`Product "${productName}" — auto-match "${candidates[0].name}" #${candidates[0].id}`, { event: true, labels: ['product-matching'] })
     return {
       productId: candidates[0].id,
       productName: candidates[0].name,
@@ -142,7 +149,7 @@ export async function matchProduct(
   }
 
   // Step 4: LLM disambiguation
-  console.log(`\n[matchProduct] ── Step 3: LLM Disambiguation (${candidates.length} candidates) ──`)
+  log.info(`── Step 3: LLM Disambiguation (${candidates.length} candidates) ──`)
   const openai = getOpenAI()
 
   const userContent = JSON.stringify({
@@ -151,8 +158,8 @@ export async function matchProduct(
     candidates: candidates.map((c) => ({ id: c.id, name: c.name })),
   })
 
-  console.log('[matchProduct] Model: gpt-4.1-mini, temperature: 0')
-  console.log('[matchProduct] User prompt:', userContent)
+  log.info('Model: gpt-4.1-mini, temperature: 0')
+  log.info('User prompt: ' + userContent)
 
   try {
     const response = await openai.chat.completions.create({
@@ -169,15 +176,16 @@ export async function matchProduct(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    console.log('[matchProduct] Response:', content ?? '(empty)')
-    console.log(`[matchProduct] Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.info('Response: ' + (content ?? '(empty)'))
+    log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
 
     if (content) {
       const parsed = JSON.parse(content) as { selectedId: number | null }
       if (parsed.selectedId !== null) {
         const match = candidates.find((c) => c.id === parsed.selectedId)
         if (match) {
-          console.log(`[matchProduct] LLM selected: "${match.name}" (#${match.id})`)
+          log.info(`LLM selected: "${match.name}" (#${match.id})`)
+          jlog?.info(`Product "${productName}" — LLM selected "${match.name}" #${match.id}`, { event: true, labels: ['product-matching', 'llm'] })
           return {
             productId: match.id,
             productName: match.name,
@@ -187,9 +195,10 @@ export async function matchProduct(
       }
     }
   } catch (error) {
-    console.error('[matchProduct] LLM disambiguation failed:', error)
+    log.error('LLM disambiguation failed: ' + String(error))
   }
 
-  console.log('[matchProduct] No match selected, returning null')
+  log.info('No match selected, returning null')
+  jlog?.warn(`Product "${productName}" — no match after LLM`, { event: true, labels: ['product-matching', 'llm'] })
   return null
 }

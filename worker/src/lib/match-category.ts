@@ -1,6 +1,8 @@
 import OpenAI from 'openai'
 import type { PayloadRestClient, Where } from './payload-client'
 import type { TokenUsage } from './match-ingredients'
+import { createLogger, type Logger } from '@/lib/logger'
+const log = createLogger('matchCategory')
 
 export interface MatchCategoryResult {
   categoryId: number | null
@@ -34,6 +36,7 @@ async function resolveSegment(
   segment: string,
   parentId: number | null,
   tokensUsed: TokenUsage,
+  jlog?: Logger,
 ): Promise<{ categoryId: number | null }> {
   // Exact match at this hierarchy level
   const parentFilter = parentId === null
@@ -53,7 +56,8 @@ async function resolveSegment(
 
   if (exactResult.docs.length === 1) {
     const doc = exactResult.docs[0] as { id: number }
-    console.log(`[matchCategory]   "${segment}" (parent: ${parentId}) → EXACT MATCH (id: ${doc.id})`)
+    log.info(`  "${segment}" (parent: ${parentId}) → EXACT MATCH (id: ${doc.id})`)
+    jlog?.info(`Category "${segment}" — exact match #${doc.id}`, { event: true, labels: ['category-matching'] })
     return { categoryId: doc.id }
   }
 
@@ -70,10 +74,10 @@ async function resolveSegment(
   })
 
   const fuzzyDocs = fuzzyResult.docs as Array<{ id: number; name: string }>
-  console.log(`[matchCategory]   "${segment}" (parent: ${parentId}) → ${fuzzyDocs.length} fuzzy candidates: [${fuzzyDocs.map((d) => d.name).join(', ')}]`)
+  log.info(`  "${segment}" (parent: ${parentId}) → ${fuzzyDocs.length} fuzzy candidates: [${fuzzyDocs.map((d) => d.name).join(', ')}]`)
 
   if (fuzzyDocs.length === 1) {
-    console.log(`[matchCategory]   AUTO-MATCH → "${fuzzyDocs[0].name}" (id: ${fuzzyDocs[0].id})`)
+    log.info(`  AUTO-MATCH → "${fuzzyDocs[0].name}" (id: ${fuzzyDocs[0].id})`)
     return { categoryId: fuzzyDocs[0].id }
   }
 
@@ -83,9 +87,9 @@ async function resolveSegment(
     const candidates = fuzzyDocs.map((d) => d.name)
     const userContent = JSON.stringify({ categoryName: segment, candidates })
 
-    console.log('\n[matchCategory] ── LLM Disambiguation ──')
-    console.log('[matchCategory] Model: gpt-4.1-mini, temperature: 0')
-    console.log('[matchCategory] User prompt:', userContent)
+    log.info('── LLM Disambiguation ──')
+    log.info('Model: gpt-4.1-mini, temperature: 0')
+    log.info('User prompt: ' + userContent)
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4.1-mini',
@@ -101,8 +105,8 @@ async function resolveSegment(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    console.log('[matchCategory] Response:', content ?? '(empty)')
-    console.log(`[matchCategory] Tokens: ${tokensUsed.totalTokens} total`)
+    log.info('Response: ' + (content ?? '(empty)'))
+    log.info(`Tokens: ${tokensUsed.totalTokens} total`)
 
     if (content) {
       try {
@@ -110,24 +114,28 @@ async function resolveSegment(
         if (parsed.selectedName) {
           const match = fuzzyDocs.find((d) => d.name === parsed.selectedName)
           if (match) {
-            console.log(`[matchCategory]   LLM selected → "${match.name}" (id: ${match.id})`)
+            log.info(`  LLM selected → "${match.name}" (id: ${match.id})`)
+            jlog?.info(`Category "${segment}" — LLM selected "${match.name}" #${match.id}`, { event: true, labels: ['category-matching', 'llm'] })
             return { categoryId: match.id }
           }
         }
       } catch {
-        console.error('[matchCategory] Failed to parse LLM response:', content)
+        log.error('Failed to parse LLM response: ' + content)
+        jlog?.warn(`Category "${segment}" — LLM parse failure`, { event: true, labels: ['category-matching', 'llm'] })
       }
     }
   }
 
   // No match found — return null (don't create new categories)
-  console.log(`[matchCategory]   No match for "${segment}" (parent: ${parentId})`)
+  log.info(`  No match for "${segment}" (parent: ${parentId})`)
+  jlog?.warn(`Category "${segment}" — no match`, { event: true, labels: ['category-matching'] })
   return { categoryId: null }
 }
 
 export async function matchCategory(
   payload: PayloadRestClient,
   categoryBreadcrumb: string,
+  jlog?: Logger,
 ): Promise<MatchCategoryResult> {
   const tokensUsed: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
@@ -138,25 +146,26 @@ export async function matchCategory(
     return { categoryId: null, categoryPath: categoryBreadcrumb, created: false, tokensUsed }
   }
 
-  console.log(`\n[matchCategory] ── Resolving category hierarchy ──`)
-  console.log(`[matchCategory] Breadcrumb: "${categoryBreadcrumb}" → ${segments.length} segments: [${segments.join(', ')}]`)
+  log.info(`── Resolving category hierarchy ──`)
+  log.info(`Breadcrumb: "${categoryBreadcrumb}" → ${segments.length} segments: [${segments.join(', ')}]`)
 
   // Walk hierarchy from root to leaf
   let parentId: number | null = null
   let deepestMatchedId: number | null = null
 
   for (const segment of segments) {
-    const result = await resolveSegment(payload, segment, parentId, tokensUsed)
+    const result = await resolveSegment(payload, segment, parentId, tokensUsed, jlog)
     if (result.categoryId === null) {
       // Stop walking — use deepest matched category
-      console.log(`[matchCategory] Stopped at "${segment}" — using deepest match: ${deepestMatchedId}`)
+      log.info(`Stopped at "${segment}" — using deepest match: ${deepestMatchedId}`)
       break
     }
     parentId = result.categoryId
     deepestMatchedId = result.categoryId
   }
 
-  console.log(`[matchCategory] Resolved to category id: ${deepestMatchedId}, path: "${categoryBreadcrumb}"`)
+  log.info(`Resolved to category id: ${deepestMatchedId}, path: "${categoryBreadcrumb}"`)
+  jlog?.info(`Category "${categoryBreadcrumb}" — resolved to #${deepestMatchedId}`, { event: true, labels: ['category-matching'] })
 
   return {
     categoryId: deepestMatchedId,

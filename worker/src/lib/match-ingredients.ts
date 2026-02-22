@@ -1,5 +1,7 @@
 import OpenAI from 'openai'
 import type { PayloadRestClient } from './payload-client'
+import { createLogger, type Logger } from '@/lib/logger'
+const log = createLogger('matchIngredients')
 
 export interface MatchedIngredient {
   originalName: string
@@ -78,10 +80,10 @@ async function generateSearchTerms(ingredientNames: string[]): Promise<{ entries
   const openai = getOpenAI()
 
   const userContent = JSON.stringify(ingredientNames)
-  console.log('\n[matchIngredients] ── LLM Call 1: Search Term Generation ──')
-  console.log('[matchIngredients] Model: gpt-4.1-mini, temperature: 0')
-  console.log('[matchIngredients] System prompt:', SEARCH_TERM_SYSTEM_PROMPT)
-  console.log('[matchIngredients] User prompt:', userContent)
+  log.info('── LLM Call 1: Search Term Generation ──')
+  log.info('Model: gpt-4.1-mini, temperature: 0')
+  log.info('System prompt: ' + SEARCH_TERM_SYSTEM_PROMPT)
+  log.info('User prompt: ' + userContent)
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -99,8 +101,8 @@ async function generateSearchTerms(ingredientNames: string[]): Promise<{ entries
   }
 
   const content = response.choices[0]?.message?.content?.trim()
-  console.log('[matchIngredients] Response:', content ?? '(empty)')
-  console.log(`[matchIngredients] Tokens: ${usage.promptTokens} prompt + ${usage.completionTokens} completion = ${usage.totalTokens} total`)
+  log.info('Response: ' + (content ?? '(empty)'))
+  log.info(`Tokens: ${usage.promptTokens} prompt + ${usage.completionTokens} completion = ${usage.totalTokens} total`)
   if (!content) {
     throw new Error('Empty response from OpenAI during search term generation')
   }
@@ -151,8 +153,8 @@ async function searchIngredients(
 
   const uniqueTerms = Array.from(termToOriginals.keys())
 
-  console.log('\n[matchIngredients] ── DB Search ──')
-  console.log(`[matchIngredients] Searching ${uniqueTerms.length} unique terms:`, uniqueTerms)
+  log.info('── DB Search ──')
+  log.info(`Searching ${uniqueTerms.length} unique terms: ${JSON.stringify(uniqueTerms)}`)
 
   // Search all terms in parallel: case-insensitive exact match + fuzzy (like) match per term.
   // The uppercase exact search ensures the precise entry is always included even when
@@ -208,7 +210,7 @@ async function searchIngredients(
   for (const [original, candidateMap] of candidatesByOriginal) {
     const candidates = Array.from(candidateMap.values())
     result.set(original, candidates)
-    console.log(`[matchIngredients]   "${original}" → ${candidates.length} candidates: [${candidates.map((c) => c.name).join(', ')}]`)
+    log.info(`  "${original}" → ${candidates.length} candidates: [${candidates.map((c) => c.name).join(', ')}]`)
   }
 
   return result
@@ -225,10 +227,10 @@ async function selectMatches(
   }))
 
   const userContent = JSON.stringify(prompt)
-  console.log('\n[matchIngredients] ── LLM Call 2: Match Selection ──')
-  console.log('[matchIngredients] Model: gpt-4.1-mini, temperature: 0')
-  console.log('[matchIngredients] System prompt:', MATCH_SELECTION_SYSTEM_PROMPT)
-  console.log('[matchIngredients] User prompt:', userContent)
+  log.info('── LLM Call 2: Match Selection ──')
+  log.info('Model: gpt-4.1-mini, temperature: 0')
+  log.info('System prompt: ' + MATCH_SELECTION_SYSTEM_PROMPT)
+  log.info('User prompt: ' + userContent)
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -246,8 +248,8 @@ async function selectMatches(
   }
 
   const content = response.choices[0]?.message?.content?.trim()
-  console.log('[matchIngredients] Response:', content ?? '(empty)')
-  console.log(`[matchIngredients] Tokens: ${usage.promptTokens} prompt + ${usage.completionTokens} completion = ${usage.totalTokens} total`)
+  log.info('Response: ' + (content ?? '(empty)'))
+  log.info(`Tokens: ${usage.promptTokens} prompt + ${usage.completionTokens} completion = ${usage.totalTokens} total`)
   if (!content) {
     throw new Error('Empty response from OpenAI during match selection')
   }
@@ -276,6 +278,7 @@ async function selectMatches(
 export async function matchIngredients(
   payload: PayloadRestClient,
   ingredientNames: string[],
+  jlog?: Logger,
 ): Promise<MatchIngredientsResult> {
   const tokensUsed: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
@@ -287,7 +290,7 @@ export async function matchIngredients(
   // DB stores names in UPPERCASE, so we search both original case and uppercased.
   // We avoid `like` here because it does substring matching and the exact entry
   // can be crowded out by compounds (e.g. "Glycerin" returns "POLYGLYCERIN-40" but not "GLYCERIN").
-  console.log('\n[matchIngredients] ── Step 0: Exact DB Match (case-insensitive) ──')
+  log.info('── Step 0: Exact DB Match (case-insensitive) ──')
   const exactResults = await Promise.all(
     ingredientNames.map(async (name) => {
       const result = await payload.find({
@@ -309,7 +312,7 @@ export async function matchIngredients(
 
   for (const { name, docs } of exactResults) {
     if (docs.length === 1) {
-      console.log(`[matchIngredients]   "${name}" → EXACT MATCH → "${docs[0].name}" (id: ${docs[0].id})`)
+      log.info(`  "${name}" → EXACT MATCH → "${docs[0].name}" (id: ${docs[0].id})`)
       matched.push({
         originalName: name,
         ingredientId: docs[0].id,
@@ -320,14 +323,16 @@ export async function matchIngredients(
     }
   }
 
-  console.log(`[matchIngredients] Exact matches: ${matched.length}, remaining for LLM: ${remainingNames.length}`)
+  log.info(`Exact matches: ${matched.length}, remaining for LLM: ${remainingNames.length}`)
+  jlog?.info(`Ingredients: ${matched.length} exact out of ${ingredientNames.length}`, { event: true, labels: ['ingredient-matching'] })
 
   // If all resolved via exact match, skip LLM calls entirely
   if (remainingNames.length === 0) {
-    console.log('\n[matchIngredients] ── Result ──')
-    console.log(`[matchIngredients] Matched: ${matched.length}, Unmatched: 0 (all exact matches, no LLM calls)`)
+    log.info('── Result ──')
+    log.info(`Matched: ${matched.length}, Unmatched: 0 (all exact matches, no LLM calls)`)
+    jlog?.info(`Ingredients: all ${matched.length} exact (no LLM)`, { event: true, labels: ['ingredient-matching'] })
     for (const m of matched) {
-      console.log(`[matchIngredients]   ✓ "${m.originalName}" → "${m.matchedName}" (id: ${m.ingredientId})`)
+      log.info(`  ✓ "${m.originalName}" → "${m.matchedName}" (id: ${m.ingredientId})`)
     }
     return { matched, unmatched: [], tokensUsed }
   }
@@ -342,7 +347,7 @@ export async function matchIngredients(
   const candidatesByOriginal = await searchIngredients(payload, searchTermEntries)
 
   // Step 3: Classify results
-  console.log('\n[matchIngredients] ── Classification ──')
+  log.info('── Classification ──')
   const unmatched: string[] = []
   const ambiguous: { original: string; candidates: CandidateInfo[] }[] = []
 
@@ -350,17 +355,17 @@ export async function matchIngredients(
     const candidates = candidatesByOriginal.get(name) ?? []
 
     if (candidates.length === 0) {
-      console.log(`[matchIngredients]   "${name}" → UNMATCHED (0 candidates)`)
+      log.info(`  "${name}" → UNMATCHED (0 candidates)`)
       unmatched.push(name)
     } else if (candidates.length === 1) {
-      console.log(`[matchIngredients]   "${name}" → AUTO-MATCH → "${candidates[0].name}" (id: ${candidates[0].id})`)
+      log.info(`  "${name}" → AUTO-MATCH → "${candidates[0].name}" (id: ${candidates[0].id})`)
       matched.push({
         originalName: name,
         ingredientId: candidates[0].id,
         matchedName: candidates[0].name,
       })
     } else {
-      console.log(`[matchIngredients]   "${name}" → AMBIGUOUS (${candidates.length} candidates)`)
+      log.info(`  "${name}" → AMBIGUOUS (${candidates.length} candidates)`)
       ambiguous.push({ original: name, candidates })
     }
   }
@@ -376,7 +381,8 @@ export async function matchIngredients(
       tokensUsed.completionTokens += selectResult.usage.completionTokens
       tokensUsed.totalTokens += selectResult.usage.totalTokens
     } catch (error) {
-      console.error('LLM match selection failed, treating ambiguous ingredients as unmatched:', error)
+      log.error('LLM match selection failed, treating ambiguous ingredients as unmatched: ' + String(error))
+      jlog?.warn(`Ingredients: LLM selection failed — ${ambiguous.length} treated as unmatched`, { event: true, labels: ['ingredient-matching', 'llm'] })
       for (const { original } of ambiguous) {
         unmatched.push(original)
       }
@@ -403,14 +409,15 @@ export async function matchIngredients(
     }
   }
 
-  console.log('\n[matchIngredients] ── Result ──')
-  console.log(`[matchIngredients] Matched: ${matched.length}, Unmatched: ${unmatched.length}`)
-  console.log(`[matchIngredients] Total tokens used: ${tokensUsed.totalTokens}`)
+  log.info('── Result ──')
+  log.info(`Matched: ${matched.length}, Unmatched: ${unmatched.length}`)
+  log.info(`Total tokens used: ${tokensUsed.totalTokens}`)
+  jlog?.info(`Ingredients: ${matched.length} matched, ${unmatched.length} unmatched`, { event: true, labels: ['ingredient-matching'] })
   for (const m of matched) {
-    console.log(`[matchIngredients]   ✓ "${m.originalName}" → "${m.matchedName}" (id: ${m.ingredientId})`)
+    log.info(`  ✓ "${m.originalName}" → "${m.matchedName}" (id: ${m.ingredientId})`)
   }
   for (const u of unmatched) {
-    console.log(`[matchIngredients]   ✗ "${u}"`)
+    log.info(`  ✗ "${u}"`)
   }
 
   return { matched, unmatched, tokensUsed }

@@ -1,4 +1,6 @@
 import OpenAI from 'openai'
+import { createLogger, type Logger } from '@/lib/logger'
+const log = createLogger('classifyProduct')
 
 export interface TokenUsage {
   promptTokens: number
@@ -112,7 +114,7 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey })
 }
 
-export async function classifyProduct(sources: SourceInput[], language: string = 'de'): Promise<ClassifyProductResult> {
+export async function classifyProduct(sources: SourceInput[], language: string = 'de', jlog?: Logger): Promise<ClassifyProductResult> {
   const openai = getOpenAI()
 
   const userContent = sources
@@ -129,9 +131,9 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   const languageLabel = language === 'de' ? 'German' : 'English'
   const systemPrompt = SYSTEM_PROMPT.replace('{{LANGUAGE}}', languageLabel)
 
-  console.log('\n[classifyProduct] ── LLM Call: Product Classification ──')
-  console.log('[classifyProduct] Model: gpt-4.1-mini, temperature: 0')
-  console.log(`[classifyProduct] Sources: ${sources.length}, language: ${languageLabel}`)
+  log.info('── LLM Call: Product Classification ──')
+  log.info('Model: gpt-4.1-mini, temperature: 0')
+  log.info(`Sources: ${sources.length}, language: ${languageLabel}`)
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -149,8 +151,8 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   }
 
   const content = response.choices[0]?.message?.content?.trim()
-  console.log('[classifyProduct] Response:', content ?? '(empty)')
-  console.log(`[classifyProduct] Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+  log.info('Response: ' + (content ?? '(empty)'))
+  log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
 
   if (!content) {
     throw new Error('Empty response from OpenAI during product classification')
@@ -172,13 +174,14 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   let productType = result.productType ?? 'other'
   if (!VALID_PRODUCT_TYPES.has(productType)) {
-    console.log(`[classifyProduct] Invalid productType "${productType}", falling back to "other"`)
+    log.info(`Invalid productType "${productType}", falling back to "other"`)
+    jlog?.warn(`Classification: invalid productType "${productType}", falling back to "other"`, { event: true, labels: ['classification', 'llm'] })
     productType = 'other'
   }
 
   const rawAttributes = (result.productAttributes ?? []).filter((entry) => {
     if (!VALID_ATTRIBUTES.has(entry.attribute)) {
-      console.log(`[classifyProduct] Dropping invalid attribute: "${entry.attribute}"`)
+      log.info(`Dropping invalid attribute: "${entry.attribute}"`)
       return false
     }
     return true
@@ -186,11 +189,13 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   const rawClaims = (result.productClaims ?? []).filter((entry) => {
     if (!VALID_CLAIMS.has(entry.claim)) {
-      console.log(`[classifyProduct] Dropping invalid claim: "${entry.claim}"`)
+      log.info(`Dropping invalid claim: "${entry.claim}"`)
       return false
     }
     return true
   })
+
+  jlog?.info(`Classification: type=${productType}, ${rawAttributes.length} attrs, ${rawClaims.length} claims`, { event: true, labels: ['classification'] })
 
   return {
     description: result.description ?? '',
