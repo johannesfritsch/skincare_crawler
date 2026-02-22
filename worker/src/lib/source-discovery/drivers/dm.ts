@@ -1,6 +1,9 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('DM')
 
 const DM_PRODUCT_API = 'https://products.dm.de/product/products/detail/DE/gtin'
 const DM_REFERER = 'https://www.dm.de/'
@@ -125,7 +128,7 @@ async function fetchCategoryId(link: string): Promise<string | null> {
   try {
     const res = await stealthFetch(url, { headers: DM_HEADERS })
     if (!res.ok) {
-      console.log(`[DM] Content page fetch failed for ${link}: ${res.status}`)
+      log.info(`Content page fetch failed for ${link}: ${res.status}`)
       return null
     }
     const data = await res.json()
@@ -140,7 +143,7 @@ async function fetchCategoryId(link: string): Promise<string | null> {
     }
     return null
   } catch (error) {
-    console.error(`[DM] Error fetching category ID for ${link}:`, error)
+    log.error(`Error fetching category ID for ${link}: ${String(error)}`)
     return null
   }
 }
@@ -167,7 +170,7 @@ async function fetchProductPage(
   try {
     const res = await stealthFetch(url, { headers: getSearchHeaders() })
     if (!res.ok) {
-      console.log(`[DM] Product search failed for category ${categoryId} page ${page}: ${res.status}`)
+      log.info(`Product search failed for category ${categoryId} page ${page}: ${res.status}`)
       return null
     }
     const data = await res.json()
@@ -176,7 +179,7 @@ async function fetchProductPage(
       totalPages: data.totalPages ?? 1,
     }
   } catch (error) {
-    console.error(`[DM] Error fetching products for category ${categoryId} page ${page}:`, error)
+    log.error(`Error fetching products for category ${categoryId} page ${page}: ${String(error)}`)
     return null
   }
 }
@@ -277,7 +280,7 @@ export const dmDriver: SourceDriver = {
     const { url, onProduct, onError, onProgress, delay = 2000, maxPages } = options
     const savedProgress = options.progress as DmProductDiscoveryProgress | undefined
 
-    console.log(`[DM] Starting API-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
+    log.info(`Starting API-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
 
     let pagesUsed = 0
 
@@ -297,11 +300,11 @@ export const dmDriver: SourceDriver = {
       currentLeafIndex = savedProgress.currentLeafIndex
       currentProductPage = savedProgress.currentProductPage
       totalProductPages = savedProgress.totalProductPages
-      console.log(`[DM] Resuming: ${categoryLeaves.length} leaves, at leaf ${currentLeafIndex}, page ${currentProductPage}`)
+      log.info(`Resuming: ${categoryLeaves.length} leaves, at leaf ${currentLeafIndex}, page ${currentProductPage}`)
     } else {
       // Fresh start: build leaves from nav tree
       const targetPath = new URL(url).pathname.replace(/\/$/, '') || '/'
-      console.log(`[DM] Target path: ${targetPath}`)
+      log.info(`Target path: ${targetPath}`)
 
       const navRes = await stealthFetch('https://content.services.dmtech.com/rootpage-dm-shop-de-de?view=navigation&mrclx=true', { headers: DM_HEADERS })
       if (!navRes.ok) {
@@ -320,7 +323,7 @@ export const dmDriver: SourceDriver = {
       categoryLeaves = []
 
       if (!subtree) {
-        console.log(`[DM] No subtree in nav tree for ${targetPath}, treating as direct leaf`)
+        log.info(`No subtree in nav tree for ${targetPath}, treating as direct leaf`)
         const breadcrumb = targetPath.split('/').filter(Boolean)
           .map((seg) => seg.replace(/-und-/g, ' & ').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
           .join(' -> ')
@@ -330,9 +333,9 @@ export const dmDriver: SourceDriver = {
           categoryId: null, // Will be resolved on first access
         })
       } else {
-        console.log(`[DM] Found subtree: ${subtree.title} (${subtree.id})`)
+        log.info(`Found subtree: ${subtree.title} (${subtree.id})`)
         const leaves = collectLeaves(subtree)
-        console.log(`[DM] Found ${leaves.length} leaf categories`)
+        log.info(`Found ${leaves.length} leaf categories`)
 
         for (const leaf of leaves) {
           categoryLeaves.push({
@@ -359,7 +362,7 @@ export const dmDriver: SourceDriver = {
       if (!leaf.categoryId) {
         const categoryId = await fetchCategoryId(leaf.link)
         if (!categoryId) {
-          console.log(`[DM] No category ID found for ${leaf.link}, skipping`)
+          log.info(`No category ID found for ${leaf.link}, skipping`)
           onError?.(leafCategoryUrl)
           currentLeafIndex++
           currentProductPage = 0
@@ -368,7 +371,7 @@ export const dmDriver: SourceDriver = {
         }
         leaf.categoryId = categoryId
         pagesUsed++
-        console.log(`[DM] Resolved ${leaf.link} -> category ${categoryId}`)
+        log.info(`Resolved ${leaf.link} -> category ${categoryId}`)
 
         await onProgress?.({
           categoryLeaves,
@@ -387,7 +390,7 @@ export const dmDriver: SourceDriver = {
       pagesUsed++
 
       if (!result) {
-        console.log(`[DM] Failed to fetch products for category ${leaf.categoryId} page ${currentProductPage}`)
+        log.info(`Failed to fetch products for category ${leaf.categoryId} page ${currentProductPage}`)
         onError?.(leafCategoryUrl)
         currentLeafIndex++
         currentProductPage = 0
@@ -405,7 +408,7 @@ export const dmDriver: SourceDriver = {
       }
 
       totalProductPages = result.totalPages
-      console.log(`[DM] Category ${leaf.categoryId} page ${currentProductPage}/${totalProductPages}: ${result.products.length} products (${leaf.breadcrumb})`)
+      log.info(`Category ${leaf.categoryId} page ${currentProductPage}/${totalProductPages}: ${result.products.length} products (${leaf.breadcrumb})`)
 
       // Emit each product via callback
       for (const product of result.products) {
@@ -455,7 +458,7 @@ export const dmDriver: SourceDriver = {
     }
 
     const done = currentLeafIndex >= categoryLeaves.length
-    console.log(`[DM] Tick done: ${pagesUsed} pages used, done=${done}`)
+    log.info(`Tick done: ${pagesUsed} pages used, done=${done}`)
     return { done, pagesUsed }
   },
 
@@ -468,21 +471,21 @@ export const dmDriver: SourceDriver = {
       // Extract GTIN from URL to call DM API
       const gtin = extractGtinFromDmUrl(sourceUrl)
       if (!gtin) {
-        console.log(`[DM] Could not extract GTIN from URL: ${sourceUrl}`)
+        log.info(`Could not extract GTIN from URL: ${sourceUrl}`)
         return null
       }
 
       // Fetch product details from DM API
       const res = await stealthFetch(`${DM_PRODUCT_API}/${gtin}`, { headers: DM_HEADERS })
       if (!res.ok) {
-        console.log(`[DM] API returned ${res.status} for GTIN ${gtin}`)
+        log.info(`API returned ${res.status} for GTIN ${gtin}`)
         return null
       }
       const data: DmProductDetail = await res.json()
 
       const name = data.title?.headline
       if (!name) {
-        console.log(`[DM] No product name in API response for GTIN ${gtin}`)
+        log.info(`No product name in API response for GTIN ${gtin}`)
         return null
       }
 
@@ -500,9 +503,9 @@ export const dmDriver: SourceDriver = {
           .join(' ')
           .trim()
         if (rawText) {
-          console.log(`[DM] Raw ingredients for GTIN ${gtin}:`, rawText)
+          log.debug(`Raw ingredients for GTIN ${gtin}: ${rawText}`)
           ingredientNames = await parseIngredients(rawText)
-          console.log(`[DM] Parsed ${ingredientNames.length} ingredients`)
+          log.info(`Parsed ${ingredientNames.length} ingredients`)
         }
       }
 
@@ -572,7 +575,7 @@ export const dmDriver: SourceDriver = {
         warnings,
       }
     } catch (error) {
-      console.error(`[DM] Error scraping product (url: ${sourceUrl}):`, error)
+      log.error(`Error scraping product (url: ${sourceUrl}): ${String(error)}`)
       return null
     }
   },

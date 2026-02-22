@@ -1,6 +1,9 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('Mueller')
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -66,7 +69,7 @@ export const muellerDriver: SourceDriver = {
     const { url, onProduct, onError, onProgress, delay = 2000, maxPages } = options
     const savedProgress = options.progress as MuellerProductDiscoveryProgress | undefined
 
-    console.log(`[Mueller] Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
+    log.info(`Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
 
     const visitedUrls = new Set<string>(savedProgress?.visitedUrls ?? [])
     const seenProductUrls = new Set<string>() // within-tick dedup only, not persisted
@@ -158,7 +161,7 @@ export const muellerDriver: SourceDriver = {
 
           const baseUrl = categoryUrl.split('?')[0]
           const pagedUrl = `${baseUrl}?page=${pageNum}`
-          console.log(`[Mueller] Resuming leaf page ${pageNum}: ${pagedUrl}`)
+          log.info(`Resuming leaf page ${pageNum}: ${pagedUrl}`)
 
           try {
             await page.goto(pagedUrl, { waitUntil: 'domcontentloaded' })
@@ -168,9 +171,9 @@ export const muellerDriver: SourceDriver = {
 
             const products = await scrapeProductTiles()
             await emitProducts(products, category, categoryUrl)
-            console.log(`[Mueller] Page ${pageNum}: found ${products.length} product tiles`)
+            log.info(`Page ${pageNum}: found ${products.length} product tiles`)
           } catch (e) {
-            console.warn(`[Mueller] Error on page ${pagedUrl}: ${e}`)
+            log.warn(`Error on page ${pagedUrl}: ${e}`)
             onError?.(pagedUrl)
             pagesUsed++
           }
@@ -194,7 +197,7 @@ export const muellerDriver: SourceDriver = {
         visitedUrls.add(canonicalUrl)
 
         try {
-          console.log(`[Mueller] Visiting: ${canonicalUrl}`)
+          log.info(`Visiting: ${canonicalUrl}`)
           await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
           await page.waitForSelector('[class*="product-tile"], [class*="category-navigation"]', { timeout: 15000 }).catch(() => {})
           await sleep(jitteredDelay(delay))
@@ -221,12 +224,12 @@ export const muellerDriver: SourceDriver = {
               },
             ).catch(() => 1)
 
-            console.log(`[Mueller] Leaf page, ${lastPage} page(s) detected`)
+            log.info(`Leaf page, ${lastPage} page(s) detected`)
 
             // Scrape page 1 (already loaded)
             const products = await scrapeProductTiles()
             await emitProducts(products, category, canonicalUrl)
-            console.log(`[Mueller] Page 1: found ${products.length} product tiles`)
+            log.info(`Page 1: found ${products.length} product tiles`)
 
             await saveProgress()
 
@@ -240,7 +243,7 @@ export const muellerDriver: SourceDriver = {
 
               const baseUrl = canonicalUrl.split('?')[0]
               const pagedUrl = `${baseUrl}?page=${pageNum}`
-              console.log(`[Mueller] Navigating to page ${pageNum}: ${pagedUrl}`)
+              log.info(`Navigating to page ${pageNum}: ${pagedUrl}`)
 
               try {
                 await page.goto(pagedUrl, { waitUntil: 'domcontentloaded' })
@@ -250,9 +253,9 @@ export const muellerDriver: SourceDriver = {
 
                 const pageProducts = await scrapeProductTiles()
                 await emitProducts(pageProducts, category, canonicalUrl)
-                console.log(`[Mueller] Page ${pageNum}: found ${pageProducts.length} product tiles`)
+                log.info(`Page ${pageNum}: found ${pageProducts.length} product tiles`)
               } catch (e) {
-                console.warn(`[Mueller] Error on page ${pagedUrl}: ${e}`)
+                log.warn(`Error on page ${pagedUrl}: ${e}`)
                 onError?.(pagedUrl)
                 pagesUsed++
               }
@@ -266,9 +269,9 @@ export const muellerDriver: SourceDriver = {
             )
 
             if (childHrefs.length === 0) {
-              console.log(`[Mueller] No category nav links on ${canonicalUrl}, skipping`)
+              log.info(`No category nav links on ${canonicalUrl}, skipping`)
             } else {
-              console.log(`[Mueller] Non-leaf page with ${childHrefs.length} child categories`)
+              log.info(`Non-leaf page with ${childHrefs.length} child categories`)
               for (const href of childHrefs) {
                 const childUrl = href.startsWith('http')
                   ? href
@@ -280,7 +283,7 @@ export const muellerDriver: SourceDriver = {
 
           await saveProgress()
         } catch (e) {
-          console.warn(`[Mueller] Error visiting ${canonicalUrl}: ${e}`)
+          log.warn(`Error visiting ${canonicalUrl}: ${e}`)
           onError?.(canonicalUrl)
           await saveProgress()
         }
@@ -290,7 +293,7 @@ export const muellerDriver: SourceDriver = {
     }
 
     const done = queue.length === 0 && !currentLeaf
-    console.log(`[Mueller] Tick done: ${pagesUsed} pages used, done=${done}`)
+    log.info(`Tick done: ${pagesUsed} pages used, done=${done}`)
     return { done, pagesUsed }
   },
 
@@ -299,7 +302,7 @@ export const muellerDriver: SourceDriver = {
     options?: { debug?: boolean },
   ): Promise<ScrapedProductData | null> {
     try {
-      console.log(`[Mueller] Scraping product: ${sourceUrl}`)
+      log.info(`Scraping product: ${sourceUrl}`)
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
@@ -310,7 +313,7 @@ export const muellerDriver: SourceDriver = {
         await sleep(randomDelay(1000, 2000))
 
         if (debug) {
-          console.log(`[Mueller] Debug mode: browser kept open for ${sourceUrl}. Press Ctrl+C to continue.`)
+          log.info(`Debug mode: browser kept open for ${sourceUrl}. Press Ctrl+C to continue.`)
           await page.pause()
         }
 
@@ -587,16 +590,16 @@ export const muellerDriver: SourceDriver = {
         })
 
         if (!scraped.name) {
-          console.log(`[Mueller] No product name found on page for ${sourceUrl}`)
+          log.info(`No product name found on page for ${sourceUrl}`)
           return null
         }
 
         // Parse ingredients
         let ingredientNames: string[] = []
         if (scraped.ingredientsRaw) {
-          console.log(`[Mueller] Raw ingredients for ${sourceUrl}:`, scraped.ingredientsRaw)
+          log.debug(`Raw ingredients for ${sourceUrl}: ${scraped.ingredientsRaw}`)
           ingredientNames = await parseIngredients(scraped.ingredientsRaw)
-          console.log(`[Mueller] Parsed ${ingredientNames.length} ingredients`)
+          log.info(`Parsed ${ingredientNames.length} ingredients`)
         }
 
         // Calculate per-unit price if not found in DOM
@@ -645,7 +648,7 @@ export const muellerDriver: SourceDriver = {
         await browser.close()
       }
     } catch (error) {
-      console.error(`[Mueller] Error scraping product (url: ${sourceUrl}):`, error)
+      log.error(`Error scraping product (url: ${sourceUrl}): ${String(error)}`)
       return null
     }
   },

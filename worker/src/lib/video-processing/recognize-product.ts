@@ -1,6 +1,8 @@
 import OpenAI from 'openai'
 import fs from 'fs'
 import type { TokenUsage } from '../classify-product'
+import { createLogger } from '@/lib/logger'
+const log = createLogger('recognizeProduct')
 
 function getOpenAI(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
@@ -69,8 +71,8 @@ export async function classifyScreenshots(
     })
   }
 
-  console.log(`\n[recognizeProduct] ── Phase 1: Classify ${images.length} cluster thumbnails ──`)
-  console.log('[recognizeProduct] Model: gpt-4.1-mini, temperature: 0, detail: low')
+  log.info(`── Phase 1: Classify ${images.length} cluster thumbnails ──`)
+  log.info('Model: gpt-4.1-mini, temperature: 0, detail: low')
 
   try {
     const response = await openai.chat.completions.create({
@@ -87,11 +89,11 @@ export async function classifyScreenshots(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    console.log('[recognizeProduct] Response:', content ?? '(empty)')
-    console.log(`[recognizeProduct] Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.info('Response: ' + (content ?? '(empty)'))
+    log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
 
     if (!content) {
-      console.error('[recognizeProduct] Empty response from classification')
+      log.error('Empty response from classification')
       return { candidates: [], tokensUsed }
     }
 
@@ -100,10 +102,10 @@ export async function classifyScreenshots(
       .filter((r) => r.isProduct)
       .map((r) => r.cluster)
 
-    console.log(`[recognizeProduct] Product candidates: clusters [${candidates.join(', ')}]`)
+    log.info(`Product candidates: clusters [${candidates.join(', ')}]`)
     return { candidates, tokensUsed }
   } catch (error) {
-    console.error('[recognizeProduct] Classification failed:', error)
+    log.error('Classification failed: ' + String(error))
     return { candidates: [], tokensUsed }
   }
 }
@@ -130,8 +132,8 @@ export async function recognizeProduct(
     })
   }
 
-  console.log(`\n[recognizeProduct] ── Phase 2: Recognize product from ${imagePaths.length} screenshots ──`)
-  console.log('[recognizeProduct] Model: gpt-4.1-mini, temperature: 0, detail: auto')
+  log.info(`── Phase 2: Recognize product from ${imagePaths.length} screenshots ──`)
+  log.info('Model: gpt-4.1-mini, temperature: 0, detail: auto')
 
   try {
     const response = await openai.chat.completions.create({
@@ -148,16 +150,16 @@ export async function recognizeProduct(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    console.log('[recognizeProduct] Response:', content ?? '(empty)')
-    console.log(`[recognizeProduct] Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.info('Response: ' + (content ?? '(empty)'))
+    log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
 
     if (!content) {
-      console.error('[recognizeProduct] Empty response from recognition')
+      log.error('Empty response from recognition')
       return null
     }
 
     const parsed = JSON.parse(content) as { brand: string | null; productName: string | null; searchTerms: string[] }
-    console.log(`[recognizeProduct] Brand: ${parsed.brand ?? 'unknown'}, Product: ${parsed.productName ?? 'unknown'}, Terms: [${parsed.searchTerms.join(', ')}]`)
+    log.info(`Brand: ${parsed.brand ?? 'unknown'}, Product: ${parsed.productName ?? 'unknown'}, Terms: [${parsed.searchTerms.join(', ')}]`)
 
     return {
       brand: parsed.brand,
@@ -166,7 +168,7 @@ export async function recognizeProduct(
       tokensUsed,
     }
   } catch (error) {
-    console.error('[recognizeProduct] Recognition failed:', error)
+    log.error('Recognition failed: ' + String(error))
     return null
   }
 }

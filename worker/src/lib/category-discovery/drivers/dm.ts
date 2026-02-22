@@ -1,4 +1,7 @@
 import type { CategoryDiscoveryDriver, DiscoverOptions, DriverProgress } from '../types'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('DM:CategoryDiscovery')
 
 // Navigation tree node shape (matches source discovery driver)
 interface NavNode {
@@ -40,10 +43,10 @@ export const dmDriver: CategoryDiscoveryDriver = {
 
   async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
     const { url, onCategory, onProgress } = options
-    console.log(`[DM CategoryDiscovery] Starting for ${url}`)
+    log.info(`Starting for ${url}`)
 
     const targetPath = new URL(url).pathname.replace(/\/$/, '') || '/'
-    console.log(`[DM CategoryDiscovery] Target path: ${targetPath}`)
+    log.info(`Target path: ${targetPath}`)
 
     // Fetch navigation tree (single API call, no browser needed)
     const navRes = await fetch(
@@ -55,7 +58,7 @@ export const dmDriver: CategoryDiscoveryDriver = {
     const navData = await navRes.json()
     const navRoot: NavNode | undefined = navData.navigation
     const navChildren: NavNode[] = navRoot?.children ?? []
-    console.log(`[DM CategoryDiscovery] Nav tree: ${navChildren.length} top-level children`)
+    log.info(`Nav tree: ${navChildren.length} top-level children`)
 
     // Find the subtree matching the target path (with ancestors)
     let result: { node: NavNode; ancestors: NavNode[] } | null = null
@@ -66,8 +69,8 @@ export const dmDriver: CategoryDiscoveryDriver = {
 
     if (!result) {
       // No subtree found — return a single category for the URL itself
-      console.log(
-        `[DM CategoryDiscovery] No subtree in nav tree for ${targetPath}, returning single category`,
+      log.info(
+        `No subtree in nav tree for ${targetPath}, returning single category`,
       )
       const name = targetPath
         .split('/')
@@ -87,8 +90,8 @@ export const dmDriver: CategoryDiscoveryDriver = {
     }
 
     const { node: subtree, ancestors } = result
-    console.log(
-      `[DM CategoryDiscovery] Found subtree: ${subtree.title} (${subtree.id}), ${subtree.children?.length ?? 0} children, ${ancestors.length} ancestors`,
+    log.info(
+      `Found subtree: ${subtree.title} (${subtree.id}), ${subtree.children?.length ?? 0} children, ${ancestors.length} ancestors`,
     )
 
     // Emit ancestor categories (building path incrementally)
@@ -124,7 +127,7 @@ export const dmDriver: CategoryDiscoveryDriver = {
     await emitAll(subtree, ancestorPath)
 
     await onProgress?.({ visitedUrls: [], queue: [] })
-    console.log(`[DM CategoryDiscovery] Done`)
+    log.info(`Done`)
     return { visitedUrls: [], queue: [] }
   },
 }

@@ -1,5 +1,8 @@
 import type { CategoryDiscoveryDriver, DiscoverOptions, DriverProgress, QueueItem } from '../types'
 import { launchBrowser } from '@/lib/browser'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('Rossmann:CategoryDiscovery')
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -29,7 +32,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
 
   async discoverCategories(options: DiscoverOptions): Promise<DriverProgress> {
     const { url, onCategory, onError, onProgress, progress, maxPages } = options
-    console.log(`[Rossmann CategoryDiscovery] Starting for ${url}`)
+    log.info(`Starting for ${url}`)
 
     const visitedUrls = new Set<string>(progress?.visitedUrls ?? [])
     const queue: QueueItem[] = progress?.queue?.length
@@ -55,7 +58,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
         pagesVisited++
 
         try {
-          console.log(`[Rossmann CategoryDiscovery] Visiting: ${canonicalUrl}`)
+          log.info(`Visiting: ${canonicalUrl}`)
           await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
           await page.waitForSelector('nav[data-testid="category-nav-desktop"]', { timeout: 10000 }).catch(() => {})
           await sleep(randomDelay(500, 1500))
@@ -89,7 +92,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
                 effectiveParentPath = ancestorPath
               }
             } catch (e) {
-              console.log(`[Rossmann CategoryDiscovery] Failed to extract breadcrumb, using empty path: ${e}`)
+              log.info(`Failed to extract breadcrumb, using empty path: ${e}`)
             }
           }
 
@@ -119,7 +122,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
             )
 
             if (children.length > 0) {
-              console.log(`[Rossmann CategoryDiscovery] ${children.length} children under ${categoryName}`)
+              log.info(`${children.length} children under ${categoryName}`)
               for (const child of children) {
                 const childUrl = child.href.startsWith('http')
                   ? child.href
@@ -131,16 +134,16 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
                 })
               }
             } else {
-              console.log(`[Rossmann CategoryDiscovery] No child links on ${canonicalUrl}, treating as leaf`)
+              log.info(`No child links on ${canonicalUrl}, treating as leaf`)
             }
           } else {
-            console.log(`[Rossmann CategoryDiscovery] Leaf: ${fullPath.join(' > ')}`)
+            log.info(`Leaf: ${fullPath.join(' > ')}`)
           }
 
           // Persist progress after each page is fully processed
           await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         } catch (e) {
-          console.warn(`[Rossmann CategoryDiscovery] Error visiting ${canonicalUrl}, skipping: ${e}`)
+          log.warn(`Error visiting ${canonicalUrl}, skipping: ${e}`)
           onError?.(canonicalUrl)
           await onProgress?.({ visitedUrls: [...visitedUrls], queue: [...queue] })
         }
@@ -149,7 +152,7 @@ export const rossmannDriver: CategoryDiscoveryDriver = {
       await browser.close()
     }
 
-    console.log(`[Rossmann CategoryDiscovery] Tick done: ${pagesVisited} pages visited, ${queue.length} remaining in queue`)
+    log.info(`Tick done: ${pagesVisited} pages visited, ${queue.length} remaining in queue`)
     return { visitedUrls: [...visitedUrls], queue }
   },
 }

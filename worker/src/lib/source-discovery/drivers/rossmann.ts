@@ -1,6 +1,9 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('Rossmann')
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -64,7 +67,7 @@ export const rossmannDriver: SourceDriver = {
     const { url, onProduct, onError, onProgress, delay = 2000, maxPages } = options
     const savedProgress = options.progress as RossmannProductDiscoveryProgress | undefined
 
-    console.log(`[Rossmann] Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
+    log.info(`Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
 
     const visitedUrls = new Set<string>(savedProgress?.visitedUrls ?? [])
     const seenProductUrls = new Set<string>() // within-tick dedup only, not persisted
@@ -188,7 +191,7 @@ export const rossmannDriver: SourceDriver = {
 
           const baseUrl = categoryUrl.split('?')[0]
           const nextUrl = `${baseUrl}?pageIndex=${pageIndex}`
-          console.log(`[Rossmann] Resuming leaf page ${pageIndex}: ${nextUrl}`)
+          log.info(`Resuming leaf page ${pageIndex}: ${nextUrl}`)
 
           try {
             await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
@@ -198,13 +201,13 @@ export const rossmannDriver: SourceDriver = {
 
             const products = await scrapeProductCards()
             await emitProducts(products, category, categoryUrl)
-            console.log(`[Rossmann] Leaf page ${pageIndex}: found ${products.length} product cards`)
+            log.info(`Leaf page ${pageIndex}: found ${products.length} product cards`)
 
             const lastIdx = await getLastPageIndex()
             if (pageIndex >= lastIdx) break
             pageIndex++
           } catch (e) {
-            console.warn(`[Rossmann] Error on page ${nextUrl}: ${e}`)
+            log.warn(`Error on page ${nextUrl}: ${e}`)
             onError?.(nextUrl)
             pagesUsed++
             break
@@ -229,7 +232,7 @@ export const rossmannDriver: SourceDriver = {
         visitedUrls.add(canonicalUrl)
 
         try {
-          console.log(`[Rossmann] Visiting: ${canonicalUrl}`)
+          log.info(`Visiting: ${canonicalUrl}`)
           await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
           await page.waitForSelector('[data-testid="product-card"], nav[data-testid="category-nav-desktop"]', { timeout: 15000 }).catch(() => {})
           await sleep(jitteredDelay(delay))
@@ -249,7 +252,7 @@ export const rossmannDriver: SourceDriver = {
             const category = buildCategoryFromUrl(canonicalUrl)
             const products = await scrapeProductCards()
             await emitProducts(products, category, canonicalUrl)
-            console.log(`[Rossmann] Leaf page 0: found ${products.length} product cards`)
+            log.info(`Leaf page 0: found ${products.length} product cards`)
 
             await saveProgress()
 
@@ -269,7 +272,7 @@ export const rossmannDriver: SourceDriver = {
 
               const baseUrl = canonicalUrl.split('?')[0]
               const nextUrl = `${baseUrl}?pageIndex=${pageIndex}`
-              console.log(`[Rossmann] Navigating to next page: ${nextUrl}`)
+              log.info(`Navigating to next page: ${nextUrl}`)
 
               try {
                 await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
@@ -279,9 +282,9 @@ export const rossmannDriver: SourceDriver = {
 
                 const pageProducts = await scrapeProductCards()
                 await emitProducts(pageProducts, category, canonicalUrl)
-                console.log(`[Rossmann] Leaf page ${pageIndex}: found ${pageProducts.length} product cards`)
+                log.info(`Leaf page ${pageIndex}: found ${pageProducts.length} product cards`)
               } catch (e) {
-                console.warn(`[Rossmann] Error on page ${nextUrl}: ${e}`)
+                log.warn(`Error on page ${nextUrl}: ${e}`)
                 onError?.(nextUrl)
                 pagesUsed++
                 break
@@ -293,9 +296,9 @@ export const rossmannDriver: SourceDriver = {
             const childHrefs = navInfo.map((link) => link.href).filter(Boolean)
 
             if (childHrefs.length === 0) {
-              console.log(`[Rossmann] No nav links on ${canonicalUrl}, skipping`)
+              log.info(`No nav links on ${canonicalUrl}, skipping`)
             } else {
-              console.log(`[Rossmann] Parent page with ${childHrefs.length} child categories`)
+              log.info(`Parent page with ${childHrefs.length} child categories`)
               for (const href of childHrefs) {
                 const childUrl = href.startsWith('http')
                   ? href
@@ -307,7 +310,7 @@ export const rossmannDriver: SourceDriver = {
 
           await saveProgress()
         } catch (e) {
-          console.warn(`[Rossmann] Error visiting ${canonicalUrl}: ${e}`)
+          log.warn(`Error visiting ${canonicalUrl}: ${e}`)
           onError?.(canonicalUrl)
           await saveProgress()
         }
@@ -317,7 +320,7 @@ export const rossmannDriver: SourceDriver = {
     }
 
     const done = queue.length === 0 && !currentLeaf
-    console.log(`[Rossmann] Tick done: ${pagesUsed} pages used, done=${done}`)
+    log.info(`Tick done: ${pagesUsed} pages used, done=${done}`)
     return { done, pagesUsed }
   },
 
@@ -326,7 +329,7 @@ export const rossmannDriver: SourceDriver = {
     options?: { debug?: boolean },
   ): Promise<ScrapedProductData | null> {
     try {
-      console.log(`[Rossmann] Scraping product: ${sourceUrl}`)
+      log.info(`Scraping product: ${sourceUrl}`)
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
@@ -344,7 +347,7 @@ export const rossmannDriver: SourceDriver = {
           .catch(() => {})
 
         if (debug) {
-          console.log(`[Rossmann] Debug mode: browser kept open for ${sourceUrl}. Press Ctrl+C to continue.`)
+          log.info(`Debug mode: browser kept open for ${sourceUrl}. Press Ctrl+C to continue.`)
           await page.pause()
         }
 
@@ -498,7 +501,7 @@ export const rossmannDriver: SourceDriver = {
         })
 
         if (!scraped.name) {
-          console.log(`[Rossmann] No product name found on page for ${sourceUrl}`)
+          log.info(`No product name found on page for ${sourceUrl}`)
           return null
         }
 
@@ -507,9 +510,9 @@ export const rossmannDriver: SourceDriver = {
         // Parse ingredients
         let ingredientNames: string[] = []
         if (scraped.ingredientsRaw) {
-          console.log(`[Rossmann] Raw ingredients for ${sourceUrl}:`, scraped.ingredientsRaw)
+          log.debug(`Raw ingredients for ${sourceUrl}: ${scraped.ingredientsRaw}`)
           ingredientNames = await parseIngredients(scraped.ingredientsRaw)
-          console.log(`[Rossmann] Parsed ${ingredientNames.length} ingredients`)
+          log.info(`Parsed ${ingredientNames.length} ingredients`)
         }
 
         // Calculate per-unit price from amount
@@ -560,7 +563,7 @@ export const rossmannDriver: SourceDriver = {
         await browser.close()
       }
     } catch (error) {
-      console.error(`[Rossmann] Error scraping product (url: ${sourceUrl}):`, error)
+      log.error(`Error scraping product (url: ${sourceUrl}): ${String(error)}`)
       return null
     }
   },

@@ -1,4 +1,7 @@
 import type { DiscoveryDriver, ScrapedIngredientData } from '../types'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('CosIng')
 
 const COSING_API_URL = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search'
 const COSING_API_KEY = '285a77fd-1257-4271-8507-f0c6b2961203'
@@ -52,8 +55,8 @@ async function fetchWithRetry<T>(
 
       if (attempt < MAX_RETRIES && isRetryableError(error)) {
         const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt) // Exponential backoff: 2s, 4s, 8s
-        console.log(
-          `[CosIng] ${context}: Network error (${lastError.message}), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
+        log.info(
+          `${context}: Network error (${lastError.message}), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
         )
         await sleep(delay)
       } else {
@@ -148,7 +151,7 @@ async function fetchCosIngPage(searchTerm: string, pageNumber: number): Promise<
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`API error response: ${errorText.substring(0, 500)}`)
+      log.error(`API error response: ${errorText.substring(0, 500)}`)
       throw new Error(`API request failed: ${response.status} ${response.statusText}`)
     }
 
@@ -190,20 +193,20 @@ export const cosIngDriver: DiscoveryDriver = {
   },
 
   async checkTerm(term: string): Promise<{ split: true; subTerms: string[] } | { split: false; totalPages: number }> {
-    console.log(`[CosIng] Checking term "${term}"`)
+    log.info(`Checking term "${term}"`)
 
     const firstPage = await fetchCosIngPage(term, 1)
     const totalResults = firstPage.totalResults
     const totalPages = Math.ceil(totalResults / PAGE_SIZE)
 
-    console.log(`[CosIng] Term "${term}": ${totalResults} results, ${totalPages} pages`)
+    log.info(`Term "${term}": ${totalResults} results, ${totalPages} pages`)
 
     if (totalResults === 0) {
       return { split: false, totalPages: 0 }
     }
 
     if (totalPages > MAX_PAGES) {
-      console.log(`[CosIng] Term "${term}" exceeds ${MAX_PAGES} pages, splitting into sub-terms`)
+      log.info(`Term "${term}" exceeds ${MAX_PAGES} pages, splitting into sub-terms`)
       const subTerms = ALPHABET.map((letter) => term + letter)
       return { split: true, subTerms }
     }
@@ -212,12 +215,12 @@ export const cosIngDriver: DiscoveryDriver = {
   },
 
   async fetchPage(term: string, page: number): Promise<ScrapedIngredientData[]> {
-    console.log(`[CosIng] Fetching term "${term}" page ${page}`)
+    log.info(`Fetching term "${term}" page ${page}`)
 
     const pageData = await fetchCosIngPage(term, page)
 
     if (!pageData.results || pageData.results.length === 0) {
-      console.log(`[CosIng] Term "${term}" page ${page}: empty results`)
+      log.info(`Term "${term}" page ${page}: empty results`)
       return []
     }
 
@@ -227,7 +230,7 @@ export const cosIngDriver: DiscoveryDriver = {
       if (parsed) ingredients.push(parsed)
     }
 
-    console.log(`[CosIng] Term "${term}" page ${page}: ${ingredients.length} ingredients parsed from ${pageData.results.length} results`)
+    log.info(`Term "${term}" page ${page}: ${ingredients.length} ingredients parsed from ${pageData.results.length} results`)
     return ingredients
   },
 }

@@ -1,5 +1,8 @@
 import { execFile } from 'child_process'
 import type { VideoDiscoveryDriver, DiscoveredVideo } from '../types'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('YouTube')
 
 interface YtDlpEntry {
   id?: string
@@ -50,12 +53,12 @@ export const youtubeDriver: VideoDiscoveryDriver = {
   },
 
   async discoverVideos(channelUrl: string): Promise<DiscoveredVideo[]> {
-    console.log(`[youtube] Running yt-dlp for ${channelUrl}`)
+    log.info(`Running yt-dlp for ${channelUrl}`)
     const stdout = await runYtDlp(channelUrl)
 
     // yt-dlp outputs one JSON object per line
     const lines = stdout.trim().split('\n').filter(Boolean)
-    console.log(`[youtube] yt-dlp returned ${lines.length} entries`)
+    log.info(`yt-dlp returned ${lines.length} entries`)
 
     const videos: DiscoveredVideo[] = []
     for (const line of lines) {
@@ -80,7 +83,7 @@ export const youtubeDriver: VideoDiscoveryDriver = {
           channelUrl: entry.channel_url || undefined,
         })
       } catch {
-        console.warn(`[youtube] Failed to parse yt-dlp line: ${line.substring(0, 100)}`)
+        log.warn(`Failed to parse yt-dlp line: ${line.substring(0, 100)}`)
       }
     }
 
