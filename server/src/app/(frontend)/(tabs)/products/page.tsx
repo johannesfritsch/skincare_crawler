@@ -72,13 +72,16 @@ export default async function ProductsPage({ searchParams }: Props) {
 
   return (
     <div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Products</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground">
-            {searchTerm ? `${rows.length} result${rows.length !== 1 ? 's' : ''}` : `${rows.length} of ${totalCount}`}
-          </p>
-        </div>
+      {/* Page header */}
+      <div className="mb-4">
+        <h1 className="text-xl font-semibold tracking-tight">Search</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          {searchTerm
+            ? `${rows.length} result${rows.length !== 1 ? 's' : ''} for "${searchTerm}"`
+            : `${totalCount.toLocaleString('de-DE')} products`}
+        </p>
+      </div>
+      <div className="mb-5">
         <Suspense>
           <ProductSearch />
         </Suspense>
