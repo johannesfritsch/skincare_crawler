@@ -2,9 +2,19 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { desc, eq, sql } from 'drizzle-orm'
 import React from 'react'
+import Link from 'next/link'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 
 export const metadata = {
-  title: 'Products',
+  title: 'Products — AnySkin',
 }
 
 export default async function ProductsPage() {
@@ -34,49 +44,63 @@ export default async function ProductsPage() {
   const totalCount = countResult[0]?.count ?? 0
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1>Products ({totalCount})</h1>
-      <p style={{ color: '#666', marginBottom: '1.5rem' }}>
-        Showing {rows.length} of {totalCount} products (queried via Drizzle)
-      </p>
+    <div>
+      <div className="flex items-baseline justify-between mb-6">
+        <h1 className="text-3xl font-bold tracking-tight">Products</h1>
+        <p className="text-sm text-muted-foreground">
+          Showing {rows.length} of {totalCount}
+        </p>
+      </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ borderBottom: '2px solid #ddd', textAlign: 'left' }}>
-            <th style={{ padding: '0.75rem 0.5rem' }}>Name</th>
-            <th style={{ padding: '0.75rem 0.5rem' }}>GTIN</th>
-            <th style={{ padding: '0.75rem 0.5rem' }}>Brand</th>
-            <th style={{ padding: '0.75rem 0.5rem' }}>Type</th>
-            <th style={{ padding: '0.75rem 0.5rem' }}>Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id} style={{ borderBottom: '1px solid #eee' }}>
-              <td style={{ padding: '0.5rem' }}>
-                <a href={`/products/${row.id}`} style={{ color: '#0070f3', textDecoration: 'none' }}>
-                  {row.name || '—'}
-                </a>
-              </td>
-              <td style={{ padding: '0.5rem', fontFamily: 'monospace', fontSize: '0.9em' }}>
-                {row.gtin || '—'}
-              </td>
-              <td style={{ padding: '0.5rem' }}>{row.brandName || '—'}</td>
-              <td style={{ padding: '0.5rem' }}>{row.productTypeName || '—'}</td>
-              <td style={{ padding: '0.5rem', color: '#666', fontSize: '0.9em' }}>
-                {row.createdAt ? new Date(row.createdAt).toLocaleDateString('de-DE') : '—'}
-              </td>
-            </tr>
-          ))}
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#999' }}>
-                No products found
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>GTIN</TableHead>
+              <TableHead>Brand</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead className="text-right">Created</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell className="font-medium">
+                  <Link href={`/products/${row.id}`} className="hover:underline">
+                    {row.name || <span className="text-muted-foreground">Unnamed</span>}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  {row.gtin ? (
+                    <code className="text-sm bg-muted px-1.5 py-0.5 rounded">{row.gtin}</code>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell>{row.brandName || <span className="text-muted-foreground">—</span>}</TableCell>
+                <TableCell>
+                  {row.productTypeName ? (
+                    <Badge variant="secondary">{row.productTypeName}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-right text-muted-foreground text-sm">
+                  {row.createdAt ? new Date(row.createdAt).toLocaleDateString('de-DE') : '—'}
+                </TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  No products found
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }
