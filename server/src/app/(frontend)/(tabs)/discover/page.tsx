@@ -78,28 +78,34 @@ export default async function DiscoverPage() {
         <p className="text-sm text-muted-foreground mt-0.5">Top-rated cosmetics from German retailers</p>
       </div>
 
-      {/* Recently added — horizontal scroll */}
+      {/* Recently added */}
       {recentProducts.length > 0 && (
         <section>
           <div className="flex items-baseline justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recently Added</h2>
+            <span className="text-xs text-muted-foreground">{recentProducts.length} products</span>
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory scrollbar-none">
-            {recentProducts.map((p) => (
-              <Link
-                key={p.id}
-                href={`/products/${p.gtin}`}
-                className="snap-start shrink-0 w-36 rounded-xl border bg-card p-3 transition-colors active:bg-muted/60"
-              >
-                <div className="h-20 rounded-lg bg-muted/50 flex items-center justify-center mb-2">
-                  <span className="text-2xl text-muted-foreground/40">
-                    {(p.name ?? '?')[0]?.toUpperCase()}
-                  </span>
-                </div>
-                <p className="text-xs font-medium leading-tight line-clamp-2">{p.name}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{p.brandName ?? 'No brand'}</p>
-              </Link>
-            ))}
+          <div className="overflow-x-auto -mx-4 scrollbar-none">
+            <div className="inline-flex gap-3 px-4 pb-1">
+              {recentProducts.map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/products/${p.gtin}`}
+                  className="shrink-0 w-40 rounded-xl border bg-card p-3 transition-colors active:bg-muted/60"
+                >
+                  <div className="aspect-[4/3] rounded-lg bg-muted/50 flex items-center justify-center mb-2.5">
+                    <span className="text-2xl font-semibold text-muted-foreground/30">
+                      {(p.name ?? '?')[0]?.toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium leading-tight line-clamp-2">{p.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.brandName ?? 'No brand'}</p>
+                  {p.productTypeName && (
+                    <p className="text-[11px] text-muted-foreground/70 mt-1.5 truncate">{p.productTypeName}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -113,33 +119,35 @@ export default async function DiscoverPage() {
             </h2>
             <span className="text-xs text-muted-foreground">{products.length} products</span>
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory scrollbar-none">
-            {products.slice(0, 10).map((p) => (
-              <Link
-                key={p.id}
-                href={`/products/${p.gtin}`}
-                className="snap-start shrink-0 w-44 rounded-xl border bg-card p-3 transition-colors active:bg-muted/60"
-              >
-                <div className="h-24 rounded-lg bg-muted/50 flex items-center justify-center mb-2.5">
-                  <span className="text-3xl text-muted-foreground/40">
-                    {(p.name ?? '?')[0]?.toUpperCase()}
-                  </span>
-                </div>
-                <p className="text-sm font-medium leading-tight line-clamp-2">{p.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.brandName ?? 'No brand'}</p>
-                <div className="flex items-center gap-1.5 mt-2">
-                  <div className="flex items-center gap-0.5">
-                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                    <span className="text-xs font-semibold">{p.avgRating}</span>
-                  </div>
-                  {p.totalReviews != null && p.totalReviews > 0 && (
-                    <span className="text-[11px] text-muted-foreground">
-                      ({p.totalReviews.toLocaleString('de-DE')})
+          <div className="overflow-x-auto -mx-4 scrollbar-none">
+            <div className="inline-flex gap-3 px-4 pb-1">
+              {products.slice(0, 10).map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/products/${p.gtin}`}
+                  className="shrink-0 w-40 rounded-xl border bg-card p-3 transition-colors active:bg-muted/60"
+                >
+                  <div className="aspect-[4/3] rounded-lg bg-muted/50 flex items-center justify-center mb-2.5">
+                    <span className="text-2xl font-semibold text-muted-foreground/30">
+                      {(p.name ?? '?')[0]?.toUpperCase()}
                     </span>
-                  )}
-                </div>
-              </Link>
-            ))}
+                  </div>
+                  <p className="text-sm font-medium leading-tight line-clamp-2">{p.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.brandName ?? 'No brand'}</p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="flex items-center gap-0.5">
+                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                      <span className="text-xs font-semibold">{p.avgRating}</span>
+                    </div>
+                    {p.totalReviews != null && p.totalReviews > 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        ({p.totalReviews.toLocaleString('de-DE')})
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         </section>
       ))}
