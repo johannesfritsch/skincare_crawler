@@ -74,37 +74,39 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const formatDate = (d: string | null) =>
     d ? new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null
 
+  const details: [string, string | null][] = [
+    ['Brand', product.brandName],
+    ['Category', product.categoryName],
+    ['Product Type', product.productTypeName],
+    ['Published', formatDate(product.publishedAt)],
+    ['Last Aggregated', formatDate(product.lastAggregatedAt)],
+    ['Created', formatDate(product.createdAt)],
+  ]
+
   return (
     <div>
       <Link href="/products" className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-block">
         &larr; All products
       </Link>
 
-      <h1 className="text-3xl font-bold tracking-tight mb-1">{product.name || 'Unnamed product'}</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">{product.name || 'Unnamed product'}</h1>
       {product.gtin && (
         <p className="text-muted-foreground mb-6">
-          GTIN <code className="bg-muted px-1.5 py-0.5 rounded text-sm">{product.gtin}</code>
+          GTIN <code className="bg-muted px-1.5 py-0.5 rounded text-xs sm:text-sm">{product.gtin}</code>
         </p>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2 mb-8">
+      <div className="grid gap-4 sm:gap-6 md:grid-cols-2 mb-6 sm:mb-8">
         <Card>
-          <CardHeader>
+          <CardHeader className="p-4 sm:p-6">
             <CardTitle className="text-base">Details</CardTitle>
           </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              {[
-                ['Brand', product.brandName],
-                ['Category', product.categoryName],
-                ['Product Type', product.productTypeName],
-                ['Published', formatDate(product.publishedAt)],
-                ['Last Aggregated', formatDate(product.lastAggregatedAt)],
-                ['Created', formatDate(product.createdAt)],
-              ].map(([label, value]) => (
-                <React.Fragment key={label as string}>
-                  <dt className="text-muted-foreground">{label}</dt>
-                  <dd>{(value as string) || <span className="text-muted-foreground">—</span>}</dd>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 sm:gap-x-4 gap-y-2 text-sm">
+              {details.map(([label, value]) => (
+                <React.Fragment key={label}>
+                  <dt className="text-muted-foreground whitespace-nowrap">{label}</dt>
+                  <dd className="truncate">{value || <span className="text-muted-foreground">—</span>}</dd>
                 </React.Fragment>
               ))}
             </dl>
@@ -113,22 +115,22 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
         {product.description && (
           <Card>
-            <CardHeader>
+            <CardHeader className="p-4 sm:p-6">
               <CardTitle className="text-base">Description</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{product.description}</p>
             </CardContent>
           </Card>
         )}
       </div>
 
-      <Separator className="mb-8" />
+      <Separator className="mb-6 sm:mb-8" />
 
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">
+      <section className="mb-6 sm:mb-8">
+        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">
           Ingredients
-          <span className="text-muted-foreground font-normal text-base ml-2">({ingredients.length})</span>
+          <span className="text-muted-foreground font-normal text-sm sm:text-base ml-2">({ingredients.length})</span>
         </h2>
         {ingredients.length > 0 ? (
           <p className="text-sm leading-relaxed">
@@ -145,11 +147,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       </section>
 
       {claims.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">Claims</h2>
-          <div className="flex flex-wrap gap-2">
+        <section className="mb-6 sm:mb-8">
+          <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Claims</h2>
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {claims.map((c, i) => (
-              <Badge key={i} variant="secondary">
+              <Badge key={i} variant="secondary" className="text-xs sm:text-sm">
                 {c.claim}
               </Badge>
             ))}
@@ -158,9 +160,28 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       )}
 
       {attributes.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">Attributes</h2>
-          <div className="rounded-md border">
+        <section className="mb-6 sm:mb-8">
+          <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Attributes</h2>
+
+          {/* Mobile: stacked cards */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {attributes.map((a, i) => (
+              <Card key={i}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <p className="font-medium text-sm">{a.attribute}</p>
+                    <Badge variant="outline" className="text-xs shrink-0">{a.evidenceType}</Badge>
+                  </div>
+                  {a.snippet && (
+                    <p className="text-xs text-muted-foreground mt-1">{a.snippet}</p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="hidden md:block rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>

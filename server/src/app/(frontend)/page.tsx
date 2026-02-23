@@ -1,59 +1,59 @@
-import { headers as getHeaders } from 'next/headers.js'
-import Image from 'next/image'
 import { getPayload } from 'payload'
+import config from '@payload-config'
+import { sql } from 'drizzle-orm'
+import Link from 'next/link'
 import React from 'react'
-import { fileURLToPath } from 'url'
-
-import config from '@/payload.config'
-import './styles.css'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 export default async function HomePage() {
-  const headers = await getHeaders()
-  const payloadConfig = await config
-  const payload = await getPayload({ config: payloadConfig })
-  const { user } = await payload.auth({ headers })
+  const payload = await getPayload({ config: await config })
+  const db = payload.db.drizzle
+  const t = payload.db.tables
 
-  const fileURL = `vscode://file/${fileURLToPath(import.meta.url)}`
+  const [productCount] = await db.select({ count: sql<number>`count(*)` }).from(t.products)
+  const [brandCount] = await db.select({ count: sql<number>`count(*)` }).from(t.brands)
+  const [ingredientCount] = await db.select({ count: sql<number>`count(*)` }).from(t.ingredients)
 
   return (
-    <div className="home">
-      <div className="content">
-        <picture>
-          <source srcSet="https://raw.githubusercontent.com/payloadcms/payload/main/packages/ui/src/assets/payload-favicon.svg" />
-          <Image
-            alt="Payload Logo"
-            height={65}
-            src="https://raw.githubusercontent.com/payloadcms/payload/main/packages/ui/src/assets/payload-favicon.svg"
-            width={65}
-          />
-        </picture>
-        {!user && <h1>Welcome to your new project.</h1>}
-        {user && <h1>Welcome back, {'email' in user ? user.email : user.name}</h1>}
-        <div className="links">
-          <a
-            className="admin"
-            href={payloadConfig.routes.admin}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Go to admin panel
-          </a>
-          <a
-            className="docs"
-            href="https://payloadcms.com/docs"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Documentation
-          </a>
-        </div>
+    <div>
+      <div className="mb-8 sm:mb-10">
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight mb-2">Product Database</h1>
+        <p className="text-sm sm:text-lg text-muted-foreground">
+          Beauty &amp; skincare product data aggregated from German retailers.
+        </p>
       </div>
-      <div className="footer">
-        <p>Update this page by editing</p>
-        <a className="codeLink" href={fileURL}>
-          <code>app/(frontend)/page.tsx</code>
-        </a>
+
+      <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
+        <Card>
+          <CardHeader className="p-4 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Products</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-2xl sm:text-3xl font-bold">{productCount?.count ?? 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="p-4 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Brands</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-2xl sm:text-3xl font-bold">{brandCount?.count ?? 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="p-4 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Ingredients</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-2xl sm:text-3xl font-bold">{ingredientCount?.count ?? 0}</div>
+          </CardContent>
+        </Card>
       </div>
+
+      <Button asChild className="w-full sm:w-auto">
+        <Link href="/products">Browse Products</Link>
+      </Button>
     </div>
   )
 }

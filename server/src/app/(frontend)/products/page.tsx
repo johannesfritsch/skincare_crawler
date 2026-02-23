@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 
 export const metadata = {
   title: 'Products — AnySkin',
@@ -46,13 +47,50 @@ export default async function ProductsPage() {
   return (
     <div>
       <div className="flex items-baseline justify-between mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">Products</h1>
-        <p className="text-sm text-muted-foreground">
-          Showing {rows.length} of {totalCount}
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Products</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground">
+          {rows.length} of {totalCount}
         </p>
       </div>
 
-      <div className="rounded-md border">
+      {/* Mobile: card list */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {rows.map((row) => (
+          <Link key={row.id} href={`/products/${row.id}`}>
+            <Card className="transition-colors hover:bg-muted/50">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">
+                      {row.name || <span className="text-muted-foreground">Unnamed</span>}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {row.brandName || 'No brand'}
+                      {row.gtin && (
+                        <span> &middot; <code className="text-xs bg-muted px-1 py-0.5 rounded">{row.gtin}</code></span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    {row.productTypeName && (
+                      <Badge variant="secondary" className="text-xs">{row.productTypeName}</Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {row.createdAt ? new Date(row.createdAt).toLocaleDateString('de-DE') : ''}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+        {rows.length === 0 && (
+          <p className="py-12 text-center text-muted-foreground">No products found</p>
+        )}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden md:block rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
