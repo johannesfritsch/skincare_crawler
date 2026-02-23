@@ -176,6 +176,29 @@ interface VideoProcessingSegment {
   eventLog: string
 }
 
+interface TranscriptData {
+  transcript: string
+  transcriptWords: Array<{ word: string; start: number; end: number; confidence: number }>
+}
+
+interface SnippetTranscript {
+  preTranscript: string
+  transcript: string
+  postTranscript: string
+}
+
+interface VideoQuoteData {
+  productId: number
+  quotes: Array<{
+    text: string
+    summary: string[]
+    sentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
+    sentimentScore: number
+  }>
+  overallSentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
+  overallSentimentScore: number
+}
+
 interface SubmitVideoProcessingBody {
   type: 'video-processing'
   jobId: number
@@ -184,8 +207,14 @@ interface SubmitVideoProcessingBody {
     success: boolean
     error?: string
     tokensUsed?: number
+    tokensRecognition?: number
+    tokensTranscriptCorrection?: number
+    tokensSentiment?: number
     videoMediaId?: number
     segments?: VideoProcessingSegment[]
+    transcriptData?: TranscriptData
+    snippetTranscripts?: SnippetTranscript[]
+    snippetVideoQuotes?: VideoQuoteData[][]
   }>
 }
 
@@ -610,13 +639,30 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
   let processed = (job.processed as number) ?? 0
   let errors = (job.errors as number) ?? 0
   let tokensUsed = (job.tokensUsed as number) ?? 0
+  let tokensRecognition = (job.tokensRecognition as number) ?? 0
+  let tokensTranscriptCorrection = (job.tokensTranscriptCorrection as number) ?? 0
+  let tokensSentiment = (job.tokensSentiment as number) ?? 0
 
   for (const result of results) {
+    // Always accumulate tokens, regardless of success/failure
+    tokensUsed += result.tokensUsed ?? 0
+    tokensRecognition += result.tokensRecognition ?? 0
+    tokensTranscriptCorrection += result.tokensTranscriptCorrection ?? 0
+    tokensSentiment += result.tokensSentiment ?? 0
+
     if (result.success && result.segments) {
       try {
-        await persistVideoProcessingResult(payload, jobId, result.videoId, result.videoMediaId, result.segments)
+        await persistVideoProcessingResult(
+          payload,
+          jobId,
+          result.videoId,
+          result.videoMediaId,
+          result.segments,
+          result.transcriptData,
+          result.snippetTranscripts,
+          result.snippetVideoQuotes,
+        )
         processed++
-        tokensUsed += result.tokensUsed ?? 0
         log.info(`submitVideoProcessing #${jobId}: video #${result.videoId} ok (${result.segments.length} segments, ${result.tokensUsed ?? 0} tokens)`)
       } catch (e) {
         errors++
@@ -645,6 +691,9 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
         processed,
         errors,
         tokensUsed,
+        tokensRecognition,
+        tokensTranscriptCorrection,
+        tokensSentiment,
         completedAt: new Date().toISOString(),
       },
     })
@@ -653,7 +702,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
     await payload.update({
       collection: 'video-processings',
       id: jobId,
-      data: { processed, errors, tokensUsed },
+      data: { processed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment },
     })
   }
 

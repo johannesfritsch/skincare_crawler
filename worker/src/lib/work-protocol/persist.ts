@@ -622,30 +622,66 @@ interface VideoProcessingSegment {
   eventLog: string
 }
 
+interface TranscriptData {
+  transcript: string
+  transcriptWords: Array<{ word: string; start: number; end: number; confidence: number }>
+}
+
+interface SnippetTranscript {
+  preTranscript: string
+  transcript: string
+  postTranscript: string
+}
+
+interface VideoQuoteData {
+  productId: number
+  quotes: Array<{
+    text: string
+    summary: string[]
+    sentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
+    sentimentScore: number
+  }>
+  overallSentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
+  overallSentimentScore: number
+}
+
 export async function persistVideoProcessingResult(
   payload: PayloadRestClient,
   jobId: number,
   videoId: number,
   videoMediaId: number | undefined,
   segments: VideoProcessingSegment[],
+  transcriptData?: TranscriptData,
+  snippetTranscripts?: SnippetTranscript[],
+  snippetVideoQuotes?: VideoQuoteData[][],
 ): Promise<void> {
   const jlog = log.forJob('video-processings' as JobCollection, jobId)
   log.info(`persistVideoProcessingResult: video #${videoId}, ${segments.length} segments`)
-  // Delete existing snippets for this video
+
+  // Delete existing snippets and their video-quotes for this video
   const existingSnippets = await payload.find({
     collection: 'video-snippets',
     where: { video: { equals: videoId } },
     limit: 1000,
   })
   if (existingSnippets.docs.length > 0) {
+    // Delete video-quotes for existing snippets
+    for (const snippet of existingSnippets.docs) {
+      const snippetId = (snippet as { id: number }).id
+      await payload.delete({
+        collection: 'video-quotes',
+        where: { videoSnippet: { equals: snippetId } },
+      })
+    }
     await payload.delete({
       collection: 'video-snippets',
       where: { video: { equals: videoId } },
     })
-    log.info(`Deleted ${existingSnippets.docs.length} existing snippets for video #${videoId}`)
+    log.info(`Deleted ${existingSnippets.docs.length} existing snippets (and their video-quotes) for video #${videoId}`)
   }
 
-  for (const segment of segments) {
+  for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+    const segment = segments[segIdx]
     let referencedProductIds: number[] = []
 
     if (segment.matchingType === 'barcode' && segment.barcode) {
@@ -690,7 +726,10 @@ export async function persistVideoProcessingResult(
 
     const firstScreenshot = screenshotEntries[0]?.image ?? null
 
-    await payload.create({
+    // Get transcript data for this snippet
+    const snippetTx = snippetTranscripts?.[segIdx]
+
+    const snippetDoc = await payload.create({
       collection: 'video-snippets',
       data: {
         video: videoId,
@@ -700,18 +739,54 @@ export async function persistVideoProcessingResult(
         timestampEnd: segment.timestampEnd,
         screenshots: screenshotEntries,
         ...(referencedProductIds.length > 0 ? { referencedProducts: referencedProductIds } : {}),
+        ...(snippetTx ? {
+          preTranscript: snippetTx.preTranscript,
+          transcript: snippetTx.transcript,
+          postTranscript: snippetTx.postTranscript,
+        } : {}),
       },
     })
+
+    const snippetId = (snippetDoc as { id: number }).id
+
+    // Create video-quote records for this snippet (only when sentiment data exists)
+    const videoQuotes = snippetVideoQuotes?.[segIdx]
+    if (videoQuotes && videoQuotes.length > 0) {
+      for (const vq of videoQuotes) {
+        await payload.create({
+          collection: 'video-quotes',
+          data: {
+            videoSnippet: snippetId,
+            product: vq.productId,
+            quotes: vq.quotes.map((q) => ({
+              text: q.text,
+              summary: q.summary ?? [],
+              sentiment: q.sentiment,
+              sentimentScore: q.sentimentScore,
+            })),
+            overallSentiment: vq.overallSentiment,
+            overallSentimentScore: vq.overallSentimentScore,
+          },
+        })
+        log.info(`Created video-quote for snippet #${snippetId} → product #${vq.productId} (${vq.quotes.length} quotes, ${vq.overallSentiment})`)
+      }
+    }
 
     // Emit event with segment log
     jlog.info(segment.eventLog, { event: true })
   }
 
-  // Mark video as processed
+  // Save transcript on the video and mark as processed
   await payload.update({
     collection: 'videos',
     id: videoId,
-    data: { processingStatus: 'processed' },
+    data: {
+      processingStatus: 'processed',
+      ...(transcriptData ? {
+        transcript: transcriptData.transcript,
+        transcriptWords: transcriptData.transcriptWords,
+      } : {}),
+    },
   })
 
   log.info(`Video #${videoId}: ${segments.length} segments persisted, marked as processed`)

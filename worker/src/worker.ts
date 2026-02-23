@@ -38,12 +38,22 @@ import {
   formatTime,
 } from '@/lib/video-processing/process-video'
 import { classifyScreenshots, recognizeProduct } from '@/lib/video-processing/recognize-product'
+import { extractAudio, transcribeAudio, type TranscriptWord } from '@/lib/video-processing/transcribe-audio'
+import { correctTranscript } from '@/lib/video-processing/correct-transcript'
+import { splitTranscriptForSnippet } from '@/lib/video-processing/split-transcript'
+import { analyzeSentiment, type ProductQuoteResult } from '@/lib/video-processing/analyze-sentiment'
 import { aggregateFromSources } from '@/lib/aggregate-product'
 import { classifyProduct } from '@/lib/classify-product'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
 import type { DiscoveredCategory } from '@/lib/category-discovery/types'
 
 // ─── Config ───
+
+console.log('[Worker] Environment check at startup:')
+console.log(`  DEEPGRAM_API_KEY: ${process.env.DEEPGRAM_API_KEY ? `SET (${process.env.DEEPGRAM_API_KEY.length} chars)` : 'NOT SET'}`)
+console.log(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? `SET (${process.env.OPENAI_API_KEY.length} chars)` : 'NOT SET'}`)
+console.log(`  WORKER_SERVER_URL: ${process.env.WORKER_SERVER_URL ?? '(default)'}`)
+console.log(`  LOG_LEVEL: ${process.env.LOG_LEVEL ?? '(default)'}`)
 
 const SERVER_URL = process.env.WORKER_SERVER_URL ?? 'http://localhost:3000'
 const API_KEY = process.env.WORKER_API_KEY ?? ''
@@ -454,8 +464,11 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
   }>
   const sceneThreshold = (work.sceneThreshold as number) ?? 0.4
   const clusterThreshold = (work.clusterThreshold as number) ?? 25
+  const transcriptionEnabled = (work.transcriptionEnabled as boolean) ?? true
+  const transcriptionLanguage = (work.transcriptionLanguage as string) ?? 'de'
+  const transcriptionModel = (work.transcriptionModel as string) ?? 'nova-3'
 
-  log.info(`Video processing job #${jobId}: ${videos.length} videos`)
+  log.info(`Video processing job #${jobId}: ${videos.length} videos, transcription=${transcriptionEnabled ? `${transcriptionLanguage}/${transcriptionModel}` : 'disabled'}`)
 
   const results: Array<Record<string, unknown>> = []
 
@@ -741,15 +754,223 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         await heartbeat(jobId, 'video-processing')
       }
 
-      log.info(`Done processing video #${video.videoId}: ${segmentResults.length} segments, ${totalTokensUsed} tokens`)
-      jlog.info(`Video "${video.title}": ${segmentResults.length} segments, ${totalTokensUsed} tokens`, { event: true, labels: ['video-processing'] })
+      // ── Transcription & Sentiment Pipeline ──
+      let transcriptData: { transcript: string; transcriptWords: TranscriptWord[] } | undefined
+      let snippetTranscripts: Array<{ preTranscript: string; transcript: string; postTranscript: string }> | undefined
+      let snippetVideoQuotes: ProductQuoteResult[][] | undefined
+      let tokensTranscriptCorrection = 0
+      let tokensSentiment = 0
+
+      if (transcriptionEnabled) {
+        try {
+          // Step T1: Extract audio
+          const audioPath = path.join(tmpDir, 'audio.wav')
+          await extractAudio(videoPath, audioPath)
+          await heartbeat(jobId, 'video-processing')
+
+          // Collect all referenced product names + brands from segment results for keywords
+          const productKeywords: string[] = []
+          const referencedProductIds = new Set<number>()
+          for (const seg of segmentResults) {
+            const recogResults = seg.recognitionResults as Array<{ brand: string | null; productName: string | null }> | undefined
+            if (recogResults) {
+              for (const r of recogResults) {
+                if (r.brand) productKeywords.push(r.brand)
+                if (r.productName) productKeywords.push(r.productName)
+              }
+            }
+            // Also check barcode matches — we'll resolve product names later for sentiment
+          }
+          const uniqueKeywords = [...new Set(productKeywords)]
+
+          // Step T2: Transcribe with Deepgram
+          log.debug(`DEEPGRAM_API_KEY present: ${!!process.env.DEEPGRAM_API_KEY} (${process.env.DEEPGRAM_API_KEY?.length ?? 0} chars)`)
+          const rawTranscription = await transcribeAudio(audioPath, {
+            language: transcriptionLanguage,
+            model: transcriptionModel,
+            keywords: uniqueKeywords,
+          })
+          jlog.info(`Video "${video.title}": transcribed ${rawTranscription.words.length} words`, { event: true, labels: ['video-processing', 'transcription'] })
+          await heartbeat(jobId, 'video-processing')
+
+          // Step T3: Fetch all brand names from DB for LLM correction context
+          const brandsResult = await client.find({ collection: 'brands', limit: 500 })
+          const allBrandNames = brandsResult.docs.map((b) => (b as { name: string }).name).filter(Boolean)
+
+          // Collect product names from recognition results for correction context
+          const recognizedProductNames = uniqueKeywords
+
+          // Step T4: Correct transcript via LLM
+          const correction = await correctTranscript(
+            rawTranscription.transcript,
+            rawTranscription.words,
+            allBrandNames,
+            recognizedProductNames,
+          )
+          tokensTranscriptCorrection = correction.tokensUsed.totalTokens
+          jlog.info(`Video "${video.title}": transcript corrected (${correction.corrections.length} fixes, ${tokensTranscriptCorrection} tokens)`, { event: true, labels: ['video-processing', 'transcription'] })
+          await heartbeat(jobId, 'video-processing')
+
+          // Use corrected transcript text but keep original word timestamps
+          // (word-level corrections are tracked but timestamps come from Deepgram)
+          transcriptData = {
+            transcript: correction.correctedTranscript,
+            transcriptWords: rawTranscription.words,
+          }
+
+          // Step T5: Split transcript for each snippet
+          snippetTranscripts = segmentResults.map((seg) => {
+            return splitTranscriptForSnippet(
+              rawTranscription.words,
+              seg.timestampStart as number,
+              seg.timestampEnd as number,
+              5, // preSeconds
+              3, // postSeconds
+            )
+          })
+
+          // Step T6: Sentiment analysis per snippet
+          // First, resolve all product IDs to names for sentiment context
+          // Gather all unique product IDs from segment recognition results
+          for (const seg of segmentResults) {
+            if (seg.matchingType === 'barcode' && seg.barcode) {
+              const products = await client.find({
+                collection: 'products',
+                where: { gtin: { equals: seg.barcode as string } },
+                limit: 1,
+              })
+              if (products.docs.length > 0) {
+                referencedProductIds.add((products.docs[0] as { id: number }).id)
+              }
+            } else if (seg.recognitionResults) {
+              // Visual product IDs will be resolved in persist, but for sentiment
+              // we need to find them now
+              for (const recog of seg.recognitionResults as Array<{ brand: string | null; productName: string | null; searchTerms: string[] }>) {
+                if (recog.brand || recog.productName) {
+                  const searchTerms = recog.searchTerms ?? []
+                  // Quick search to find matching product
+                  for (const term of [recog.productName, ...searchTerms].filter(Boolean)) {
+                    const found = await client.find({
+                      collection: 'products',
+                      where: { name: { contains: term as string } },
+                      limit: 1,
+                    })
+                    if (found.docs.length > 0) {
+                      referencedProductIds.add((found.docs[0] as { id: number }).id)
+                      break
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Build product info map for sentiment analysis
+          const productInfoMap = new Map<number, { brandName: string; productName: string }>()
+          for (const productId of referencedProductIds) {
+            try {
+              const product = await client.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
+              const brandRel = product.brand as Record<string, unknown> | number | null
+              let brandName = ''
+              if (brandRel && typeof brandRel === 'object' && 'name' in brandRel) {
+                brandName = brandRel.name as string
+              }
+              productInfoMap.set(productId, {
+                brandName,
+                productName: (product.name as string) ?? '',
+              })
+            } catch {
+              // Product not found, skip
+            }
+          }
+
+          // Run sentiment analysis for each snippet that has transcript and products
+          snippetVideoQuotes = []
+          for (let segIdx = 0; segIdx < segmentResults.length; segIdx++) {
+            const tx = snippetTranscripts[segIdx]
+
+            // Determine which products are referenced in this specific segment
+            const seg = segmentResults[segIdx]
+            const segProductIds: number[] = []
+
+            if (seg.matchingType === 'barcode' && seg.barcode) {
+              const products = await client.find({
+                collection: 'products',
+                where: { gtin: { equals: seg.barcode as string } },
+                limit: 1,
+              })
+              if (products.docs.length > 0) {
+                segProductIds.push((products.docs[0] as { id: number }).id)
+              }
+            } else if (seg.recognitionResults) {
+              for (const recog of seg.recognitionResults as Array<{ brand: string | null; productName: string | null; searchTerms: string[] }>) {
+                if (recog.brand || recog.productName) {
+                  for (const term of [recog.productName, ...(recog.searchTerms ?? [])].filter(Boolean)) {
+                    const found = await client.find({
+                      collection: 'products',
+                      where: { name: { contains: term as string } },
+                      limit: 1,
+                    })
+                    if (found.docs.length > 0) {
+                      segProductIds.push((found.docs[0] as { id: number }).id)
+                      break
+                    }
+                  }
+                }
+              }
+            }
+
+            const uniqueSegProductIds = [...new Set(segProductIds)]
+            const segProducts = uniqueSegProductIds
+              .filter((id) => productInfoMap.has(id))
+              .map((id) => ({
+                productId: id,
+                brandName: productInfoMap.get(id)!.brandName,
+                productName: productInfoMap.get(id)!.productName,
+              }))
+
+            if (tx.transcript.trim() && segProducts.length > 0) {
+              const sentimentResult = await analyzeSentiment(
+                tx.preTranscript,
+                tx.transcript,
+                tx.postTranscript,
+                segProducts,
+                transcriptData?.transcript,
+              )
+              tokensSentiment += sentimentResult.tokensUsed.totalTokens
+              snippetVideoQuotes.push(sentimentResult.products)
+            } else {
+              snippetVideoQuotes.push([])
+            }
+
+            await heartbeat(jobId, 'video-processing')
+          }
+
+          jlog.info(`Video "${video.title}": sentiment analysis complete (${tokensSentiment} tokens)`, { event: true, labels: ['video-processing', 'sentiment'] })
+        } catch (transcriptionError) {
+          const msg = transcriptionError instanceof Error ? transcriptionError.message : String(transcriptionError)
+          log.error(`Transcription pipeline failed for video #${video.videoId}: ${msg}`)
+          jlog.error(`Video "${video.title}": transcription failed — ${msg}`, { event: true, labels: ['video-processing', 'transcription'] })
+          // Continue without transcription data — segments are still saved
+        }
+      }
+
+      const totalTokensAll = totalTokensUsed + tokensTranscriptCorrection + tokensSentiment
+      log.info(`Done processing video #${video.videoId}: ${segmentResults.length} segments, ${totalTokensAll} tokens (recognition=${totalTokensUsed}, correction=${tokensTranscriptCorrection}, sentiment=${tokensSentiment})`)
+      jlog.info(`Video "${video.title}": ${segmentResults.length} segments, ${totalTokensAll} tokens`, { event: true, labels: ['video-processing'] })
 
       results.push({
         videoId: video.videoId,
         success: true,
-        tokensUsed: totalTokensUsed,
+        tokensUsed: totalTokensAll,
+        tokensRecognition: totalTokensUsed,
+        tokensTranscriptCorrection,
+        tokensSentiment,
         videoMediaId,
         segments: segmentResults,
+        transcriptData,
+        snippetTranscripts,
+        snippetVideoQuotes,
       })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
@@ -760,6 +981,9 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         success: false,
         error: msg,
         tokensUsed: totalTokensUsed,
+        tokensRecognition: totalTokensUsed,
+        tokensTranscriptCorrection: 0,
+        tokensSentiment: 0,
       })
     } finally {
       log.info(`Cleaning up: ${tmpDir}`)

@@ -377,6 +377,48 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
   jlog.info(`buildVideoProcessingWork: job #${jobId}`)
   const job = await payload.findByID({ collection: 'video-processings', id: jobId }) as Record<string, unknown>
 
+  // Initialize job if pending: count total videos and set in_progress
+  if (job.status === 'pending') {
+    jlog.info(`buildVideoProcessingWork #${jobId}: pending → in_progress`)
+
+    let total = 0
+    if (job.type === 'single_video' && job.video) {
+      total = 1
+    } else if (job.type === 'selected_urls') {
+      const urls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+      total = urls.length
+    } else {
+      // all_unprocessed — count all unprocessed videos
+      const count = await payload.count({
+        collection: 'videos',
+        where: {
+          and: [
+            { processingStatus: { equals: 'unprocessed' } },
+            { externalUrl: { exists: true } },
+          ],
+        },
+      })
+      total = count.totalDocs
+    }
+
+    await payload.update({
+      collection: 'video-processings',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        total,
+        processed: 0,
+        errors: 0,
+        tokensUsed: 0,
+        tokensRecognition: 0,
+        tokensTranscriptCorrection: 0,
+        tokensSentiment: 0,
+      },
+    })
+    jlog.info(`Started video processing: ${total} videos to process`, { event: 'start' })
+  }
+
   // Find videos to process
   const videos: Array<{ videoId: number; externalUrl: string; title: string }> = []
   const itemsPerTick = (job.itemsPerTick as number) ?? 1
@@ -431,6 +473,9 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
     videos,
     sceneThreshold: (job.sceneThreshold as number) ?? 0.4,
     clusterThreshold: (job.clusterThreshold as number) ?? 25,
+    transcriptionEnabled: (job.transcriptionEnabled as boolean) ?? true,
+    transcriptionLanguage: (job.transcriptionLanguage as string) ?? 'de',
+    transcriptionModel: (job.transcriptionModel as string) ?? 'nova-3',
   }
 }
 
