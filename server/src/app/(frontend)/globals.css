@@ -121,4 +121,19 @@
   body {
     @apply bg-background text-foreground;
     }
+
+  /* Re-enable text selection on content areas */
+  main {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Hide scrollbar on horizontal-scroll containers */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }

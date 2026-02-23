@@ -2,7 +2,6 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -86,11 +85,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div>
-      <Link href="/products" className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-block">
-        &larr; All products
-      </Link>
-
-      <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">{product.name || 'Unnamed product'}</h1>
+      <h1 className="text-xl sm:text-2xl font-bold tracking-tight mb-1">{product.name || 'Unnamed product'}</h1>
       {product.gtin && (
         <p className="text-muted-foreground mb-6">
           GTIN <code className="bg-muted px-1.5 py-0.5 rounded text-xs sm:text-sm">{product.gtin}</code>

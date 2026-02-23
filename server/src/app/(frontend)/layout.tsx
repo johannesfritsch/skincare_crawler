@@ -12,9 +12,13 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+        {/* Match header bg so iOS/Android status bar blends seamlessly */}
+        <meta name="theme-color" content="#fbfafd" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body className="min-h-screen bg-background font-sans antialiased">
+      <body className="min-h-[100dvh] bg-background font-sans antialiased overscroll-none select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none]">
         {children}
       </body>
     </html>
