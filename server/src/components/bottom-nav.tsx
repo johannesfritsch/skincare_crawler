@@ -88,8 +88,8 @@ export function BottomNav() {
             )
           })}
         </div>
-        {/* Safe area spacer — fills the home indicator / gesture bar area */}
-        <div className="h-[env(safe-area-inset-bottom,0px)] bg-background" />
+        {/* Safe area spacer — extra padding in standalone/PWA mode */}
+        <div className="h-[env(safe-area-inset-bottom,0px)] standalone-bottom-spacer bg-background" />
       </nav>
 
       <BarcodeScanner
