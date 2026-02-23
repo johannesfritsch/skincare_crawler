@@ -16,10 +16,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const productId = Number(id)
-  if (Number.isNaN(productId)) notFound()
+export default async function ProductDetailPage({ params }: { params: Promise<{ gtin: string }> }) {
+  const { gtin } = await params
+  if (!gtin) notFound()
 
   const payload = await getPayload({ config: await config })
   const db = payload.db.drizzle
@@ -43,10 +42,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.categories, eq(t.products.category, t.categories.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
-    .where(eq(t.products.id, productId))
+    .where(eq(t.products.gtin, gtin))
     .limit(1)
 
   if (!product) notFound()
+
+  const productId = product.id as number
 
   const ingredients = await db
     .select({ name: t.products_ingredients.name })

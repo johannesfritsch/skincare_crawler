@@ -56,7 +56,7 @@ export default async function ProductsPage() {
       {/* Mobile: card list */}
       <div className="flex flex-col gap-3 md:hidden">
         {rows.map((row) => (
-          <Link key={row.id} href={`/products/${row.id}`}>
+          <Link key={row.id} href={`/products/${row.gtin}`}>
             <Card className="transition-colors hover:bg-muted/50">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -105,7 +105,7 @@ export default async function ProductsPage() {
             {rows.map((row) => (
               <TableRow key={row.id}>
                 <TableCell className="font-medium">
-                  <Link href={`/products/${row.id}`} className="hover:underline">
+                  <Link href={`/products/${row.gtin}`} className="hover:underline">
                     {row.name || <span className="text-muted-foreground">Unnamed</span>}
                   </Link>
                 </TableCell>
