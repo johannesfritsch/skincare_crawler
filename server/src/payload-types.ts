@@ -89,7 +89,7 @@ export interface Config {
     channels: Channel;
     videos: Video;
     'video-snippets': VideoSnippet;
-    'video-quotes': VideoQuote;
+    'video-mentions': VideoMention;
     'video-discoveries': VideoDiscovery;
     'video-processings': VideoProcessing;
     workers: Worker;
@@ -104,7 +104,7 @@ export interface Config {
     };
     products: {
       videoSnippets: 'video-snippets';
-      videoQuotes: 'video-quotes';
+      videoMentions: 'video-mentions';
       aggregations: 'product-aggregations';
     };
     'source-products': {
@@ -135,7 +135,7 @@ export interface Config {
       videoSnippets: 'video-snippets';
     };
     'video-snippets': {
-      videoQuotes: 'video-quotes';
+      videoMentions: 'video-mentions';
     };
     'video-discoveries': {
       events: 'events';
@@ -166,7 +166,7 @@ export interface Config {
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
     videos: VideosSelect<false> | VideosSelect<true>;
     'video-snippets': VideoSnippetsSelect<false> | VideoSnippetsSelect<true>;
-    'video-quotes': VideoQuotesSelect<false> | VideoQuotesSelect<true>;
+    'video-mentions': VideoMentionsSelect<false> | VideoMentionsSelect<true>;
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
     'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
     workers: WorkersSelect<false> | WorkersSelect<true>;
@@ -888,8 +888,8 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  videoQuotes?: {
-    docs?: (number | VideoQuote)[];
+  videoMentions?: {
+    docs?: (number | VideoMention)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -916,8 +916,6 @@ export interface Product {
 export interface VideoSnippet {
   id: number;
   matchingType?: ('barcode' | 'visual') | null;
-  video: number | Video;
-  image?: (number | null) | Media;
   /**
    * Start time in seconds
    */
@@ -926,6 +924,26 @@ export interface VideoSnippet {
    * End time in seconds
    */
   timestampEnd?: number | null;
+  video: number | Video;
+  image?: (number | null) | Media;
+  referencedProducts?: (number | Product)[] | null;
+  videoMentions?: {
+    docs?: (number | VideoMention)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * 5 seconds of spoken context before this snippet
+   */
+  preTranscript?: string | null;
+  /**
+   * Spoken words within this snippet time range
+   */
+  transcript?: string | null;
+  /**
+   * 3 seconds of spoken context after this snippet
+   */
+  postTranscript?: string | null;
   screenshots?:
     | {
         image: number | Media;
@@ -960,24 +978,6 @@ export interface VideoSnippet {
         id?: string | null;
       }[]
     | null;
-  referencedProducts?: (number | Product)[] | null;
-  /**
-   * 5 seconds of spoken context before this snippet
-   */
-  preTranscript?: string | null;
-  /**
-   * Spoken words within this snippet time range
-   */
-  transcript?: string | null;
-  /**
-   * 3 seconds of spoken context after this snippet
-   */
-  postTranscript?: string | null;
-  videoQuotes?: {
-    docs?: (number | VideoQuote)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1059,9 +1059,9 @@ export interface Creator {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-quotes".
+ * via the `definition` "video-mentions".
  */
-export interface VideoQuote {
+export interface VideoMention {
   id: number;
   videoSnippet: number | VideoSnippet;
   product: number | Product;
@@ -1404,8 +1404,8 @@ export interface PayloadLockedDocument {
         value: number | VideoSnippet;
       } | null)
     | ({
-        relationTo: 'video-quotes';
-        value: number | VideoQuote;
+        relationTo: 'video-mentions';
+        value: number | VideoMention;
       } | null)
     | ({
         relationTo: 'video-discoveries';
@@ -1658,7 +1658,7 @@ export interface ProductsSelect<T extends boolean = true> {
         id?: T;
       };
   videoSnippets?: T;
-  videoQuotes?: T;
+  videoMentions?: T;
   aggregations?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
@@ -1915,10 +1915,15 @@ export interface VideosSelect<T extends boolean = true> {
  */
 export interface VideoSnippetsSelect<T extends boolean = true> {
   matchingType?: T;
-  video?: T;
-  image?: T;
   timestampStart?: T;
   timestampEnd?: T;
+  video?: T;
+  image?: T;
+  referencedProducts?: T;
+  videoMentions?: T;
+  preTranscript?: T;
+  transcript?: T;
+  postTranscript?: T;
   screenshots?:
     | T
     | {
@@ -1932,19 +1937,14 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
         recognitionThumbnail?: T;
         id?: T;
       };
-  referencedProducts?: T;
-  preTranscript?: T;
-  transcript?: T;
-  postTranscript?: T;
-  videoQuotes?: T;
   updatedAt?: T;
   createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-quotes_select".
+ * via the `definition` "video-mentions_select".
  */
-export interface VideoQuotesSelect<T extends boolean = true> {
+export interface VideoMentionsSelect<T extends boolean = true> {
   videoSnippet?: T;
   product?: T;
   quotes?:

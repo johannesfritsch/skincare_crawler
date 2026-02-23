@@ -136,7 +136,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistDiscoveredCategory()` | Creates/updates `source-categories` with parent chain; uses `pathToId` map for hierarchy |
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails |
-| `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-quotes` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
+| `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
 | `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence) |
 
 ## 7 Job Types — Detailed
@@ -217,7 +217,7 @@ Dispatches to per-type submit handlers. Each handler:
       → For each segment: preTranscript, transcript, postTranscript
    e. analyzeSentiment(pre, transcript, post, products)
       → LLM pass (gpt-4.1-mini) per segment: extract product quotes + sentiment scores
-6. Submit results with segments, screenshots, referencedProducts, transcripts, video-quotes
+6. Submit results with segments, screenshots, referencedProducts, transcripts, video-mentions
 ```
 
 **Processing types**: `all_unprocessed`, `single_video`, `selected_urls`
@@ -227,7 +227,7 @@ Dispatches to per-type submit handlers. Each handler:
 - `transcriptionLanguage` (default: 'de', options: de/en/fr/es/it)
 - `transcriptionModel` (default: 'nova-3', options: nova-3/nova-2/enhanced/base)
 
-**Persistence**: Creates `video-snippets` per segment (with referencedProducts + transcript fields). Creates `video-quotes` linking snippets to products with quotes and sentiment (only when transcript data exists). Saves full transcript + word timestamps on the video. For visual matches, calls `matchProduct()` to find/create product records.
+**Persistence**: Creates `video-snippets` per segment (with referencedProducts + transcript fields). Creates `video-mentions` linking snippets to products with quotes and sentiment (only when transcript data exists). Saves full transcript + word timestamps on the video. For visual matches, calls `matchProduct()` to find/create product records.
 
 ### 7. product-aggregation
 

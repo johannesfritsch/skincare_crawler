@@ -88,7 +88,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 |------------|---------|
 | `videos` | YouTube/social videos (channel ref, title, duration, processingStatus, transcript, transcriptWords) |
 | `video-snippets` | Video segments (timestamps, matchingType: barcode/visual, screenshots, referencedProducts, preTranscript/transcript/postTranscript) |
-| `video-quotes` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
+| `video-mentions` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
 | `creators` | Social media creators |
 | `channels` | Creator channels (platform: youtube/instagram/tiktok) |
 
@@ -126,7 +126,7 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
 6. Product aggregation merges source-products by GTIN → classifyProduct (LLM) → unified products
-7. Video processing: download → scene detect → barcode/visual match → audio transcription (Deepgram) → LLM correction → transcript split → sentiment analysis (LLM) → video-quotes
+7. Video processing: download → scene detect → barcode/visual match → audio transcription (Deepgram) → LLM correction → transcript split → sentiment analysis (LLM) → video-mentions
 ```
 
 ## Keeping AGENTS.md Up to Date

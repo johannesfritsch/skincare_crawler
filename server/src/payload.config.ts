@@ -23,7 +23,7 @@ import { Creators } from './collections/Creators'
 import { Channels } from './collections/Channels'
 import { Videos } from './collections/Videos'
 import { VideoSnippets } from './collections/VideoSnippets'
-import { VideoQuotes } from './collections/VideoQuotes'
+import { VideoMentions } from './collections/VideoMentions'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
 import { VideoProcessings } from './collections/VideoProcessings'
 import { CategoryDiscoveries } from './collections/CategoryDiscoveries'
@@ -41,7 +41,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, ProductTypes, SourceCategories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, CategoryDiscoveries, Events, Creators, Channels, Videos, VideoSnippets, VideoQuotes, VideoDiscoveries, VideoProcessings, Workers],
+  collections: [Users, Media, Brands, Categories, ProductTypes, SourceCategories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, CategoryDiscoveries, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

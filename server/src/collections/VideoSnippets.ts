@@ -12,6 +12,7 @@ export const VideoSnippets: CollectionConfig = {
     group: 'Social Media',
   },
   fields: [
+    // --- Sidebar ---
     {
       name: 'matchingType',
       type: 'select',
@@ -23,32 +24,11 @@ export const VideoSnippets: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     {
-      name: 'embeddedPlayer',
-      type: 'ui',
-      admin: {
-        components: {
-          Field: '/components/EmbeddedSnippetPlayer',
-        },
-      },
-    },
-    {
-      name: 'video',
-      type: 'relationship',
-      relationTo: 'videos',
-      label: 'Video',
-      required: true,
-    },
-    {
-      name: 'image',
-      type: 'upload',
-      relationTo: 'media',
-      label: 'Image',
-    },
-    {
       name: 'timestampStart',
       type: 'number',
       label: 'Timestamp Start',
       admin: {
+        position: 'sidebar',
         description: 'Start time in seconds',
       },
     },
@@ -57,127 +37,177 @@ export const VideoSnippets: CollectionConfig = {
       type: 'number',
       label: 'Timestamp End',
       admin: {
+        position: 'sidebar',
         description: 'End time in seconds',
       },
     },
+    // --- Tabs ---
     {
-      name: 'screenshots',
-      type: 'array',
-      label: 'Screenshots',
-      fields: [
+      type: 'tabs',
+      tabs: [
         {
-          name: 'image',
-          type: 'upload',
-          relationTo: 'media',
-          label: 'Image',
-          required: true,
+          label: 'General',
+          fields: [
+            {
+              name: 'embeddedPlayer',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '/components/EmbeddedSnippetPlayer',
+                },
+              },
+            },
+            {
+              name: 'video',
+              type: 'relationship',
+              relationTo: 'videos',
+              label: 'Video',
+              required: true,
+            },
+            {
+              name: 'image',
+              type: 'upload',
+              relationTo: 'media',
+              label: 'Image',
+            },
+          ],
         },
         {
-          name: 'thumbnail',
-          type: 'upload',
-          relationTo: 'media',
-          label: 'Thumbnail',
-          admin: {
-            description: '64x64 grayscale thumbnail used for image hashing',
-            condition: (data) => data?.matchingType !== 'barcode',
-          },
+          label: 'Mentioned Products',
+          fields: [
+            {
+              name: 'referencedProducts',
+              type: 'relationship',
+              relationTo: 'products',
+              hasMany: true,
+              label: 'Referenced Products',
+            },
+            {
+              name: 'videoMentions',
+              type: 'join',
+              collection: 'video-mentions',
+              on: 'videoSnippet',
+              admin: {
+                defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
+              },
+            },
+          ],
         },
         {
-          name: 'hash',
-          type: 'text',
-          label: 'Image Hash',
-          admin: {
-            description: 'Perceptual hash of the thumbnail',
-            condition: (data) => data?.matchingType !== 'barcode',
-          },
+          label: 'Transcription',
+          fields: [
+            {
+              name: 'preTranscript',
+              type: 'textarea',
+              label: 'Pre-Transcript',
+              admin: {
+                description: '5 seconds of spoken context before this snippet',
+              },
+            },
+            {
+              name: 'transcript',
+              type: 'textarea',
+              label: 'Transcript',
+              admin: {
+                description: 'Spoken words within this snippet time range',
+              },
+            },
+            {
+              name: 'postTranscript',
+              type: 'textarea',
+              label: 'Post-Transcript',
+              admin: {
+                description: '3 seconds of spoken context after this snippet',
+              },
+            },
+          ],
         },
         {
-          name: 'distance',
-          type: 'number',
-          label: 'Distance',
-          admin: {
-            description: 'Hamming distance to assigned cluster representative hash',
-            condition: (data) => data?.matchingType !== 'barcode',
-          },
-        },
-        {
-          name: 'screenshotGroup',
-          type: 'number',
-          label: 'Screenshot Group',
-          admin: {
-            description: 'Cluster ID — screenshots with similar visual content share a cluster',
-            condition: (data) => data?.matchingType !== 'barcode',
-          },
-        },
-        {
-          name: 'barcode',
-          type: 'text',
-          label: 'Barcode',
-          admin: {
-            description: 'EAN-13/EAN-8 barcode detected in this screenshot',
-          },
-        },
-        {
-          name: 'recognitionCandidate',
-          type: 'checkbox',
-          label: 'Recognition Candidate',
-          admin: {
-            description:
-              'Whether this screenshot was selected as a cluster representative for product recognition',
-            condition: (data) => data?.matchingType === 'visual',
-          },
-        },
-        {
-          name: 'recognitionThumbnail',
-          type: 'upload',
-          relationTo: 'media',
-          label: 'Recognition Thumbnail',
-          admin: {
-            description: '128x128 color thumbnail used for product classification',
-            condition: (data) => data?.matchingType === 'visual',
-          },
+          label: 'Screenshots',
+          fields: [
+            {
+              name: 'screenshots',
+              type: 'array',
+              label: 'Screenshots',
+              fields: [
+                {
+                  name: 'image',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Image',
+                  required: true,
+                },
+                {
+                  name: 'thumbnail',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Thumbnail',
+                  admin: {
+                    description: '64x64 grayscale thumbnail used for image hashing',
+                    condition: (data) => data?.matchingType !== 'barcode',
+                  },
+                },
+                {
+                  name: 'hash',
+                  type: 'text',
+                  label: 'Image Hash',
+                  admin: {
+                    description: 'Perceptual hash of the thumbnail',
+                    condition: (data) => data?.matchingType !== 'barcode',
+                  },
+                },
+                {
+                  name: 'distance',
+                  type: 'number',
+                  label: 'Distance',
+                  admin: {
+                    description: 'Hamming distance to assigned cluster representative hash',
+                    condition: (data) => data?.matchingType !== 'barcode',
+                  },
+                },
+                {
+                  name: 'screenshotGroup',
+                  type: 'number',
+                  label: 'Screenshot Group',
+                  admin: {
+                    description:
+                      'Cluster ID — screenshots with similar visual content share a cluster',
+                    condition: (data) => data?.matchingType !== 'barcode',
+                  },
+                },
+                {
+                  name: 'barcode',
+                  type: 'text',
+                  label: 'Barcode',
+                  admin: {
+                    description: 'EAN-13/EAN-8 barcode detected in this screenshot',
+                  },
+                },
+                {
+                  name: 'recognitionCandidate',
+                  type: 'checkbox',
+                  label: 'Recognition Candidate',
+                  admin: {
+                    description:
+                      'Whether this screenshot was selected as a cluster representative for product recognition',
+                    condition: (data) => data?.matchingType === 'visual',
+                  },
+                },
+                {
+                  name: 'recognitionThumbnail',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Recognition Thumbnail',
+                  admin: {
+                    description: '128x128 color thumbnail used for product classification',
+                    condition: (data) => data?.matchingType === 'visual',
+                  },
+                },
+              ],
+            },
+          ],
         },
       ],
-    },
-    {
-      name: 'referencedProducts',
-      type: 'relationship',
-      relationTo: 'products',
-      hasMany: true,
-      label: 'Referenced Products',
-    },
-    {
-      name: 'preTranscript',
-      type: 'textarea',
-      label: 'Pre-Transcript',
-      admin: {
-        description: '5 seconds of spoken context before this snippet',
-      },
-    },
-    {
-      name: 'transcript',
-      type: 'textarea',
-      label: 'Transcript',
-      admin: {
-        description: 'Spoken words within this snippet time range',
-      },
-    },
-    {
-      name: 'postTranscript',
-      type: 'textarea',
-      label: 'Post-Transcript',
-      admin: {
-        description: '3 seconds of spoken context after this snippet',
-      },
-    },
-    {
-      name: 'videoQuotes',
-      type: 'join',
-      collection: 'video-quotes',
-      on: 'videoSnippet',
-      admin: {
-        defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
-      },
     },
   ],
 }

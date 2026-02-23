@@ -285,12 +285,12 @@ export const Products: CollectionConfig = {
           ],
         },
         {
-          label: 'Video Quotes',
+          label: 'Video Mentions',
           fields: [
             {
-              name: 'videoQuotes',
+              name: 'videoMentions',
               type: 'join',
-              collection: 'video-quotes',
+              collection: 'video-mentions',
               on: 'product',
               admin: {
                 defaultColumns: ['videoSnippet', 'overallSentiment', 'overallSentimentScore'],

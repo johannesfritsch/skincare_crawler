@@ -658,18 +658,18 @@ export async function persistVideoProcessingResult(
   const jlog = log.forJob('video-processings' as JobCollection, jobId)
   log.info(`persistVideoProcessingResult: video #${videoId}, ${segments.length} segments`)
 
-  // Delete existing snippets and their video-quotes for this video
+  // Delete existing snippets and their video-mentions for this video
   const existingSnippets = await payload.find({
     collection: 'video-snippets',
     where: { video: { equals: videoId } },
     limit: 1000,
   })
   if (existingSnippets.docs.length > 0) {
-    // Delete video-quotes for existing snippets
+    // Delete video-mentions for existing snippets
     for (const snippet of existingSnippets.docs) {
       const snippetId = (snippet as { id: number }).id
       await payload.delete({
-        collection: 'video-quotes',
+        collection: 'video-mentions',
         where: { videoSnippet: { equals: snippetId } },
       })
     }
@@ -677,7 +677,7 @@ export async function persistVideoProcessingResult(
       collection: 'video-snippets',
       where: { video: { equals: videoId } },
     })
-    log.info(`Deleted ${existingSnippets.docs.length} existing snippets (and their video-quotes) for video #${videoId}`)
+    log.info(`Deleted ${existingSnippets.docs.length} existing snippets (and their video-mentions) for video #${videoId}`)
   }
 
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -749,12 +749,12 @@ export async function persistVideoProcessingResult(
 
     const snippetId = (snippetDoc as { id: number }).id
 
-    // Create video-quote records for this snippet (only when sentiment data exists)
-    const videoQuotes = snippetVideoQuotes?.[segIdx]
-    if (videoQuotes && videoQuotes.length > 0) {
-      for (const vq of videoQuotes) {
+    // Create video-mention records for this snippet (only when sentiment data exists)
+    const videoMentions = snippetVideoQuotes?.[segIdx]
+    if (videoMentions && videoMentions.length > 0) {
+      for (const vq of videoMentions) {
         await payload.create({
-          collection: 'video-quotes',
+          collection: 'video-mentions',
           data: {
             videoSnippet: snippetId,
             product: vq.productId,
@@ -768,7 +768,7 @@ export async function persistVideoProcessingResult(
             overallSentimentScore: vq.overallSentimentScore,
           },
         })
-        log.info(`Created video-quote for snippet #${snippetId} → product #${vq.productId} (${vq.quotes.length} quotes, ${vq.overallSentiment})`)
+        log.info(`Created video-mention for snippet #${snippetId} → product #${vq.productId} (${vq.quotes.length} quotes, ${vq.overallSentiment})`)
       }
     }
 

@@ -1,14 +1,14 @@
 import type { CollectionConfig } from 'payload'
 
-export const VideoQuotes: CollectionConfig = {
-  slug: 'video-quotes',
+export const VideoMentions: CollectionConfig = {
+  slug: 'video-mentions',
   labels: {
-    singular: 'Video Quote',
-    plural: 'Video Quotes',
+    singular: 'Video Mention',
+    plural: 'Video Mentions',
   },
   admin: {
     useAsTitle: 'id',
-    defaultColumns: ['videoSnippet', 'product', 'overallSentiment', 'overallSentimentScore'],
+    defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
     group: 'Social Media',
   },
   fields: [
@@ -19,6 +19,7 @@ export const VideoQuotes: CollectionConfig = {
       label: 'Video Snippet',
       required: true,
       index: true,
+      admin: { position: 'sidebar' },
     },
     {
       name: 'product',
@@ -27,6 +28,7 @@ export const VideoQuotes: CollectionConfig = {
       label: 'Product',
       required: true,
       index: true,
+      admin: { position: 'sidebar' },
     },
     {
       name: 'quotes',
