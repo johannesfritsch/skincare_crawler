@@ -146,5 +146,38 @@ export const VideoSnippets: CollectionConfig = {
       hasMany: true,
       label: 'Referenced Products',
     },
+    {
+      name: 'preTranscript',
+      type: 'textarea',
+      label: 'Pre-Transcript',
+      admin: {
+        description: '5 seconds of spoken context before this snippet',
+      },
+    },
+    {
+      name: 'transcript',
+      type: 'textarea',
+      label: 'Transcript',
+      admin: {
+        description: 'Spoken words within this snippet time range',
+      },
+    },
+    {
+      name: 'postTranscript',
+      type: 'textarea',
+      label: 'Post-Transcript',
+      admin: {
+        description: '3 seconds of spoken context after this snippet',
+      },
+    },
+    {
+      name: 'videoQuotes',
+      type: 'join',
+      collection: 'video-quotes',
+      on: 'videoSnippet',
+      admin: {
+        defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
+      },
+    },
   ],
 }

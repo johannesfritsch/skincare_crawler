@@ -89,6 +89,7 @@ export interface Config {
     channels: Channel;
     videos: Video;
     'video-snippets': VideoSnippet;
+    'video-quotes': VideoQuote;
     'video-discoveries': VideoDiscovery;
     'video-processings': VideoProcessing;
     workers: Worker;
@@ -103,6 +104,7 @@ export interface Config {
     };
     products: {
       videoSnippets: 'video-snippets';
+      videoQuotes: 'video-quotes';
       aggregations: 'product-aggregations';
     };
     'source-products': {
@@ -131,6 +133,9 @@ export interface Config {
     };
     videos: {
       videoSnippets: 'video-snippets';
+    };
+    'video-snippets': {
+      videoQuotes: 'video-quotes';
     };
     'video-discoveries': {
       events: 'events';
@@ -161,6 +166,7 @@ export interface Config {
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
     videos: VideosSelect<false> | VideosSelect<true>;
     'video-snippets': VideoSnippetsSelect<false> | VideoSnippetsSelect<true>;
+    'video-quotes': VideoQuotesSelect<false> | VideoQuotesSelect<true>;
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
     'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
     workers: WorkersSelect<false> | WorkersSelect<true>;
@@ -882,6 +888,11 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  videoQuotes?: {
+    docs?: (number | VideoQuote)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   aggregations?: {
     docs?: (number | ProductAggregation)[];
     hasNextPage?: boolean;
@@ -950,6 +961,23 @@ export interface VideoSnippet {
       }[]
     | null;
   referencedProducts?: (number | Product)[] | null;
+  /**
+   * 5 seconds of spoken context before this snippet
+   */
+  preTranscript?: string | null;
+  /**
+   * Spoken words within this snippet time range
+   */
+  transcript?: string | null;
+  /**
+   * 3 seconds of spoken context after this snippet
+   */
+  postTranscript?: string | null;
+  videoQuotes?: {
+    docs?: (number | VideoQuote)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -971,6 +999,22 @@ export interface Video {
   viewCount?: number | null;
   likeCount?: number | null;
   externalUrl?: string | null;
+  /**
+   * Full corrected transcript of the video audio
+   */
+  transcript?: string | null;
+  /**
+   * Word-level timestamps from speech recognition: [{ word, start, end, confidence }]
+   */
+  transcriptWords?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   videoSnippets?: {
     docs?: (number | VideoSnippet)[];
     hasNextPage?: boolean;
@@ -1010,6 +1054,48 @@ export interface Creator {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-quotes".
+ */
+export interface VideoQuote {
+  id: number;
+  videoSnippet: number | VideoSnippet;
+  product: number | Product;
+  /**
+   * Spoken quotes about this product extracted from the video snippet
+   */
+  quotes?:
+    | {
+        text: string;
+        /**
+         * Short key takeaways from the quote, true to original wording
+         */
+        summary?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
+        /**
+         * Score from -1 (very negative) to 1 (very positive)
+         */
+        sentimentScore?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
+  /**
+   * Aggregate score from -1 (very negative) to 1 (very positive)
+   */
+  overallSentimentScore?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1081,6 +1167,18 @@ export interface VideoProcessing {
    */
   clusterThreshold?: number | null;
   /**
+   * Enable speech-to-text transcription via Deepgram and sentiment analysis.
+   */
+  transcriptionEnabled?: boolean | null;
+  /**
+   * Language for speech recognition.
+   */
+  transcriptionLanguage?: ('de' | 'en' | 'fr' | 'es' | 'it') | null;
+  /**
+   * Deepgram model to use for speech recognition.
+   */
+  transcriptionModel?: ('nova-3' | 'nova-2' | 'enhanced' | 'base') | null;
+  /**
    * Total videos to process
    */
   total?: number | null;
@@ -1093,9 +1191,21 @@ export interface VideoProcessing {
    */
   errors?: number | null;
   /**
-   * Total LLM tokens consumed during visual recognition
+   * Total LLM tokens consumed across all steps
    */
   tokensUsed?: number | null;
+  /**
+   * Tokens used for visual product recognition
+   */
+  tokensRecognition?: number | null;
+  /**
+   * Tokens used for LLM transcript correction
+   */
+  tokensTranscriptCorrection?: number | null;
+  /**
+   * Tokens used for sentiment & quote extraction
+   */
+  tokensSentiment?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1292,6 +1402,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'video-snippets';
         value: number | VideoSnippet;
+      } | null)
+    | ({
+        relationTo: 'video-quotes';
+        value: number | VideoQuote;
       } | null)
     | ({
         relationTo: 'video-discoveries';
@@ -1544,6 +1658,7 @@ export interface ProductsSelect<T extends boolean = true> {
         id?: T;
       };
   videoSnippets?: T;
+  videoQuotes?: T;
   aggregations?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
@@ -1788,6 +1903,8 @@ export interface VideosSelect<T extends boolean = true> {
   viewCount?: T;
   likeCount?: T;
   externalUrl?: T;
+  transcript?: T;
+  transcriptWords?: T;
   videoSnippets?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1816,6 +1933,31 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
         id?: T;
       };
   referencedProducts?: T;
+  preTranscript?: T;
+  transcript?: T;
+  postTranscript?: T;
+  videoQuotes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-quotes_select".
+ */
+export interface VideoQuotesSelect<T extends boolean = true> {
+  videoSnippet?: T;
+  product?: T;
+  quotes?:
+    | T
+    | {
+        text?: T;
+        summary?: T;
+        sentiment?: T;
+        sentimentScore?: T;
+        id?: T;
+      };
+  overallSentiment?: T;
+  overallSentimentScore?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1850,10 +1992,16 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   urls?: T;
   sceneThreshold?: T;
   clusterThreshold?: T;
+  transcriptionEnabled?: T;
+  transcriptionLanguage?: T;
+  transcriptionModel?: T;
   total?: T;
   processed?: T;
   errors?: T;
   tokensUsed?: T;
+  tokensRecognition?: T;
+  tokensTranscriptCorrection?: T;
+  tokensSentiment?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;

@@ -130,20 +130,68 @@ export const VideoProcessings: CollectionConfig = {
           ],
         },
         {
-          label: 'Progress',
+          label: 'Transcription',
           fields: [
             {
-              name: 'total',
-              type: 'number',
-              label: 'Total',
+              name: 'transcriptionEnabled',
+              type: 'checkbox',
+              label: 'Transcription Enabled',
+              defaultValue: true,
               admin: {
-                readOnly: true,
-                description: 'Total videos to process',
+                description: 'Enable speech-to-text transcription via Deepgram and sentiment analysis.',
               },
             },
             {
+              name: 'transcriptionLanguage',
+              type: 'select',
+              label: 'Transcription Language',
+              defaultValue: 'de',
+              options: [
+                { label: 'German', value: 'de' },
+                { label: 'English', value: 'en' },
+                { label: 'French', value: 'fr' },
+                { label: 'Spanish', value: 'es' },
+                { label: 'Italian', value: 'it' },
+              ],
+              admin: {
+                description: 'Language for speech recognition.',
+                condition: (data) => data?.transcriptionEnabled === true,
+              },
+            },
+            {
+              name: 'transcriptionModel',
+              type: 'select',
+              label: 'Transcription Model',
+              defaultValue: 'nova-3',
+              options: [
+                { label: 'Nova 3 (Latest)', value: 'nova-3' },
+                { label: 'Nova 2', value: 'nova-2' },
+                { label: 'Enhanced', value: 'enhanced' },
+                { label: 'Base', value: 'base' },
+              ],
+              admin: {
+                description: 'Deepgram model to use for speech recognition.',
+                condition: (data) => data?.transcriptionEnabled === true,
+              },
+            },
+          ],
+        },
+        {
+          label: 'Progress',
+          fields: [
+            {
               type: 'row',
               fields: [
+                {
+                  name: 'total',
+                  type: 'number',
+                  label: 'Total',
+                  admin: {
+                    readOnly: true,
+                    description: 'Total videos to process',
+                    width: '34%',
+                  },
+                },
                 {
                   name: 'processed',
                   type: 'number',
@@ -152,7 +200,7 @@ export const VideoProcessings: CollectionConfig = {
                   admin: {
                     readOnly: true,
                     description: 'Videos successfully processed',
-                    width: '50%',
+                    width: '33%',
                   },
                 },
                 {
@@ -163,20 +211,64 @@ export const VideoProcessings: CollectionConfig = {
                   admin: {
                     readOnly: true,
                     description: 'Videos that failed to process',
+                    width: '33%',
+                  },
+                },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'tokensUsed',
+                  type: 'number',
+                  label: 'Total Tokens',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'Total LLM tokens consumed across all steps',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'tokensRecognition',
+                  type: 'number',
+                  label: 'Recognition',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'Tokens used for visual product recognition',
                     width: '50%',
                   },
                 },
               ],
             },
             {
-              name: 'tokensUsed',
-              type: 'number',
-              label: 'Tokens Used',
-              defaultValue: 0,
-              admin: {
-                readOnly: true,
-                description: 'Total LLM tokens consumed during visual recognition',
-              },
+              type: 'row',
+              fields: [
+                {
+                  name: 'tokensTranscriptCorrection',
+                  type: 'number',
+                  label: 'Correction',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'Tokens used for LLM transcript correction',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'tokensSentiment',
+                  type: 'number',
+                  label: 'Sentiment',
+                  defaultValue: 0,
+                  admin: {
+                    readOnly: true,
+                    description: 'Tokens used for sentiment & quote extraction',
+                    width: '50%',
+                  },
+                },
+              ],
             },
           ],
         },

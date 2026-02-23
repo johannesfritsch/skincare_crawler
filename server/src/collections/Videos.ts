@@ -88,13 +88,29 @@ export const Videos: CollectionConfig = {
       label: 'External URL',
     },
     {
+      name: 'transcript',
+      type: 'textarea',
+      label: 'Transcript',
+      admin: {
+        description: 'Full corrected transcript of the video audio',
+      },
+    },
+    {
+      name: 'transcriptWords',
+      type: 'json',
+      label: 'Transcript Words',
+      admin: {
+        description: 'Word-level timestamps from speech recognition: [{ word, start, end, confidence }]',
+      },
+    },
+    {
       name: 'videoSnippets',
       type: 'join',
       collection: 'video-snippets',
       on: 'video',
       defaultSort: 'timestampStart',
       admin: {
-        defaultColumns: ['timestampStart', 'image', 'referencedProducts', 'matchingType'],
+        defaultColumns: ['timestampStart', 'matchingType', 'referencedProducts'],
       },
     },
   ],
