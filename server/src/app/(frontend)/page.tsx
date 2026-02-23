@@ -1,59 +1,59 @@
-import { getPayload } from 'payload'
-import config from '@payload-config'
-import { sql } from 'drizzle-orm'
-import Link from 'next/link'
-import React from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+import { Search, Camera } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { AnySkinLogo } from '@/components/anyskin-logo'
 
-export default async function HomePage() {
-  const payload = await getPayload({ config: await config })
-  const db = payload.db.drizzle
-  const t = payload.db.tables
+export default function HomePage() {
+  const router = useRouter()
+  const [query, setQuery] = useState('')
 
-  const [productCount] = await db.select({ count: sql<number>`count(*)` }).from(t.products)
-  const [brandCount] = await db.select({ count: sql<number>`count(*)` }).from(t.brands)
-  const [ingredientCount] = await db.select({ count: sql<number>`count(*)` }).from(t.ingredients)
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = query.trim()
+    if (!trimmed) return
+
+    // If it looks like a GTIN (all digits, 8 or 13 chars), go directly to product
+    if (/^\d{8}$|^\d{13}$/.test(trimmed)) {
+      router.push(`/products/${trimmed}`)
+    } else {
+      router.push(`/products?q=${encodeURIComponent(trimmed)}`)
+    }
+  }
 
   return (
-    <div>
-      <div className="mb-8 sm:mb-10">
-        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight mb-2">Product Database</h1>
-        <p className="text-sm sm:text-lg text-muted-foreground">
-          Beauty &amp; skincare product data aggregated from German retailers.
+    <div className="flex flex-col items-center justify-center min-h-screen px-4">
+      <div className="w-full max-w-lg">
+        <AnySkinLogo className="h-8 sm:h-10 w-auto mx-auto mb-8" />
+
+        <p className="text-sm text-muted-foreground text-center mb-6">
+          Search by name, brand, or scan a barcode
         </p>
-      </div>
 
-      <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
-        <Card>
-          <CardHeader className="p-4 pb-1 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Products</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-2xl sm:text-3xl font-bold">{productCount?.count ?? 0}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-4 pb-1 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Brands</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-2xl sm:text-3xl font-bold">{brandCount?.count ?? 0}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-4 pb-1 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">Ingredients</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-2xl sm:text-3xl font-bold">{ingredientCount?.count ?? 0}</div>
-          </CardContent>
-        </Card>
+        <form onSubmit={handleSubmit} className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Product name, brand, or GTIN..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9 pr-12 h-12 text-base"
+            autoFocus
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10 text-muted-foreground hover:text-foreground"
+            aria-label="Scan barcode"
+          >
+            <Camera className="h-5 w-5" />
+          </Button>
+        </form>
       </div>
-
-      <Button asChild className="w-full sm:w-auto">
-        <Link href="/products">Browse Products</Link>
-      </Button>
     </div>
   )
 }
