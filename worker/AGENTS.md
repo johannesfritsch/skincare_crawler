@@ -48,7 +48,11 @@ worker/src/
     ├── video-processing/
     │   ├── process-video.ts          # downloadVideo, detectSceneChanges, extractScreenshots,
     │   │                             # scanBarcode, createThumbnailAndHash, hammingDistance
-    │   └── recognize-product.ts      # classifyScreenshots (LLM), recognizeProduct (LLM)
+    │   ├── recognize-product.ts      # classifyScreenshots (LLM), recognizeProduct (LLM)
+    │   ├── transcribe-audio.ts       # extractAudio (ffmpeg), transcribeAudio (Deepgram API)
+    │   ├── correct-transcript.ts     # correctTranscript (LLM) — fix STT errors with skincare context
+    │   ├── split-transcript.ts       # splitTranscriptForSnippet — pre/main/post by timestamps
+    │   └── analyze-sentiment.ts      # analyzeSentiment (LLM) — extract quotes & sentiment per product
     │
     ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
     ├── match-category.ts             # matchCategory(client, breadcrumb) — LLM-powered
@@ -78,6 +82,7 @@ WORKER_API_KEY          API key from workers collection (required)
 WORKER_POLL_INTERVAL    Seconds between polls when idle (default: 10)
 LOG_LEVEL               debug|info|warn|error (default: info)
 OPENAI_API_KEY          For LLM tasks: matching, classification, video recognition
+DEEPGRAM_API_KEY        For Deepgram speech-to-text transcription
 ```
 
 ## REST Client (`PayloadRestClient`)
@@ -131,7 +136,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistDiscoveredCategory()` | Creates/updates `source-categories` with parent chain; uses `pathToId` map for hierarchy |
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails |
-| `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); marks video as processed |
+| `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-quotes` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
 | `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence) |
 
 ## 7 Job Types — Detailed
@@ -183,7 +188,7 @@ Dispatches to per-type submit handlers. Each handler:
 
 ### 6. video-processing
 
-**Handler**: `handleVideoProcessing()` (~500 lines, most complex handler)
+**Handler**: `handleVideoProcessing()` (~700 lines, most complex handler)
 **Flow per video**:
 
 ```
@@ -201,12 +206,28 @@ Dispatches to per-type submit handlers. Each handler:
         f. classifyScreenshots(clusters) → LLM: "is this a product?"
         g. recognizeProduct(candidates) → LLM: brand, product name, search terms
         h. createRecognitionThumbnail(path) → 128x128 for matched clusters
-5. Submit results with segments, screenshots, recognition data
+5. Transcription pipeline (if enabled):
+   a. extractAudio(videoPath) → WAV file (ffmpeg, mono 16kHz)
+   b. transcribeAudio(audioPath, { language, model, keywords })
+      → Deepgram API with product/brand names as boosted keywords
+      → Returns transcript text + word-level timestamps
+   c. correctTranscript(rawTranscript, words, allBrandNames, productNames)
+      → LLM pass (gpt-4.1-mini) to fix STT errors with skincare domain context
+   d. splitTranscriptForSnippet(words, start, end, pre=5s, post=3s)
+      → For each segment: preTranscript, transcript, postTranscript
+   e. analyzeSentiment(pre, transcript, post, products)
+      → LLM pass (gpt-4.1-mini) per segment: extract product quotes + sentiment scores
+6. Submit results with segments, screenshots, referencedProducts, transcripts, video-quotes
 ```
 
 **Processing types**: `all_unprocessed`, `single_video`, `selected_urls`
 
-**Persistence**: Creates `video-snippets` per segment. For visual matches, calls `matchProduct()` to find/create product records.
+**Transcription config** (from VideoProcessings job):
+- `transcriptionEnabled` (default: true)
+- `transcriptionLanguage` (default: 'de', options: de/en/fr/es/it)
+- `transcriptionModel` (default: 'nova-3', options: nova-3/nova-2/enhanced/base)
+
+**Persistence**: Creates `video-snippets` per segment (with referencedProducts + transcript fields). Creates `video-quotes` linking snippets to products with quotes and sentiment (only when transcript data exists). Saves full transcript + word timestamps on the video. For visual matches, calls `matchProduct()` to find/create product records.
 
 ### 7. product-aggregation
 
@@ -314,6 +335,8 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 | `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `persistProductAggregationResult` |
 | `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `persistVideoProcessingResult` |
 | `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, productAttributes[], productClaims[], tokensUsed }` | `handleProductAggregation` |
+| `correctTranscript(rawTranscript, words, brands, products)` | raw STT transcript + brand/product names | `{ correctedTranscript, corrections[], tokensUsed }` | `handleVideoProcessing` |
+| `analyzeSentiment(pre, transcript, post, products)` | transcript segments + product info | `{ products[]: { quotes[], overallSentiment, score }, tokensUsed }` | `handleVideoProcessing` |
 
 ## Logging (`lib/logger.ts`)
 
@@ -343,6 +366,8 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Deduplication**: Source-products are matched by `sourceUrl + source` to prevent duplicates
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
+- **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
+- **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)
 
 ## Keeping This File Up to Date
 

@@ -4,3 +4,4 @@
 - Sentiment analysis for VideoSnippets
 - Find out why not recognition candidates are found sometimes
 - Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers
+- Rename ProductQuotes to VideoQuotes
