@@ -38,6 +38,16 @@ export const CategoryDiscoveries: CollectionConfig = {
       },
     },
     {
+      name: 'itemsPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Max categories per batch. Empty = unlimited.',
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
@@ -146,20 +156,7 @@ export const CategoryDiscoveries: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'itemsPerTick',
-              type: 'number',
-              label: 'Items Per Tick',
-              min: 1,
-              admin: {
-                description: 'Max categories to save per tick. Leave empty for unlimited.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Events',
           fields: [

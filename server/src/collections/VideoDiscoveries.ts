@@ -38,6 +38,16 @@ export const VideoDiscoveries: CollectionConfig = {
       },
     },
     {
+      name: 'itemsPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Max videos per batch. Empty = unlimited.',
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
@@ -112,20 +122,7 @@ export const VideoDiscoveries: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'itemsPerTick',
-              type: 'number',
-              label: 'Items Per Tick',
-              min: 1,
-              admin: {
-                description: 'Max videos to save per tick. Leave empty for unlimited.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Events',
           fields: [

@@ -29,6 +29,17 @@ export const ProductAggregations: CollectionConfig = {
       },
     },
     {
+      name: 'itemsPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      defaultValue: 10,
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Products to aggregate per batch.',
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
@@ -150,21 +161,7 @@ export const ProductAggregations: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'itemsPerTick',
-              type: 'number',
-              label: 'Items Per Tick',
-              defaultValue: 10,
-              min: 1,
-              admin: {
-                description: 'Number of products to aggregate per tick.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Output',
           fields: [

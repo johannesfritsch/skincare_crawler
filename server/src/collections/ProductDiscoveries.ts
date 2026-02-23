@@ -38,6 +38,26 @@ export const ProductDiscoveries: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    {
+      name: 'itemsPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Max pages per batch. Empty = unlimited.',
+      },
+    },
+    {
+      name: 'delay',
+      type: 'number',
+      label: 'Delay (ms)',
+      min: 0,
+      admin: {
+        position: 'sidebar',
+        description: 'Milliseconds between requests. Default: 2000.',
+      },
+    },
     // Everything below only shows after creation
     {
       type: 'tabs',
@@ -145,29 +165,7 @@ export const ProductDiscoveries: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'itemsPerTick',
-              type: 'number',
-              label: 'Items Per Tick',
-              min: 1,
-              admin: {
-                description: 'Max pages to process per tick. Leave empty for unlimited.',
-              },
-            },
-            {
-              name: 'delay',
-              type: 'number',
-              label: 'Delay (ms)',
-              min: 0,
-              admin: {
-                description: 'Milliseconds between requests. Default: 2000.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Events',
           fields: [

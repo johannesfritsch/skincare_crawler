@@ -38,6 +38,16 @@ export const IngredientsDiscoveries: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    {
+      name: 'pagesPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Max pages per batch. Empty = unlimited.',
+      },
+    },
     // Everything below only shows after creation
     {
       type: 'tabs',
@@ -167,20 +177,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'pagesPerTick',
-              type: 'number',
-              label: 'Pages Per Tick',
-              min: 1,
-              admin: {
-                description: 'Max pages to process per tick. Leave empty for unlimited.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Events',
           fields: [

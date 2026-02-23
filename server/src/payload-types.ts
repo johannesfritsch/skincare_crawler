@@ -363,6 +363,10 @@ export interface IngredientsDiscovery {
    */
   sourceUrl: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Max pages per batch. Empty = unlimited.
+   */
+  pagesPerTick?: number | null;
   discovered?: number | null;
   created?: number | null;
   existing?: number | null;
@@ -384,10 +388,6 @@ export interface IngredientsDiscovery {
     | number
     | boolean
     | null;
-  /**
-   * Max pages to process per tick. Leave empty for unlimited.
-   */
-  pagesPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -456,6 +456,14 @@ export interface ProductDiscovery {
   sourceUrls: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
+   * Max pages per batch. Empty = unlimited.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Milliseconds between requests. Default: 2000.
+   */
+  delay?: number | null;
+  /**
    * Products found on the page
    */
   discovered?: number | null;
@@ -490,14 +498,6 @@ export interface ProductDiscovery {
    * Discovered product URLs, one per line
    */
   productUrls?: string | null;
-  /**
-   * Max pages to process per tick. Leave empty for unlimited.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Milliseconds between requests. Default: 2000.
-   */
-  delay?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -668,6 +668,14 @@ export interface CrawlResult {
 export interface ProductCrawl {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Products to crawl per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
   source: 'all' | 'dm' | 'rossmann' | 'mueller';
   type: 'all' | 'selected_urls' | 'selected_gtins' | 'from_discovery';
   /**
@@ -705,14 +713,6 @@ export interface ProductCrawl {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  /**
-   * Keep browser visible for inspection (non-headless). Only works for browser-based drivers.
-   */
-  debug?: boolean | null;
-  /**
-   * Number of products to crawl per tick.
-   */
-  itemsPerTick?: number | null;
   crawledProducts?: {
     docs?: (number | CrawlResult)[];
     hasNextPage?: boolean;
@@ -733,6 +733,10 @@ export interface ProductCrawl {
 export interface ProductAggregation {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Products to aggregate per batch.
+   */
+  itemsPerTick?: number | null;
   type: 'all' | 'selected_gtins';
   /**
    * GTINs to aggregate, one per line
@@ -760,10 +764,6 @@ export interface ProductAggregation {
   tokensUsed?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  /**
-   * Number of products to aggregate per tick.
-   */
-  itemsPerTick?: number | null;
   /**
    * The product created or updated by this aggregation
    */
@@ -1021,6 +1021,10 @@ export interface VideoDiscovery {
   channelUrl: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
+   * Max videos per batch. Empty = unlimited.
+   */
+  itemsPerTick?: number | null;
+  /**
    * Videos found on the channel
    */
   discovered?: number | null;
@@ -1034,10 +1038,6 @@ export interface VideoDiscovery {
   existing?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  /**
-   * Max videos to save per tick. Leave empty for unlimited.
-   */
-  itemsPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1053,6 +1053,12 @@ export interface VideoDiscovery {
 export interface VideoProcessing {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Videos to process per batch.
+   */
+  itemsPerTick?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   type: 'all_unprocessed' | 'single_video' | 'selected_urls';
   /**
    * The video to process
@@ -1086,12 +1092,6 @@ export interface VideoProcessing {
    * Total LLM tokens consumed during visual recognition
    */
   tokensUsed?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Number of videos to process per tick.
-   */
-  itemsPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1111,6 +1111,10 @@ export interface CategoryDiscovery {
    */
   storeUrls: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Max categories per batch. Empty = unlimited.
+   */
+  itemsPerTick?: number | null;
   /**
    * Categories found
    */
@@ -1145,10 +1149,6 @@ export interface CategoryDiscovery {
    * URLs that failed during discovery (e.g. timeouts), one per line. Can be copied into Store URLs to retry.
    */
   errorUrls?: string | null;
-  /**
-   * Max categories to save per tick. Leave empty for unlimited.
-   */
-  itemsPerTick?: number | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1471,6 +1471,7 @@ export interface IngredientsSelect<T extends boolean = true> {
 export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   sourceUrl?: T;
   status?: T;
+  pagesPerTick?: T;
   discovered?: T;
   created?: T;
   existing?: T;
@@ -1481,7 +1482,6 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   termQueue?: T;
-  pagesPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1622,6 +1622,8 @@ export interface SourceProductsSelect<T extends boolean = true> {
 export interface ProductDiscoveriesSelect<T extends boolean = true> {
   sourceUrls?: T;
   status?: T;
+  itemsPerTick?: T;
+  delay?: T;
   discovered?: T;
   created?: T;
   existing?: T;
@@ -1630,8 +1632,6 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   completedAt?: T;
   discoveredProducts?: T;
   productUrls?: T;
-  itemsPerTick?: T;
-  delay?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1642,6 +1642,8 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
  */
 export interface ProductCrawlsSelect<T extends boolean = true> {
   status?: T;
+  itemsPerTick?: T;
+  debug?: T;
   source?: T;
   type?: T;
   urls?: T;
@@ -1655,8 +1657,6 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
-  debug?: T;
-  itemsPerTick?: T;
   crawledProducts?: T;
   events?: T;
   updatedAt?: T;
@@ -1668,6 +1668,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
  */
 export interface ProductAggregationsSelect<T extends boolean = true> {
   status?: T;
+  itemsPerTick?: T;
   type?: T;
   gtins?: T;
   language?: T;
@@ -1677,7 +1678,6 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   tokensUsed?: T;
   startedAt?: T;
   completedAt?: T;
-  itemsPerTick?: T;
   product?: T;
   events?: T;
   lastCheckedSourceId?: T;
@@ -1713,6 +1713,7 @@ export interface DiscoveryResultsSelect<T extends boolean = true> {
 export interface CategoryDiscoveriesSelect<T extends boolean = true> {
   storeUrls?: T;
   status?: T;
+  itemsPerTick?: T;
   discovered?: T;
   created?: T;
   existing?: T;
@@ -1721,7 +1722,6 @@ export interface CategoryDiscoveriesSelect<T extends boolean = true> {
   completedAt?: T;
   categoryUrls?: T;
   errorUrls?: T;
-  itemsPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1821,12 +1821,12 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
 export interface VideoDiscoveriesSelect<T extends boolean = true> {
   channelUrl?: T;
   status?: T;
+  itemsPerTick?: T;
   discovered?: T;
   created?: T;
   existing?: T;
   startedAt?: T;
   completedAt?: T;
-  itemsPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1837,6 +1837,9 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
  */
 export interface VideoProcessingsSelect<T extends boolean = true> {
   status?: T;
+  itemsPerTick?: T;
+  startedAt?: T;
+  completedAt?: T;
   type?: T;
   video?: T;
   urls?: T;
@@ -1846,9 +1849,6 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   processed?: T;
   errors?: T;
   tokensUsed?: T;
-  startedAt?: T;
-  completedAt?: T;
-  itemsPerTick?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;

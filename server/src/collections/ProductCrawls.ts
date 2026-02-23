@@ -29,6 +29,27 @@ export const ProductCrawls: CollectionConfig = {
       },
     },
     {
+      name: 'itemsPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      defaultValue: 10,
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Products to crawl per batch.',
+      },
+    },
+    {
+      name: 'debug',
+      type: 'checkbox',
+      label: 'Debug Mode',
+      defaultValue: false,
+      admin: {
+        position: 'sidebar',
+        description: 'Keep browser visible (non-headless).',
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
@@ -209,31 +230,7 @@ export const ProductCrawls: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'debug',
-              type: 'checkbox',
-              label: 'Debug Mode',
-              defaultValue: false,
-              admin: {
-                description:
-                  'Keep browser visible for inspection (non-headless). Only works for browser-based drivers.',
-              },
-            },
-            {
-              name: 'itemsPerTick',
-              type: 'number',
-              label: 'Items Per Tick',
-              defaultValue: 10,
-              min: 1,
-              admin: {
-                description: 'Number of products to crawl per tick.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Output',
           fields: [

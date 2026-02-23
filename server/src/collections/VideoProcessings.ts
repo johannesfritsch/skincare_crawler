@@ -29,10 +29,45 @@ export const VideoProcessings: CollectionConfig = {
       },
     },
     {
+      name: 'itemsPerTick',
+      type: 'number',
+      label: 'Batch Size',
+      defaultValue: 1,
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Videos to process per batch.',
+      },
+    },
+    {
+      name: 'startedAt',
+      type: 'date',
+      label: 'Started At',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
+      name: 'completedAt',
+      type: 'date',
+      label: 'Completed At',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
-          label: 'Configuration',
+          label: 'Source',
           fields: [
             {
               name: 'type',
@@ -65,6 +100,11 @@ export const VideoProcessings: CollectionConfig = {
                 condition: (data) => data?.type === 'selected_urls',
               },
             },
+          ],
+        },
+        {
+          label: 'Image Recognition',
+          fields: [
             {
               name: 'sceneThreshold',
               type: 'number',
@@ -138,52 +178,9 @@ export const VideoProcessings: CollectionConfig = {
                 description: 'Total LLM tokens consumed during visual recognition',
               },
             },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-              ],
-            },
           ],
         },
-        {
-          label: 'Pacing',
-          fields: [
-            {
-              name: 'itemsPerTick',
-              type: 'number',
-              label: 'Items Per Tick',
-              defaultValue: 1,
-              min: 1,
-              admin: {
-                description: 'Number of videos to process per tick.',
-              },
-            },
-          ],
-        },
+
         {
           label: 'Events',
           fields: [
