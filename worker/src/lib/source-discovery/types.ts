@@ -25,6 +25,7 @@ export interface ProductDiscoveryOptions {
   progress?: unknown
   maxPages?: number
   delay?: number  // ms between requests, default 2000
+  debug?: boolean // keep browser visible (non-headless)
 }
 
 export interface ProductDiscoveryResult {

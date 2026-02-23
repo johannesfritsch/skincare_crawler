@@ -64,10 +64,10 @@ export const rossmannDriver: SourceDriver = {
   async discoverProducts(
     options: ProductDiscoveryOptions,
   ): Promise<ProductDiscoveryResult> {
-    const { url, onProduct, onError, onProgress, delay = 2000, maxPages } = options
+    const { url, onProduct, onError, onProgress, delay = 2000, maxPages, debug = false } = options
     const savedProgress = options.progress as RossmannProductDiscoveryProgress | undefined
 
-    log.info(`Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'})`)
+    log.info(`Starting browser-based discovery for ${url} (delay=${delay}ms, maxPages=${maxPages ?? 'unlimited'}, debug=${debug})`)
 
     const visitedUrls = new Set<string>(savedProgress?.visitedUrls ?? [])
     const seenProductUrls = new Set<string>() // within-tick dedup only, not persisted
@@ -79,7 +79,7 @@ export const rossmannDriver: SourceDriver = {
       return maxPages !== undefined && pagesUsed >= maxPages
     }
 
-    const browser = await launchBrowser()
+    const browser = await launchBrowser({ headless: !debug })
 
     try {
       const page = await browser.newPage()
@@ -316,6 +316,13 @@ export const rossmannDriver: SourceDriver = {
         }
       }
     } finally {
+      if (debug) {
+        const page = browser.contexts()[0]?.pages()[0]
+        if (page) {
+          log.info(`Debug mode: browser kept open. Press "Resume" in the Playwright inspector to continue.`)
+          await page.pause()
+        }
+      }
       await browser.close()
     }
 

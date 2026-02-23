@@ -188,6 +188,7 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
   let driverProgress = work.driverProgress as unknown
   const maxPages = work.maxPages as number | undefined
   const delay = work.delay as number
+  const debug = work.debug as boolean
 
   log.info(
     `Product discovery job #${jobId}: ${sourceUrls.length} URLs, starting at ${currentUrlIndex}`,
@@ -226,6 +227,7 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
       progress: driverProgress ?? undefined,
       maxPages: pagesRemaining,
       delay,
+      debug,
     })
 
     totalPagesUsed += result.pagesUsed

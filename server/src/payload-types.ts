@@ -464,6 +464,10 @@ export interface ProductDiscovery {
    */
   delay?: number | null;
   /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  /**
    * Products found on the page
    */
   discovered?: number | null;
@@ -1624,6 +1628,7 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   status?: T;
   itemsPerTick?: T;
   delay?: T;
+  debug?: T;
   discovered?: T;
   created?: T;
   existing?: T;

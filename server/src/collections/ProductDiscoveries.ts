@@ -58,6 +58,16 @@ export const ProductDiscoveries: CollectionConfig = {
         description: 'Milliseconds between requests. Default: 2000.',
       },
     },
+    {
+      name: 'debug',
+      type: 'checkbox',
+      label: 'Debug Mode',
+      defaultValue: false,
+      admin: {
+        position: 'sidebar',
+        description: 'Keep browser visible (non-headless).',
+      },
+    },
     // Everything below only shows after creation
     {
       type: 'tabs',

@@ -302,6 +302,7 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
     driverProgress: progress?.driverProgress ?? null,
     maxPages,
     delay,
+    debug: (job.debug as boolean) ?? false,
   }
 }
 
