@@ -1,7 +1,8 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
+import { s3Storage } from '@payloadcms/storage-s3'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import path from 'path'
-import { buildConfig } from 'payload'
+import { buildConfig, type Plugin } from 'payload'
 import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
@@ -34,6 +35,32 @@ import { Workers } from './collections/Workers'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+/* ------------------------------------------------------------------ */
+/*  Storage                                                            */
+/* ------------------------------------------------------------------ */
+
+const plugins: Plugin[] = []
+
+if (process.env.STORAGE_ADAPTER === 's3') {
+  plugins.push(
+    s3Storage({
+      collections: { media: true },
+      bucket: process.env.S3_BUCKET || '',
+      config: {
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY_ID || '',
+          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
+        },
+        region: process.env.S3_REGION || 'us-east-1',
+        // Support non-AWS S3-compatible services (MinIO, etc.)
+        ...(process.env.S3_ENDPOINT
+          ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true }
+          : {}),
+      },
+    }),
+  )
+}
+
 export default buildConfig({
   admin: {
     user: Users.slug,
@@ -54,5 +81,5 @@ export default buildConfig({
     },
   }),
   sharp,
-  plugins: [],
+  plugins,
 })
