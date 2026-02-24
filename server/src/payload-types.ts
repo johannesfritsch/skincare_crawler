@@ -499,6 +499,7 @@ export interface ProductDiscovery {
    * Keep browser visible (non-headless).
    */
   debug?: boolean | null;
+  productUrls?: string | null;
   /**
    * Products found on the page
    */
@@ -530,10 +531,6 @@ export interface ProductDiscovery {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  /**
-   * Discovered product URLs, one per line
-   */
-  productUrls?: string | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1821,6 +1818,7 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   itemsPerTick?: T;
   delay?: T;
   debug?: T;
+  productUrls?: T;
   discovered?: T;
   created?: T;
   existing?: T;
@@ -1828,7 +1826,6 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   discoveredProducts?: T;
-  productUrls?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;

@@ -68,6 +68,15 @@ export const ProductDiscoveries: CollectionConfig = {
         description: 'Keep browser visible (non-headless).',
       },
     },
+    // Hidden field used by worker to track discovered URLs
+    {
+      name: 'productUrls',
+      type: 'textarea',
+      validate: () => true,
+      admin: {
+        hidden: true,
+      },
+    },
     // Everything below only shows after creation
     {
       type: 'tabs',
@@ -164,13 +173,12 @@ export const ProductDiscoveries: CollectionConfig = {
               admin: { allowCreate: false },
             },
             {
-              name: 'productUrls',
-              type: 'textarea',
-              label: 'Discovered Product URLs',
-              validate: () => true,
+              name: 'downloadUrls',
+              type: 'ui',
               admin: {
-                readOnly: true,
-                description: 'Discovered product URLs, one per line',
+                components: {
+                  Field: '@/components/DownloadDiscoveredUrlsButton',
+                },
               },
             },
           ],
