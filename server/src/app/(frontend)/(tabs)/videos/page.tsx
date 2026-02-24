@@ -2,7 +2,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { desc, eq, sql } from 'drizzle-orm'
 import Link from 'next/link'
-import { Eye, ThumbsUp, Clock, Play } from 'lucide-react'
+import { Eye, ThumbsUp, Calendar, Clock, Play } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 export const metadata = {
@@ -63,12 +63,24 @@ export default async function VideosPage() {
         {videos.map((v) => {
           const thumbnailSrc = v.thumbnailUrl || (v.thumbnailFilename ? `/media/${v.thumbnailFilename}` : null)
 
+          const formattedDate = v.publishedAt
+            ? new Date(v.publishedAt).toLocaleDateString('de-DE', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+              })
+            : null
+          const formattedTime = v.publishedAt
+            ? new Date(v.publishedAt).toLocaleTimeString('de-DE', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : null
+
           return (
-            <a
+            <Link
               key={v.id}
-              href={v.externalUrl ?? '#'}
-              target="_blank"
-              rel="noopener noreferrer"
+              href={`/videos/${v.id}`}
               className="flex gap-3 rounded-xl border bg-card p-3 transition-colors active:bg-muted/60"
             >
               {/* Thumbnail */}
@@ -105,6 +117,18 @@ export default async function VideosPage() {
                 </div>
 
                 <div className="flex items-center gap-3 mt-1.5">
+                  {formattedDate && (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Calendar className="h-3 w-3" />
+                      {formattedDate}
+                    </span>
+                  )}
+                  {formattedTime && (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {formattedTime}
+                    </span>
+                  )}
                   {v.viewCount != null && v.viewCount > 0 && (
                     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       <Eye className="h-3 w-3" />
@@ -124,7 +148,7 @@ export default async function VideosPage() {
                   )}
                 </div>
               </div>
-            </a>
+            </Link>
           )
         })}
       </div>
