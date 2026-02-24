@@ -486,11 +486,27 @@ export function VideoDetailClient({
       </div>
 
       {/* ============================================================ */}
-      {/*  DESKTOP layout: player+info left (sticky), mentions right    */}
+      {/*  DESKTOP layout: mentions left, player+info right (sticky)    */}
       {/* ============================================================ */}
       <div className="hidden md:flex -mx-4 -mt-4 gap-6 px-6 pt-5 pb-6 h-[calc(100dvh-3rem-5.5rem-env(safe-area-inset-bottom,0px)-env(safe-area-inset-top,0px))]">
-        {/* Left column — player + info, sticky */}
-        <div className="w-[58%] shrink-0 flex flex-col gap-4">
+        {/* Left column — scrollable mentions */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <div className="flex items-center gap-2 mb-3 shrink-0">
+            <h2 className="text-sm font-semibold">Product Mentions</h2>
+            {uniqueProducts > 0 && (
+              <Badge variant="secondary" className="text-[11px]">
+                {uniqueProducts} product{uniqueProducts !== 1 ? 's' : ''}
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto pr-1 -mr-1">
+            {mentionsContent}
+          </div>
+        </div>
+
+        {/* Right column — player + info, sticky */}
+        <div className="w-[42%] shrink-0 flex flex-col gap-4">
           {isDesktop && <PlayerEmbed ytVideoId={ytVideoId} playerElRef={playerElRef} />}
 
           <div className="px-1">
@@ -504,22 +520,6 @@ export function VideoDetailClient({
               externalUrl={externalUrl}
               mentionCount={uniqueProducts}
             />
-          </div>
-        </div>
-
-        {/* Right column — scrollable mentions */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <div className="flex items-center gap-2 mb-3 shrink-0">
-            <h2 className="text-sm font-semibold">Product Mentions</h2>
-            {uniqueProducts > 0 && (
-              <Badge variant="secondary" className="text-[11px]">
-                {uniqueProducts} product{uniqueProducts !== 1 ? 's' : ''}
-              </Badge>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-1 -mr-1">
-            {mentionsContent}
           </div>
         </div>
       </div>
