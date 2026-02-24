@@ -58,12 +58,6 @@ export default async function VideosPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Videos</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Recent skincare reviews and mentions</p>
-      </div>
-
       {/* Video list — vertical stack of cards, app-style */}
       <div className="flex flex-col gap-3">
         {videos.map((v) => {

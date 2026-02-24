@@ -72,15 +72,6 @@ export default async function ProductsPage({ searchParams }: Props) {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold tracking-tight">Search</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {searchTerm
-            ? `${rows.length} result${rows.length !== 1 ? 's' : ''} for "${searchTerm}"`
-            : `${totalCount.toLocaleString('de-DE')} products`}
-        </p>
-      </div>
       <div className="mb-5">
         <Suspense>
           <ProductSearch />

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
-import { Sparkles, Play, ScanLine, Search, User } from 'lucide-react'
+import { Sparkles, Play, ScanLine, Search, ListOrdered } from 'lucide-react'
 import { BarcodeScanner } from '@/components/barcode-scanner'
 
 const tabs = [
@@ -10,14 +10,14 @@ const tabs = [
   { key: 'videos', label: 'Videos', icon: Play, href: '/videos' },
   { key: 'scan', label: 'Scan', icon: ScanLine, href: null },
   { key: 'search', label: 'Search', icon: Search, href: '/products' },
-  { key: 'profile', label: 'Profile', icon: User, href: '/profile' },
+  { key: 'lists', label: 'Top Lists', icon: ListOrdered, href: '/lists' },
 ] as const
 
 function getActiveTab(pathname: string): string {
   if (pathname.startsWith('/products')) return 'search'
   if (pathname.startsWith('/discover')) return 'discover'
   if (pathname.startsWith('/videos')) return 'videos'
-  if (pathname.startsWith('/profile')) return 'profile'
+  if (pathname.startsWith('/lists')) return 'lists'
   return 'discover'
 }
 

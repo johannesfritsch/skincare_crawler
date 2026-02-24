@@ -78,12 +78,6 @@ export default async function DiscoverPage() {
 
   return (
     <div className="space-y-8">
-      {/* Page header */}
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Discover</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Top-rated cosmetics from German retailers</p>
-      </div>
-
       {/* Recently added */}
       {recentProducts.length > 0 && (
         <section>
