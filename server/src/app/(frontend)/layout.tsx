@@ -18,7 +18,7 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body className="min-h-[100dvh] bg-background font-sans antialiased overscroll-none select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none]">
+      <body className="min-h-[100dvh] bg-background font-sans antialiased overscroll-none select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [touch-action:manipulation]">
         {children}
       </body>
     </html>

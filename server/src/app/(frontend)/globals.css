@@ -129,14 +129,12 @@
   }
 }
 
-/* Installed PWA — extra bottom padding for home indicator area */
-@media (display-mode: standalone) {
-  .standalone-bottom-spacer {
-    height: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
-  }
-  .standalone-bottom-pad {
-    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px) + 1.5rem);
-  }
+/* Extra bottom padding for home indicator area */
+.standalone-bottom-spacer {
+  height: calc(env(safe-area-inset-bottom, 0px) + 1.5rem) !important;
+}
+.standalone-bottom-pad {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px) + 1.5rem) !important;
 }
 
 /* Hide scrollbar on horizontal-scroll containers */

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 
 export default function TabsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col min-h-[100dvh]">
+    <div className="flex flex-col min-h-[100dvh] bg-background">
       {/* Top bar — burger | centered logo | profile */}
       <header className="sticky top-0 z-40 w-full border-b bg-background pt-[env(safe-area-inset-top,0px)]">
         <div className="flex h-12 items-center justify-between px-2">
