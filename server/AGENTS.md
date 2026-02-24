@@ -21,14 +21,36 @@ You are an expert Payload CMS developer. When working with Payload projects, fol
 ```
 src/
 ├── app/
-│   ├── (frontend)/          # Frontend routes
-│   └── (payload)/           # Payload admin routes
-├── collections/             # Collection configs
-├── globals/                 # Global configs
-├── components/              # Custom React components
-├── hooks/                   # Hook functions
-├── access/                  # Access control functions
-└── payload.config.ts        # Main config
+│   ├── (frontend)/              # Consumer-facing frontend
+│   │   ├── layout.tsx           # Root layout (html/body, PWA meta)
+│   │   ├── page.tsx             # Redirect to /discover
+│   │   ├── globals.css          # Tailwind theme, brand colors, PWA overrides
+│   │   └── (tabs)/              # Tab-based pages with bottom nav
+│   │       ├── layout.tsx       # App shell (header + bottom nav)
+│   │       ├── discover/        # Top-rated products
+│   │       ├── videos/          # Video feed
+│   │       ├── products/        # Search + detail + 404
+│   │       ├── lists/           # Top lists by product type
+│   │       └── profile/         # User profile (placeholder)
+│   └── (payload)/               # Payload admin routes
+├── collections/                 # Collection configs
+├── globals/                     # Global configs
+├── components/                  # Shared React components
+│   ├── ui/                      # shadcn/ui primitives
+│   ├── anyskin-logo.tsx         # SVG wordmark
+│   ├── bottom-nav.tsx           # 5-tab bottom navigation
+│   ├── app-drawer.tsx           # Burger menu drawer
+│   ├── barcode-scanner.tsx      # Camera barcode scanner
+│   ├── product-card.tsx         # Product card for carousels
+│   └── product-search.tsx       # Search input component
+├── lib/
+│   ├── barcode.ts               # Barcode detection (native + zxing-wasm)
+│   └── utils.ts                 # shadcn cn() utility
+├── types/
+│   └── barcode-detector.d.ts    # BarcodeDetector Web API types
+├── hooks/                       # Hook functions
+├── access/                      # Access control functions
+└── payload.config.ts            # Main config
 ```
 
 ## Configuration
@@ -1131,6 +1153,131 @@ For deeper exploration of specific topics, refer to the context files located in
     - Using hooks
     - Performance best practices
     - Styling components
+
+## Frontend Architecture
+
+The consumer-facing frontend is a mobile-first PWA built alongside the Payload CMS admin in the same Next.js 15 app.
+
+### Tech Stack
+
+- **Tailwind CSS v4** — configured via `@tailwindcss/postcss`, no `tailwind.config.ts`; all theme config lives in `globals.css` using `@theme inline` and CSS custom properties
+- **shadcn/ui** — components in `src/components/ui/`, new-york style, neutral base with AnySkin brand colors
+- **Drizzle ORM** — frontend queries use `payload.db.drizzle` (NodePgDatabase) and `payload.db.tables` (Record<string, PgTableWithColumns<any>>) directly, NOT Payload's Local API
+- **lucide-react** — icon library (installed by shadcn)
+- **zxing-wasm** — barcode detection fallback for browsers without native BarcodeDetector
+
+### AnySkin Brand Colors (oklch in globals.css)
+
+| Role | Color | Usage |
+|------|-------|-------|
+| Primary | `#7436d9` (purple) | Buttons, active tab, scan button |
+| Accent | `#ff8327` (orange) | Accent highlights |
+| Foreground | `#262340` (dark navy) | Text |
+| Ring | `#bfbefc` (lavender) | Focus rings |
+| theme-color | `#fbfafd` | iOS/Android status bar |
+
+### Route Structure
+
+```
+src/app/(frontend)/
+├── layout.tsx              # Root: html/body, globals.css, viewport meta, PWA meta
+├── page.tsx                # Redirects to /discover
+├── globals.css             # Tailwind theme, brand colors, standalone PWA overrides
+└── (tabs)/                 # Route group — all pages with bottom nav
+    ├── layout.tsx          # App shell: header (burger|logo|profile) + bottom nav
+    ├── discover/page.tsx   # Top-rated products by category, horizontal scroll sections
+    ├── videos/page.tsx     # Recent videos with thumbnails, creators, mentions
+    ├── products/
+    │   ├── page.tsx        # Product search with ?q= text filter
+    │   └── [gtin]/
+    │       ├── page.tsx    # Product detail (by GTIN, not numeric ID)
+    │       └── not-found.tsx  # Product 404 with feedback form
+    ├── lists/
+    │   ├── page.tsx        # Product type index (links to per-type rankings)
+    │   └── [slug]/page.tsx # Per-type ranked product list
+    └── profile/page.tsx    # Placeholder (future: saved products, preferences)
+```
+
+### Shared Components
+
+| Component | Path | Type | Purpose |
+|-----------|------|------|---------|
+| `AnySkinLogo` | `components/anyskin-logo.tsx` | Server | Inline SVG wordmark, reusable |
+| `BottomNav` | `components/bottom-nav.tsx` | Client | 5-tab fixed bottom nav with scanner integration |
+| `AppDrawer` | `components/app-drawer.tsx` | Client | Slide-from-left burger menu (shadcn Sheet) |
+| `BarcodeScanner` | `components/barcode-scanner.tsx` | Client | Full-screen camera overlay with viewfinder |
+| `ProductCard` | `components/product-card.tsx` | Server | Reusable product card for horizontal scroll sections |
+| `ProductSearch` | `components/product-search.tsx` | Client | Search input with clear button, GTIN detection |
+
+### Layout & Navigation
+
+- **Header**: Burger menu (left) | Centered logo | Profile icon (right). Solid `bg-background`, no transparency. Respects `env(safe-area-inset-top)` for iOS status bar.
+- **Bottom nav**: 5 tabs — Discover, Videos, **Scan** (center, elevated), Search, Top Lists. Fixed to bottom with `env(safe-area-inset-bottom)` spacer.
+- **Scan button**: Elevated 64px primary-colored circle, opens `BarcodeScanner` overlay from any tab (no route change).
+- **No page titles on tab pages** — the active tab in the bottom nav indicates location. Sub-pages (e.g. `/lists/[slug]`, `/products/[gtin]`) do have titles.
+- **Drawer menu**: Contains legal links (Imprint, Terms, Data Protection) and tagline.
+
+### Mobile-First Design Preferences
+
+- **App-like feel** is the top priority
+- Cards on mobile, tables on desktop (`md:` breakpoint)
+- `100dvh` not `100vh` (dynamic viewport height for mobile browser chrome)
+- `touch-action: manipulation` on body (disables pinch-zoom, double-tap-zoom)
+- `overscroll-none`, `select-none` on body (re-enabled on `<main>` for content)
+- `-webkit-tap-highlight-color: transparent`, `-webkit-touch-callout: none`
+- `viewport-fit=cover`, `maximum-scale=1, user-scalable=no`
+- `apple-mobile-web-app-capable: yes` for iOS standalone mode
+- Standalone PWA gets extra bottom padding via `@media (display-mode: standalone)` with `!important` to override Tailwind utilities
+
+### Horizontal Scroll Sections Pattern
+
+Used on Discover page for product carousels:
+
+```tsx
+{/* Outer: overflow + edge-to-edge bleed */}
+<div className="overflow-x-auto -mx-4 snap-x snap-mandatory scroll-pl-4 scrollbar-none">
+  {/* Inner: inline-flex so px-4 padding is preserved on both sides */}
+  <div className="inline-flex gap-3 px-4 pb-1">
+    <ProductCard ... />
+  </div>
+</div>
+```
+
+Key details:
+- Outer div: `overflow-x-auto -mx-4` bleeds to screen edge, `snap-x snap-mandatory` for snap, `scroll-pl-4` so snap respects the padding
+- Inner div: **`inline-flex`** (not `flex`) — this is critical; `flex` would stretch to parent width and right padding gets consumed by overflow. `inline-flex` sizes to content so `px-4` is preserved on both ends.
+- `.scrollbar-none` hides scrollbar (defined in globals.css)
+- Cards use `snap-start shrink-0 w-40`
+
+### Drizzle ORM Query Patterns
+
+```typescript
+const payload = await getPayload({ config: await config })
+const db = payload.db.drizzle
+const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products
+
+// Table names are snake_case: products, brands, product_types, source_products
+// Column names are camelCase: t.source_products.ratingNum (NOT rating_num)
+// Payload array fields → separate tables: products_ingredients, products_product_claims
+// hasMany relationships → {collection}_rels join table (e.g. products_rels)
+```
+
+### Product Detail Pages
+
+- URL param is **GTIN** (not numeric ID): `/products/[gtin]`
+- `notFound()` triggers the custom `not-found.tsx` which explains AnySkin only covers cosmetics and offers a feedback form
+
+### CSS Specificity with Tailwind v4
+
+Tailwind v4 utilities live in `@layer utilities`. Custom CSS outside a layer has lower specificity. When overriding Tailwind classes conditionally (e.g. in media queries), use `!important`:
+
+```css
+@media (display-mode: standalone) {
+  .standalone-bottom-pad {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px) + 1.5rem) !important;
+  }
+}
+```
 
 ## Keeping This File Up to Date
 
