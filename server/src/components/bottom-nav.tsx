@@ -13,6 +13,8 @@ const tabs = [
   { key: 'lists', label: 'Top Lists', icon: ListOrdered, href: '/lists' },
 ] as const
 
+const tabRoots = ['/discover', '/videos', '/products', '/lists', '/profile']
+
 function getActiveTab(pathname: string): string {
   if (pathname.startsWith('/products')) return 'search'
   if (pathname.startsWith('/discover')) return 'discover'
@@ -26,6 +28,7 @@ export function BottomNav() {
   const router = useRouter()
   const [scannerOpen, setScannerOpen] = useState(false)
   const activeTab = getActiveTab(pathname)
+  const isTabRoot = tabRoots.includes(pathname)
 
   const handleBarcodeDetected = useCallback(
     (gtin: string) => {
@@ -34,6 +37,8 @@ export function BottomNav() {
     },
     [router],
   )
+
+  if (!isTabRoot) return null
 
   return (
     <>

@@ -116,7 +116,7 @@ export default async function VideosPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-x-3 gap-y-1 mt-1.5 flex-wrap">
                   {formattedDate && (
                     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       <Calendar className="h-3 w-3" />

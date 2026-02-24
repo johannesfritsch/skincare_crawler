@@ -168,7 +168,7 @@ function PlayerEmbed({
     )
   }
   return (
-    <div className="relative w-full bg-black md:rounded-xl md:overflow-hidden" style={{ paddingBottom: '56.25%' }}>
+    <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
       <div ref={playerElRef} className="absolute inset-0 w-full h-full" />
     </div>
   )
@@ -359,20 +359,10 @@ export function VideoDetailClient({
 }: VideoDetailClientProps) {
   const playerRef = useRef<YTPlayer | null>(null)
   const playerElRef = useRef<HTMLDivElement | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const playerContainerRef = useRef<HTMLDivElement | null>(null)
   const [playerReady, setPlayerReady] = useState(false)
-  const [isDesktop, setIsDesktop] = useState(false)
 
   const ytVideoId = externalUrl ? extractYouTubeId(externalUrl) : null
-
-  /* Track viewport size to render player in the correct layout branch */
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 768px)')
-    setIsDesktop(mq.matches)
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
 
   /* Init YouTube player once the target div is mounted */
   useEffect(() => {
@@ -401,9 +391,7 @@ export function VideoDetailClient({
       playerRef.current = null
       setPlayerReady(false)
     }
-    // Re-mount the player when layout changes (mobile ↔ desktop)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ytVideoId, isDesktop])
+  }, [ytVideoId])
 
   const seekTo = useCallback(
     (seconds: number) => {
@@ -411,6 +399,8 @@ export function VideoDetailClient({
         playerRef.current.seekTo(seconds, true)
         playerRef.current.playVideo()
       }
+      // On mobile, scroll the player into view
+      playerContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     },
     [playerReady],
   )
@@ -457,72 +447,67 @@ export function VideoDetailClient({
     </>
   )
 
+  /*
+   * Single responsive layout using CSS grid:
+   * - Mobile: single column (player → info → mentions), content scrolls
+   * - Desktop: two columns (mentions left, player+info right)
+   *
+   * The player DOM node is always rendered once — no conditional JS.
+   */
   return (
-    <>
-      {/* ============================================================ */}
-      {/*  MOBILE layout: player on top, scrollable content below      */}
-      {/* ============================================================ */}
-      <div className="md:hidden -mx-4 -mt-4 flex flex-col h-[calc(100dvh-3rem-5.5rem-env(safe-area-inset-bottom,0px)-env(safe-area-inset-top,0px))]">
-        <div className="shrink-0 w-full bg-black">
-          {!isDesktop && <PlayerEmbed ytVideoId={ytVideoId} playerElRef={playerElRef} />}
+    <div className="-mx-4 -mt-4 -mb-4 flex-1 min-h-0 grid grid-cols-1 grid-rows-[auto_1fr] md:grid-cols-[1fr_42%] md:grid-rows-[1fr] md:gap-6 md:px-6 md:pt-5 md:pb-6">
+      {/* Player + info — row 1 on mobile, col 2 on desktop */}
+      <div ref={playerContainerRef} className="shrink-0 md:order-2 md:flex md:flex-col md:gap-4 scroll-mt-[calc(env(safe-area-inset-top,0px)+3.25rem)]">
+        <div className="bg-black md:rounded-xl md:overflow-hidden">
+          <PlayerEmbed ytVideoId={ytVideoId} playerElRef={playerElRef} />
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="px-4 pt-3 pb-2">
-            <VideoInfo
-              title={title}
-              creatorName={creatorName}
-              channelPlatform={channelPlatform}
-              formattedDate={formattedDate}
-              viewCount={viewCount}
-              likeCount={likeCount}
-              externalUrl={externalUrl}
-              mentionCount={uniqueProducts}
-            />
-          </div>
-          <div className="h-px bg-border mx-4 my-2" />
-          <div className="px-4 py-3">{mentionsContent}</div>
+        {/* Info: hidden on mobile (shown inside scroll area), visible on desktop */}
+        <div className="hidden md:block px-1">
+          <VideoInfo
+            title={title}
+            creatorName={creatorName}
+            channelPlatform={channelPlatform}
+            formattedDate={formattedDate}
+            viewCount={viewCount}
+            likeCount={likeCount}
+            externalUrl={externalUrl}
+            mentionCount={uniqueProducts}
+          />
         </div>
       </div>
 
-      {/* ============================================================ */}
-      {/*  DESKTOP layout: mentions left, player+info right (sticky)    */}
-      {/* ============================================================ */}
-      <div className="hidden md:flex -mx-4 -mt-4 gap-6 px-6 pt-5 pb-6 h-[calc(100dvh-3rem-5.5rem-env(safe-area-inset-bottom,0px)-env(safe-area-inset-top,0px))]">
-        {/* Left column — scrollable mentions */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <div className="flex items-center gap-2 mb-3 shrink-0">
-            <h2 className="text-sm font-semibold">Product Mentions</h2>
-            {uniqueProducts > 0 && (
-              <Badge variant="secondary" className="text-[11px]">
-                {uniqueProducts} product{uniqueProducts !== 1 ? 's' : ''}
-              </Badge>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-1 -mr-1">
-            {mentionsContent}
-          </div>
+      {/* Scrollable content — row 2 on mobile, col 1 on desktop */}
+      <div className="min-h-0 overflow-y-auto md:order-1">
+        {/* Info: visible on mobile only */}
+        <div className="md:hidden px-4 pt-3 pb-2">
+          <VideoInfo
+            title={title}
+            creatorName={creatorName}
+            channelPlatform={channelPlatform}
+            formattedDate={formattedDate}
+            viewCount={viewCount}
+            likeCount={likeCount}
+            externalUrl={externalUrl}
+            mentionCount={uniqueProducts}
+          />
+          <div className="h-px bg-border mt-3" />
         </div>
 
-        {/* Right column — player + info, sticky */}
-        <div className="w-[42%] shrink-0 flex flex-col gap-4">
-          {isDesktop && <PlayerEmbed ytVideoId={ytVideoId} playerElRef={playerElRef} />}
+        {/* Desktop header */}
+        <div className="hidden md:flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-semibold">Product Mentions</h2>
+          {uniqueProducts > 0 && (
+            <Badge variant="secondary" className="text-[11px]">
+              {uniqueProducts} product{uniqueProducts !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
 
-          <div className="px-1">
-            <VideoInfo
-              title={title}
-              creatorName={creatorName}
-              channelPlatform={channelPlatform}
-              formattedDate={formattedDate}
-              viewCount={viewCount}
-              likeCount={likeCount}
-              externalUrl={externalUrl}
-              mentionCount={uniqueProducts}
-            />
-          </div>
+        <div className="px-4 py-3 md:px-0 md:py-0 md:pr-4">
+          {mentionsContent}
         </div>
       </div>
-    </>
+    </div>
   )
 }
