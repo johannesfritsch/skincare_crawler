@@ -235,12 +235,13 @@ Dispatches to per-type submit handlers. Each handler:
 **Flow per GTIN**:
 
 ```
-1. aggregateFromSources(sourceProducts)    → merged data (pure logic)
+1. aggregateFromSources(sourceProducts, { imageSourcePriority })    → merged data (pure logic)
    - GTIN: first non-null
    - Name: longest string
    - Brand: first non-null
    - Category: first source-category ID
    - Ingredients: from source with longest list
+   - Image: first image from highest-priority source (configurable via imageSourcePriority, default: dm > rossmann > mueller)
 2. classifyProduct(client, sources, lang)  → LLM classification
    - Product type, attributes, claims with evidence
 3. Submit results
@@ -251,6 +252,7 @@ Dispatches to per-type submit handlers. Each handler:
 - Calls `matchBrand()` → links brand
 - Calls `matchCategory()` → walks source-category parent chain for breadcrumb → links category
 - Calls `matchIngredients()` → links ingredient records
+- Downloads selected image URL → uploads to `media` collection → sets `image` on product
 - Applies classification: productType, attributes (with evidence), claims (with evidence)
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`

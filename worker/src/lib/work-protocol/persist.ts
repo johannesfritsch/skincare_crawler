@@ -803,6 +803,8 @@ export interface PersistProductAggregationInput {
     brandName?: string
     sourceCategoryId?: number
     ingredientNames?: string[]
+    selectedImageUrl?: string
+    selectedImageAlt?: string | null
   } | null
   classification?: {
     description: string
@@ -940,6 +942,36 @@ export async function persistProductAggregationResult(
       }
     } catch (error) {
       errorMessages.push(`Ingredient matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // Upload product image
+  if (aggregated.selectedImageUrl) {
+    try {
+      log.info(`persistProductAggregationResult: downloading image from ${aggregated.selectedImageUrl}`)
+      const imageRes = await fetch(aggregated.selectedImageUrl)
+      if (!imageRes.ok) {
+        warningMessages.push(`Image download failed (${imageRes.status}): ${aggregated.selectedImageUrl}`)
+      } else {
+        const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
+        const buffer = Buffer.from(await imageRes.arrayBuffer())
+
+        // Derive filename from URL
+        const urlPath = new URL(aggregated.selectedImageUrl).pathname
+        const filename = urlPath.split('/').pop() || `product-${gtin}.jpg`
+
+        const mediaDoc = await payload.create({
+          collection: 'media',
+          data: { alt: aggregated.selectedImageAlt || aggregated.name || gtin },
+          file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
+        })
+        const mediaId = (mediaDoc as { id: number }).id
+        updateData.image = mediaId
+        log.info(`persistProductAggregationResult: uploaded image → media #${mediaId}`)
+        jlog.info(`Image uploaded → media #${mediaId}`, { event: true, labels: ['image', 'persistence'] })
+      }
+    } catch (error) {
+      warningMessages.push(`Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

@@ -1204,14 +1204,15 @@ src/app/(frontend)/
 |-----------|------|------|---------|
 | `AnySkinLogo` | `components/anyskin-logo.tsx` | Server | Inline SVG wordmark, reusable |
 | `BottomNav` | `components/bottom-nav.tsx` | Client | 5-tab fixed bottom nav with scanner integration |
+| `AppHeader` | `components/app-header.tsx` | Client | Top bar: burger menu on tab roots, back button on sub-pages |
 | `AppDrawer` | `components/app-drawer.tsx` | Client | Slide-from-left burger menu (shadcn Sheet) |
 | `BarcodeScanner` | `components/barcode-scanner.tsx` | Client | Full-screen camera overlay with viewfinder |
-| `ProductCard` | `components/product-card.tsx` | Server | Reusable product card for horizontal scroll sections |
+| `ProductCard` | `components/product-card.tsx` | Server | Reusable product card for horizontal scroll sections (with image support + letter fallback) |
 | `ProductSearch` | `components/product-search.tsx` | Client | Search input with clear button, GTIN detection |
 
 ### Layout & Navigation
 
-- **Header**: Burger menu (left) | Centered logo | Profile icon (right). Solid `bg-background`, no transparency. Respects `env(safe-area-inset-top)` for iOS status bar.
+- **Header** (`AppHeader`): Left slot | Centered logo | Profile icon (right). On tab root paths (`/discover`, `/videos`, `/products`, `/lists`, `/profile`) the left slot shows the burger menu (`AppDrawer`). On sub-pages (e.g. `/products/[gtin]`, `/lists/[slug]`) it shows a back button (`ChevronLeft`, `router.back()`). Solid `bg-background`, no transparency. Respects `env(safe-area-inset-top)` for iOS status bar.
 - **Bottom nav**: 5 tabs — Discover, Videos, **Scan** (center, elevated), Search, Top Lists. Fixed to bottom with `env(safe-area-inset-bottom)` spacer.
 - **Scan button**: Elevated 64px primary-colored circle, opens `BarcodeScanner` overlay from any tab (no route change).
 - **No page titles on tab pages** — the active tab in the bottom nav indicates location. Sub-pages (e.g. `/lists/[slug]`, `/products/[gtin]`) do have titles.
@@ -1260,7 +1261,24 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products
 // Column names are camelCase: t.source_products.ratingNum (NOT rating_num)
 // Payload array fields → separate tables: products_ingredients, products_product_claims
 // hasMany relationships → {collection}_rels join table (e.g. products_rels)
+
+// Image sizes (from Media collection upload config) are flattened DB columns:
+// sizes_thumbnail_url, sizes_card_url, sizes_detail_url — access via sql template:
+//   sql`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`
+// Join: .leftJoin(t.media, eq(t.products.image, t.media.id))
 ```
+
+### Media Image Sizes
+
+The `media` collection defines three image variants generated on upload via sharp:
+
+| Size | Dimensions | Fit | Used For |
+|------|-----------|-----|----------|
+| `thumbnail` | 96x96 | inside (no enlarge) | List items (search, ranked lists) |
+| `card` | 320x240 | inside (no enlarge) | ProductCard carousels (160px CSS @ 2x) |
+| `detail` | 780x780 | inside (no enlarge) | Product detail page hero image |
+
+All sizes use `fit: 'inside'` to preserve the full image (no cropping). Frontend uses `object-contain` + inner padding on containers so the image is fully visible with breathing room. All pages use `coalesce(sized_url, original_url)` so the original image is used as fallback when no sized variant exists (e.g. non-image media or pre-existing uploads).
 
 ### Product Detail Pages
 

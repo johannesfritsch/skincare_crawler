@@ -1004,6 +1004,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   const language = work.language as string
   const aggregationType = work.aggregationType as string
   const lastCheckedSourceId = work.lastCheckedSourceId as number
+  const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? ['dm', 'rossmann', 'mueller']
   const workItems = work.workItems as Array<{
     gtin: string
     categoryBreadcrumb: string | null
@@ -1016,6 +1017,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       source: string | null
       ingredients: Array<{ name: string | null }> | null
       description: string | null
+      images: Array<{ url: string; alt: string | null }> | null
     }>
   }>
 
@@ -1044,7 +1046,9 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           ingredients: sp.ingredients
             ? sp.ingredients.map((i) => ({ name: i.name ?? undefined }))
             : undefined,
+          images: sp.images ?? undefined,
         })),
+        { imageSourcePriority },
       )
 
       // Step 2: Build classify inputs

@@ -487,6 +487,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
   const language = (job.language as string) || 'de'
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
+  const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? ['dm', 'rossmann', 'mueller']
   jlog.info(`buildProductAggregationWork #${jobId}: type=${aggregationType}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
 
   // Initialize if pending
@@ -532,6 +533,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       source: string | null
       ingredients: Array<{ name: string | null }> | null
       description: string | null
+      images: Array<{ url: string; alt: string | null }> | null
     }>
   }
 
@@ -571,6 +573,11 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         ? (sp.ingredients as Array<{ name?: string | null }>).map((i) => ({ name: i.name ?? null }))
         : null,
       description: (sp.description as string) ?? null,
+      images: sp.images
+        ? (sp.images as Array<{ url?: string; alt?: string | null }>)
+            .filter((img) => !!img.url)
+            .map((img) => ({ url: img.url!, alt: img.alt ?? null }))
+        : null,
     }
   }
 
@@ -676,6 +683,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       jobId,
       language,
       aggregationType,
+      imageSourcePriority,
       lastCheckedSourceId: lastId,
       workItems,
     }
@@ -689,6 +697,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     jobId,
     language,
     aggregationType,
+    imageSourcePriority,
     lastCheckedSourceId: (job.lastCheckedSourceId as number) || 0,
     workItems,
   }

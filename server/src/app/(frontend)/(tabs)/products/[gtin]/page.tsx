@@ -1,7 +1,8 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import Image from 'next/image'
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -36,11 +37,16 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       lastAggregatedAt: t.products.lastAggregatedAt,
       createdAt: t.products.createdAt,
       updatedAt: t.products.updatedAt,
+      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_detail_url, ${t.media}.url)`,
+      imageAlt: t.media.alt,
+      imageWidth: sql<number | null>`coalesce(${t.media}.sizes_detail_width, ${t.media}.width)::int`,
+      imageHeight: sql<number | null>`coalesce(${t.media}.sizes_detail_height, ${t.media}.height)::int`,
     })
     .from(t.products)
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.categories, eq(t.products.category, t.categories.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
+    .leftJoin(t.media, eq(t.products.image, t.media.id))
     .where(eq(t.products.gtin, gtin))
     .limit(1)
 
@@ -85,6 +91,22 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div>
+      {product.imageUrl && (
+        <div className="flex justify-center mb-6">
+          <div className="w-48 sm:w-56 aspect-square rounded-2xl bg-muted/50 overflow-hidden p-4">
+            <Image
+              src={product.imageUrl}
+              alt={product.imageAlt || product.name || 'Product image'}
+              width={product.imageWidth || 780}
+              height={product.imageHeight || 780}
+              className="h-full w-full object-contain"
+              sizes="(min-width: 640px) 224px, 192px"
+              priority
+            />
+          </div>
+        </div>
+      )}
+
       <h1 className="text-xl sm:text-2xl font-bold tracking-tight mb-1">{product.name || 'Unnamed product'}</h1>
       {product.gtin && (
         <p className="text-muted-foreground mb-6">

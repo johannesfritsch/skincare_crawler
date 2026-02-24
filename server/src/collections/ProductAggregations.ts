@@ -50,7 +50,7 @@ export const ProductAggregations: CollectionConfig = {
               type: 'select',
               label: 'Type',
               required: true,
-              defaultValue: 'all',
+              defaultValue: 'selected_gtins',
               options: [
                 { label: 'All Non-Aggregated', value: 'all' },
                 { label: 'Selected GTINs', value: 'selected_gtins' },
@@ -76,6 +76,16 @@ export const ProductAggregations: CollectionConfig = {
               ],
               admin: {
                 description: 'Language for the generated product description.',
+              },
+            },
+            {
+              name: 'imageSourcePriority',
+              type: 'json',
+              label: 'Image Source Priority',
+              defaultValue: ['dm', 'rossmann', 'mueller'],
+              admin: {
+                description:
+                  'Ordered list of sources to prefer when selecting a product image. First source with images wins. Default: ["dm", "rossmann", "mueller"]',
               },
             },
           ],
@@ -166,13 +176,14 @@ export const ProductAggregations: CollectionConfig = {
           label: 'Output',
           fields: [
             {
-              name: 'product',
+              name: 'products',
               type: 'relationship',
               relationTo: 'products',
-              label: 'Aggregated Product',
+              hasMany: true,
+              label: 'Aggregated Products',
               admin: {
                 readOnly: true,
-                description: 'The product created or updated by this aggregation',
+                description: 'Products created or updated by this aggregation',
               },
             },
           ],

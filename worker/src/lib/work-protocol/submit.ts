@@ -232,6 +232,8 @@ interface SubmitProductAggregationBody {
       brandName?: string
       sourceCategoryId?: number
       ingredientNames?: string[]
+      selectedImageUrl?: string
+      selectedImageAlt?: string | null
     } | null
     classification?: {
       description: string
@@ -719,6 +721,12 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
   let errors = (job.errors as number) ?? 0
   let tokensUsed = (job.tokensUsed as number) ?? 0
 
+  // Accumulate product IDs from previous batches
+  const existingProductIds = ((job.products ?? []) as unknown[]).map((p: unknown) =>
+    typeof p === 'object' && p !== null && 'id' in p ? (p as { id: number }).id : p as number,
+  )
+  const productIds = new Set<number>(existingProductIds)
+
   for (const result of results) {
     if (result.error || !result.aggregated) {
       errors++
@@ -753,7 +761,11 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         }
       }
 
-      // Update progress with latest product
+      if (persistResult.productId) {
+        productIds.add(persistResult.productId)
+      }
+
+      // Update progress with accumulated products
       await payload.update({
         collection: 'product-aggregations',
         id: jobId,
@@ -761,7 +773,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
           aggregated,
           errors,
           tokensUsed,
-          product: persistResult.productId || undefined,
+          products: [...productIds],
           ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
         },
       })

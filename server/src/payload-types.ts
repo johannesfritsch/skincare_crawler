@@ -272,6 +272,32 @@ export interface Media {
   height?: number | null;
   focalX?: number | null;
   focalY?: number | null;
+  sizes?: {
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    detail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -757,6 +783,18 @@ export interface ProductAggregation {
    */
   language?: ('de' | 'en') | null;
   /**
+   * Ordered list of sources to prefer when selecting a product image. First source with images wins. Default: ["dm", "rossmann", "mueller"]
+   */
+  imageSourcePriority?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
    * Total products to aggregate
    */
   total?: number | null;
@@ -775,9 +813,9 @@ export interface ProductAggregation {
   startedAt?: string | null;
   completedAt?: string | null;
   /**
-   * The product created or updated by this aggregation
+   * Products created or updated by this aggregation
    */
-  product?: (number | null) | Product;
+  products?: (number | Product)[] | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -802,6 +840,10 @@ export interface Product {
   brand?: (number | null) | Brand;
   category?: (number | null) | Category;
   productType?: (number | null) | ProductType;
+  /**
+   * Primary product image (aggregated from source products)
+   */
+  image?: (number | null) | Media;
   publishedAt?: string | null;
   /**
    * Product ingredients (aggregated from sources)
@@ -1510,6 +1552,40 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+  sizes?:
+    | T
+    | {
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        detail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -1615,6 +1691,7 @@ export interface ProductsSelect<T extends boolean = true> {
   brand?: T;
   category?: T;
   productType?: T;
+  image?: T;
   publishedAt?: T;
   ingredients?:
     | T
@@ -1792,13 +1869,14 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   type?: T;
   gtins?: T;
   language?: T;
+  imageSourcePriority?: T;
   total?: T;
   aggregated?: T;
   errors?: T;
   tokensUsed?: T;
   startedAt?: T;
   completedAt?: T;
-  product?: T;
+  products?: T;
   events?: T;
   lastCheckedSourceId?: T;
   updatedAt?: T;

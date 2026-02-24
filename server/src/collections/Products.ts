@@ -64,6 +64,15 @@ export const Products: CollectionConfig = {
               label: 'Product Type',
             },
             {
+              name: 'image',
+              type: 'upload',
+              relationTo: 'media',
+              label: 'Product Image',
+              admin: {
+                description: 'Primary product image (aggregated from source products)',
+              },
+            },
+            {
               name: 'publishedAt',
               type: 'date',
               label: 'Published At',
@@ -305,7 +314,7 @@ export const Products: CollectionConfig = {
               name: 'aggregations',
               type: 'join',
               collection: 'product-aggregations',
-              on: 'product',
+              on: 'products',
               admin: { allowCreate: false },
             },
           ],

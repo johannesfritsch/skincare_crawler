@@ -74,7 +74,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 | Collection | Purpose |
 |------------|---------|
-| `products` | Unified product records (name, GTIN, brand, category, productType, ingredients, attributes, claims) |
+| `products` | Unified product records (name, GTIN, brand, category, productType, image, ingredients, attributes, claims) |
 | `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann) |
 | `brands` | Brand names |
 | `categories` | Hierarchical product categories (parent ref) |
@@ -104,7 +104,7 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
 | `video-discoveries` | channelUrl, created/existing counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
-| `product-aggregations` | type (all/selected_gtins), language, aggregated/errors/tokens |
+| `product-aggregations` | type (all/selected_gtins), language, imageSourcePriority, aggregated/errors/tokens |
 
 ### System
 
@@ -125,7 +125,7 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 3. Worker runs handler (e.g. scrapes product pages via Playwright driver)
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
-6. Product aggregation merges source-products by GTIN → classifyProduct (LLM) → unified products
+6. Product aggregation merges source-products by GTIN → selects best image (by source priority) → downloads & uploads to media → classifyProduct (LLM) → unified products
 7. Video processing: download → scene detect → barcode/visual match → audio transcription (Deepgram) → LLM correction → transcript split → sentiment analysis (LLM) → video-mentions
 ```
 

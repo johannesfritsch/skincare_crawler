@@ -15,5 +15,30 @@ export const Media: CollectionConfig = {
       required: true,
     },
   ],
-  upload: true,
+  upload: {
+    imageSizes: [
+      {
+        name: 'thumbnail',
+        width: 96,
+        height: 96,
+        fit: 'inside',
+        withoutEnlargement: true,
+      },
+      {
+        name: 'card',
+        width: 320,
+        height: 240,
+        fit: 'inside',
+        withoutEnlargement: true,
+      },
+      {
+        name: 'detail',
+        width: 780,
+        height: 780,
+        fit: 'inside',
+        withoutEnlargement: true,
+      },
+    ],
+    adminThumbnail: 'thumbnail',
+  },
 }

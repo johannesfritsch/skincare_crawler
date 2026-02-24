@@ -2,6 +2,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { desc, eq, gt, sql } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import Image from 'next/image'
 import Link from 'next/link'
 import { Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -32,12 +33,14 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
       brandName: t.brands.name,
       avgRating: sql<number>`round(avg(${t.source_products.rating})::numeric, 1)`,
       totalReviews: sql<number>`sum(${t.source_products.ratingNum})::int`,
+      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
     })
     .from(t.products)
     .innerJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
+    .leftJoin(t.media, eq(t.products.image, t.media.id))
     .where(eq(t.products.productType, productType.id))
-    .groupBy(t.products.id, t.products.name, t.products.gtin, t.brands.name)
+    .groupBy(t.products.id, t.products.name, t.products.gtin, t.brands.name, sql`${t.media}.sizes_thumbnail_url`, t.media.url)
     .orderBy(desc(sql`avg(${t.source_products.rating})`))
     .limit(50)
 
@@ -65,6 +68,24 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
             }`}>
               {i + 1}
             </span>
+
+            {/* Thumbnail */}
+            <div className="h-10 w-10 shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden p-1">
+              {p.imageUrl ? (
+                <Image
+                  src={p.imageUrl}
+                  alt={p.name ?? 'Product'}
+                  width={96}
+                  height={96}
+                  className="h-full w-full object-contain"
+                  sizes="40px"
+                />
+              ) : (
+                <span className="text-sm font-semibold text-muted-foreground/30">
+                  {(p.name ?? '?')[0]?.toUpperCase()}
+                </span>
+              )}
+            </div>
 
             {/* Product info */}
             <div className="flex-1 min-w-0">

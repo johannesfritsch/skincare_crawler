@@ -2,6 +2,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { desc, eq, ilike, or, sql } from 'drizzle-orm'
 import React, { Suspense } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import {
   Table,
@@ -31,6 +32,8 @@ export default async function ProductsPage({ searchParams }: Props) {
   const db = payload.db.drizzle
   const { products, brands, product_types } = payload.db.tables
 
+  const { media } = payload.db.tables
+
   // Build base query
   let query = db
     .select({
@@ -41,10 +44,12 @@ export default async function ProductsPage({ searchParams }: Props) {
       brandName: brands.name,
       productTypeName: product_types.name,
       createdAt: products.createdAt,
+      imageUrl: sql<string | null>`coalesce(${media}.sizes_thumbnail_url, ${media}.url)`,
     })
     .from(products)
     .leftJoin(brands, eq(products.brand, brands.id))
     .leftJoin(product_types, eq(products.productType, product_types.id))
+    .leftJoin(media, eq(products.image, media.id))
     .orderBy(desc(products.createdAt))
     .limit(50)
     .$dynamic()
@@ -95,7 +100,25 @@ export default async function ProductsPage({ searchParams }: Props) {
           <Link key={row.id} href={`/products/${row.gtin}`}>
             <Card className="transition-colors hover:bg-muted/50">
               <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  {/* Thumbnail */}
+                  <div className="h-10 w-10 shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden p-1">
+                    {row.imageUrl ? (
+                      <Image
+                        src={row.imageUrl}
+                        alt={row.name ?? 'Product'}
+                        width={96}
+                        height={96}
+                        className="h-full w-full object-contain"
+                        sizes="40px"
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold text-muted-foreground/30">
+                        {(row.name ?? '?')[0]?.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">
                       {row.name || <span className="text-muted-foreground">Unnamed</span>}

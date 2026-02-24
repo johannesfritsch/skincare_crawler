@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import Link from 'next/link'
 import { Star } from 'lucide-react'
 
@@ -8,6 +9,7 @@ export interface ProductCardProps {
   productTypeName?: string | null
   avgRating?: number | null
   totalReviews?: number | null
+  imageUrl?: string | null
 }
 
 export function ProductCard({
@@ -17,16 +19,28 @@ export function ProductCard({
   productTypeName,
   avgRating,
   totalReviews,
+  imageUrl,
 }: ProductCardProps) {
   return (
     <Link
       href={`/products/${gtin}`}
       className="snap-start shrink-0 w-40 rounded-xl border bg-card p-3 transition-colors active:bg-muted/60"
     >
-      <div className="aspect-[4/3] rounded-lg bg-muted/50 flex items-center justify-center mb-2.5">
-        <span className="text-2xl font-semibold text-muted-foreground/30">
-          {(name ?? '?')[0]?.toUpperCase()}
-        </span>
+      <div className="aspect-[4/3] rounded-lg bg-muted/50 flex items-center justify-center mb-2.5 overflow-hidden p-2">
+        {imageUrl ? (
+          <Image
+            src={imageUrl}
+            alt={name ?? 'Product image'}
+            width={320}
+            height={240}
+            className="h-full w-full object-contain"
+            sizes="160px"
+          />
+        ) : (
+          <span className="text-2xl font-semibold text-muted-foreground/30">
+            {(name ?? '?')[0]?.toUpperCase()}
+          </span>
+        )}
       </div>
       <p className="text-sm font-medium leading-tight line-clamp-2">{name}</p>
       <p className="text-xs text-muted-foreground mt-0.5 truncate">{brandName ?? 'No brand'}</p>

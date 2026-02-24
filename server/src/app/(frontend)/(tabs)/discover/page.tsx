@@ -23,11 +23,13 @@ export default async function DiscoverPage() {
       productTypeName: t.product_types.name,
       avgRating: sql<number>`round(avg(${t.source_products.rating})::numeric, 1)`,
       totalReviews: sql<number>`sum(${t.source_products.ratingNum})::int`,
+      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`,
     })
     .from(t.products)
     .innerJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
+    .leftJoin(t.media, eq(t.products.image, t.media.id))
     .where(gt(t.source_products.rating, 0))
     .groupBy(
       t.products.id,
@@ -35,6 +37,8 @@ export default async function DiscoverPage() {
       t.products.gtin,
       t.brands.name,
       t.product_types.name,
+      sql`${t.media}.sizes_card_url`,
+      t.media.url,
     )
     .orderBy(desc(sql`avg(${t.source_products.rating})`))
     .limit(100)
@@ -60,11 +64,13 @@ export default async function DiscoverPage() {
       productTypeName: t.product_types.name,
       avgRating: sql<number>`round(avg(${t.source_products.rating})::numeric, 1)`,
       totalReviews: sql<number>`sum(${t.source_products.ratingNum})::int`,
+      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`,
     })
     .from(t.products)
     .leftJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
+    .leftJoin(t.media, eq(t.products.image, t.media.id))
     .where(isNotNull(t.products.name))
     .groupBy(
       t.products.id,
@@ -72,6 +78,8 @@ export default async function DiscoverPage() {
       t.products.gtin,
       t.brands.name,
       t.product_types.name,
+      sql`${t.media}.sizes_card_url`,
+      t.media.url,
     )
     .orderBy(desc(t.products.createdAt))
     .limit(12)
