@@ -152,7 +152,7 @@ declare global {
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
-/** 16:9 YouTube player container — uses a ref so only one DOM node exists */
+/** 16:9 YouTube player container */
 function PlayerEmbed({
   ytVideoId,
   playerElRef,
@@ -168,7 +168,7 @@ function PlayerEmbed({
     )
   }
   return (
-    <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+    <div className="relative w-full aspect-video">
       <div ref={playerElRef} className="absolute inset-0 w-full h-full" />
     </div>
   )
@@ -359,7 +359,6 @@ export function VideoDetailClient({
 }: VideoDetailClientProps) {
   const playerRef = useRef<YTPlayer | null>(null)
   const playerElRef = useRef<HTMLDivElement | null>(null)
-  const playerContainerRef = useRef<HTMLDivElement | null>(null)
   const [playerReady, setPlayerReady] = useState(false)
 
   const ytVideoId = externalUrl ? extractYouTubeId(externalUrl) : null
@@ -399,8 +398,8 @@ export function VideoDetailClient({
         playerRef.current.seekTo(seconds, true)
         playerRef.current.playVideo()
       }
-      // On mobile, scroll the player into view
-      playerContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // On desktop the page body can scroll; ensure the player is visible
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     },
     [playerReady],
   )
@@ -422,14 +421,12 @@ export function VideoDetailClient({
     (a, b) => (a.timestampStart ?? 0) - (b.timestampStart ?? 0),
   )
 
-  // Unique product count
   const uniqueProducts = new Set(mentions.map((m) => m.productId)).size
 
   const formattedDate = publishedAt
     ? new Date(publishedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : null
 
-  /* Mentions list content (shared between mobile & desktop) */
   const mentionsContent = (
     <>
       {snippets.length === 0 ? (
@@ -448,53 +445,80 @@ export function VideoDetailClient({
   )
 
   /*
-   * Single responsive layout using CSS grid:
-   * - Mobile: single column (player → info → mentions), content scrolls
-   * - Desktop: two columns (mentions left, player+info right)
+   * Layout strategy:
    *
-   * The player DOM node is always rendered once — no conditional JS.
+   * MOBILE (< md):
+   *   The component uses `fixed inset-0` to escape the normal document flow
+   *   and create its own viewport-filling container. This is necessary because
+   *   all ancestor elements use `min-h-[100dvh]` (not a fixed height) to allow
+   *   body scroll on other pages — meaning the flex-1/min-h-0 chain cannot
+   *   constrain height. A top offset accounts for the sticky header
+   *   (h-12 + safe-area-inset-top).
+   *
+   *   Inside this fixed container, a flex column places the player at the top
+   *   (shrink-0) and the scrollable content fills the rest (flex-1 overflow-y-auto).
+   *
+   * DESKTOP (>= md):
+   *   Normal flow. Two-column CSS grid inside the parent layout.
+   *   Left column: scrollable mentions. Right column: player + video info.
+   */
+
+  const videoInfoProps = {
+    title,
+    creatorName,
+    channelPlatform,
+    formattedDate,
+    viewCount,
+    likeCount,
+    externalUrl,
+    mentionCount: uniqueProducts,
+  } as const
+
+  /*
+   * The outer wrapper uses `fixed` on mobile to create a viewport-filling
+   * container that is independent of the ancestor scroll chain. On desktop
+   * it switches to normal-flow grid via `md:relative md:inset-auto`.
+   *
+   * The header is 3rem (h-12) + env(safe-area-inset-top). On mobile the
+   * fixed container starts just below it. On desktop the offsets are reset
+   * and the grid sits inside the normal layout.
    */
   return (
-    <div className="-mx-4 -mt-4 -mb-4 flex-1 min-h-0 grid grid-cols-1 grid-rows-[auto_1fr] md:grid-cols-[1fr_42%] md:grid-rows-[1fr] md:gap-6 md:px-6 md:pt-5 md:pb-6">
-      {/* Player + info — row 1 on mobile, col 2 on desktop */}
-      <div ref={playerContainerRef} className="shrink-0 md:order-2 md:flex md:flex-col md:gap-4 scroll-mt-[calc(env(safe-area-inset-top,0px)+3.25rem)]">
+    <div
+      className={[
+        /* Mobile: fixed container filling the viewport below the header */
+        'max-md:fixed max-md:inset-0 max-md:top-[calc(env(safe-area-inset-top,0px)+3rem)] max-md:z-30',
+        'max-md:flex max-md:flex-col bg-background',
+        /* Desktop: normal-flow two-column grid */
+        'md:-mx-4 md:-mt-4 md:-mb-4 md:flex-1 md:min-h-0',
+        'md:grid md:grid-cols-[1fr_42%] md:grid-rows-[1fr] md:gap-6 md:px-6 md:pt-5 md:pb-6',
+      ].join(' ')}
+    >
+      {/* ── Player + info column ── */}
+      {/* Mobile: shrink-0 at the top of the flex column.   */}
+      {/* Desktop: right grid column (order-2).             */}
+      <div className="shrink-0 md:order-2 md:flex md:flex-col md:gap-4">
         <div className="bg-black md:rounded-xl md:overflow-hidden">
           <PlayerEmbed ytVideoId={ytVideoId} playerElRef={playerElRef} />
         </div>
 
-        {/* Info: hidden on mobile (shown inside scroll area), visible on desktop */}
+        {/* Desktop-only: video info below the player */}
         <div className="hidden md:block px-1">
-          <VideoInfo
-            title={title}
-            creatorName={creatorName}
-            channelPlatform={channelPlatform}
-            formattedDate={formattedDate}
-            viewCount={viewCount}
-            likeCount={likeCount}
-            externalUrl={externalUrl}
-            mentionCount={uniqueProducts}
-          />
+          <VideoInfo {...videoInfoProps} />
         </div>
       </div>
 
-      {/* Scrollable content — row 2 on mobile, col 1 on desktop */}
-      <div className="min-h-0 overflow-y-auto md:order-1">
-        {/* Info: visible on mobile only */}
+      {/* ── Scrollable content ── */}
+      {/* Mobile: flex-1 fills remaining height, scrolls independently.    */}
+      {/* Desktop: left grid column (order-1), independently scrollable.   */}
+      <div className="flex-1 min-h-0 overflow-y-auto md:order-1">
+        {/* Mobile-only: video info + divider */}
         <div className="md:hidden px-4 pt-3 pb-2">
-          <VideoInfo
-            title={title}
-            creatorName={creatorName}
-            channelPlatform={channelPlatform}
-            formattedDate={formattedDate}
-            viewCount={viewCount}
-            likeCount={likeCount}
-            externalUrl={externalUrl}
-            mentionCount={uniqueProducts}
-          />
+          <VideoInfo {...videoInfoProps} />
           <div className="h-px bg-border mt-3" />
         </div>
 
-        {/* Desktop header */}
+        {/* Desktop-only: section header */}
         <div className="hidden md:flex items-center gap-2 mb-3">
           <h2 className="text-sm font-semibold">Product Mentions</h2>
           {uniqueProducts > 0 && (
