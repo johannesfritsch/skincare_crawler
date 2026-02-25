@@ -17,6 +17,8 @@ interface EvidenceEntry {
   sourceIndex: number
   type: 'ingredient' | 'descriptionSnippet'
   snippet?: string
+  start?: number
+  end?: number
   ingredientNames?: string[]
 }
 
@@ -73,7 +75,7 @@ Then identify which product attributes and claims apply, providing evidence for 
 - Only include attributes/claims that are actually supported by evidence.
 - For each, provide the 0-based sourceIndex and evidence type.
 - type "ingredient": list the specific ingredient names from the ingredient list that triggered it.
-- type "descriptionSnippet": provide the exact verbatim snippet from the description text. Copy it character-for-character so it can be located in the original text.
+- type "descriptionSnippet": provide the exact verbatim snippet from the description text. Copy it character-for-character. Also provide "start" and "end" as 0-based character offsets into the source's description text (start is inclusive, end is exclusive), so the snippet equals description.substring(start, end).
 - One entry per (attribute/claim, source) combination.
 
 Return ONLY JSON:
@@ -84,7 +86,7 @@ Return ONLY JSON:
     { "attribute": "containsParabens", "sourceIndex": 0, "type": "ingredient", "ingredientNames": ["Methylparaben", "Propylparaben"] }
   ],
   "productClaims": [
-    { "claim": "vegan", "sourceIndex": 0, "type": "descriptionSnippet", "snippet": "100% vegan" }
+    { "claim": "vegan", "sourceIndex": 0, "type": "descriptionSnippet", "snippet": "100% vegan", "start": 42, "end": 52 }
   ]
 }
 
@@ -168,8 +170,8 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   const result = parsed as {
     description?: string
     productType?: string
-    productAttributes?: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
-    productClaims?: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
+    productAttributes?: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }>
+    productClaims?: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }>
   }
 
   let productType = result.productType ?? 'other'
@@ -205,6 +207,8 @@ export async function classifyProduct(sources: SourceInput[], language: string =
       sourceIndex: entry.sourceIndex,
       type: entry.type as 'ingredient' | 'descriptionSnippet',
       snippet: entry.snippet,
+      start: entry.start,
+      end: entry.end,
       ingredientNames: entry.ingredientNames,
     })),
     productClaims: rawClaims.map((entry) => ({
@@ -212,6 +216,8 @@ export async function classifyProduct(sources: SourceInput[], language: string =
       sourceIndex: entry.sourceIndex,
       type: entry.type as 'ingredient' | 'descriptionSnippet',
       snippet: entry.snippet,
+      start: entry.start,
+      end: entry.end,
       ingredientNames: entry.ingredientNames,
     })),
     tokensUsed,

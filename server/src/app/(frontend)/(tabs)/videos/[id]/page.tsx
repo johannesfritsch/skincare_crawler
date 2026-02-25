@@ -7,6 +7,7 @@ import { VideoDetailClient, type VideoMentionItem, type VideoQuote } from '@/com
 
 interface Props {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ snippetId?: string }>
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -26,8 +27,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-export default async function VideoDetailPage({ params }: Props) {
+export default async function VideoDetailPage({ params, searchParams }: Props) {
   const { id } = await params
+  const { snippetId: snippetIdParam } = await searchParams
+  const initialSnippetId = snippetIdParam ? Number(snippetIdParam) : null
   const numericId = Number(id)
   if (!id || isNaN(numericId)) notFound()
 
@@ -167,6 +170,7 @@ export default async function VideoDetailPage({ params }: Props) {
       likeCount={video.likeCount as number | null}
       externalUrl={video.externalUrl as string | null}
       mentions={mentions}
+      initialSnippetId={initialSnippetId}
     />
   )
 }

@@ -54,6 +54,8 @@ export interface VideoDetailClientProps {
   likeCount: number | null
   externalUrl: string | null
   mentions: VideoMentionItem[]
+  /** When set, the snippet with this ID will be auto-opened and its timestamp seeked on load */
+  initialSnippetId?: number | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,8 +308,10 @@ function SnippetBlock({
   snippet,
   seekTo,
   defaultOpen,
+  snippetBlockRef,
 }: {
   snippet: {
+    snippetId: number
     timestampStart: number | null
     timestampEnd: number | null
     transcript: string | null
@@ -315,13 +319,14 @@ function SnippetBlock({
   }
   seekTo: (seconds: number) => void
   defaultOpen?: boolean
+  snippetBlockRef?: RefObject<HTMLDivElement | null>
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false)
   const totalQuotes = snippet.mentions.reduce((sum, m) => sum + m.quotes.length, 0)
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-xl border bg-card overflow-hidden transition-colors">
+      <div ref={snippetBlockRef} className="rounded-xl border bg-card overflow-hidden transition-colors">
         {/* ── Header: always visible ── */}
         <CollapsibleTrigger asChild>
           <button className="w-full text-left px-3.5 py-3 flex items-center gap-3 hover:bg-muted/40 transition-colors">
@@ -478,10 +483,13 @@ export function VideoDetailClient({
   likeCount,
   externalUrl,
   mentions,
+  initialSnippetId,
 }: VideoDetailClientProps) {
   const playerRef = useRef<YTPlayer | null>(null)
   const playerElRef = useRef<HTMLDivElement | null>(null)
   const [playerReady, setPlayerReady] = useState(false)
+  const initialSeekDone = useRef(false)
+  const targetSnippetRef = useRef<HTMLDivElement | null>(null)
 
   const ytVideoId = externalUrl ? extractYouTubeId(externalUrl) : null
 
@@ -526,15 +534,33 @@ export function VideoDetailClient({
     [playerReady],
   )
 
+  /* Auto-seek to the target snippet when arriving from a product page */
+  useEffect(() => {
+    if (!initialSnippetId || !playerReady || initialSeekDone.current) return
+    initialSeekDone.current = true
+
+    // Find the timestamp for this snippet from mentions data
+    const targetMention = mentions.find(m => m.snippetId === initialSnippetId)
+    if (targetMention?.timestampStart != null) {
+      playerRef.current?.seekTo(targetMention.timestampStart, true)
+      playerRef.current?.playVideo()
+    }
+
+    // Scroll the snippet block into view on mobile (after a short delay for DOM)
+    setTimeout(() => {
+      targetSnippetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 300)
+  }, [initialSnippetId, playerReady, mentions])
+
   /* Group mentions by snippet */
   const snippetMap = new Map<
     number,
-    { timestampStart: number | null; timestampEnd: number | null; transcript: string | null; mentions: VideoMentionItem[] }
+    { snippetId: number; timestampStart: number | null; timestampEnd: number | null; transcript: string | null; mentions: VideoMentionItem[] }
   >()
   for (const m of mentions) {
     let entry = snippetMap.get(m.snippetId)
     if (!entry) {
-      entry = { timestampStart: m.timestampStart, timestampEnd: m.timestampEnd, transcript: m.snippetTranscript, mentions: [] }
+      entry = { snippetId: m.snippetId, timestampStart: m.timestampStart, timestampEnd: m.timestampEnd, transcript: m.snippetTranscript, mentions: [] }
       snippetMap.set(m.snippetId, entry)
     }
     entry.mentions.push(m)
@@ -558,14 +584,18 @@ export function VideoDetailClient({
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {snippets.map((snippet, idx) => (
-            <SnippetBlock
-              key={idx}
-              snippet={snippet}
-              seekTo={seekTo}
-              defaultOpen={idx === 0}
-            />
-          ))}
+          {snippets.map((snippet, idx) => {
+            const isTarget = initialSnippetId != null && snippet.snippetId === initialSnippetId
+            return (
+              <SnippetBlock
+                key={snippet.snippetId}
+                snippet={snippet}
+                seekTo={seekTo}
+                defaultOpen={isTarget || (initialSnippetId == null && idx === 0)}
+                snippetBlockRef={isTarget ? targetSnippetRef : undefined}
+              />
+            )
+          })}
         </div>
       )}
     </>

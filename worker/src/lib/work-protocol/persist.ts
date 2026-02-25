@@ -1051,7 +1051,7 @@ export async function persistProductAggregationResult(
       }
     }
 
-    const mapEvidence = (entry: { sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }) => {
+    const mapEvidence = (entry: { sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }) => {
       const sourceProductId = classifySourceProductIds?.[entry.sourceIndex]
       const result: Record<string, unknown> = {
         sourceProduct: sourceProductId,
@@ -1059,6 +1059,8 @@ export async function persistProductAggregationResult(
       }
       if (entry.type === 'descriptionSnippet' && entry.snippet) {
         result.snippet = entry.snippet
+        if (entry.start != null) result.start = entry.start
+        if (entry.end != null) result.end = entry.end
       }
       if (entry.type === 'ingredient' && entry.ingredientNames) {
         result.ingredientNames = entry.ingredientNames.map((name) => ({ name }))

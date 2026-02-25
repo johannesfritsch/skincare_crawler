@@ -137,7 +137,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
-| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence) |
+| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets) |
 
 ## 7 Job Types — Detailed
 
@@ -337,7 +337,7 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 | `matchCategory(client, breadcrumb, logger)` | category breadcrumb string | `{ categoryId, tokensUsed }` | `persistProductAggregationResult` |
 | `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `persistProductAggregationResult` |
 | `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `persistVideoProcessingResult` |
-| `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, productAttributes[], productClaims[], tokensUsed }` | `handleProductAggregation` |
+| `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, productAttributes[], productClaims[], tokensUsed }` — evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `handleProductAggregation` |
 | `correctTranscript(rawTranscript, words, brands, products)` | raw STT transcript + brand/product names | `{ correctedTranscript, corrections[], tokensUsed }` | `handleVideoProcessing` |
 | `analyzeSentiment(pre, transcript, post, products)` | transcript segments + product info | `{ products[]: { quotes[], overallSentiment, score }, tokensUsed }` | `handleVideoProcessing` |
 
