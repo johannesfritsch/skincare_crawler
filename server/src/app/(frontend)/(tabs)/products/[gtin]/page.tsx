@@ -28,7 +28,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { StoreLogo, StoreIcon } from '@/components/store-logos'
+import { StoreLogo } from '@/components/store-logos'
 import { Sparkline } from '@/components/sparkline'
 import { ProductVideoList, type ProductVideoItem } from '@/components/product-video-list'
 
@@ -399,7 +399,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <div className="flex items-center gap-1.5 ml-1 pl-2.5 border-l border-amber-300/30">
                     {ratedStores.map((sp) => (
                       <div key={sp.id} className="shrink-0 flex items-center">
-                        <StoreIcon source={sp.source ?? ''} className="!h-5" />
+                        <StoreLogo source={sp.source ?? ''} className="!h-5" />
                       </div>
                     ))}
                   </div>
