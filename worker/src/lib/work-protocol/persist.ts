@@ -915,11 +915,11 @@ export async function persistProductAggregationResult(
 
   const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
 
-  // Merge source product IDs
+  // Merge source product IDs (normalize to numbers for reliable dedup)
   const existingSourceIds = ((product.sourceProducts ?? []) as unknown[]).map((sp: unknown) =>
-    typeof sp === 'object' && sp !== null && 'id' in sp ? (sp as { id: number }).id : sp,
-  ) as number[]
-  const allIds = [...new Set([...existingSourceIds, ...sourceProductIds])]
+    Number(typeof sp === 'object' && sp !== null && 'id' in sp ? (sp as { id: number }).id : sp),
+  ).filter((id) => !isNaN(id))
+  const allIds = [...new Set([...existingSourceIds, ...sourceProductIds.map(Number)])]
 
   const updateData: Record<string, unknown> = {
     lastAggregatedAt: new Date().toISOString(),
