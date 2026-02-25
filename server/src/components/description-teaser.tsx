@@ -25,7 +25,7 @@ export function DescriptionTeaser({ description }: DescriptionTeaserProps) {
 
   return (
     <>
-      <p className="text-xs leading-relaxed text-muted-foreground mt-1">
+      <p className="text-xs leading-relaxed text-muted-foreground mt-5">
         {teaser}
         {needsTruncation && (
           <button

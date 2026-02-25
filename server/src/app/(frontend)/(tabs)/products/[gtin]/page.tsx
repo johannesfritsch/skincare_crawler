@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { StoreLogo } from '@/components/store-logos'
 import { Sparkline } from '@/components/sparkline'
-import { ProductVideoList, type ProductVideoItem } from '@/components/product-video-list'
+import { ProductVideoList, type ProductVideoItem, type ProductVideoQuote } from '@/components/product-video-list'
 import { TraitChipGroup, type TraitItem } from '@/components/trait-chip'
 import { ATTRIBUTE_META, CLAIM_META } from '@/lib/product-traits'
 import { AccordionSection } from '@/components/accordion-section'
@@ -28,6 +28,43 @@ import { DescriptionTeaser } from '@/components/description-teaser'
 function formatPrice(cents: number | null): string {
   if (cents == null) return '—'
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`
+}
+
+/* ── Score tier system (mirrors score-sheet.tsx for consistent styling) ── */
+
+type ScoreTier = 'low' | 'mid' | 'good' | 'great' | 'gold'
+
+function scoreTier(score: number): ScoreTier {
+  if (score >= 9)   return 'gold'
+  if (score >= 7.5) return 'great'
+  if (score >= 5)   return 'good'
+  if (score >= 3)   return 'mid'
+  return 'low'
+}
+
+const tierCardBg: Record<ScoreTier, string> = {
+  low:   'bg-red-50 border-red-200/60',
+  mid:   'bg-amber-50 border-amber-200/60',
+  good:  'bg-emerald-50 border-emerald-200/60',
+  great: 'bg-emerald-50 border-emerald-200/60',
+  gold:  'bg-amber-50/60 score-gold-border',
+}
+
+const tierTextColor: Record<ScoreTier, string> = {
+  low:   'text-red-500',
+  mid:   'text-amber-500',
+  good:  'text-emerald-600',
+  great: 'text-emerald-600',
+  gold:  'score-gold-shimmer',
+}
+
+function storeLabel(slug: string | null): string {
+  switch (slug) {
+    case 'dm': return 'dm'
+    case 'rossmann': return 'Rossmann'
+    case 'mueller': return 'Müller'
+    default: return slug ?? 'Unknown'
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -118,7 +155,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     }).from(t.source_products)
       .where(eq(t.source_products.gtin, gtin)),
 
-    /* Video mentions for this product (with top quote per mention) */
+    /* Video mentions for this product */
     db.select({
       mentionId: t.video_mentions.id,
       overallSentiment: t.video_mentions.overallSentiment,
@@ -139,22 +176,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         FROM media m WHERE m.id = ${t.channels}.image_id LIMIT 1
       )`,
       creatorName: t.creators.name,
-      quoteCount: sql<number>`(
-        SELECT count(*) FROM video_mentions_quotes
-        WHERE video_mentions_quotes._parent_id = ${t.video_mentions.id}
-      )::int`,
-      topQuote: sql<string | null>`(
-        SELECT q.text FROM video_mentions_quotes q
-        WHERE q._parent_id = ${t.video_mentions.id}
-        ORDER BY abs(q.sentiment_score) DESC NULLS LAST
-        LIMIT 1
-      )`,
-      topQuoteSentiment: sql<string | null>`(
-        SELECT q.sentiment FROM video_mentions_quotes q
-        WHERE q._parent_id = ${t.video_mentions.id}
-        ORDER BY abs(q.sentiment_score) DESC NULLS LAST
-        LIMIT 1
-      )`,
     }).from(t.video_mentions)
       .innerJoin(t.video_snippets, eq(t.video_mentions.videoSnippet, t.video_snippets.id))
       .innerJoin(t.videos, eq(t.video_snippets.video, t.videos.id))
@@ -192,8 +213,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   /* ── Ingredient names for attributes & claims evidence ── */
   const attrIds = attributes.map(a => a.id as number).filter(Boolean)
   const claimIds = claims.map(c => c.id as number).filter(Boolean)
+  const mentionIds = videoMentions.map(m => m.mentionId as number).filter(Boolean)
 
-  const [attrIngredientRows, claimIngredientRows] = await Promise.all([
+  const [attrIngredientRows, claimIngredientRows, quoteRows] = await Promise.all([
     attrIds.length > 0
       ? db.select({
           parentId: t.products_product_attributes_ingredient_names._parentID,
@@ -208,6 +230,16 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         }).from(t.products_product_claims_ingredient_names)
           .where(sql`${t.products_product_claims_ingredient_names._parentID} IN (${sql.join(claimIds.map(id => sql`${id}`), sql`, `)})`)
       : Promise.resolve([]),
+    mentionIds.length > 0
+      ? db.select({
+          mentionId: t.video_mentions_quotes._parentID,
+          text: t.video_mentions_quotes.text,
+          sentiment: t.video_mentions_quotes.sentiment,
+          sentimentScore: t.video_mentions_quotes.sentimentScore,
+        }).from(t.video_mentions_quotes)
+          .where(sql`${t.video_mentions_quotes._parentID} IN (${sql.join(mentionIds.map(id => sql`${id}`), sql`, `)})`)
+          .orderBy(sql`abs(${t.video_mentions_quotes.sentimentScore}) DESC NULLS LAST`)
+      : Promise.resolve([] as { mentionId: unknown; text: unknown; sentiment: unknown; sentimentScore: unknown }[]),
   ])
 
   // Group ingredient names by parent attribute/claim ID
@@ -222,6 +254,18 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     const pid = row.parentId as number
     if (!claimIngredientMap.has(pid)) claimIngredientMap.set(pid, [])
     if (row.name) claimIngredientMap.get(pid)!.push(row.name as string)
+  }
+
+  // Group quotes by mention ID
+  const quotesByMention = new Map<number, ProductVideoQuote[]>()
+  for (const row of quoteRows) {
+    const mid = row.mentionId as number
+    if (!quotesByMention.has(mid)) quotesByMention.set(mid, [])
+    quotesByMention.get(mid)!.push({
+      text: row.text as string,
+      sentiment: row.sentiment as string | null,
+      sentimentScore: row.sentimentScore as number | null,
+    })
   }
 
   /* ── Price history per source ── */
@@ -272,11 +316,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     channelPlatform: m.channelPlatform as string | null,
     overallSentiment: m.overallSentiment as string | null,
     overallSentimentScore: m.overallSentimentScore as number | null,
-    quoteCount: m.quoteCount,
     timestampStart: m.timestampStart as number | null,
     snippetId: m.snippetId as number | null,
-    topQuote: m.topQuote ?? null,
-    topQuoteSentiment: m.topQuoteSentiment ?? null,
+    quotes: quotesByMention.get(m.mentionId as number) ?? [],
   }))
 
   /* ── Prepare sparkline data: last 12 months, oldest→newest ── */
@@ -423,7 +465,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           </div>
         )}
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* Name + brand + description */}
+          {/* Name + brand */}
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{product.name || 'Unnamed product'}</h1>
             {(product.brandName || product.productTypeName) && (
@@ -431,14 +473,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                 {[product.brandName, product.productTypeName].filter(Boolean).join(' · ')}
               </p>
             )}
-            {product.description && (
-              <DescriptionTeaser description={product.description} />
-            )}
           </div>
 
           {/* Score cards row */}
           {(totalMentions > 0 || avgStoreRating != null) && (
-            <div className="flex flex-wrap gap-2 mt-4">
+            <div className="flex flex-wrap gap-2 mt-5">
               {/* Creator score */}
               {totalMentions > 0 && avgSentiment != null && (
                 <CreatorScoreCard
@@ -460,9 +499,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
           {/* Attribute & claim chips */}
           {traitItems.length > 0 && (
-            <div className="mt-4">
+            <div className="mt-5">
               <TraitChipGroup items={traitItems} />
             </div>
+          )}
+
+          {/* Description teaser */}
+          {product.description && (
+            <DescriptionTeaser description={product.description} />
           )}
 
           {/* Category pill */}
@@ -501,7 +545,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           trailing={<span className="text-xs text-muted-foreground">{sourceProducts.length} store{sourceProducts.length !== 1 ? 's' : ''}</span>}
           defaultOpen
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="flex flex-col gap-2.5">
             {(sourceProducts as Array<{
               id: number
               source: string | null
@@ -517,64 +561,77 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                 ? (latestPrice.amount as number) - (previousPrice.amount as number)
                 : null
               const sparklineData = getSparklineData(sp.id)
+              const hasRating = sp.rating != null && sp.ratingNum != null && (sp.ratingNum as number) > 0
+              const score10 = hasRating ? Number(sp.rating) * 2 : null
+              const tier = score10 != null ? scoreTier(score10) : null
+              const Row = sp.sourceUrl ? 'a' : 'div'
+              const linkProps = sp.sourceUrl
+                ? { href: sp.sourceUrl, target: '_blank' as const, rel: 'noopener noreferrer' }
+                : {}
 
               return (
-                <div key={sp.id} className="flex items-start gap-3 rounded-xl border bg-card p-3.5">
-                  {/* Store logo — left column */}
-                  <div className="shrink-0 flex items-center justify-center w-20 pt-0.5">
-                    <StoreLogo source={sp.source ?? ''} />
+                <Row
+                  key={sp.id}
+                  {...linkProps}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl border px-3.5 py-3',
+                    tier ? tierCardBg[tier] : 'bg-card',
+                    sp.sourceUrl && 'active:opacity-80 touch-manipulation transition-colors',
+                  )}
+                >
+                  {/* Store logo in white box */}
+                  <div className="shrink-0 flex items-center justify-center rounded-lg bg-white border border-border/60 size-10 p-1.5">
+                    <StoreLogo source={sp.source ?? ''} className="!h-5" />
                   </div>
 
-                  {/* Price + sparkline — right column */}
+                  {/* Store name + price info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xl font-bold">
+                    <p className="text-sm font-medium">{storeLabel(sp.source)}</p>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-sm font-semibold">
                         {formatPrice(latestPrice?.amount as number | null)}
                       </span>
                       {priceChange != null && priceChange !== 0 && (
-                        <span className={cn('inline-flex items-center gap-0.5 text-[11px] font-medium', priceChange < 0 ? 'text-emerald-600' : 'text-red-500')}>
-                          {priceChange < 0 ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
+                        <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-medium', priceChange < 0 ? 'text-emerald-600' : 'text-red-500')}>
+                          {priceChange < 0 ? <TrendingDown className="h-2.5 w-2.5" /> : <TrendingUp className="h-2.5 w-2.5" />}
                           {formatPrice(Math.abs(priceChange))}
                         </span>
                       )}
                     </div>
-
-                    {/* Per unit price */}
                     {latestPrice?.perUnitAmount != null && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                      <p className="text-[10px] text-muted-foreground">
                         {formatPrice(latestPrice.perUnitAmount as number)} / {latestPrice.perUnitQuantity ?? 1} {latestPrice.unit ?? 'unit'}
                       </p>
                     )}
-
-                    {/* Store rating */}
-                    {sp.rating != null && sp.ratingNum != null && sp.ratingNum > 0 && (
-                      <div className="flex items-center gap-1 text-[11px] text-muted-foreground mt-1">
-                        <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                        {Number(sp.rating).toFixed(1)} ({sp.ratingNum})
-                      </div>
-                    )}
-
-                    {/* Sparkline */}
-                    {sparklineData.length >= 2 && (
-                      <div className="mt-2">
-                        <Sparkline data={sparklineData} width={100} height={24} />
-                      </div>
+                    {hasRating && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {(sp.ratingNum as number).toLocaleString()} review{sp.ratingNum !== 1 ? 's' : ''}
+                      </p>
                     )}
                   </div>
 
-                  {/* External link */}
-                  {sp.sourceUrl && (
-                    <a
-                      href={sp.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                      title={`View on ${sp.source}`}
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
+                  {/* Sparkline */}
+                  {sparklineData.length >= 2 && (
+                    <div className="shrink-0">
+                      <Sparkline data={sparklineData} width={64} height={20} />
+                    </div>
                   )}
-                </div>
+
+                  {/* Score */}
+                  {score10 != null && tier != null && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                      <span className={cn('text-lg font-bold', tierTextColor[tier])}>
+                        {score10.toFixed(1)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* External link icon */}
+                  {sp.sourceUrl && (
+                    <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                </Row>
               )
             })}
           </div>

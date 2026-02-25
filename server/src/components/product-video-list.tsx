@@ -11,6 +11,12 @@ import { cn } from '@/lib/utils'
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+export interface ProductVideoQuote {
+  text: string
+  sentiment: string | null
+  sentimentScore: number | null
+}
+
 export interface ProductVideoItem {
   videoId: number
   videoTitle: string
@@ -21,13 +27,9 @@ export interface ProductVideoItem {
   channelPlatform: string | null
   overallSentiment: string | null
   overallSentimentScore: number | null
-  quoteCount: number
   timestampStart: number | null
   snippetId: number | null
-  /** Best quote text (highest absolute sentiment score) — null when no quotes exist */
-  topQuote: string | null
-  /** Sentiment of the top quote */
-  topQuoteSentiment: string | null
+  quotes: ProductVideoQuote[]
 }
 
 /* ------------------------------------------------------------------ */
@@ -165,16 +167,23 @@ export function ProductVideoList({ videos }: { videos: ProductVideoItem[] }) {
               </div>
             </div>
 
-            {/* Quote strip — only shown when a top quote exists */}
-            {v.topQuote && (
-              <div className={cn(
-                'mx-3 mb-3 rounded-lg border px-3 py-2 flex items-start gap-2',
-                quoteBg(v.topQuoteSentiment),
-              )}>
-                <Quote className={cn('h-3 w-3 mt-0.5 shrink-0 rotate-180', v.topQuoteSentiment === 'positive' ? 'text-emerald-500' : v.topQuoteSentiment === 'negative' ? 'text-red-400' : v.topQuoteSentiment === 'mixed' ? 'text-amber-400' : 'text-muted-foreground/40')} />
-                <p className="text-[12px] leading-relaxed line-clamp-2 italic text-foreground/80">
-                  &ldquo;{v.topQuote}&rdquo;
-                </p>
+            {/* Quote strips — all quotes for this mention */}
+            {v.quotes.length > 0 && (
+              <div className="flex flex-col gap-1.5 mx-3 mb-3">
+                {v.quotes.map((q, qi) => (
+                  <div
+                    key={qi}
+                    className={cn(
+                      'rounded-lg border px-3 py-2 flex items-start gap-2',
+                      quoteBg(q.sentiment),
+                    )}
+                  >
+                    <Quote className={cn('h-3 w-3 mt-0.5 shrink-0 rotate-180', q.sentiment === 'positive' ? 'text-emerald-500' : q.sentiment === 'negative' ? 'text-red-400' : q.sentiment === 'mixed' ? 'text-amber-400' : 'text-muted-foreground/40')} />
+                    <p className="text-[12px] leading-relaxed line-clamp-2 italic text-foreground/80">
+                      &ldquo;{q.text}&rdquo;
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
           </Link>
