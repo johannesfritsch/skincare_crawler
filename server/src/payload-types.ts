@@ -709,26 +709,32 @@ export interface ProductCrawl {
    * Keep browser visible (non-headless).
    */
   debug?: boolean | null;
-  source: 'all' | 'dm' | 'rossmann' | 'mueller';
+  /**
+   * "All in Database" processes existing source-products. The other options target specific products.
+   */
   type: 'all' | 'selected_urls' | 'selected_gtins' | 'from_discovery';
   /**
-   * Product URLs to crawl, one per line
+   * Which store(s) to crawl products from.
+   */
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller') | null;
+  /**
+   * One product URL per line. The store is detected automatically from the URL.
    */
   urls?: string | null;
   /**
-   * GTINs to crawl (all sources), one per line
+   * One GTIN per line. All matching source-products across the selected store(s) will be crawled.
    */
   gtins?: string | null;
   /**
-   * Use product URLs from this completed discovery
+   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
    */
   discovery?: (number | null) | ProductDiscovery;
   /**
-   * Uncrawled Only skips already-crawled products. Re-crawl includes them.
+   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
    */
-  scope: 'uncrawled_only' | 'recrawl';
+  scope?: ('uncrawled_only' | 'recrawl') | null;
   /**
-   * Only re-crawl products older than this. Leave empty to re-crawl all.
+   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
    */
   minCrawlAge?: number | null;
   minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
@@ -1842,8 +1848,8 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   status?: T;
   itemsPerTick?: T;
   debug?: T;
-  source?: T;
   type?: T;
+  source?: T;
   urls?: T;
   gtins?: T;
   discovery?: T;

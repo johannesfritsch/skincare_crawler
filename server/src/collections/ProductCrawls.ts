@@ -56,37 +56,47 @@ export const ProductCrawls: CollectionConfig = {
           label: 'Configuration',
           fields: [
             {
+              name: 'type',
+              type: 'select',
+              label: 'What to Crawl',
+              required: true,
+              defaultValue: 'selected_urls',
+              options: [
+                { label: 'All in Database', value: 'all' },
+                { label: 'Specific URLs', value: 'selected_urls' },
+                { label: 'Specific GTINs', value: 'selected_gtins' },
+                { label: 'From Discovery Job', value: 'from_discovery' },
+              ],
+              admin: {
+                description:
+                  '"All in Database" processes existing source-products. The other options target specific products.',
+              },
+            },
+            {
               name: 'source',
               type: 'select',
-              label: 'Source',
+              label: 'Store',
               required: true,
               defaultValue: 'all',
               options: [
-                { label: 'All Sources', value: 'all' },
+                { label: 'All Stores', value: 'all' },
                 { label: 'DM', value: 'dm' },
                 { label: 'Rossmann', value: 'rossmann' },
                 { label: 'Müller', value: 'mueller' },
               ],
-            },
-            {
-              name: 'type',
-              type: 'select',
-              label: 'Products',
-              required: true,
-              defaultValue: 'all',
-              options: [
-                { label: 'All Products', value: 'all' },
-                { label: 'Selected URLs', value: 'selected_urls' },
-                { label: 'Selected GTINs', value: 'selected_gtins' },
-                { label: 'From Discovery', value: 'from_discovery' },
-              ],
+              admin: {
+                description: 'Which store(s) to crawl products from.',
+                condition: (data) =>
+                  data?.type === 'all' || data?.type === 'selected_gtins',
+              },
             },
             {
               name: 'urls',
               type: 'textarea',
               label: 'Product URLs',
               admin: {
-                description: 'Product URLs to crawl, one per line',
+                description:
+                  'One product URL per line. The store is detected automatically from the URL.',
                 condition: (data) => data?.type === 'selected_urls',
               },
             },
@@ -95,7 +105,8 @@ export const ProductCrawls: CollectionConfig = {
               type: 'textarea',
               label: 'GTINs',
               admin: {
-                description: 'GTINs to crawl (all sources), one per line',
+                description:
+                  'One GTIN per line. All matching source-products across the selected store(s) will be crawled.',
                 condition: (data) => data?.type === 'selected_gtins',
               },
             },
@@ -103,9 +114,10 @@ export const ProductCrawls: CollectionConfig = {
               name: 'discovery',
               type: 'relationship',
               relationTo: 'product-discoveries',
-              label: 'Discovery',
+              label: 'Discovery Job',
               admin: {
-                description: 'Use product URLs from this completed discovery',
+                description:
+                  'Crawl the product URLs found by this discovery. Covers all stores that the discovery found.',
                 condition: (data) => data?.type === 'from_discovery',
               },
             },
@@ -116,29 +128,33 @@ export const ProductCrawls: CollectionConfig = {
               required: true,
               defaultValue: 'uncrawled_only',
               options: [
-                { label: 'Uncrawled Only', value: 'uncrawled_only' },
-                { label: 'Re-crawl', value: 'recrawl' },
+                { label: 'Only Uncrawled', value: 'uncrawled_only' },
+                { label: 'Re-crawl All', value: 'recrawl' },
               ],
               admin: {
                 description:
-                  'Uncrawled Only skips already-crawled products. Re-crawl includes them.',
+                  '"Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.',
+                condition: (data) =>
+                  data?.type === 'all' || data?.type === 'selected_gtins',
               },
             },
             {
               type: 'row',
               admin: {
-                condition: (data) => data?.scope === 'recrawl',
+                condition: (data) =>
+                  (data?.type === 'all' || data?.type === 'selected_gtins') &&
+                  data?.scope === 'recrawl',
               },
               fields: [
                 {
                   name: 'minCrawlAge',
                   type: 'number',
-                  label: 'Minimum Crawl Age',
+                  label: 'Minimum Age',
                   min: 1,
                   admin: {
                     width: '50%',
                     description:
-                      'Only re-crawl products older than this. Leave empty to re-crawl all.',
+                      'Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.',
                   },
                 },
                 {
