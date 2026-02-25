@@ -1,6 +1,7 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 
 const log = createLogger('DM')
@@ -415,7 +416,7 @@ export const dmDriver: SourceDriver = {
       for (const product of result.products) {
         const gtin = String((product as Record<string, unknown>).gtin ?? '')
         const tileData = (product as Record<string, unknown>).tileData as Record<string, unknown> | undefined
-        const productUrl = tileData?.self ? `https://www.dm.de${tileData.self}` : (gtin ? `https://www.dm.de/p${gtin}.html` : null)
+        const productUrl = tileData?.self ? normalizeProductUrl(`https://www.dm.de${tileData.self}`) : (gtin ? normalizeProductUrl(`https://www.dm.de/p${gtin}.html`) : null)
         if (!productUrl) continue
 
         const trackingData = tileData?.trackingData as Record<string, unknown> | undefined
@@ -518,7 +519,7 @@ export const dmDriver: SourceDriver = {
       const perUnit = parsePerUnitPrice(data.price?.infos)
 
       // Build canonical source URL from API response
-      const canonicalUrl = data.self ? `https://www.dm.de${data.self}` : sourceUrl
+      const canonicalUrl = normalizeProductUrl(data.self ? `https://www.dm.de${data.self}` : sourceUrl)
 
       // Extract structured fields
       const sourceArticleNumber = data.dan != null ? String(data.dan) : undefined

@@ -1,6 +1,6 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { SourceSlug } from '@/lib/source-product-queries'
-import { getSourceSlugFromUrl } from '@/lib/source-product-queries'
+import { getSourceSlugFromUrl, normalizeProductUrl } from '@/lib/source-product-queries'
 import { lookupCategoryByPath, lookupCategoryByUrl } from '@/lib/lookup-source-category'
 import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
@@ -105,7 +105,8 @@ export async function persistCrawlResult(
   payload: PayloadRestClient,
   input: PersistCrawlResultInput,
 ): Promise<{ productId: number; warnings: string[] }> {
-  const { crawlId, sourceProductId, sourceUrl, source, data } = input
+  const { crawlId, sourceProductId, source, data } = input
+  const sourceUrl = normalizeProductUrl(input.sourceUrl)
   const jlog = log.forJob('product-crawls' as JobCollection, crawlId)
   log.info(`persistCrawlResult: crawl #${crawlId}, sourceProduct #${sourceProductId}, source=${source}`)
   const warnings = [...data.warnings]
@@ -170,7 +171,7 @@ export async function persistCrawlResult(
     rating: data.rating ?? null,
     ratingNum: data.ratingNum ?? null,
     ingredients: data.ingredientNames.map((n) => ({ name: n })),
-    sourceUrl: data.canonicalUrl ?? sourceUrl,
+    sourceUrl: data.canonicalUrl ? normalizeProductUrl(data.canonicalUrl) : sourceUrl,
   }
 
   let productId: number
@@ -241,14 +242,15 @@ export async function persistDiscoveredProduct(
   input: PersistDiscoveredProductInput,
 ): Promise<{ sourceProductId: number; isNew: boolean }> {
   const { discoveryId, product, source } = input
-  const effectiveSource = getSourceSlugFromUrl(product.productUrl) ?? source
-  log.info(`persistDiscoveredProduct: discovery #${discoveryId}, url=${product.productUrl}, source=${effectiveSource}`)
+  const normalizedUrl = normalizeProductUrl(product.productUrl)
+  const effectiveSource = getSourceSlugFromUrl(normalizedUrl) ?? source
+  log.info(`persistDiscoveredProduct: discovery #${discoveryId}, url=${normalizedUrl}, source=${effectiveSource}`)
 
   const existingProduct = await payload.find({
     collection: 'source-products',
     where: {
       and: [
-        { sourceUrl: { equals: product.productUrl } },
+        { sourceUrl: { equals: normalizedUrl } },
         { or: [{ source: { equals: effectiveSource } }, { source: { exists: false } }] },
       ],
     },
@@ -274,7 +276,7 @@ export async function persistDiscoveredProduct(
   } : null
 
   const discoveryData = {
-    sourceUrl: product.productUrl,
+    sourceUrl: normalizedUrl,
     brandName: product.brandName,
     name: product.name,
     sourceCategory: sourceCategoryId,

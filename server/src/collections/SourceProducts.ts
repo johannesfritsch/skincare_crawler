@@ -47,9 +47,10 @@ export const SourceProducts: CollectionConfig = {
       name: 'sourceUrl',
       type: 'text',
       label: 'Source URL',
+      unique: true,
       index: true,
       admin: {
-        description: 'URL from which this product was crawled',
+        description: 'URL from which this product was crawled (normalized: no query params, no trailing slash)',
         position: 'sidebar',
       },
     },

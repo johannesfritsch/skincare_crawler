@@ -1,6 +1,7 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 
 const log = createLogger('Mueller')
@@ -125,9 +126,10 @@ export const muellerDriver: SourceDriver = {
 
       async function emitProducts(products: Awaited<ReturnType<typeof scrapeProductTiles>>, category: string, categoryUrl: string) {
         for (const p of products) {
-          const productUrl = p.href
+          const rawUrl = p.href
             ? (p.href.startsWith('http') ? p.href : `https://www.mueller.de${p.href}`)
             : null
+          const productUrl = rawUrl ? normalizeProductUrl(rawUrl) : null
           if (!productUrl || seenProductUrls.has(productUrl)) continue
           seenProductUrls.add(productUrl)
           await onProduct({

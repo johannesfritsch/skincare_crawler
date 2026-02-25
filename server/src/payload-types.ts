@@ -568,7 +568,7 @@ export interface SourceProduct {
   gtin?: string | null;
   status?: ('uncrawled' | 'crawled') | null;
   /**
-   * URL from which this product was crawled
+   * URL from which this product was crawled (normalized: no query params, no trailing slash)
    */
   sourceUrl?: string | null;
   source?: ('dm' | 'mueller' | 'rossmann') | null;

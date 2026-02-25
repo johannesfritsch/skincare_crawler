@@ -1,6 +1,6 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
-import { findUncrawledProducts, getSourceSlugFromUrl, countUncrawled, resetProducts } from '@/lib/source-product-queries'
+import { findUncrawledProducts, getSourceSlugFromUrl, countUncrawled, resetProducts, normalizeProductUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 import type { JobCollection } from '@/lib/logger'
@@ -139,14 +139,14 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
   // Determine source drivers
   const sources: string[] = job.source === 'all' ? ['dm', 'mueller', 'rossmann'] : [job.source as string]
 
-  // Build URL list based on type
+  // Build URL list based on type (all URLs are normalized to strip query params and trailing slashes)
   let sourceUrls: string[] | undefined
   if (job.type === 'selected_urls') {
-    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeProductUrl(u.trim())).filter(Boolean)
   } else if (job.type === 'from_discovery' && job.discovery) {
     const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
     const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
-    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean)
+    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
   } else if (job.type === 'selected_gtins') {
     const gtins = ((job.gtins as string) ?? '').split('\n').map((g: string) => g.trim()).filter(Boolean)
     const products = await payload.find({

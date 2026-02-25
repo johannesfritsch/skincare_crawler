@@ -1,6 +1,7 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
 import { parseIngredients } from '@/lib/parse-ingredients'
+import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 
 const log = createLogger('Rossmann')
@@ -132,7 +133,7 @@ export const rossmannDriver: SourceDriver = {
 
       async function emitProducts(products: Awaited<ReturnType<typeof scrapeProductCards>>, category: string, categoryUrl: string) {
         for (const p of products) {
-          const productUrl = p.href ? `https://www.rossmann.de${p.href}` : null
+          const productUrl = p.href ? normalizeProductUrl(`https://www.rossmann.de${p.href}`) : null
           if (!productUrl || seenProductUrls.has(productUrl)) continue
           seenProductUrls.add(productUrl)
           await onProduct({

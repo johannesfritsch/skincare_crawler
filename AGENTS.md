@@ -81,7 +81,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 | Collection | Purpose |
 |------------|---------|
 | `products` | Unified product records (name, GTIN, brand, category, productType, image, ingredients, attributes, claims, warnings, skinApplicability, phMin/phMax, usageInstructions, usageSchedule) |
-| `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann) |
+| `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann, sourceUrl unique) |
 | `brands` | Brand names |
 | `categories` | Hierarchical product categories (parent ref) |
 | `product-types` | Skincare types (cleanser, toner, moisturizer, etc.) with DE/EN names |

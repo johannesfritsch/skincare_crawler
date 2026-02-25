@@ -13,7 +13,7 @@ worker/src/
     ├── browser.ts                    # Playwright browser management
     ├── stealth-fetch.ts              # Fetch with anti-bot headers
     ├── parse-ingredients.ts          # Ingredient string parser
-    ├── source-product-queries.ts     # Source-product DB query helpers
+    ├── source-product-queries.ts     # Source-product DB query helpers + normalizeProductUrl()
     ├── lookup-source-category.ts     # Category lookup by path or URL
     │
     ├── work-protocol/
@@ -366,7 +366,8 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and job progress
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
 - **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
-- **Deduplication**: Source-products are matched by `sourceUrl + source` to prevent duplicates
+- **URL normalization**: All product URLs are passed through `normalizeProductUrl()` (in `source-product-queries.ts`) before storage or lookup. This strips query parameters, trailing slashes, hash fragments, and lowercases the URL. Applied in all 3 source drivers at URL construction time, in `persist.ts` (crawl results + discovered products + canonicalUrl), in `claim.ts` (URL parsing from job fields), and in query helpers (`findUncrawled`, `countUncrawled`, `resetProducts`). The `sourceUrl` field on `source-products` has a `unique: true` constraint to enforce deduplication at the DB level.
+- **Deduplication**: Source-products are matched by `sourceUrl` (unique constraint) to prevent duplicates
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)

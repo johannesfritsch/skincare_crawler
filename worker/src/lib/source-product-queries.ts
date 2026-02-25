@@ -14,6 +14,22 @@ const URL_MATCHERS: Array<{ slug: SourceSlug; hosts: string[] }> = [
   { slug: 'rossmann', hosts: ['www.rossmann.de', 'rossmann.de'] },
 ]
 
+/**
+ * Normalize a product URL by stripping query parameters, fragments, and trailing slashes.
+ * This ensures consistent URL matching regardless of tracking params or formatting.
+ */
+export function normalizeProductUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.href.replace(/\/+$/, '')
+  } catch {
+    // If it's not a valid URL, just strip query string and trailing slashes
+    return url.split('?')[0].split('#')[0].replace(/\/+$/, '')
+  }
+}
+
 export function getSourceSlugFromUrl(url: string): SourceSlug | null {
   try {
     const hostname = new URL(url).hostname.toLowerCase()
@@ -33,7 +49,7 @@ export async function findUncrawledProducts(
 ): Promise<Array<{ id: number; sourceUrl: string; gtin?: string }>> {
   const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_FILTERS[source]]
   if (options.sourceUrls && options.sourceUrls.length > 0) {
-    where.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
+    where.push({ sourceUrl: { in: options.sourceUrls.map(normalizeProductUrl).join(',') } })
   }
 
   const result = await payload.find({
@@ -56,7 +72,7 @@ export async function countUncrawled(
 ): Promise<number> {
   const where: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_FILTERS[source]]
   if (options?.sourceUrls && options.sourceUrls.length > 0) {
-    where.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
+    where.push({ sourceUrl: { in: options.sourceUrls.map(normalizeProductUrl).join(',') } })
   }
 
   const result = await payload.count({
@@ -77,7 +93,7 @@ export async function resetProducts(
 
   const conditions: Where[] = [{ status: { equals: 'crawled' } }, SOURCE_FILTERS[source]]
   if (sourceUrls) {
-    conditions.push({ sourceUrl: { in: sourceUrls.join(',') } })
+    conditions.push({ sourceUrl: { in: sourceUrls.map(normalizeProductUrl).join(',') } })
   }
   if (crawledBefore) {
     conditions.push({
