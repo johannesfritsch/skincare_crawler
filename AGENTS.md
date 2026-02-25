@@ -96,7 +96,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 | `video-snippets` | Video segments (timestamps, matchingType: barcode/visual, screenshots, referencedProducts, preTranscript/transcript/postTranscript) |
 | `video-mentions` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
 | `creators` | Social media creators |
-| `channels` | Creator channels (platform: youtube/instagram/tiktok) |
+| `channels` | Creator channels (platform: youtube/instagram/tiktok, image, canonicalUrl for dedup) |
 
 ### Job Collections
 

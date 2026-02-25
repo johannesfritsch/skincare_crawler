@@ -16,6 +16,10 @@ You are an expert Payload CMS developer. When working with Payload projects, fol
 - To validate typescript correctness after modifying code run `tsc --noEmit`
 - Generate import maps after creating or modifying components.
 
+### Migrations
+
+- **Do NOT create database migrations.** The developer handles migrations manually. Only modify collection configs and let the developer run migrations themselves.
+
 ## Project Structure
 
 ```
@@ -1209,6 +1213,10 @@ src/app/(frontend)/
 | `BarcodeScanner` | `components/barcode-scanner.tsx` | Client | Full-screen camera overlay with viewfinder |
 | `ProductCard` | `components/product-card.tsx` | Server | Reusable product card for horizontal scroll sections (with image support + letter fallback) |
 | `ProductSearch` | `components/product-search.tsx` | Client | Search input with clear button, GTIN detection |
+| `ChannelFilter` | `components/channel-filter.tsx` | Client | Horizontally scrollable channel chips with avatars for video filtering |
+| `StoreLogo` | `components/store-logos.tsx` | Server | DM, Rossmann, Müller inline SVG logos (`<StoreLogo source="dm" />`), aspect-ratio-aware sizing |
+| `Sparkline` | `components/sparkline.tsx` | Server | Tiny SVG sparkline (no axes/labels), green if price dropped, red if rose. Props: `data` (chronological numbers), `width`, `height` |
+| `ProductVideoList` | `components/product-video-list.tsx` | Client | Paginated video mention cards with sentiment badges |
 
 ### Layout & Navigation
 
@@ -1284,6 +1292,12 @@ All sizes use `fit: 'inside'` to preserve the full image (no cropping). Frontend
 
 - URL param is **GTIN** (not numeric ID): `/products/[gtin]`
 - `notFound()` triggers the custom `not-found.tsx` which explains AnySkin only covers cosmetics and offers a feedback form
+- **Sections** (top to bottom): Hero (image + name + brand + pills + **inline sentiment badge**), Description, Featured Latest Videos (horizontal scroll carousel, up to 6), Per-Creator Sentiment (horizontal scroll chips), Prices & Stores (grid cards with sparkline), All Video Mentions (paginated list via `ProductVideoList`), Ingredients, Attributes
+- **Sentiment scoring**: Per-mention score is -1 to +1. Overall sentiment displayed as a prominent inline badge in the hero section (score + sentiment breakdown counts). Creator scores shown as horizontal scroll chips.
+- **Store logos**: `StoreLogo` component renders inline SVG for dm/rossmann/mueller based on `source` slug. DM uses `h-8`, Rossmann `h-6` (wide aspect ~6.25:1), Müller `h-7`. Also stored in worker driver `logoSvg` field.
+- **Store cards**: Left-aligned layout with logo on left, price + per-unit + rating + sparkline on right, external link icon. Grid: 1 col mobile, 2 cols sm, 3 cols lg.
+- **Price history**: Fetched from `source_products_price_history` table, grouped by source product, shows latest price with delta vs previous. **Sparkline** graph shows last 12 months (chronological, oldest→newest) using `<Sparkline />` component (green if price dropped, red if rose).
+- **Featured videos**: Horizontal scroll carousel of up to 6 most recent video mentions, using the standard `-mx-4 / inline-flex gap-3 px-4` pattern with `snap-x`. Cards show thumbnail with duration badge, sentiment overlay, title, and creator avatar.
 
 ### CSS Specificity with Tailwind v4
 
