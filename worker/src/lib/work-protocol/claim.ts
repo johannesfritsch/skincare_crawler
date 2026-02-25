@@ -294,6 +294,20 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
 
   jlog.info(`buildProductDiscoveryWork #${jobId}: ${sourceUrls.length} URLs, urlIndex=${progress?.currentUrlIndex ?? 0}, maxPages=${maxPages ?? 'unlimited'}, delay=${delay}ms`)
 
+  // Initialize job if pending: set in_progress
+  if (job.status === 'pending') {
+    jlog.info(`buildProductDiscoveryWork #${jobId}: pending → in_progress`)
+    await payload.update({
+      collection: 'product-discoveries',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    jlog.info(`Started product discovery: ${sourceUrls.length} source URLs`, { event: 'start' })
+  }
+
   return {
     type: 'product-discovery',
     jobId,
@@ -323,6 +337,20 @@ async function buildCategoryDiscoveryWork(payload: PayloadRestClient, jobId: num
 
   jlog.info(`buildCategoryDiscoveryWork #${jobId}: ${storeUrls.length} store URLs, urlIndex=${progress?.currentUrlIndex ?? 0}, hasProgress=${!!progress?.driverProgress}`)
 
+  // Initialize job if pending: set in_progress
+  if (job.status === 'pending') {
+    jlog.info(`buildCategoryDiscoveryWork #${jobId}: pending → in_progress`)
+    await payload.update({
+      collection: 'category-discoveries',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    jlog.info(`Started category discovery: ${storeUrls.length} store URLs`, { event: 'start' })
+  }
+
   return {
     type: 'category-discovery',
     jobId,
@@ -341,6 +369,20 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
 
   const termQueue = (job.termQueue as string[]) ?? []
   jlog.info(`buildIngredientsDiscoveryWork #${jobId}: sourceUrl=${job.sourceUrl}, currentTerm=${job.currentTerm ?? 'none'}, termQueue=${termQueue.length} terms`)
+
+  // Initialize job if pending: set in_progress
+  if (job.status === 'pending') {
+    jlog.info(`buildIngredientsDiscoveryWork #${jobId}: pending → in_progress`)
+    await payload.update({
+      collection: 'ingredients-discoveries',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    jlog.info(`Started ingredients discovery`, { event: 'start' })
+  }
 
   return {
     type: 'ingredients-discovery',
@@ -361,6 +403,20 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
 
   const channelUrl = job.channelUrl as string
   jlog.info(`buildVideoDiscoveryWork #${jobId}: channel=${channelUrl}`)
+
+  // Initialize job if pending: set in_progress
+  if (job.status === 'pending') {
+    jlog.info(`buildVideoDiscoveryWork #${jobId}: pending → in_progress`)
+    await payload.update({
+      collection: 'video-discoveries',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+      },
+    })
+    jlog.info(`Started video discovery: ${channelUrl}`, { event: 'start' })
+  }
 
   return {
     type: 'video-discovery',
