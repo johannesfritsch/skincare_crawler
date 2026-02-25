@@ -1,9 +1,12 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { desc, eq, sql } from 'drizzle-orm'
+import { desc, eq, sql, type SQL } from 'drizzle-orm'
 import Link from 'next/link'
+import { Suspense } from 'react'
 import { Eye, ThumbsUp, Calendar, Clock, Play } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ChannelFilter, type ChannelOption } from '@/components/channel-filter'
 
 export const metadata = {
   title: 'Videos — AnySkin',
@@ -23,10 +26,56 @@ function formatCount(n: number | null): string {
   return n.toString()
 }
 
-export default async function VideosPage() {
+interface VideosPageProps {
+  searchParams: Promise<{ channel?: string }>
+}
+
+export default async function VideosPage({ searchParams }: VideosPageProps) {
+  const { channel: channelFilter } = await searchParams
   const payload = await getPayload({ config: await config })
   const db = payload.db.drizzle
   const t = payload.db.tables
+
+  // Fetch all channels with video counts for the filter bar
+  const channelsRaw = await db
+    .select({
+      id: t.channels.id,
+      creatorName: t.creators.name,
+      platform: t.channels.platform,
+      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
+      videoCount: sql<number>`count(${t.videos.id})::int`,
+    })
+    .from(t.channels)
+    .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
+    .leftJoin(t.media, eq(t.channels.image, t.media.id))
+    .leftJoin(t.videos, eq(t.videos.channel, t.channels.id))
+    .groupBy(t.channels.id, t.creators.name, t.channels.platform, t.media.id)
+    .having(sql`count(${t.videos.id}) > 0`)
+    .orderBy(sql`count(${t.videos.id}) desc`)
+
+  const channelOptions: ChannelOption[] = channelsRaw.map((ch) => ({
+    id: ch.id as number,
+    creatorName: (ch.creatorName as string) ?? 'Unknown',
+    platform: (ch.platform as string) ?? '',
+    imageUrl: ch.imageUrl,
+    videoCount: ch.videoCount,
+  }))
+
+  // Build video query with optional channel filter
+  const whereClause: SQL | undefined = channelFilter
+    ? (() => {
+        const channelId = parseInt(channelFilter, 10)
+        return !isNaN(channelId) ? eq(t.videos.channel, channelId) : undefined
+      })()
+    : undefined
+
+  // Channel image URL via correlated subquery to avoid double-joining media
+  const channelImageSql = sql<string | null>`(
+    SELECT coalesce(m.sizes_thumbnail_url, m.url)
+    FROM media m
+    WHERE m.id = ${t.channels.image}
+    LIMIT 1
+  )`
 
   const videos = await db
     .select({
@@ -39,9 +88,10 @@ export default async function VideosPage() {
       externalUrl: t.videos.externalUrl,
       thumbnailUrl: t.media.url,
       thumbnailFilename: t.media.filename,
+      channelId: t.channels.id,
       channelPlatform: t.channels.platform,
+      channelImageUrl: channelImageSql,
       creatorName: t.creators.name,
-      // Count of mentioned products per video (via snippets → mentions)
       mentionCount: sql<number>`(
         SELECT count(DISTINCT vm.product_id)
         FROM video_snippets vs
@@ -53,15 +103,22 @@ export default async function VideosPage() {
     .leftJoin(t.media, eq(t.videos.image, t.media.id))
     .leftJoin(t.channels, eq(t.videos.channel, t.channels.id))
     .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
+    .where(whereClause)
     .orderBy(desc(t.videos.publishedAt))
     .limit(30)
 
   return (
-    <div className="space-y-6">
-      {/* Video list — vertical stack of cards, app-style */}
+    <div className="space-y-4">
+      {/* Channel filter bar */}
+      <Suspense>
+        <ChannelFilter channels={channelOptions} />
+      </Suspense>
+
+      {/* Video list */}
       <div className="flex flex-col gap-3">
         {videos.map((v) => {
-          const thumbnailSrc = v.thumbnailUrl || (v.thumbnailFilename ? `/media/${v.thumbnailFilename}` : null)
+          const thumbnailSrc =
+            v.thumbnailUrl || (v.thumbnailFilename ? `/media/${v.thumbnailFilename}` : null)
 
           const formattedDate = v.publishedAt
             ? new Date(v.publishedAt).toLocaleDateString('de-DE', {
@@ -108,12 +165,22 @@ export default async function VideosPage() {
               <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                 <div>
                   <p className="text-sm font-medium leading-tight line-clamp-2">{v.title}</p>
-                  <p className="text-xs text-muted-foreground mt-1 truncate">
-                    {v.creatorName ?? 'Unknown creator'}
-                    {v.channelPlatform && (
-                      <span className="capitalize"> &middot; {v.channelPlatform}</span>
-                    )}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Avatar size="sm" className="size-4">
+                      {v.channelImageUrl && (
+                        <AvatarImage src={v.channelImageUrl} alt={v.creatorName ?? ''} />
+                      )}
+                      <AvatarFallback className="text-[7px]">
+                        {(v.creatorName ?? '?').slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {v.creatorName ?? 'Unknown creator'}
+                      {v.channelPlatform && (
+                        <span className="capitalize"> &middot; {v.channelPlatform}</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-x-3 gap-y-1 mt-1.5 flex-wrap">
@@ -155,8 +222,14 @@ export default async function VideosPage() {
 
       {videos.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-muted-foreground text-sm">No videos yet.</p>
-          <p className="text-xs text-muted-foreground mt-1">Videos will appear here once they&apos;re processed.</p>
+          <p className="text-muted-foreground text-sm">
+            {channelFilter ? 'No videos for this channel.' : 'No videos yet.'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {channelFilter
+              ? 'Try selecting a different channel or view all.'
+              : "Videos will appear here once they're processed."}
+          </p>
         </div>
       )}
     </div>
