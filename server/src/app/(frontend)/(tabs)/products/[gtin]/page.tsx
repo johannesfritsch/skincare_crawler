@@ -20,6 +20,7 @@ import { ATTRIBUTE_META, CLAIM_META } from '@/lib/product-traits'
 import { AccordionSection } from '@/components/accordion-section'
 import { CreatorScoreCard, StoreScoreCard, type CreatorScoreItem, type StoreScoreItem } from '@/components/score-sheet'
 import { DescriptionTeaser } from '@/components/description-teaser'
+import { IngredientChipGroup, type IngredientItem } from '@/components/ingredient-chip-group'
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -111,9 +112,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   /* ── Run parallel queries ── */
   const [ingredients, claims, attributes, sourceProducts, videoMentions, creatorStats] = await Promise.all([
-    /* Ingredients */
-    db.select({ name: t.products_ingredients.name })
-      .from(t.products_ingredients)
+    /* Ingredients (join reference table for metadata) */
+    db.select({
+      name: t.products_ingredients.name,
+      ingredientId: t.products_ingredients.ingredient,
+      description: t.ingredients.description,
+      casNumber: t.ingredients.casNumber,
+      restrictions: t.ingredients.restrictions,
+      functions: sql<string | null>`(
+        SELECT string_agg(f.function, ', ' ORDER BY f._order)
+        FROM ingredients_functions f
+        WHERE f._parent_id = ${t.ingredients}.id
+      )`,
+    }).from(t.products_ingredients)
+      .leftJoin(t.ingredients, eq(t.products_ingredients.ingredient, t.ingredients.id))
       .where(eq(t.products_ingredients._parentID, productId)),
 
     /* Claims */
@@ -378,6 +390,16 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     }),
   ]
 
+  /* ── Build ingredient items for the chip group ── */
+  const ingredientItems: IngredientItem[] = ingredients.map(ing => ({
+    name: ing.name as string,
+    description: (ing.description as string | null) ?? null,
+    casNumber: (ing.casNumber as string | null) ?? null,
+    restrictions: (ing.restrictions as string | null) ?? null,
+    functions: (ing.functions as string | null) ?? null,
+    hasData: !!(ing.description || ing.functions || ing.casNumber || ing.restrictions),
+  }))
+
   /* ── Group channel-level rows into per-creator stats ── */
   type ChannelRow = {
     creatorId: number | null
@@ -641,23 +663,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
 
       {/* ═══ Ingredients ═══ */}
-      <AccordionSection
-        title="Ingredients"
-        trailing={<span className="text-xs text-muted-foreground">{ingredients.length}</span>}
-      >
-        {ingredients.length > 0 ? (
-          <p className="text-sm leading-relaxed">
-            {ingredients.map((ing, i) => (
-              <span key={i}>
-                {ing.name}
-                {i < ingredients.length - 1 && <span className="text-muted-foreground">, </span>}
-              </span>
-            ))}
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">No ingredients listed</p>
-        )}
-      </AccordionSection>
+      {ingredientItems.length > 0 && (
+        <AccordionSection
+          title="Ingredients"
+          trailing={<span className="text-xs text-muted-foreground">{ingredientItems.length}</span>}
+          defaultOpen
+        >
+          <IngredientChipGroup items={ingredientItems} />
+        </AccordionSection>
+      )}
 
 
     </div>
