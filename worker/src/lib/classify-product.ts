@@ -51,7 +51,7 @@ Pick the single most appropriate type. Use "other" only if none of the specific 
 
 Then identify which product attributes and claims apply, providing evidence for each.
 
-**Product Attributes** (true if the product contains these):
+**Product Attributes** (true ONLY if the product actually CONTAINS these substances):
 - containsAllergens: known allergens (common fragrance allergens, MI/MCI, etc.)
 - containsSimpleAlcohol: simple/drying alcohols (Alcohol Denat., Ethanol, Isopropyl Alcohol) — NOT fatty alcohols
 - containsGluten: gluten or gluten-derived ingredients
@@ -61,6 +61,8 @@ Then identify which product attributes and claims apply, providing evidence for 
 - containsPegs: PEG compounds (Polyethylene Glycol derivatives)
 - containsFragrance: fragrance/parfum
 - containsMineralOil: mineral oil / petroleum-derived oils (Paraffinum Liquidum, Petrolatum)
+
+CRITICAL: "Free from X" / "Frei von X" / "ohne X" / "X-frei" means the product does NOT contain X. That is the OPPOSITE — it is a CLAIM (e.g. pegFree, mineralOilFree), NOT an attribute. Never set a "contains" attribute based on "free from" language. For example, "Frei von PEGs" → pegFree claim, NOT containsPegs attribute.
 
 **Product Claims** (true if the product makes or supports this claim):
 - vegan: marketed as vegan or no animal-derived ingredients
