@@ -6,7 +6,7 @@ Standalone Node.js process that claims jobs from the server and processes them. 
 
 ```
 worker/src/
-├── worker.ts                         # Main loop + 7 job handlers (~1000 lines)
+├── worker.ts                         # Main loop + 6 job handlers (~1000 lines)
 └── lib/
     ├── payload-client.ts             # REST client mirroring Payload's local API
     ├── logger.ts                     # Structured logger with event emission
@@ -14,7 +14,6 @@ worker/src/
     ├── stealth-fetch.ts              # Fetch with anti-bot headers
     ├── parse-ingredients.ts          # Ingredient string parser
     ├── source-product-queries.ts     # Source-product DB query helpers + normalizeProductUrl()
-    ├── lookup-source-category.ts     # Category lookup by path or URL
     │
     ├── work-protocol/
     │   ├── types.ts                  # AuthenticatedWorker interface
@@ -29,11 +28,6 @@ worker/src/
     │       ├── dm.ts                 # DM drugstore driver
     │       ├── mueller.ts            # Mueller driver
     │       └── rossmann.ts           # Rossmann driver
-    │
-    ├── category-discovery/
-    │   ├── types.ts                  # DiscoveredCategory, CategoryDiscoveryOptions
-    │   ├── driver.ts                 # getCategoryDriver(url)
-    │   └── drivers/                  # dm.ts, mueller.ts, rossmann.ts
     │
     ├── ingredients-discovery/
     │   ├── types.ts                  # ScrapedIngredientData
@@ -133,13 +127,13 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistCrawlResult()` | Updates/creates `source-products` with scraped data, price history, source category lookup; creates `crawl-results` join record |
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
 | `persistDiscoveredProduct()` | Creates/updates `source-products` (status=uncrawled); creates `discovery-results` join record |
-| `persistDiscoveredCategory()` | Creates/updates `source-categories` with parent chain; uses `pathToId` map for hierarchy |
+
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
-| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets) |
+| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory (from categoryBreadcrumb string), matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets) |
 
-## 7 Job Types — Detailed
+## 6 Job Types — Detailed
 
 ### 1. product-crawl
 
@@ -165,28 +159,21 @@ Dispatches to per-type submit handlers. Each handler:
 
 **Key params**: `maxPages` (pages per tick), `delay` (ms between requests, default 2000)
 
-### 3. category-discovery
-
-**Handler**: `handleCategoryDiscovery()`
-**Flow**: For each store URL → `getCategoryDriver(url)` → discovers category tree → yields `DiscoveredCategory[]` → submit
-
-**Resumption**: Stores `currentUrlIndex` + `driverProgress` + `pathToId` (maps category path strings → DB IDs for building parent relationships)
-
-### 4. ingredients-discovery
+### 3. ingredients-discovery
 
 **Handler**: `handleIngredientsDiscovery()`
 **Flow**: `getIngredientsDriver(url)` → crawls CosIng → yields `ScrapedIngredientData[]` → submit
 
 **Resumption**: Stores `currentTerm`, `currentPage`, `totalPagesForTerm`, `termQueue` (list of search terms to process)
 
-### 5. video-discovery
+### 4. video-discovery
 
 **Handler**: `handleVideoDiscovery()`
 **Flow**: `getVideoDriver(channelUrl)` → lists all videos → submit in batches
 
 **Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails. Fetches the channel avatar (from YouTube `og:image` meta tag) and always updates the `channels.image` field — both for new and existing channels.
 
-### 6. video-processing
+### 5. video-processing
 
 **Handler**: `handleVideoProcessing()` (~700 lines, most complex handler)
 **Flow per video**:
@@ -229,7 +216,7 @@ Dispatches to per-type submit handlers. Each handler:
 
 **Persistence**: Creates `video-snippets` per segment (with referencedProducts + transcript fields). Creates `video-mentions` linking snippets to products with quotes and sentiment (only when transcript data exists). Saves full transcript + word timestamps on the video. For visual matches, calls `matchProduct()` to find/create product records.
 
-### 7. product-aggregation
+### 6. product-aggregation
 
 **Handler**: `handleProductAggregation()`
 **Flow per GTIN**:
@@ -367,6 +354,7 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
 - **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
 - **URL normalization**: All product URLs are passed through `normalizeProductUrl()` (in `source-product-queries.ts`) before storage or lookup. This strips query parameters, trailing slashes, hash fragments, and lowercases the URL. Applied in all 3 source drivers at URL construction time, in `persist.ts` (crawl results + discovered products + canonicalUrl), in `claim.ts` (URL parsing from job fields), and in query helpers (`findUncrawled`, `countUncrawled`, `resetProducts`). The `sourceUrl` field on `source-products` has a `unique: true` constraint to enforce deduplication at the DB level.
+- **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. During aggregation, this string is passed directly to `matchCategory()` — no intermediate `source-categories` collection.
 - **Deduplication**: Source-products are matched by `sourceUrl` (unique constraint) to prevent duplicates
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced

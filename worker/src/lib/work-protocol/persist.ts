@@ -1,7 +1,7 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { getSourceSlugFromUrl, normalizeProductUrl } from '@/lib/source-product-queries'
-import { lookupCategoryByPath, lookupCategoryByUrl } from '@/lib/lookup-source-category'
+
 import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
 import { matchCategory } from '@/lib/match-category'
@@ -69,12 +69,6 @@ interface ScrapedIngredientData {
   sourceUrl?: string
 }
 
-interface DiscoveredCategory {
-  url: string
-  name: string
-  path: string[]
-}
-
 interface DiscoveredVideo {
   externalId: string
   title: string
@@ -111,21 +105,10 @@ export async function persistCrawlResult(
   log.info(`persistCrawlResult: crawl #${crawlId}, sourceProduct #${sourceProductId}, source=${source}`)
   const warnings = [...data.warnings]
 
-  // Look up SourceCategory
-  let sourceCategoryId: number | null = null
-  if (source === 'mueller' && data.categoryUrl) {
-    sourceCategoryId = await lookupCategoryByUrl(payload, data.categoryUrl, source)
-    if (!sourceCategoryId) {
-      warnings.push(`No SourceCategory found for URL: ${data.categoryUrl}`)
-      jlog.warn(`No SourceCategory found for URL: ${data.categoryUrl}`, { event: true, labels: ['scraping', 'category-matching'] })
-    }
-  } else if (data.categoryBreadcrumbs && data.categoryBreadcrumbs.length > 0) {
-    sourceCategoryId = await lookupCategoryByPath(payload, data.categoryBreadcrumbs, source)
-    if (!sourceCategoryId) {
-      warnings.push(`No SourceCategory found for path: ${data.categoryBreadcrumbs.join(' > ')}`)
-      jlog.warn(`No SourceCategory found for path: ${data.categoryBreadcrumbs.join(' > ')}`, { event: true, labels: ['scraping', 'category-matching'] })
-    }
-  }
+  // Build category breadcrumb string
+  const categoryBreadcrumb = data.categoryBreadcrumbs && data.categoryBreadcrumbs.length > 0
+    ? data.categoryBreadcrumbs.join(' -> ')
+    : null
 
   // Find existing product
   const existing = await payload.find({
@@ -160,7 +143,7 @@ export async function persistCrawlResult(
     sourceArticleNumber: data.sourceArticleNumber ?? null,
     brandName: data.brandName ?? null,
     name: data.name,
-    ...(sourceCategoryId ? { sourceCategory: sourceCategoryId } : {}),
+    ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
     description: data.description ?? null,
     amount: data.amount ?? null,
     amountUnit: data.amountUnit ?? null,
@@ -257,17 +240,6 @@ export async function persistDiscoveredProduct(
     limit: 1,
   })
 
-  // Look up SourceCategory by URL
-  let sourceCategoryId: number | null = null
-  if (product.categoryUrl) {
-    const catMatch = await payload.find({
-      collection: 'source-categories',
-      where: { and: [{ url: { equals: product.categoryUrl } }, { source: { equals: effectiveSource } }] },
-      limit: 1,
-    })
-    if (catMatch.docs.length > 0) sourceCategoryId = (catMatch.docs[0] as { id: number }).id
-  }
-
   const now = new Date().toISOString()
   const priceEntry = product.price != null ? {
     recordedAt: now,
@@ -279,7 +251,7 @@ export async function persistDiscoveredProduct(
     sourceUrl: normalizedUrl,
     brandName: product.brandName,
     name: product.name,
-    sourceCategory: sourceCategoryId,
+    categoryBreadcrumb: product.category ?? null,
     rating: product.rating,
     ratingNum: product.ratingCount,
     ...(product.gtin ? { gtin: product.gtin } : {}),
@@ -324,75 +296,6 @@ export async function persistDiscoveredProduct(
   })
 
   return { sourceProductId, isNew }
-}
-
-// ─── Category Discovery ───
-
-export async function persistDiscoveredCategory(
-  payload: PayloadRestClient,
-  category: DiscoveredCategory,
-  source: SourceSlug,
-  pathToId: Map<string, number>,
-): Promise<{ categoryId: number; isNew: boolean }> {
-  // Build parent relationship
-  const parentPathParts = category.path.slice(0, -1)
-  const parentKey = parentPathParts.join(' > ')
-  const parentId = parentKey ? (pathToId.get(parentKey) ?? null) : null
-
-  // Derive slug from URL path
-  const slug = deriveSlug(category.url, source)
-  const currentKey = category.path.join(' > ')
-
-  const existingCat = await payload.find({
-    collection: 'source-categories',
-    where: {
-      and: [
-        { slug: { equals: slug } },
-        { source: { equals: source } },
-        parentId ? { parent: { equals: parentId } } : { parent: { exists: false } },
-      ],
-    },
-    limit: 1,
-  })
-
-  if (existingCat.docs.length > 0) {
-    const doc = existingCat.docs[0] as { id: number; url: string }
-    if (doc.url !== category.url) {
-      await payload.update({
-        collection: 'source-categories',
-        id: doc.id,
-        data: { url: category.url, name: category.name },
-      })
-    }
-    pathToId.set(currentKey, doc.id)
-    return { categoryId: doc.id, isNew: false }
-  } else {
-    const newCat = await payload.create({
-      collection: 'source-categories',
-      data: {
-        name: category.name,
-        slug,
-        source,
-        url: category.url,
-        ...(parentId ? { parent: parentId } : {}),
-      },
-    }) as { id: number }
-    pathToId.set(currentKey, newCat.id)
-    return { categoryId: newCat.id, isNew: true }
-  }
-}
-
-function deriveSlug(url: string, source: SourceSlug): string {
-  try {
-    const pathname = new URL(url).pathname
-    const segments = pathname.split('/').filter(Boolean)
-    // For DM/Rossmann/Mueller, take the last path segment
-    const lastSegment = segments[segments.length - 1] ?? ''
-    // Remove category ID suffixes like /c/123
-    return lastSegment.replace(/^c$/, segments[segments.length - 2] ?? lastSegment)
-  } catch {
-    return url
-  }
 }
 
 // ─── Ingredients Discovery ───
@@ -860,7 +763,7 @@ export interface PersistProductAggregationInput {
     gtin?: string
     name?: string
     brandName?: string
-    sourceCategoryId?: number
+    categoryBreadcrumb?: string
     ingredientNames?: string[]
     selectedImageUrl?: string
     selectedImageAlt?: string | null
@@ -955,30 +858,17 @@ export async function persistProductAggregationResult(
     }
   }
 
-  // Match category — walk SourceCategory parent chain to build breadcrumb
-  if (aggregated.sourceCategoryId) {
+  // Match category from breadcrumb string
+  if (aggregated.categoryBreadcrumb) {
     try {
-      const breadcrumbParts: string[] = []
-      let currentCatId: number | null = aggregated.sourceCategoryId
-      while (currentCatId) {
-        const cat = await payload.findByID({
-          collection: 'source-categories',
-          id: currentCatId,
-        }) as { name: string; parent?: number | { id: number } | null }
-        breadcrumbParts.unshift(cat.name)
-        currentCatId = cat.parent
-          ? (typeof cat.parent === 'object' ? cat.parent.id : cat.parent)
-          : null
-      }
-      const categoryBreadcrumb = breadcrumbParts.join(' -> ')
-      const categoryResult = await matchCategory(payload, categoryBreadcrumb, jlog)
+      const categoryResult = await matchCategory(payload, aggregated.categoryBreadcrumb, jlog)
       tokensUsed += categoryResult.tokensUsed.totalTokens
       if (categoryResult.categoryId) {
         updateData.category = categoryResult.categoryId
-        log.info(`persistProductAggregationResult: category "${categoryBreadcrumb}" → category #${categoryResult.categoryId}`)
-        jlog.info(`Category "${categoryBreadcrumb}" → #${categoryResult.categoryId}`, { event: true, labels: ['category-matching', 'persistence'] })
+        log.info(`persistProductAggregationResult: category "${aggregated.categoryBreadcrumb}" → category #${categoryResult.categoryId}`)
+        jlog.info(`Category "${aggregated.categoryBreadcrumb}" → #${categoryResult.categoryId}`, { event: true, labels: ['category-matching', 'persistence'] })
       } else {
-        log.info(`persistProductAggregationResult: category "${categoryBreadcrumb}" → no match`)
+        log.info(`persistProductAggregationResult: category "${aggregated.categoryBreadcrumb}" → no match`)
       }
     } catch (error) {
       errorMessages.push(`Category matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)

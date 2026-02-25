@@ -5,7 +5,7 @@ import type { SourceSlug } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 import type { JobCollection } from '@/lib/logger'
 
-type JobType = 'product-crawl' | 'product-discovery' | 'category-discovery' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation'
+type JobType = 'product-crawl' | 'product-discovery' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation'
 
 interface ActiveJob {
   type: JobType
@@ -18,7 +18,6 @@ interface ActiveJob {
 const JOB_TYPE_TO_COLLECTION = {
   'product-crawl': 'product-crawls',
   'product-discovery': 'product-discoveries',
-  'category-discovery': 'category-discoveries',
   'ingredients-discovery': 'ingredients-discoveries',
   'video-discovery': 'video-discoveries',
   'video-processing': 'video-processings',
@@ -28,7 +27,6 @@ const JOB_TYPE_TO_COLLECTION = {
 const JOB_TYPE_TO_CAPABILITY = {
   'product-crawl': 'product-crawl',
   'product-discovery': 'product-discovery',
-  'category-discovery': 'category-discovery',
   'ingredients-discovery': 'ingredients-discovery',
   'video-discovery': 'video-discovery',
   'video-processing': 'video-processing',
@@ -115,8 +113,6 @@ export async function claimWork(
       return buildProductCrawlWork(payload, selected.id)
     case 'product-discovery':
       return buildProductDiscoveryWork(payload, selected.id)
-    case 'category-discovery':
-      return buildCategoryDiscoveryWork(payload, selected.id)
     case 'ingredients-discovery':
       return buildIngredientsDiscoveryWork(payload, selected.id)
     case 'video-discovery':
@@ -325,53 +321,6 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
     maxPages,
     delay,
     debug: (job.debug as boolean) ?? false,
-  }
-}
-
-async function buildCategoryDiscoveryWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('category-discoveries' as JobCollection, jobId)
-  jlog.info(`buildCategoryDiscoveryWork: job #${jobId}`)
-  const job = await payload.findByID({ collection: 'category-discoveries', id: jobId }) as Record<string, unknown>
-
-  const storeUrls = ((job.storeUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
-
-  interface CategoryDiscoveryProgress {
-    currentUrlIndex: number
-    driverProgress: unknown | null
-    pathToId: Record<string, number>
-  }
-
-  const progress = job.progress as CategoryDiscoveryProgress | null
-
-  jlog.info(`buildCategoryDiscoveryWork #${jobId}: ${storeUrls.length} store URLs, urlIndex=${progress?.currentUrlIndex ?? 0}, hasProgress=${!!progress?.driverProgress}`)
-
-  // Initialize job if pending: set in_progress and reset counters
-  if (job.status === 'pending') {
-    jlog.info(`buildCategoryDiscoveryWork #${jobId}: pending → in_progress`)
-    await payload.update({
-      collection: 'category-discoveries',
-      id: jobId,
-      data: {
-        status: 'in_progress',
-        startedAt: new Date().toISOString(),
-        completedAt: null,
-        discovered: 0,
-        created: 0,
-        existing: 0,
-        progress: null,
-      },
-    })
-    jlog.info(`Started category discovery: ${storeUrls.length} store URLs`, { event: 'start' })
-  }
-
-  return {
-    type: 'category-discovery',
-    jobId,
-    storeUrls,
-    currentUrlIndex: progress?.currentUrlIndex ?? 0,
-    driverProgress: progress?.driverProgress ?? null,
-    maxPages: (job.itemsPerTick as number) ?? undefined,
-    pathToId: progress?.pathToId ?? {},
   }
 }
 
@@ -610,7 +559,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       gtin: string | null
       name: string | null
       brandName: string | null
-      sourceCategoryId: number | null
+      categoryBreadcrumb: string | null
       source: string | null
       ingredients: Array<{ name: string | null }> | null
       description: string | null
@@ -620,35 +569,14 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
 
   const workItems: WorkItem[] = []
 
-  // Helper: walk SourceCategory parent chain to build breadcrumb
-  async function buildBreadcrumb(sourceCategoryId: number | null): Promise<string | null> {
-    if (!sourceCategoryId) return null
-    const parts: string[] = []
-    let currentId: number | null = sourceCategoryId
-    while (currentId) {
-      const cat = await payload.findByID({
-        collection: 'source-categories',
-        id: currentId,
-      }) as { name: string; parent?: number | { id: number } | null }
-      parts.unshift(cat.name)
-      currentId = cat.parent
-        ? (typeof cat.parent === 'object' ? cat.parent.id : cat.parent)
-        : null
-    }
-    return parts.length > 0 ? parts.join(' -> ') : null
-  }
-
   // Helper: convert source product doc to serializable work item shape
   function toSourceProductData(sp: Record<string, unknown>) {
-    const sourceCategory = sp.sourceCategory as number | { id: number } | null | undefined
     return {
       id: sp.id as number,
       gtin: (sp.gtin as string) ?? null,
       name: (sp.name as string) ?? null,
       brandName: (sp.brandName as string) ?? null,
-      sourceCategoryId: sourceCategory
-        ? (typeof sourceCategory === 'object' ? sourceCategory.id : sourceCategory)
-        : null,
+      categoryBreadcrumb: (sp.categoryBreadcrumb as string) ?? null,
       source: (sp.source as string) ?? null,
       ingredients: sp.ingredients
         ? (sp.ingredients as Array<{ name?: string | null }>).map((i) => ({ name: i.name ?? null }))
@@ -690,8 +618,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       if (allSources.docs.length === 0) continue
 
       const sourceProducts = allSources.docs.map((sp) => toSourceProductData(sp as Record<string, unknown>))
-      const firstCatId = sourceProducts.find((sp) => sp.sourceCategoryId)?.sourceCategoryId ?? null
-      const categoryBreadcrumb = await buildBreadcrumb(firstCatId)
+      const categoryBreadcrumb = sourceProducts.find((sp) => sp.categoryBreadcrumb)?.categoryBreadcrumb ?? null
 
       workItems.push({ gtin, categoryBreadcrumb, sourceProducts })
     }
@@ -749,8 +676,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       })
 
       const spData = allSources.docs.map((sp) => toSourceProductData(sp as Record<string, unknown>))
-      const firstCatId = spData.find((sp) => sp.sourceCategoryId)?.sourceCategoryId ?? null
-      const categoryBreadcrumb = await buildBreadcrumb(firstCatId)
+      const categoryBreadcrumb = spData.find((sp) => sp.categoryBreadcrumb)?.categoryBreadcrumb ?? null
 
       workItems.push({ gtin, categoryBreadcrumb, sourceProducts: spData })
     }

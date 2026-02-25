@@ -73,7 +73,6 @@ export interface Config {
     brands: Brand;
     categories: Category;
     'product-types': ProductType;
-    'source-categories': SourceCategory;
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
     products: Product;
@@ -83,7 +82,6 @@ export interface Config {
     'product-aggregations': ProductAggregation;
     'crawl-results': CrawlResult;
     'discovery-results': DiscoveryResult;
-    'category-discoveries': CategoryDiscovery;
     events: Event;
     creators: Creator;
     channels: Channel;
@@ -122,9 +120,6 @@ export interface Config {
     'product-aggregations': {
       events: 'events';
     };
-    'category-discoveries': {
-      events: 'events';
-    };
     creators: {
       channels: 'channels';
     };
@@ -150,7 +145,6 @@ export interface Config {
     brands: BrandsSelect<false> | BrandsSelect<true>;
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     'product-types': ProductTypesSelect<false> | ProductTypesSelect<true>;
-    'source-categories': SourceCategoriesSelect<false> | SourceCategoriesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
@@ -160,7 +154,6 @@ export interface Config {
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
     'crawl-results': CrawlResultsSelect<false> | CrawlResultsSelect<true>;
     'discovery-results': DiscoveryResultsSelect<false> | DiscoveryResultsSelect<true>;
-    'category-discoveries': CategoryDiscoveriesSelect<false> | CategoryDiscoveriesSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
@@ -340,20 +333,6 @@ export interface ProductType {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-categories".
- */
-export interface SourceCategory {
-  id: number;
-  name: string;
-  slug: string;
-  parent?: (number | null) | SourceCategory;
-  source: 'dm' | 'mueller' | 'rossmann';
-  url?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "ingredients".
  */
 export interface Ingredient {
@@ -468,10 +447,6 @@ export interface Event {
     | ({
         relationTo: 'video-processings';
         value: number | VideoProcessing;
-      } | null)
-    | ({
-        relationTo: 'category-discoveries';
-        value: number | CategoryDiscovery;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -581,7 +556,10 @@ export interface SourceProduct {
    */
   brandName?: string | null;
   name?: string | null;
-  sourceCategory?: (number | null) | SourceCategory;
+  /**
+   * Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"
+   */
+  categoryBreadcrumb?: string | null;
   /**
    * Average rating (0-5)
    */
@@ -1297,63 +1275,6 @@ export interface VideoProcessing {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "category-discoveries".
- */
-export interface CategoryDiscovery {
-  id: number;
-  /**
-   * Store URLs to discover categories from (e.g. dm.de, mueller.de), one per line.
-   */
-  storeUrls: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Max categories per batch. Empty = unlimited.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Categories found
-   */
-  discovered?: number | null;
-  /**
-   * New categories created
-   */
-  created?: number | null;
-  /**
-   * Categories already in database
-   */
-  existing?: number | null;
-  /**
-   * Internal state for resumable discovery
-   */
-  progress?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Discovered category URLs, one per line
-   */
-  categoryUrls?: string | null;
-  /**
-   * URLs that failed during discovery (e.g. timeouts), one per line. Can be copied into Store URLs to retry.
-   */
-  errorUrls?: string | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "workers".
  */
 export interface Worker {
@@ -1362,7 +1283,6 @@ export interface Worker {
   capabilities: (
     | 'product-crawl'
     | 'product-discovery'
-    | 'category-discovery'
     | 'ingredients-discovery'
     | 'video-discovery'
     | 'video-processing'
@@ -1421,10 +1341,6 @@ export interface PayloadLockedDocument {
         value: number | ProductType;
       } | null)
     | ({
-        relationTo: 'source-categories';
-        value: number | SourceCategory;
-      } | null)
-    | ({
         relationTo: 'ingredients';
         value: number | Ingredient;
       } | null)
@@ -1459,10 +1375,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'discovery-results';
         value: number | DiscoveryResult;
-      } | null)
-    | ({
-        relationTo: 'category-discoveries';
-        value: number | CategoryDiscovery;
       } | null)
     | ({
         relationTo: 'events';
@@ -1661,19 +1573,6 @@ export interface ProductTypesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-categories_select".
- */
-export interface SourceCategoriesSelect<T extends boolean = true> {
-  name?: T;
-  slug?: T;
-  parent?: T;
-  source?: T;
-  url?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "ingredients_select".
  */
 export interface IngredientsSelect<T extends boolean = true> {
@@ -1799,7 +1698,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
   sourceArticleNumber?: T;
   brandName?: T;
   name?: T;
-  sourceCategory?: T;
+  categoryBreadcrumb?: T;
   rating?: T;
   ratingNum?: T;
   amount?: T;
@@ -1946,26 +1845,6 @@ export interface DiscoveryResultsSelect<T extends boolean = true> {
   discovery?: T;
   sourceProduct?: T;
   error?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "category-discoveries_select".
- */
-export interface CategoryDiscoveriesSelect<T extends boolean = true> {
-  storeUrls?: T;
-  status?: T;
-  itemsPerTick?: T;
-  discovered?: T;
-  created?: T;
-  existing?: T;
-  progress?: T;
-  startedAt?: T;
-  completedAt?: T;
-  categoryUrls?: T;
-  errorUrls?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }

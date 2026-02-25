@@ -23,7 +23,7 @@ import { submitWork } from '@/lib/work-protocol/submit'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
 import { getSourceDriverBySlug } from '@/lib/source-discovery/driver'
 import { getSourceDriver } from '@/lib/source-discovery/driver'
-import { getCategoryDriver } from '@/lib/category-discovery/driver'
+
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import {
@@ -45,7 +45,7 @@ import { analyzeSentiment, type ProductQuoteResult } from '@/lib/video-processin
 import { aggregateFromSources } from '@/lib/aggregate-product'
 import { classifyProduct } from '@/lib/classify-product'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
-import type { DiscoveredCategory } from '@/lib/category-discovery/types'
+
 
 // ─── Config ───
 
@@ -76,7 +76,6 @@ let worker: AuthenticatedWorker
 const COLLECTION_MAP: Record<string, string> = {
   'product-crawl': 'product-crawls',
   'product-discovery': 'product-discoveries',
-  'category-discovery': 'category-discoveries',
   'ingredients-discovery': 'ingredients-discoveries',
   'video-discovery': 'video-discoveries',
   'video-processing': 'video-processings',
@@ -267,79 +266,6 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
 
   log.info(
     `Submitted discovery results: ${discoveredProducts.length} products, done=${done}`,
-  )
-}
-
-async function handleCategoryDiscovery(work: Record<string, unknown>): Promise<void> {
-  const jobId = work.jobId as number
-  const storeUrls = work.storeUrls as string[]
-  let currentUrlIndex = work.currentUrlIndex as number
-  let driverProgress = work.driverProgress as unknown
-  const maxPages = work.maxPages as number | undefined
-  const pathToId = work.pathToId as Record<string, number>
-
-  log.info(
-    `Category discovery job #${jobId}: ${storeUrls.length} URLs, starting at ${currentUrlIndex}`,
-  )
-
-  const discoveredCategories: DiscoveredCategory[] = []
-
-  while (currentUrlIndex < storeUrls.length) {
-    const url = storeUrls[currentUrlIndex]
-    const driver = getCategoryDriver(url)
-    if (!driver) {
-      log.warn(`No category driver for URL: ${url}`)
-      currentUrlIndex++
-      driverProgress = null
-      continue
-    }
-
-    log.info(`Discovering categories from ${url}`)
-
-    const result = await driver.discoverCategories({
-      url,
-      onCategory: async (cat) => {
-        discoveredCategories.push(cat)
-      },
-      onError: () => {},
-      onProgress: async (dp) => {
-        driverProgress = dp
-        await heartbeat(jobId, 'category-discovery')
-      },
-      progress: driverProgress as
-        | import('@/lib/category-discovery/types').DriverProgress
-        | undefined,
-      maxPages,
-    })
-
-    // discoverCategories returns the final progress state
-    if (result) {
-      // Check if done: queue is empty
-      const isDone = result.queue.length === 0
-      if (isDone) {
-        currentUrlIndex++
-        driverProgress = null
-      } else {
-        driverProgress = result
-        break
-      }
-    }
-  }
-
-  const done = currentUrlIndex >= storeUrls.length
-
-  await submitWork(client, worker, {
-    type: 'category-discovery',
-    jobId,
-    categories: discoveredCategories,
-    currentUrlIndex,
-    driverProgress,
-    pathToId,
-    done,
-  } as Parameters<typeof submitWork>[2])
-
-  log.info(
-    `Submitted category discovery: ${discoveredCategories.length} categories, done=${done}`,
   )
 }
 
@@ -1013,7 +939,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       gtin: string | null
       name: string | null
       brandName: string | null
-      sourceCategoryId: number | null
+      categoryBreadcrumb: string | null
       source: string | null
       ingredients: Array<{ name: string | null }> | null
       description: string | null
@@ -1041,7 +967,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           gtin: sp.gtin ?? undefined,
           name: sp.name ?? undefined,
           brandName: sp.brandName ?? undefined,
-          sourceCategory: sp.sourceCategoryId ?? undefined,
+          categoryBreadcrumb: sp.categoryBreadcrumb ?? undefined,
           source: sp.source ?? undefined,
           ingredients: sp.ingredients
             ? sp.ingredients.map((i) => ({ name: i.name ?? undefined }))
@@ -1192,9 +1118,6 @@ async function main(): Promise<void> {
           break
         case 'product-discovery':
           await handleProductDiscovery(work)
-          break
-        case 'category-discovery':
-          await handleCategoryDiscovery(work)
           break
         case 'ingredients-discovery':
           await handleIngredientsDiscovery(work)

@@ -8,7 +8,6 @@ import {
   persistCrawlResult,
   persistCrawlFailure,
   persistDiscoveredProduct,
-  persistDiscoveredCategory,
   persistIngredient,
   persistVideoDiscoveryResult,
   persistVideoProcessingResult,
@@ -76,12 +75,6 @@ interface ScrapedIngredientData {
   sourceUrl?: string
 }
 
-interface DiscoveredCategory {
-  url: string
-  name: string
-  path: string[]
-}
-
 interface DiscoveredVideo {
   externalId: string
   title: string
@@ -117,16 +110,6 @@ interface SubmitProductDiscoveryBody {
   driverProgress: unknown | null
   done: boolean
   pagesUsed: number
-}
-
-interface SubmitCategoryDiscoveryBody {
-  type: 'category-discovery'
-  jobId: number
-  categories: DiscoveredCategory[]
-  currentUrlIndex: number
-  driverProgress: unknown | null
-  pathToId: Record<string, number>
-  done: boolean
 }
 
 interface SubmitIngredientsDiscoveryBody {
@@ -230,7 +213,7 @@ interface SubmitProductAggregationBody {
       gtin?: string
       name?: string
       brandName?: string
-      sourceCategoryId?: number
+      categoryBreadcrumb?: string
       ingredientNames?: string[]
       selectedImageUrl?: string
       selectedImageAlt?: string | null
@@ -257,7 +240,6 @@ interface SubmitProductAggregationBody {
 type SubmitBody =
   | SubmitProductCrawlBody
   | SubmitProductDiscoveryBody
-  | SubmitCategoryDiscoveryBody
   | SubmitIngredientsDiscoveryBody
   | SubmitVideoDiscoveryBody
   | SubmitVideoProcessingBody
@@ -274,8 +256,6 @@ export async function submitWork(
       return submitProductCrawl(payload, body)
     case 'product-discovery':
       return submitProductDiscovery(payload, body)
-    case 'category-discovery':
-      return submitCategoryDiscovery(payload, body)
     case 'ingredients-discovery':
       return submitIngredientsDiscovery(payload, body)
     case 'video-discovery':
@@ -441,72 +421,6 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         existing,
         productUrls: productUrls.join('\n'),
         progress: { currentUrlIndex, driverProgress },
-        ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
-      },
-    })
-  }
-
-  return { discovered, created, existing, done }
-}
-
-async function submitCategoryDiscovery(payload: PayloadRestClient, body: SubmitCategoryDiscoveryBody) {
-  const { jobId, categories, currentUrlIndex, driverProgress, pathToId, done } = body
-  const jlog = log.forJob('category-discoveries' as JobCollection, jobId)
-  log.info(`submitCategoryDiscovery #${jobId}: ${categories.length} categories, done=${done}`)
-
-  const job = await payload.findByID({ collection: 'category-discoveries', id: jobId }) as Record<string, unknown>
-
-  // Determine source from first URL
-  const storeUrls = ((job.storeUrls as string) ?? '').split('\n').filter(Boolean)
-  const source = ((storeUrls.length > 0 ? getSourceSlugFromUrl(storeUrls[0]) : null) ?? 'dm') as SourceSlug
-
-  let created = (job.created as number) ?? 0
-  let existing = (job.existing as number) ?? 0
-  let discovered = (job.discovered as number) ?? 0
-
-  const pathToIdMap = new Map<string, number>(Object.entries(pathToId).map(([k, v]) => [k, v]))
-
-  for (const cat of categories) {
-    discovered++
-    try {
-      const result = await persistDiscoveredCategory(payload, cat, source, pathToIdMap)
-      if (result.isNew) {
-        created++
-      } else {
-        existing++
-      }
-    } catch (e) {
-      log.error(`submitCategoryDiscovery #${jobId}: persist error for ${cat.name}: ${e instanceof Error ? e.message : e}`)
-    }
-  }
-
-  log.info(`submitCategoryDiscovery #${jobId}: ${discovered} discovered, ${created} created, ${existing} existing, done=${done}`)
-
-  if (done) {
-    await payload.update({
-      collection: 'category-discoveries',
-      id: jobId,
-      data: {
-        status: 'completed',
-        discovered,
-        created,
-        existing,
-        progress: null,
-        completedAt: new Date().toISOString(),
-      },
-    })
-    jlog.info(`Completed: ${discovered} discovered, ${created} created, ${existing} existing`, { event: 'success' })
-  } else {
-    const updatedPathToId = Object.fromEntries(pathToIdMap)
-    await payload.update({
-      collection: 'category-discoveries',
-      id: jobId,
-      data: {
-        status: 'in_progress',
-        discovered,
-        created,
-        existing,
-        progress: { currentUrlIndex, driverProgress, pathToId: updatedPathToId },
         ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
       },
     })

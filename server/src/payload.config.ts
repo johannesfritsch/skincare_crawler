@@ -15,7 +15,7 @@ import { Ingredients } from './collections/Ingredients'
 import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
 import { SourceProducts } from './collections/SourceProducts'
-import { SourceCategories } from './collections/SourceCategories'
+
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
 import { ProductCrawls } from './collections/ProductCrawls'
 import { ProductAggregations } from './collections/ProductAggregations'
@@ -27,7 +27,7 @@ import { VideoSnippets } from './collections/VideoSnippets'
 import { VideoMentions } from './collections/VideoMentions'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
 import { VideoProcessings } from './collections/VideoProcessings'
-import { CategoryDiscoveries } from './collections/CategoryDiscoveries'
+
 import { CrawlResults } from './collections/CrawlResults'
 import { DiscoveryResults } from './collections/DiscoveryResults'
 import { Workers } from './collections/Workers'
@@ -68,7 +68,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, ProductTypes, SourceCategories, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, CategoryDiscoveries, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
+  collections: [Users, Media, Brands, Categories, ProductTypes, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

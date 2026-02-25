@@ -7,7 +7,6 @@ export type JobCollection =
   | 'product-aggregations'
   | 'video-discoveries'
   | 'video-processings'
-  | 'category-discoveries'
 
 export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 

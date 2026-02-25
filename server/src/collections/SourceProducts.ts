@@ -97,11 +97,12 @@ export const SourceProducts: CollectionConfig = {
               label: 'Product Name',
             },
             {
-              name: 'sourceCategory',
-              type: 'relationship',
-              relationTo: 'source-categories',
-              label: 'Source Category',
-              index: true,
+              name: 'categoryBreadcrumb',
+              type: 'text',
+              label: 'Category',
+              admin: {
+                description: 'Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"',
+              },
             },
             {
               type: 'row',
