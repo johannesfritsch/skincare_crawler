@@ -224,7 +224,10 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
         total,
+        crawled: 0,
+        errors: 0,
       },
     })
 
@@ -294,7 +297,7 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
 
   jlog.info(`buildProductDiscoveryWork #${jobId}: ${sourceUrls.length} URLs, urlIndex=${progress?.currentUrlIndex ?? 0}, maxPages=${maxPages ?? 'unlimited'}, delay=${delay}ms`)
 
-  // Initialize job if pending: set in_progress
+  // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
     jlog.info(`buildProductDiscoveryWork #${jobId}: pending → in_progress`)
     await payload.update({
@@ -303,6 +306,11 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
+        discovered: 0,
+        created: 0,
+        existing: 0,
+        progress: null,
       },
     })
     jlog.info(`Started product discovery: ${sourceUrls.length} source URLs`, { event: 'start' })
@@ -337,7 +345,7 @@ async function buildCategoryDiscoveryWork(payload: PayloadRestClient, jobId: num
 
   jlog.info(`buildCategoryDiscoveryWork #${jobId}: ${storeUrls.length} store URLs, urlIndex=${progress?.currentUrlIndex ?? 0}, hasProgress=${!!progress?.driverProgress}`)
 
-  // Initialize job if pending: set in_progress
+  // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
     jlog.info(`buildCategoryDiscoveryWork #${jobId}: pending → in_progress`)
     await payload.update({
@@ -346,6 +354,11 @@ async function buildCategoryDiscoveryWork(payload: PayloadRestClient, jobId: num
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
+        discovered: 0,
+        created: 0,
+        existing: 0,
+        progress: null,
       },
     })
     jlog.info(`Started category discovery: ${storeUrls.length} store URLs`, { event: 'start' })
@@ -370,7 +383,7 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
   const termQueue = (job.termQueue as string[]) ?? []
   jlog.info(`buildIngredientsDiscoveryWork #${jobId}: sourceUrl=${job.sourceUrl}, currentTerm=${job.currentTerm ?? 'none'}, termQueue=${termQueue.length} terms`)
 
-  // Initialize job if pending: set in_progress
+  // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
     jlog.info(`buildIngredientsDiscoveryWork #${jobId}: pending → in_progress`)
     await payload.update({
@@ -379,6 +392,11 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
+        discovered: 0,
+        created: 0,
+        existing: 0,
+        errors: 0,
       },
     })
     jlog.info(`Started ingredients discovery`, { event: 'start' })
@@ -404,7 +422,7 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
   const channelUrl = job.channelUrl as string
   jlog.info(`buildVideoDiscoveryWork #${jobId}: channel=${channelUrl}`)
 
-  // Initialize job if pending: set in_progress
+  // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
     jlog.info(`buildVideoDiscoveryWork #${jobId}: pending → in_progress`)
     await payload.update({
@@ -413,6 +431,10 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
+        discovered: 0,
+        created: 0,
+        existing: 0,
       },
     })
     jlog.info(`Started video discovery: ${channelUrl}`, { event: 'start' })
@@ -463,6 +485,7 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
         total,
         processed: 0,
         errors: 0,
@@ -567,9 +590,11 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       data: {
         status: 'in_progress',
         startedAt: new Date().toISOString(),
+        completedAt: null,
         aggregated: 0,
         errors: 0,
         tokensUsed: 0,
+        lastCheckedSourceId: 0,
         total,
       },
     })
