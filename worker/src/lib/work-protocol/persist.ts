@@ -88,6 +88,7 @@ interface DiscoveredVideo {
   likeCount?: number
   channelName?: string
   channelUrl?: string
+  channelAvatarUrl?: string
 }
 
 // ─── Product Crawl ───
@@ -470,16 +471,70 @@ export async function persistVideoDiscoveryResult(
   offset: number,
   batchSize: number,
 ): Promise<{ created: number; existing: number }> {
-  // Find or create channel
+  // Derive canonical URL from yt-dlp's channel_url (e.g. /channel/UC...)
+  const canonicalUrl = videos[0]?.channelUrl ?? undefined
+
+  // Find existing channel by any known URL variant
+  const urlClauses: Array<Record<string, unknown>> = [
+    { externalUrl: { equals: channelUrl } },
+  ]
+  if (canonicalUrl && canonicalUrl !== channelUrl) {
+    urlClauses.push(
+      { externalUrl: { equals: canonicalUrl } },
+      { canonicalUrl: { equals: channelUrl } },
+      { canonicalUrl: { equals: canonicalUrl } },
+    )
+  }
   const existingChannel = await payload.find({
     collection: 'channels',
-    where: { externalUrl: { equals: channelUrl } },
+    where: urlClauses.length > 1 ? { or: urlClauses } : urlClauses[0],
     limit: 1,
   })
+
+  // Download channel avatar if available (used for both new and existing channels)
+  const channelAvatarUrl = videos[0]?.channelAvatarUrl
+  let channelImageId: number | undefined
+  if (channelAvatarUrl) {
+    try {
+      const res = await fetch(channelAvatarUrl)
+      if (res.ok) {
+        const buffer = Buffer.from(await res.arrayBuffer())
+        const contentType = res.headers.get('content-type') || 'image/jpeg'
+        const ext = contentType.includes('png') ? 'png' : 'jpg'
+        // Derive a stable filename from the channel URL
+        const channelSlug = channelUrl.replace(/[^a-zA-Z0-9@_-]/g, '_').slice(-60)
+        const media = await payload.create({
+          collection: 'media',
+          data: { alt: videos[0]?.channelName ?? 'Channel avatar' },
+          file: {
+            data: buffer,
+            mimetype: contentType,
+            name: `channel-avatar-${channelSlug}.${ext}`,
+            size: buffer.length,
+          },
+        }) as { id: number }
+        channelImageId = media.id
+      }
+    } catch (e) {
+      log.warn(`Failed to download channel avatar from ${channelAvatarUrl}: ${String(e)}`)
+    }
+  }
 
   let channelId: number
   if (existingChannel.docs.length > 0) {
     channelId = (existingChannel.docs[0] as { id: number }).id
+
+    // Always update channel: set image and backfill canonical URL
+    const channelUpdate: Record<string, unknown> = {}
+    if (channelImageId) channelUpdate.image = channelImageId
+    if (canonicalUrl) channelUpdate.canonicalUrl = canonicalUrl
+    if (Object.keys(channelUpdate).length > 0) {
+      await payload.update({
+        collection: 'channels',
+        id: channelId,
+        data: channelUpdate,
+      })
+    }
   } else {
     // Derive creator name from first video
     const creatorName = videos[0]?.channelName ?? 'Unknown'
@@ -516,6 +571,8 @@ export async function persistVideoDiscoveryResult(
         creator: creatorId,
         platform,
         externalUrl: channelUrl,
+        ...(canonicalUrl ? { canonicalUrl } : {}),
+        ...(channelImageId ? { image: channelImageId } : {}),
       },
     }) as { id: number }
     channelId = newChannel.id

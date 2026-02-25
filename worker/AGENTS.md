@@ -135,7 +135,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistDiscoveredProduct()` | Creates/updates `source-products` (status=uncrawled); creates `discovery-results` join record |
 | `persistDiscoveredCategory()` | Creates/updates `source-categories` with parent chain; uses `pathToId` map for hierarchy |
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
-| `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails |
+| `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
 | `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory, matchIngredients, applies classification (productType, attributes, claims with evidence) |
 
@@ -184,7 +184,7 @@ Dispatches to per-type submit handlers. Each handler:
 **Handler**: `handleVideoDiscovery()`
 **Flow**: `getVideoDriver(channelUrl)` → lists all videos → submit in batches
 
-**Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails.
+**Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails. Fetches the channel avatar (from YouTube `og:image` meta tag) and always updates the `channels.image` field — both for new and existing channels.
 
 ### 6. video-processing
 
@@ -265,6 +265,7 @@ Dispatches to per-type submit handlers. Each handler:
 interface SourceDriver {
   slug: SourceSlug           // 'dm' | 'mueller' | 'rossmann'
   label: string
+  logoSvg: string            // inline SVG markup for the store logo (used in frontend UI)
   matches(url: string): boolean
   discoverProducts(options: ProductDiscoveryOptions): Promise<ProductDiscoveryResult>
   scrapeProduct(url: string, options?: { debug?: boolean }): Promise<ScrapedProductData | null>

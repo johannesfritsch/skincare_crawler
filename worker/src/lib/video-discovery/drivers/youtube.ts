@@ -19,6 +19,23 @@ interface YtDlpEntry {
   webpage_url?: string
 }
 
+async function fetchChannelAvatarUrl(channelUrl: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(channelUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+    })
+    if (!res.ok) return undefined
+    const html = await res.text()
+    // YouTube channel pages have og:image meta with the avatar URL
+    const match = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/)
+      ?? html.match(/<meta\s+content="([^"]+)"\s+property="og:image"/)
+    return match?.[1] ?? undefined
+  } catch (e) {
+    log.warn(`Failed to fetch channel avatar from ${channelUrl}: ${String(e)}`)
+    return undefined
+  }
+}
+
 function runYtDlp(channelUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = execFile(
@@ -54,7 +71,14 @@ export const youtubeDriver: VideoDiscoveryDriver = {
 
   async discoverVideos(channelUrl: string): Promise<DiscoveredVideo[]> {
     log.info(`Running yt-dlp for ${channelUrl}`)
-    const stdout = await runYtDlp(channelUrl)
+    const [stdout, channelAvatarUrl] = await Promise.all([
+      runYtDlp(channelUrl),
+      fetchChannelAvatarUrl(channelUrl),
+    ])
+
+    if (channelAvatarUrl) {
+      log.info(`Found channel avatar: ${channelAvatarUrl}`)
+    }
 
     // yt-dlp outputs one JSON object per line
     const lines = stdout.trim().split('\n').filter(Boolean)
@@ -81,6 +105,7 @@ export const youtubeDriver: VideoDiscoveryDriver = {
           likeCount: entry.like_count ?? undefined,
           channelName: entry.channel || undefined,
           channelUrl: entry.channel_url || undefined,
+          channelAvatarUrl,
         })
       } catch {
         log.warn(`Failed to parse yt-dlp line: ${line.substring(0, 100)}`)

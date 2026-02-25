@@ -1072,6 +1072,10 @@ export interface Channel {
   image?: (number | null) | Media;
   platform: 'youtube' | 'instagram' | 'tiktok';
   externalUrl?: string | null;
+  /**
+   * Platform-canonical URL (e.g. /channel/UC... for YouTube). Used for deduplication.
+   */
+  canonicalUrl?: string | null;
   videos?: {
     docs?: (number | Video)[];
     hasNextPage?: boolean;
@@ -1960,6 +1964,7 @@ export interface ChannelsSelect<T extends boolean = true> {
   image?: T;
   platform?: T;
   externalUrl?: T;
+  canonicalUrl?: T;
   videos?: T;
   updatedAt?: T;
   createdAt?: T;

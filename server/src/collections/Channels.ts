@@ -40,6 +40,16 @@ export const Channels: CollectionConfig = {
       name: 'externalUrl',
       type: 'text',
       label: 'External URL',
+      index: true,
+    },
+    {
+      name: 'canonicalUrl',
+      type: 'text',
+      label: 'Canonical URL',
+      index: true,
+      admin: {
+        description: 'Platform-canonical URL (e.g. /channel/UC... for YouTube). Used for deduplication.',
+      },
     },
     {
       name: 'videos',

@@ -11,6 +11,7 @@ export interface DiscoveredVideo {
   likeCount?: number
   channelName?: string
   channelUrl?: string
+  channelAvatarUrl?: string
 }
 
 export interface VideoDiscoveryDriver {
