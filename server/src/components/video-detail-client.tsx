@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import {
+  ChevronDown,
   Clock,
   ExternalLink,
   Eye,
@@ -15,6 +16,8 @@ import {
   Minus,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { cn } from '@/lib/utils'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -89,16 +92,29 @@ function sentimentColor(s: string | null) {
   }
 }
 
+function sentimentDot(s: string | null) {
+  switch (s) {
+    case 'positive':
+      return 'bg-emerald-500'
+    case 'negative':
+      return 'bg-red-500'
+    case 'mixed':
+      return 'bg-amber-400'
+    default:
+      return 'bg-muted-foreground/40'
+  }
+}
+
 function sentimentBg(s: string | null) {
   switch (s) {
     case 'positive':
-      return 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100/80'
+      return 'bg-emerald-50 border-emerald-200/60'
     case 'negative':
-      return 'bg-red-50 border-red-200 hover:bg-red-100/80'
+      return 'bg-red-50 border-red-200/60'
     case 'mixed':
-      return 'bg-amber-50 border-amber-200 hover:bg-amber-100/80'
+      return 'bg-amber-50 border-amber-200/60'
     default:
-      return 'bg-muted/30 border-border hover:bg-muted/50'
+      return 'bg-muted/30 border-border'
   }
 }
 
@@ -238,10 +254,58 @@ function VideoInfo({
   )
 }
 
-/** A single snippet block with its mentions & quotes */
+/** Compact product tile inside a snippet header */
+function ProductTile({
+  mention,
+}: {
+  mention: VideoMentionItem
+}) {
+  return (
+    <Link
+      href={mention.productGtin ? `/products/${mention.productGtin}` : '#'}
+      className="flex items-center gap-2.5 min-w-0"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="h-9 w-9 shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden p-0.5">
+        {mention.productImageUrl ? (
+          <Image
+            src={mention.productImageUrl}
+            alt={mention.productName ?? 'Product'}
+            width={72}
+            height={72}
+            className="h-full w-full object-contain"
+            sizes="36px"
+          />
+        ) : (
+          <span className="text-xs font-semibold text-muted-foreground/30">
+            {(mention.productName ?? '?')[0]?.toUpperCase()}
+          </span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate leading-tight">
+          {mention.productName ?? 'Unknown product'}
+        </p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {mention.brandName && (
+            <span className="text-[11px] text-muted-foreground truncate">
+              {mention.brandName}
+            </span>
+          )}
+          {mention.overallSentiment && (
+            <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', sentimentDot(mention.overallSentiment))} />
+          )}
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+/** A single snippet block — collapsible, blocky, minimal */
 function SnippetBlock({
   snippet,
   seekTo,
+  defaultOpen,
 }: {
   snippet: {
     timestampStart: number | null
@@ -250,96 +314,154 @@ function SnippetBlock({
     mentions: VideoMentionItem[]
   }
   seekTo: (seconds: number) => void
+  defaultOpen?: boolean
 }) {
+  const [open, setOpen] = useState(defaultOpen ?? false)
+  const totalQuotes = snippet.mentions.reduce((sum, m) => sum + m.quotes.length, 0)
+
   return (
-    <div className="flex flex-col gap-2.5">
-      {/* Timestamp pill */}
-      <button
-        onClick={() => snippet.timestampStart != null && seekTo(snippet.timestampStart)}
-        className="flex items-center gap-1.5 text-xs font-mono font-medium text-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-full self-start transition-colors"
-      >
-        <Clock className="h-3 w-3" />
-        {formatTimestamp(snippet.timestampStart)}
-        {snippet.timestampEnd != null && (
-          <span className="text-muted-foreground font-sans">
-            &ndash; {formatTimestamp(snippet.timestampEnd)}
-          </span>
-        )}
-      </button>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="rounded-xl border bg-card overflow-hidden transition-colors">
+        {/* ── Header: always visible ── */}
+        <CollapsibleTrigger asChild>
+          <button className="w-full text-left px-3.5 py-3 flex items-center gap-3 hover:bg-muted/40 transition-colors">
+            {/* Timestamp */}
+            <span
+              className="shrink-0 flex items-center gap-1 text-[11px] font-mono font-medium text-primary bg-primary/8 px-2 py-0.5 rounded-md"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (snippet.timestampStart != null) seekTo(snippet.timestampStart)
+              }}
+            >
+              <Clock className="h-3 w-3" />
+              {formatTimestamp(snippet.timestampStart)}
+            </span>
 
-      {/* Snippet transcript */}
-      {snippet.transcript && (
-        <button
-          onClick={() => snippet.timestampStart != null && seekTo(snippet.timestampStart)}
-          className="text-left text-[13px] text-muted-foreground leading-relaxed bg-muted/40 rounded-xl px-4 py-3 italic hover:bg-muted/60 transition-colors border border-transparent hover:border-border/50"
-        >
-          <MessageCircle className="h-3.5 w-3.5 inline mr-2 -mt-0.5 text-muted-foreground/50" />
-          &ldquo;{snippet.transcript}&rdquo;
-        </button>
-      )}
-
-      {/* Mentions within this snippet */}
-      {snippet.mentions.map((mention) => (
-        <div key={mention.id} className="flex flex-col gap-2 pl-3 border-l-2 border-primary/15">
-          {/* Product card */}
-          <Link
-            href={mention.productGtin ? `/products/${mention.productGtin}` : '#'}
-            className="flex gap-3 rounded-xl border bg-card p-3 transition-all hover:shadow-sm active:bg-muted/60 hover:border-primary/20"
-          >
-            <div className="h-11 w-11 shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden p-1">
-              {mention.productImageUrl ? (
-                <Image
-                  src={mention.productImageUrl}
-                  alt={mention.productName ?? 'Product'}
-                  width={96}
-                  height={96}
-                  className="h-full w-full object-contain"
-                  sizes="44px"
-                />
-              ) : (
-                <span className="text-sm font-semibold text-muted-foreground/30">
-                  {(mention.productName ?? '?')[0]?.toUpperCase()}
-                </span>
+            {/* Product avatars stack */}
+            <div className="flex items-center -space-x-1.5 shrink-0">
+              {snippet.mentions.slice(0, 4).map((mention) => (
+                <div
+                  key={mention.id}
+                  className="h-7 w-7 rounded-md border-2 border-card bg-muted/50 flex items-center justify-center overflow-hidden p-0.5"
+                >
+                  {mention.productImageUrl ? (
+                    <Image
+                      src={mention.productImageUrl}
+                      alt={mention.productName ?? ''}
+                      width={48}
+                      height={48}
+                      className="h-full w-full object-contain"
+                      sizes="28px"
+                    />
+                  ) : (
+                    <span className="text-[9px] font-bold text-muted-foreground/40">
+                      {(mention.productName ?? '?')[0]?.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {snippet.mentions.length > 4 && (
+                <div className="h-7 w-7 rounded-md border-2 border-card bg-muted flex items-center justify-center">
+                  <span className="text-[9px] font-medium text-muted-foreground">
+                    +{snippet.mentions.length - 4}
+                  </span>
+                </div>
               )}
             </div>
+
+            {/* Product name(s) summary */}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">
-                {mention.productName ?? 'Unknown product'}
+                {snippet.mentions.map((m) => m.productName ?? 'Unknown').join(', ')}
               </p>
-              <div className="flex items-center gap-2 mt-0.5">
-                {mention.brandName && (
-                  <span className="text-xs text-muted-foreground truncate">
-                    {mention.brandName}
-                  </span>
-                )}
-                {mention.overallSentiment && (
-                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5 gap-1">
-                    <SentimentIcon sentiment={mention.overallSentiment} className="h-3 w-3" />
-                    <span className={sentimentColor(mention.overallSentiment)}>
-                      {mention.overallSentiment}
-                    </span>
-                  </Badge>
-                )}
-              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {snippet.mentions.length} product{snippet.mentions.length !== 1 ? 's' : ''}
+                {totalQuotes > 0 && <> &middot; {totalQuotes} quote{totalQuotes !== 1 ? 's' : ''}</>}
+              </p>
             </div>
-          </Link>
 
-          {/* Quotes */}
-          {mention.quotes.map((quote, qi) => (
-            <button
-              key={qi}
-              onClick={() => snippet.timestampStart != null && seekTo(snippet.timestampStart)}
-              className={`text-left rounded-xl border px-3.5 py-2.5 text-[13px] leading-relaxed transition-colors ${sentimentBg(quote.sentiment)}`}
-            >
-              <div className="flex items-start gap-2">
-                <SentimentIcon sentiment={quote.sentiment} className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <p>&ldquo;{quote.text}&rdquo;</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      ))}
-    </div>
+            {/* Sentiment dots */}
+            <div className="flex items-center gap-1 shrink-0">
+              {snippet.mentions.map((m) => (
+                <span
+                  key={m.id}
+                  className={cn('h-2 w-2 rounded-full', sentimentDot(m.overallSentiment))}
+                  title={m.overallSentiment ?? undefined}
+                />
+              ))}
+            </div>
+
+            {/* Chevron */}
+            <ChevronDown
+              className={cn(
+                'h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform duration-200',
+                open && 'rotate-180',
+              )}
+            />
+          </button>
+        </CollapsibleTrigger>
+
+        {/* ── Expanded content ── */}
+        <CollapsibleContent>
+          <div className="border-t px-3.5 pb-3.5">
+            {/* Transcript */}
+            {snippet.transcript && (
+              <button
+                onClick={() => snippet.timestampStart != null && seekTo(snippet.timestampStart)}
+                className="w-full text-left mt-3 text-[13px] text-muted-foreground leading-relaxed bg-muted/30 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors"
+              >
+                <MessageCircle className="h-3 w-3 inline mr-1.5 -mt-0.5 text-muted-foreground/40" />
+                <span className="italic">&ldquo;{snippet.transcript}&rdquo;</span>
+              </button>
+            )}
+
+            {/* Product mentions */}
+            <div className="mt-3 flex flex-col gap-2.5">
+              {snippet.mentions.map((mention) => (
+                <div key={mention.id} className="flex flex-col gap-2">
+                  {/* Product row */}
+                  <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2.5 hover:border-primary/20 transition-colors">
+                    <ProductTile mention={mention} />
+                    {mention.overallSentiment && (
+                      <SentimentIcon
+                        sentiment={mention.overallSentiment}
+                        className="h-4 w-4 shrink-0"
+                      />
+                    )}
+                  </div>
+
+                  {/* Quotes */}
+                  {mention.quotes.length > 0 && (
+                    <div className="flex flex-col gap-1.5 pl-3">
+                      {mention.quotes.map((quote, qi) => (
+                        <button
+                          key={qi}
+                          onClick={() =>
+                            snippet.timestampStart != null && seekTo(snippet.timestampStart)
+                          }
+                          className={cn(
+                            'text-left rounded-lg border px-3 py-2 text-[12px] leading-relaxed transition-colors hover:opacity-80',
+                            sentimentBg(quote.sentiment),
+                          )}
+                        >
+                          <div className="flex items-start gap-2">
+                            <SentimentIcon
+                              sentiment={quote.sentiment}
+                              className="h-3 w-3 mt-0.5 shrink-0"
+                            />
+                            <p className="line-clamp-3">&ldquo;{quote.text}&rdquo;</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   )
 }
 
@@ -435,9 +557,14 @@ export function VideoDetailClient({
           <p className="text-sm text-muted-foreground">No product mentions found in this video.</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-2">
           {snippets.map((snippet, idx) => (
-            <SnippetBlock key={idx} snippet={snippet} seekTo={seekTo} />
+            <SnippetBlock
+              key={idx}
+              snippet={snippet}
+              seekTo={seekTo}
+              defaultOpen={idx === 0}
+            />
           ))}
         </div>
       )}
@@ -494,7 +621,7 @@ export function VideoDetailClient({
         'md:grid md:grid-cols-[1fr_42%] md:grid-rows-[1fr] md:gap-6 md:px-6 md:pt-5 md:pb-6',
       ].join(' ')}
     >
-      {/* ── Player + info column ── */}
+      {/* -- Player + info column -- */}
       {/* Mobile: shrink-0 at the top of the flex column.   */}
       {/* Desktop: right grid column (order-2).             */}
       <div className="shrink-0 md:order-2 md:flex md:flex-col md:gap-4">
@@ -508,7 +635,7 @@ export function VideoDetailClient({
         </div>
       </div>
 
-      {/* ── Scrollable content ── */}
+      {/* -- Scrollable content -- */}
       {/* Mobile: flex-1 fills remaining height, scrolls independently.    */}
       {/* Desktop: left grid column (order-1), independently scrollable.   */}
       <div className="flex-1 min-h-0 overflow-y-auto md:order-1">
