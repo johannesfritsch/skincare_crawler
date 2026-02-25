@@ -50,6 +50,17 @@ export function MuellerLogo({ className }: StoreLogoProps) {
   )
 }
 
+/** Müller windmill icon — square aspect ratio, for compact contexts */
+export function MuellerIcon({ className }: StoreLogoProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 137.3 137.2" className={cn('h-6 w-auto', className)}>
+      <path d="M0,0h33.4c10.8-0.1,18,1.7,25.9,8.8c4.8,4.4,7.1,7.8,9.3,14c2.4-6.2,4.8-9.6,9.9-14C86.4,2,93.7,0.3,103.9,0h33.3v33.4c0.5,10.7-1.3,18.8-8.9,26.7c-4.3,4.5-7.5,6.5-13.4,8.5c5.9,2.1,9.1,4.2,13.4,8.8c7.4,8,9.2,15.1,8.9,26.5v33.2h-33.3c-10.5,0.1-17.8-1.8-25.7-8.8c-4.8-4.2-7.1-7.5-9.5-13.4c-2,5.9-4.1,9.2-8.7,13.4c-8,7.5-15.7,9.4-26.6,8.8H0v-33.2C-0.3,93.8,1.8,86,8.9,78.1c4.4-4.9,7.8-7.2,13.9-9.5c-6.2-2.2-9.5-4.4-13.9-9.2c-7.2-7.9-8.8-15.5-8.9-26V0z" fill="#f16426"/>
+      <path d="M14.2,14.3h21.6c10.6,0.1,16.9,1,24.4,7.5c4.2,3.6,6.2,6.4,8.4,11.5c2.3-5.1,4.4-7.9,8.8-11.5c7.5-6.3,14.4-7.8,24-7.5H123V36c-0.2,8.4-0.5,14.6-5.5,21.7c-3.9,5.6-7.3,8.4-13.6,11c6.3,2.6,9.7,5.3,13.6,10.9c5.1,7.2,5.5,13.2,5.5,21.9v21.6h-21.7c-9.9,0.4-16.4-1.3-23.9-7.5c-4.3-3.6-6.5-6.4-8.8-11.5c-2.1,5.1-4.1,7.9-8.3,11.5c-7.5,6.5-14.2,7.4-24.4,7.5H14.3v-21.5c-0.1-9.4,1.1-14.5,6.1-21.7c3.8-5.4,7-8.1,12.9-11C27.4,66,24.2,63.3,20.4,58c-5.2-7.3-6.3-13.4-6.2-22.1C14.2,35.9,14.2,14.3,14.2,14.3z" fill="#fff"/>
+      <path d="M58.1,84.5c4.8,10.7,5.4,10.5,6.7,10.7c2.5,0.3,5.4-8.7,7.1-12.4c1.9-4,4.4-11,6.9-11c2.8,0,1.2,13.6,0.9,15c-0.6,2.5-4.1,3-4.1,5.8c0,5.1,10.9,4.8,14.1,4.8c3.5,0,14.3,0.2,14.3-5.1c0-3.6-4.8-2.3-5-8.1c-0.3-7.4-0.8-16.1-0.8-17.3c0-3.6,0.6-12.9,1.2-15.1c0.8-2.7,4.4-3.3,4.4-6.5c0-5-7.9-5.2-11.4-5.2c-10.5,0-10.5,2.4-14.6,9.8c-2.9,5.2-6.1,14.8-8.6,14.3c-3.5-0.8-8.4-13.8-11.2-18.5c-2.4-4-2.2-5.6-11.5-5.6c-6.3,0-13.7,1.1-13.7,5.6c0,3.2,4.5,3.8,5.3,5.5c0.9,1.8,1.2,4.3,1.2,9c0,11.5-0.7,18.9-1.3,25.5c-0.6,6.5-5.4,2.8-5.4,7.3c0,4.1,7.2,4.4,10,4.4c3.1,0,11.6-0.2,11.6-4.7c0-4.3-5.1-0.3-5.1-8.8c0-2.6-0.8-13.1,1.7-13.1c1.4,0,2.3,2.4,2.8,3.4L58.1,84.5z" fill="#282526"/>
+    </svg>
+  )
+}
+
 /** Rossmann centaur icon — square aspect ratio, for compact contexts */
 export function RossmannIcon({ className }: StoreLogoProps) {
   return (
@@ -77,7 +88,7 @@ export function StoreLogo({ source, className }: { source: string; className?: s
   }
 }
 
-/** Square icon variant — for compact contexts like score cards where the wide Rossmann logo doesn't fit */
+/** Square icon variant — for compact contexts like score cards where wide logos don't fit */
 export function StoreIcon({ source, className }: { source: string; className?: string }) {
   switch (source) {
     case 'dm':
@@ -85,7 +96,7 @@ export function StoreIcon({ source, className }: { source: string; className?: s
     case 'rossmann':
       return <RossmannIcon className={className} />
     case 'mueller':
-      return <MuellerLogo className={className} />
+      return <MuellerIcon className={className} />
     default:
       return <span className={cn('text-xs font-medium text-muted-foreground', className)}>{source}</span>
   }
