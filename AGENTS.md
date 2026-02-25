@@ -80,7 +80,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 | Collection | Purpose |
 |------------|---------|
-| `products` | Unified product records (name, GTIN, brand, category, productType, image, ingredients, attributes, claims) |
+| `products` | Unified product records (name, GTIN, brand, category, productType, image, ingredients, attributes, claims, warnings, skinApplicability, phMin/phMax, usageInstructions, usageSchedule) |
 | `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann) |
 | `brands` | Brand names |
 | `categories` | Hierarchical product categories (parent ref) |

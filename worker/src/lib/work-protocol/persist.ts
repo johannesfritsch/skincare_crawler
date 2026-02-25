@@ -866,6 +866,12 @@ export interface PersistProductAggregationInput {
   classification?: {
     description: string
     productType: string
+    warnings: string | null
+    skinApplicability: string | null
+    phMin: number | null
+    phMax: number | null
+    usageInstructions: string | null
+    usageSchedule: number[][] | null
     productAttributes: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
     productClaims: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
     tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }
@@ -1039,6 +1045,12 @@ export async function persistProductAggregationResult(
     if (classification.description) {
       updateData.description = classification.description
     }
+    if (classification.warnings != null) updateData.warnings = classification.warnings
+    if (classification.skinApplicability != null) updateData.skinApplicability = classification.skinApplicability
+    if (classification.phMin != null) updateData.phMin = classification.phMin
+    if (classification.phMax != null) updateData.phMax = classification.phMax
+    if (classification.usageInstructions != null) updateData.usageInstructions = classification.usageInstructions
+    if (classification.usageSchedule != null) updateData.usageSchedule = classification.usageSchedule
 
     if (classification.productType) {
       const ptDoc = await payload.find({

@@ -25,10 +25,18 @@ interface EvidenceEntry {
 export interface ClassifyProductResult {
   description: string
   productType: string
+  warnings: string | null
+  skinApplicability: string | null
+  phMin: number | null
+  phMax: number | null
+  usageInstructions: string | null
+  usageSchedule: number[][] | null
   productAttributes: Array<{ attribute: string } & EvidenceEntry>
   productClaims: Array<{ claim: string } & EvidenceEntry>
   tokensUsed: TokenUsage
 }
+
+const VALID_SKIN_APPLICABILITY = new Set(['normal', 'sensitive', 'mixed', 'oily', 'dry'])
 
 const SYSTEM_PROMPT = `You are an expert cosmetic chemist analyzing cosmetics/personal care products.
 
@@ -71,7 +79,42 @@ Then identify which product attributes and claims apply, providing evidence for 
 - fragranceFree: marketed as fragrance-free
 - mineralOilFree: marketed as mineral-oil-free
 
-**Rules:**
+**Additional product details** — extract from descriptions when mentioned. Use null if not stated or unclear.
+
+- **warnings**: All product warnings, safety notices, or precautions combined into one text block (e.g. "Avoid contact with eyes. Not suitable for children under 3."). null if none found.
+
+- **skinApplicability**: Target skin type. Exactly one of: "normal", "sensitive", "mixed", "oily", "dry". Only set when the description explicitly mentions a target skin type. null if not stated or for all skin types.
+
+- **phMin** and **phMax**: pH value or range. Single pH (e.g. "pH 5.5") → both phMin and phMax = 5.5. Range (e.g. "pH 4.5–5.5") → phMin = 4.5, phMax = 5.5. Must be numbers between 0 and 14. null for both if no pH info found.
+
+- **usageInstructions**: Application instructions from the description, written as a clean readable paragraph. null if none found.
+
+- **usageSchedule**: A 2D array encoding when to use the product.
+
+  Structure: The OUTER array is a repeating cycle of days. Each INNER array is one day with exactly 3 slots representing [morning, midday, evening]. Each slot is the integer 1 (use) or the integer 0 (skip). An EMPTY inner array [] means skip that entire day.
+
+  The cycle repeats: after the last day, it starts again from the first day.
+
+  Examples:
+  - Use daily in the morning only → [[1, 0, 0]]
+    (one day in the cycle: morning=yes, midday=no, evening=no; repeats every day)
+  - Use daily morning and evening → [[1, 0, 1]]
+  - Use daily, any time / whenever needed → [[1, 1, 1]]
+  - Use every second day, morning only → [[1, 0, 0], []]
+    (day 1: morning=yes; day 2: skip entirely; then repeat)
+  - Use every second day, morning and evening → [[1, 0, 1], []]
+  - Use every third day, evening only → [[0, 0, 1], [], []]
+  - Use twice a week, evening → [[0, 0, 1], [], [], [0, 0, 1], [], [], []]
+
+  Rules for usageSchedule:
+  - Outer array: at least 1 element.
+  - Each inner array: exactly 0 elements (skip day) or exactly 3 elements.
+  - Values: only integer 0 or integer 1 — never booleans, never 2, never other numbers.
+  - null if the description does not mention frequency or schedule.
+  - "Use daily" without time-of-day → [[1, 1, 1]].
+  - "Use morning and evening" → [[1, 0, 1]].
+
+**Rules for attributes and claims:**
 - Only include attributes/claims that are actually supported by evidence.
 - For each, provide the 0-based sourceIndex and evidence type.
 - type "ingredient": list the specific ingredient names from the ingredient list that triggered it.
@@ -82,6 +125,12 @@ Return ONLY JSON:
 {
   "description": "A neutral 2-4 sentence product description.",
   "productType": "moisturizer",
+  "warnings": "Avoid contact with eyes. If irritation occurs, discontinue use.",
+  "skinApplicability": "sensitive",
+  "phMin": 5.0,
+  "phMax": 5.5,
+  "usageInstructions": "Apply a small amount to cleansed face and neck morning and evening.",
+  "usageSchedule": [[1, 0, 1]],
   "productAttributes": [
     { "attribute": "containsParabens", "sourceIndex": 0, "type": "ingredient", "ingredientNames": ["Methylparaben", "Propylparaben"] }
   ],
@@ -170,6 +219,12 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   const result = parsed as {
     description?: string
     productType?: string
+    warnings?: string | null
+    skinApplicability?: string | null
+    phMin?: number | null
+    phMax?: number | null
+    usageInstructions?: string | null
+    usageSchedule?: unknown
     productAttributes?: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }>
     productClaims?: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }>
   }
@@ -197,11 +252,43 @@ export async function classifyProduct(sources: SourceInput[], language: string =
     return true
   })
 
+  // Validate new detail fields
+  const warnings = typeof result.warnings === 'string' && result.warnings.trim() ? result.warnings.trim() : null
+
+  let skinApplicability = result.skinApplicability ?? null
+  if (skinApplicability && !VALID_SKIN_APPLICABILITY.has(skinApplicability)) {
+    log.info(`Invalid skinApplicability "${skinApplicability}", dropping`)
+    skinApplicability = null
+  }
+
+  const phMin = typeof result.phMin === 'number' && result.phMin >= 0 && result.phMin <= 14 ? result.phMin : null
+  const phMax = typeof result.phMax === 'number' && result.phMax >= 0 && result.phMax <= 14 ? result.phMax : null
+
+  const usageInstructions = typeof result.usageInstructions === 'string' && result.usageInstructions.trim() ? result.usageInstructions.trim() : null
+
+  let usageSchedule: number[][] | null = null
+  if (Array.isArray(result.usageSchedule) && result.usageSchedule.length > 0) {
+    const valid = (result.usageSchedule as unknown[][]).every(
+      (day) => Array.isArray(day) && (day.length === 0 || (day.length === 3 && day.every((v) => v === 0 || v === 1))),
+    )
+    if (valid) {
+      usageSchedule = result.usageSchedule as number[][]
+    } else {
+      log.info('Invalid usageSchedule from LLM, dropping')
+    }
+  }
+
   jlog?.info(`Classification: type=${productType}, ${rawAttributes.length} attrs, ${rawClaims.length} claims`, { event: true, labels: ['classification'] })
 
   return {
     description: result.description ?? '',
     productType,
+    warnings,
+    skinApplicability,
+    phMin,
+    phMax,
+    usageInstructions,
+    usageSchedule,
     productAttributes: rawAttributes.map((entry) => ({
       attribute: entry.attribute,
       sourceIndex: entry.sourceIndex,

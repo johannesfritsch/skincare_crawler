@@ -238,6 +238,12 @@ interface SubmitProductAggregationBody {
     classification?: {
       description: string
       productType: string
+      warnings: string | null
+      skinApplicability: string | null
+      phMin: number | null
+      phMax: number | null
+      usageInstructions: string | null
+      usageSchedule: number[][] | null
       productAttributes: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
       productClaims: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
       tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }

@@ -1082,6 +1082,12 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           classification = {
             description: classifyResult.description,
             productType: classifyResult.productType,
+            warnings: classifyResult.warnings,
+            skinApplicability: classifyResult.skinApplicability,
+            phMin: classifyResult.phMin,
+            phMax: classifyResult.phMax,
+            usageInstructions: classifyResult.usageInstructions,
+            usageSchedule: classifyResult.usageSchedule,
             productAttributes: classifyResult.productAttributes,
             productClaims: classifyResult.productClaims,
             tokensUsed: classifyResult.tokensUsed,

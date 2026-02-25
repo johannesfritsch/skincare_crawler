@@ -849,6 +849,38 @@ export interface Product {
   image?: (number | null) | Media;
   publishedAt?: string | null;
   /**
+   * Product warnings extracted from descriptions (e.g. "Avoid contact with eyes")
+   */
+  warnings?: string | null;
+  /**
+   * Target skin type as stated in the product description
+   */
+  skinApplicability?: ('normal' | 'sensitive' | 'mixed' | 'oily' | 'dry') | null;
+  /**
+   * Minimum pH level (0–14)
+   */
+  phMin?: number | null;
+  /**
+   * Maximum pH level (0–14)
+   */
+  phMax?: number | null;
+  /**
+   * How to use the product, extracted from descriptions
+   */
+  usageInstructions?: string | null;
+  /**
+   * A 2D array: outer = repeating day cycle, inner = up to 3 time slots [morning, midday, evening]. Each slot is 1 (use) or 0 (skip). An empty inner array [] means skip that day entirely. Example: [[1,0,1]] = daily morning+evening. [[1,0,0],[]] = every other day morning only.
+   */
+  usageSchedule?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
    * Product ingredients (aggregated from sources)
    */
   ingredients?:
@@ -1700,6 +1732,12 @@ export interface ProductsSelect<T extends boolean = true> {
   productType?: T;
   image?: T;
   publishedAt?: T;
+  warnings?: T;
+  skinApplicability?: T;
+  phMin?: T;
+  phMax?: T;
+  usageInstructions?: T;
+  usageSchedule?: T;
   ingredients?:
     | T
     | {

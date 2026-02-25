@@ -85,6 +85,82 @@ export const Products: CollectionConfig = {
           ],
         },
         {
+          label: 'Details',
+          fields: [
+            {
+              name: 'warnings',
+              type: 'textarea',
+              label: 'Warnings',
+              admin: {
+                description: 'Product warnings extracted from descriptions (e.g. "Avoid contact with eyes")',
+              },
+            },
+            {
+              name: 'skinApplicability',
+              type: 'select',
+              label: 'Skin Applicability',
+              options: [
+                { label: 'Normal', value: 'normal' },
+                { label: 'Sensitive', value: 'sensitive' },
+                { label: 'Mixed', value: 'mixed' },
+                { label: 'Oily', value: 'oily' },
+                { label: 'Dry', value: 'dry' },
+              ],
+              admin: {
+                description: 'Target skin type as stated in the product description',
+              },
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'phMin',
+                  type: 'number',
+                  label: 'pH Min',
+                  min: 0,
+                  max: 14,
+                  admin: {
+                    width: '50%',
+                    description: 'Minimum pH level (0–14)',
+                    step: 0.1,
+                  },
+                },
+                {
+                  name: 'phMax',
+                  type: 'number',
+                  label: 'pH Max',
+                  min: 0,
+                  max: 14,
+                  admin: {
+                    width: '50%',
+                    description: 'Maximum pH level (0–14)',
+                    step: 0.1,
+                  },
+                },
+              ],
+            },
+            {
+              name: 'usageInstructions',
+              type: 'textarea',
+              label: 'Usage Instructions',
+              admin: {
+                description: 'How to use the product, extracted from descriptions',
+              },
+            },
+            {
+              name: 'usageSchedule',
+              type: 'json',
+              label: 'Usage Schedule',
+              admin: {
+                description:
+                  'A 2D array: outer = repeating day cycle, inner = up to 3 time slots [morning, midday, evening]. ' +
+                  'Each slot is 1 (use) or 0 (skip). An empty inner array [] means skip that day entirely. ' +
+                  'Example: [[1,0,1]] = daily morning+evening. [[1,0,0],[]] = every other day morning only.',
+              },
+            },
+          ],
+        },
+        {
           label: 'Ingredients',
           fields: [
             {
@@ -283,7 +359,7 @@ export const Products: CollectionConfig = {
           ],
         },
         {
-          label: 'Video Snippets',
+          label: 'In Videos',
           fields: [
             {
               name: 'videoSnippets',
@@ -291,11 +367,6 @@ export const Products: CollectionConfig = {
               collection: 'video-snippets',
               on: 'referencedProducts',
             },
-          ],
-        },
-        {
-          label: 'Video Mentions',
-          fields: [
             {
               name: 'videoMentions',
               type: 'join',
