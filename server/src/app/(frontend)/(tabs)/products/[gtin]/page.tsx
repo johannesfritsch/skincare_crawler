@@ -246,6 +246,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     pricesBySourceProduct.get(pid)!.push(row)
   }
 
+  /* ── Aggregate store ratings ── */
+  const ratedStores = (sourceProducts as Array<{
+    id: number; source: string | null; rating: number | null; ratingNum: number | null
+  }>).filter(sp => sp.rating != null && sp.ratingNum != null && sp.ratingNum > 0)
+  const totalStoreReviews = ratedStores.reduce((sum, sp) => sum + (sp.ratingNum ?? 0), 0)
+  const avgStoreRating = totalStoreReviews > 0
+    ? ratedStores.reduce((sum, sp) => sum + (sp.rating as number) * (sp.ratingNum as number), 0) / totalStoreReviews
+    : null // weighted average on 0–5 scale
+
   /* ── Aggregate sentiment ── */
   const totalMentions = videoMentions.length
   const avgSentiment = totalMentions > 0
@@ -334,39 +343,66 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <p className="text-sm text-muted-foreground mt-0.5">{product.brandName}</p>
           )}
 
-          {/* Creator score — prominent, right in the hero */}
-          {totalMentions > 0 && avgSentiment != null && (
-            <div className={cn(
-              'inline-flex items-center gap-2.5 mt-3 rounded-xl border px-3.5 py-2',
-              sentimentBg(dominantSentiment),
-            )}>
-              <div className="flex flex-col">
-                <span className={cn('text-xl font-bold leading-tight', sentimentColor(dominantSentiment))}>
-                  {toScore10(avgSentiment)}
-                </span>
-                <span className="text-[10px] text-muted-foreground leading-tight">
-                  {sentimentLabel(dominantSentiment)} &middot; {totalMentions} mention{totalMentions !== 1 ? 's' : ''}
-                </span>
-              </div>
-              {/* Creator avatars */}
-              {typedCreatorStats.length > 0 && (
-                <div className="flex items-center -space-x-1.5 ml-1 pl-2.5 border-l border-current/10">
-                  {typedCreatorStats
-                    .sort((a, b) => b.mentionCount - a.mentionCount)
-                    .slice(0, 5)
-                    .map((cs) => (
-                      <Avatar key={cs.creatorId ?? 'unknown'} size="sm" className="size-6 ring-2 ring-background">
-                        {cs.channelImageUrl && <AvatarImage src={cs.channelImageUrl} alt={cs.creatorName ?? ''} />}
-                        <AvatarFallback className="text-[7px]">
-                          {(cs.creatorName ?? '?').slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    ))}
-                  {typedCreatorStats.length > 5 && (
-                    <span className="flex items-center justify-center size-6 rounded-full bg-muted text-[9px] font-medium text-muted-foreground ring-2 ring-background">
-                      +{typedCreatorStats.length - 5}
+          {/* Score cards row */}
+          {(totalMentions > 0 || avgStoreRating != null) && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {/* Creator score */}
+              {totalMentions > 0 && avgSentiment != null && (
+                <div className={cn(
+                  'inline-flex items-center gap-2.5 rounded-xl border px-3.5 py-2',
+                  sentimentBg(dominantSentiment),
+                )}>
+                  <div className="flex flex-col">
+                    <span className={cn('text-xl font-bold leading-tight', sentimentColor(dominantSentiment))}>
+                      {toScore10(avgSentiment)}
                     </span>
+                    <span className="text-[10px] text-muted-foreground leading-tight">
+                      Creator Score
+                    </span>
+                  </div>
+                  {/* Creator avatars */}
+                  {typedCreatorStats.length > 0 && (
+                    <div className="flex items-center -space-x-1.5 ml-1 pl-2.5 border-l border-current/10">
+                      {typedCreatorStats
+                        .sort((a, b) => b.mentionCount - a.mentionCount)
+                        .slice(0, 5)
+                        .map((cs) => (
+                          <Avatar key={cs.creatorId ?? 'unknown'} size="sm" className="size-6 ring-2 ring-background">
+                            {cs.channelImageUrl && <AvatarImage src={cs.channelImageUrl} alt={cs.creatorName ?? ''} />}
+                            <AvatarFallback className="text-[7px]">
+                              {(cs.creatorName ?? '?').slice(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        ))}
+                      {typedCreatorStats.length > 5 && (
+                        <span className="flex items-center justify-center size-6 rounded-full bg-muted text-[9px] font-medium text-muted-foreground ring-2 ring-background">
+                          +{typedCreatorStats.length - 5}
+                        </span>
+                      )}
+                    </div>
                   )}
+                </div>
+              )}
+
+              {/* Store score */}
+              {avgStoreRating != null && (
+                <div className="inline-flex items-center gap-2.5 rounded-xl border px-3.5 py-2 bg-amber-50 border-amber-200/60">
+                  <div className="flex flex-col">
+                    <span className="text-xl font-bold leading-tight text-amber-600">
+                      {(avgStoreRating * 2).toFixed(1)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground leading-tight">
+                      Store Score
+                    </span>
+                  </div>
+                  {/* Store logos */}
+                  <div className="flex items-center gap-1.5 ml-1 pl-2.5 border-l border-amber-300/30">
+                    {ratedStores.map((sp) => (
+                      <div key={sp.id} className="shrink-0 h-5 flex items-center">
+                        <StoreLogo source={sp.source ?? ''} className="!h-4" />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
