@@ -81,7 +81,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 | Collection | Purpose |
 |------------|---------|
 | `products` | Unified product records (name, GTIN, brand, productType, image, ingredients, attributes, claims, warnings, skinApplicability, phMin/phMax, usageInstructions, usageSchedule, scoreHistory with change: drop/stable/increase) |
-| `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann, sourceUrl unique, categoryBreadcrumb text, priceHistory with change: drop/stable/increase) |
+| `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann, sourceUrl unique, categoryBreadcrumb text, ingredientsText raw textarea, priceHistory with change: drop/stable/increase) |
 | `brands` | Brand names |
 | `product-types` | Skincare types (cleanser, toner, moisturizer, etc.) with DE/EN names |
 | `ingredients` | Ingredient database (name, CAS#, EC#, CosIng ID, functions, restrictions) |
@@ -128,7 +128,7 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 3. Worker runs handler (e.g. scrapes product pages via Playwright driver)
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
-6. Product aggregation merges source-products by GTIN → selects best image (by source priority) → downloads & uploads to media → matchBrand + matchIngredients + classifyProduct (LLM) → unified products
+6. Product aggregation merges source-products by GTIN → selects best image (by source priority) → downloads & uploads to media → matchBrand + parseIngredients (raw text → names via LLM) + matchIngredients + classifyProduct (LLM) → unified products
 7. Video processing: download → scene detect → barcode/visual match → audio transcription (Deepgram) → LLM correction → transcript split → sentiment analysis (LLM) → video-mentions
 ```
 

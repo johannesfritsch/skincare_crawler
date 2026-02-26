@@ -3,7 +3,7 @@ interface AggregatedData {
   name?: string
   description?: string
   brandName?: string
-  ingredientNames?: string[]
+  ingredientsText?: string
   selectedImageUrl?: string
   selectedImageAlt?: string | null
 }
@@ -14,7 +14,7 @@ interface SourceProductData {
   name?: string | null
   brandName?: string | null
   source?: string | null
-  ingredients?: Array<{ name?: string | null }> | null
+  ingredientsText?: string | null
   images?: Array<{ url: string; alt?: string | null }> | null
 }
 
@@ -43,20 +43,15 @@ export function aggregateFromSources(sourceProducts: SourceProductData[], option
   // Brand: first non-null (should agree across sources)
   aggregated.brandName = sourceProducts.find((sp) => sp.brandName)?.brandName ?? undefined
 
-  // Ingredients: pick the source with the longest ingredient list (most complete INCI)
-  let bestIngredients: string[] = []
+  // Ingredients: pick the source with the longest raw text (most complete INCI)
+  let bestIngredientsText = ''
   for (const sp of sourceProducts) {
-    if (sp.ingredients && Array.isArray(sp.ingredients) && sp.ingredients.length > 0) {
-      const ingredientNames = sp.ingredients
-        .map((i) => i.name)
-        .filter((n): n is string => !!n)
-      if (ingredientNames.length > bestIngredients.length) {
-        bestIngredients = ingredientNames
-      }
+    if (sp.ingredientsText && sp.ingredientsText.length > bestIngredientsText.length) {
+      bestIngredientsText = sp.ingredientsText
     }
   }
-  if (bestIngredients.length > 0) {
-    aggregated.ingredientNames = bestIngredients
+  if (bestIngredientsText) {
+    aggregated.ingredientsText = bestIngredientsText
   }
 
   // Image: pick the first image from the highest-priority source

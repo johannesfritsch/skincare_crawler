@@ -9,7 +9,7 @@ export const SourceProducts: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'brandName', 'source', 'status', 'createdAt'],
-    group: 'Sources',
+    group: 'Content',
     description: 'Products crawled from source stores',
     listSearchableFields: ['name', 'brandName', 'gtin', 'sourceUrl'],
     components: {
@@ -358,19 +358,12 @@ export const SourceProducts: CollectionConfig = {
           label: 'Ingredients',
           fields: [
             {
-              name: 'ingredients',
-              type: 'array',
-              label: 'Ingredients',
+              name: 'ingredientsText',
+              type: 'textarea',
+              label: 'Ingredients Text',
               admin: {
-                description: 'Raw ingredient strings as crawled from source',
+                description: 'Raw ingredients text as crawled from source, including footnotes and annotations. Parsed into individual ingredients during product aggregation.',
               },
-              fields: [
-                {
-                  name: 'name',
-                  type: 'text',
-                  required: true,
-                },
-              ],
             },
           ],
         },

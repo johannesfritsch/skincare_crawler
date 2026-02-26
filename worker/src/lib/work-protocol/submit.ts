@@ -214,7 +214,7 @@ interface SubmitProductAggregationBody {
       gtin?: string
       name?: string
       brandName?: string
-      ingredientNames?: string[]
+      ingredientsText?: string
       selectedImageUrl?: string
       selectedImageAlt?: string | null
     } | null

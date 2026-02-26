@@ -1,6 +1,6 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
-import { parseIngredients } from '@/lib/parse-ingredients'
+
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 
@@ -611,12 +611,10 @@ export const muellerDriver: SourceDriver = {
           return null
         }
 
-        // Parse ingredients
-        let ingredientNames: string[] = []
-        if (scraped.ingredientsRaw) {
-          log.debug(`Raw ingredients for ${sourceUrl}: ${scraped.ingredientsRaw}`)
-          ingredientNames = await parseIngredients(scraped.ingredientsRaw)
-          log.info(`Parsed ${ingredientNames.length} ingredients`)
+        // Raw ingredients text (stored as-is, parsed during aggregation)
+        const ingredientsText = scraped.ingredientsRaw || undefined
+        if (ingredientsText) {
+          log.info(`Found ingredients text (${ingredientsText.length} chars)`)
         }
 
         // Calculate per-unit price if not found in DOM
@@ -647,7 +645,7 @@ export const muellerDriver: SourceDriver = {
           name: scraped.name,
           brandName: scraped.brandName ?? undefined,
           description: scraped.description ?? undefined,
-          ingredientNames,
+          ingredientsText,
           priceCents: scraped.priceCents ?? undefined,
           currency: scraped.currency,
           amount: scraped.amount ?? undefined,

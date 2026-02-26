@@ -1,6 +1,6 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
-import { parseIngredients } from '@/lib/parse-ingredients'
+
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 
@@ -496,8 +496,8 @@ export const dmDriver: SourceDriver = {
         ? descriptionGroupsToMarkdown(data.descriptionGroups)
         : undefined
 
-      // Extract raw ingredients text from Inhaltsstoffe section
-      let ingredientNames: string[] = []
+      // Extract raw ingredients text from Inhaltsstoffe section (stored as-is, parsed during aggregation)
+      let ingredientsText: string | undefined
       const ingredientsGroup = data.descriptionGroups?.find((g) => g.header === 'Inhaltsstoffe')
       if (ingredientsGroup) {
         const rawText = ingredientsGroup.contentBlock
@@ -505,9 +505,8 @@ export const dmDriver: SourceDriver = {
           .join(' ')
           .trim()
         if (rawText) {
-          log.debug(`Raw ingredients for GTIN ${gtin}: ${rawText}`)
-          ingredientNames = await parseIngredients(rawText)
-          log.info(`Parsed ${ingredientNames.length} ingredients`)
+          ingredientsText = rawText
+          log.info(`Found ingredients text (${rawText.length} chars)`)
         }
       }
 
@@ -557,7 +556,7 @@ export const dmDriver: SourceDriver = {
         name,
         brandName: data.brand?.name ?? undefined,
         description: description ?? undefined,
-        ingredientNames,
+        ingredientsText,
         priceCents,
         currency: data.metadata?.currency ?? 'EUR',
         priceInfos: data.price?.infos,

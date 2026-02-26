@@ -560,7 +560,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       name: string | null
       brandName: string | null
       source: string | null
-      ingredients: Array<{ name: string | null }> | null
+      ingredientsText: string | null
       description: string | null
       images: Array<{ url: string; alt: string | null }> | null
     }>
@@ -576,9 +576,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       name: (sp.name as string) ?? null,
       brandName: (sp.brandName as string) ?? null,
       source: (sp.source as string) ?? null,
-      ingredients: sp.ingredients
-        ? (sp.ingredients as Array<{ name?: string | null }>).map((i) => ({ name: i.name ?? null }))
-        : null,
+      ingredientsText: (sp.ingredientsText as string) ?? null,
       description: (sp.description as string) ?? null,
       images: sp.images
         ? (sp.images as Array<{ url?: string; alt?: string | null }>)

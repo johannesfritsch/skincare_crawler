@@ -286,6 +286,9 @@ export async function matchIngredients(
     return { matched: [], unmatched: [], tokensUsed }
   }
 
+  // Strip footnote markers (*, ¹, ², ³, etc.) from ingredient names for cleaner DB lookups
+  const stripFootnoteMarkers = (name: string) => name.replace(/^[*¹²³⁴⁵⁶⁷⁸⁹⁰†‡§]+|[*¹²³⁴⁵⁶⁷⁸⁹⁰†‡§]+$/g, '').trim()
+
   // Step 0: Exact DB match (case-insensitive) — resolve names that match exactly, skip LLM for those
   // DB stores names in UPPERCASE, so we search both original case and uppercased.
   // We avoid `like` here because it does substring matching and the exact entry
@@ -293,12 +296,13 @@ export async function matchIngredients(
   log.info('── Step 0: Exact DB Match (case-insensitive) ──')
   const exactResults = await Promise.all(
     ingredientNames.map(async (name) => {
+      const cleaned = stripFootnoteMarkers(name)
       const result = await payload.find({
         collection: 'ingredients',
         where: {
           or: [
-            { name: { equals: name } },
-            { name: { equals: name.toUpperCase() } },
+            { name: { equals: cleaned } },
+            { name: { equals: cleaned.toUpperCase() } },
           ],
         },
         limit: 2,

@@ -39,7 +39,7 @@ export interface ScrapedProductData {
   name: string
   brandName?: string
   description?: string
-  ingredientNames: string[]
+  ingredientsText?: string
   priceCents?: number
   currency?: string
   priceInfos?: string[]

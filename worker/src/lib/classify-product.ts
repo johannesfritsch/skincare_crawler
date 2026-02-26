@@ -10,7 +10,7 @@ export interface TokenUsage {
 
 export interface SourceInput {
   description?: string
-  ingredientNames?: string[]
+  ingredientsText?: string
 }
 
 interface EvidenceEntry {
@@ -174,8 +174,8 @@ export async function classifyProduct(sources: SourceInput[], language: string =
     .map((source, i) => {
       const parts: string[] = [`Source ${i}:`]
       if (source.description) parts.push(`Description:\n"""\n${source.description}\n"""`)
-      if (source.ingredientNames && source.ingredientNames.length > 0) {
-        parts.push(`Ingredients: ${source.ingredientNames.join(', ')}`)
+      if (source.ingredientsText) {
+        parts.push(`Ingredients (raw text from retailer, may include footnotes/annotations):\n"""\n${source.ingredientsText}\n"""`)
       }
       return parts.join('\n')
     })

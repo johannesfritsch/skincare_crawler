@@ -940,7 +940,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       name: string | null
       brandName: string | null
       source: string | null
-      ingredients: Array<{ name: string | null }> | null
+      ingredientsText: string | null
       description: string | null
       images: Array<{ url: string; alt: string | null }> | null
     }>
@@ -967,9 +967,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           name: sp.name ?? undefined,
           brandName: sp.brandName ?? undefined,
           source: sp.source ?? undefined,
-          ingredients: sp.ingredients
-            ? sp.ingredients.map((i) => ({ name: i.name ?? undefined }))
-            : undefined,
+          ingredientsText: sp.ingredientsText ?? undefined,
           images: sp.images ?? undefined,
         })),
         { imageSourcePriority },
@@ -981,16 +979,13 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       let tokensUsed = 0
 
       if (scope === 'full') {
-        const classifySources: { id: number; description?: string; ingredientNames?: string[] }[] = []
+        const classifySources: { id: number; description?: string; ingredientsText?: string }[] = []
         for (const sp of item.sourceProducts) {
-          const ingredientNames = (sp.ingredients ?? [])
-            .map((i) => i.name)
-            .filter((n): n is string => !!n)
-          if (sp.description || ingredientNames.length > 0) {
+          if (sp.description || sp.ingredientsText) {
             classifySources.push({
               id: sp.id,
               description: sp.description || undefined,
-              ingredientNames: ingredientNames.length > 0 ? ingredientNames : undefined,
+              ingredientsText: sp.ingredientsText || undefined,
             })
           }
         }
@@ -998,7 +993,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
         if (classifySources.length > 0) {
           try {
             const classifyResult = await classifyProduct(
-              classifySources.map((s) => ({ description: s.description, ingredientNames: s.ingredientNames })),
+              classifySources.map((s) => ({ description: s.description, ingredientsText: s.ingredientsText })),
               language,
             )
             tokensUsed = classifyResult.tokensUsed.totalTokens

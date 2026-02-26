@@ -320,7 +320,7 @@ export interface ProductType {
 export interface Ingredient {
   id: number;
   name: string;
-  status?: ('pending' | 'crawled' | 'crawl_failed' | 'crawl_not_found') | null;
+  status?: ('pending' | 'crawled' | 'uncrawled') | null;
   description?: string | null;
   casNumber?: string | null;
   ecNumber?: string | null;
@@ -622,14 +622,9 @@ export interface SourceProduct {
       }[]
     | null;
   /**
-   * Raw ingredient strings as crawled from source
+   * Raw ingredients text as crawled from source, including footnotes and annotations. Parsed into individual ingredients during product aggregation.
    */
-  ingredients?:
-    | {
-        name: string;
-        id?: string | null;
-      }[]
-    | null;
+  ingredientsText?: string | null;
   discoveries?: {
     docs?: (number | DiscoveryResult)[];
     hasNextPage?: boolean;
@@ -1741,12 +1736,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
         change?: T;
         id?: T;
       };
-  ingredients?:
-    | T
-    | {
-        name?: T;
-        id?: T;
-      };
+  ingredientsText?: T;
   discoveries?: T;
   crawls?: T;
   updatedAt?: T;

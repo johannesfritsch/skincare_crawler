@@ -12,7 +12,7 @@ worker/src/
     ├── logger.ts                     # Structured logger with event emission
     ├── browser.ts                    # Playwright browser management
     ├── stealth-fetch.ts              # Fetch with anti-bot headers
-    ├── parse-ingredients.ts          # Ingredient string parser
+    ├── parse-ingredients.ts          # Ingredient text → name[] parser (LLM, handles footnotes/asterisks)
     ├── source-product-queries.ts     # Source-product DB query helpers + normalizeProductUrl()
     │
     ├── work-protocol/
@@ -130,7 +130,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
-| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets); computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
+| `persistProductAggregationResult()` | Creates/updates `products`; [full only] runs matchBrand, parses raw ingredientsText via `parseIngredients()` LLM call then matchIngredients, uploads image, applies classification (productType, attributes, claims with evidence); [always] computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
 
 ## 6 Job Types — Detailed
 
@@ -225,7 +225,7 @@ Dispatches to per-type submit handlers. Each handler:
    - GTIN: first non-null
    - Name: longest string
    - Brand: first non-null
-   - Ingredients: from source with longest list
+   - Ingredients: from source with longest raw text
    - Image: first image from highest-priority source (configurable via imageSourcePriority, default: dm > rossmann > mueller)
 2. [full scope only] classifyProduct(client, sources, lang)  → LLM classification
    - Product type, attributes, claims with evidence
@@ -241,7 +241,7 @@ Dispatches to per-type submit handlers. Each handler:
 - Merges source product IDs (always)
 - Updates name/GTIN (always)
 - [full only] Calls `matchBrand()` → links brand
-- [full only] Calls `matchIngredients()` → links ingredient records
+- [full only] Parses raw `ingredientsText` via `parseIngredients()` (LLM, handles footnotes/asterisks) → then `matchIngredients()` → links ingredient records
 - [full only] Downloads selected image URL → uploads to `media` collection → sets `image` on product
 - [full only] Applies classification: productType, attributes (with evidence), claims (with evidence)
 - Computes score history (always): fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
@@ -277,7 +277,7 @@ interface ScrapedProductData {
   name: string
   brandName?: string
   description?: string
-  ingredientNames: string[]
+  ingredientsText?: string
   priceCents?: number
   currency?: string
   priceInfos?: string[]

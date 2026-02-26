@@ -5,6 +5,7 @@ import { getSourceSlugFromUrl, normalizeProductUrl } from '@/lib/source-product-
 import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
 import { matchIngredients } from '@/lib/match-ingredients'
+import { parseIngredients } from '@/lib/parse-ingredients'
 import { createLogger, type JobCollection } from '@/lib/logger'
 
 const log = createLogger('WorkProtocol')
@@ -14,7 +15,7 @@ interface ScrapedProductData {
   name: string
   brandName?: string
   description?: string
-  ingredientNames: string[]
+  ingredientsText?: string
   priceCents?: number
   currency?: string
   priceInfos?: string[]
@@ -167,7 +168,7 @@ export async function persistCrawlResult(
     priceHistory: [priceEntry, ...existingHistory],
     rating: data.rating ?? null,
     ratingNum: data.ratingNum ?? null,
-    ingredients: data.ingredientNames.map((n) => ({ name: n })),
+    ingredientsText: data.ingredientsText ?? null,
     sourceUrl: data.canonicalUrl ? normalizeProductUrl(data.canonicalUrl) : sourceUrl,
   }
 
@@ -797,7 +798,7 @@ export interface PersistProductAggregationInput {
     gtin?: string
     name?: string
     brandName?: string
-    ingredientNames?: string[]
+    ingredientsText?: string
     selectedImageUrl?: string
     selectedImageAlt?: string | null
   } | null
@@ -895,28 +896,35 @@ export async function persistProductAggregationResult(
       }
     }
 
-    // Match ingredients
-    if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
+    // Parse and match ingredients from raw text
+    if (aggregated.ingredientsText) {
       try {
-        const matchResult = await matchIngredients(payload, aggregated.ingredientNames, jlog)
-        tokensUsed += matchResult.tokensUsed.totalTokens
+        // Step 1: Parse raw text into individual ingredient names (LLM)
+        const ingredientNames = await parseIngredients(aggregated.ingredientsText)
+        log.info(`persistProductAggregationResult: parsed ${ingredientNames.length} ingredients from raw text`)
 
-        const matchedMap = new Map(
-          matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
-        )
-        updateData.ingredients = aggregated.ingredientNames.map((name) => ({
-          name,
-          ingredient: matchedMap.get(name) ?? null,
-        }))
+        if (ingredientNames.length > 0) {
+          // Step 2: Match parsed names against ingredient database
+          const matchResult = await matchIngredients(payload, ingredientNames, jlog)
+          tokensUsed += matchResult.tokensUsed.totalTokens
 
-        log.info(`persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`)
-        jlog.info(`Ingredients: ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`, { event: true, labels: ['ingredient-matching', 'persistence'] })
+          const matchedMap = new Map(
+            matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
+          )
+          updateData.ingredients = ingredientNames.map((name) => ({
+            name,
+            ingredient: matchedMap.get(name) ?? null,
+          }))
 
-        if (matchResult.unmatched.length > 0) {
-          warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
+          log.info(`persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${ingredientNames.length}`)
+          jlog.info(`Ingredients: ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${ingredientNames.length}`, { event: true, labels: ['ingredient-matching', 'persistence'] })
+
+          if (matchResult.unmatched.length > 0) {
+            warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
+          }
         }
       } catch (error) {
-        errorMessages.push(`Ingredient matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        errorMessages.push(`Ingredient parsing/matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
 
