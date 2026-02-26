@@ -478,8 +478,9 @@ export const rossmannDriver: SourceDriver = {
             const dl = (window as unknown as Record<string, unknown[]>).dataLayer
             if (Array.isArray(dl)) {
               for (const entry of dl) {
-                const ecom = (entry as Record<string, unknown>).ecommerce as Record<string, unknown> | undefined
-                const viewItem = ecom?.view_item as Record<string, unknown> | undefined
+                const e = entry as Record<string, unknown>
+                // Rossmann pushes view_item at the top level, not inside ecommerce
+                const viewItem = (e.view_item ?? (e.ecommerce as Record<string, unknown> | undefined)?.view_item) as Record<string, unknown> | undefined
                 const items = viewItem?.items as Array<Record<string, unknown>> | undefined
                 const itemCategory = items?.[0]?.item_category as string | undefined
                 if (itemCategory) {

@@ -384,15 +384,21 @@ export const muellerDriver: SourceDriver = {
           }
 
           let categoryUrl: string | null = null
+          let categoryBreadcrumbs: string[] | null = null
           for (const script of ldScripts) {
             try {
               const parsed = JSON.parse(script.textContent || '')
               if (parsed['@type'] === 'BreadcrumbList' && Array.isArray(parsed.itemListElement)) {
-                const items = parsed.itemListElement as Array<{ item?: string }>
-                const categoryItems = items.slice(1, -1).filter((el: { item?: string }) => el.item)
-                if (categoryItems.length > 0) {
-                  const deepest = categoryItems[categoryItems.length - 1]
-                  categoryUrl = deepest.item ?? null
+                const items = parsed.itemListElement as Array<{ item?: string; name?: string }>
+                // Skip first (Home) and last (product itself)
+                const categoryItems = items.slice(1, -1)
+                const names = categoryItems.map((el) => el.name).filter((n): n is string => !!n)
+                if (names.length > 0) {
+                  categoryBreadcrumbs = names
+                }
+                const urlItems = categoryItems.filter((el) => el.item)
+                if (urlItems.length > 0) {
+                  categoryUrl = urlItems[urlItems.length - 1].item ?? null
                 }
               }
             } catch { /* ignore */ }
@@ -583,6 +589,7 @@ export const muellerDriver: SourceDriver = {
             sourceArticleNumber,
             gtin,
             categoryUrl,
+            categoryBreadcrumbs,
             description,
             ingredientsRaw: mutable.ingredientsRaw,
             priceCents,
@@ -633,6 +640,8 @@ export const muellerDriver: SourceDriver = {
           }
         }
 
+        log.debug(`Category for ${sourceUrl}: breadcrumbs=${scraped.categoryBreadcrumbs ? scraped.categoryBreadcrumbs.join(' -> ') : '(none)'}, categoryUrl=${scraped.categoryUrl ?? '(none)'}`)
+
         return {
           gtin: scraped.gtin ?? undefined,
           name: scraped.name,
@@ -648,6 +657,7 @@ export const muellerDriver: SourceDriver = {
           rating: scraped.rating ?? undefined,
           ratingNum: scraped.ratingNum ?? undefined,
           sourceArticleNumber: scraped.sourceArticleNumber ?? undefined,
+          categoryBreadcrumbs: scraped.categoryBreadcrumbs ?? undefined,
           categoryUrl: scraped.categoryUrl ?? undefined,
           perUnitAmount,
           perUnitQuantity,
