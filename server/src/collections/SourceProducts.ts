@@ -337,6 +337,19 @@ export const SourceProducts: CollectionConfig = {
                     },
                   ],
                 },
+                {
+                  name: 'change',
+                  type: 'select',
+                  label: 'Change',
+                  options: [
+                    { label: 'Drop', value: 'drop' },
+                    { label: 'Stable', value: 'stable' },
+                    { label: 'Increase', value: 'increase' },
+                  ],
+                  admin: {
+                    description: 'Price movement vs previous record',
+                  },
+                },
               ],
             },
           ],

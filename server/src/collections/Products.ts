@@ -376,6 +376,58 @@ export const Products: CollectionConfig = {
           label: 'History',
           fields: [
             {
+              name: 'scoreHistory',
+              type: 'array',
+              label: 'Score History',
+              admin: {
+                description: 'Timestamped snapshots of store and creator scores, recorded during each aggregation run',
+              },
+              fields: [
+                {
+                  name: 'recordedAt',
+                  type: 'date',
+                  label: 'Recorded At',
+                  required: true,
+                  admin: { date: { pickerAppearance: 'dayAndTime' } },
+                },
+                {
+                  type: 'row',
+                  fields: [
+                    {
+                      name: 'storeScore',
+                      type: 'number',
+                      label: 'Store Score (0–10)',
+                      min: 0,
+                      max: 10,
+                      admin: { step: 0.1, width: '33%' },
+                    },
+                    {
+                      name: 'creatorScore',
+                      type: 'number',
+                      label: 'Creator Score (0–10)',
+                      min: 0,
+                      max: 10,
+                      admin: { step: 0.1, width: '33%' },
+                    },
+                    {
+                      name: 'change',
+                      type: 'select',
+                      label: 'Change',
+                      options: [
+                        { label: 'Drop', value: 'drop' },
+                        { label: 'Stable', value: 'stable' },
+                        { label: 'Increase', value: 'increase' },
+                      ],
+                      admin: {
+                        width: '33%',
+                        description: 'Score movement vs previous record',
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
               name: 'aggregations',
               type: 'join',
               collection: 'product-aggregations',

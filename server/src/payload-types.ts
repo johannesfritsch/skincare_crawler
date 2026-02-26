@@ -614,6 +614,10 @@ export interface SourceProduct {
          * Unit of measurement (e.g., ml, g, l, kg)
          */
         unit?: string | null;
+        /**
+         * Price movement vs previous record
+         */
+        change?: ('drop' | 'stable' | 'increase') | null;
         id?: string | null;
       }[]
     | null;
@@ -929,6 +933,21 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  /**
+   * Timestamped snapshots of store and creator scores, recorded during each aggregation run
+   */
+  scoreHistory?:
+    | {
+        recordedAt: string;
+        storeScore?: number | null;
+        creatorScore?: number | null;
+        /**
+         * Score movement vs previous record
+         */
+        change?: ('drop' | 'stable' | 'increase') | null;
+        id?: string | null;
+      }[]
+    | null;
   aggregations?: {
     docs?: (number | ProductAggregation)[];
     hasNextPage?: boolean;
@@ -1644,6 +1663,15 @@ export interface ProductsSelect<T extends boolean = true> {
       };
   videoSnippets?: T;
   videoMentions?: T;
+  scoreHistory?:
+    | T
+    | {
+        recordedAt?: T;
+        storeScore?: T;
+        creatorScore?: T;
+        change?: T;
+        id?: T;
+      };
   aggregations?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
@@ -1706,6 +1734,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
         perUnitCurrency?: T;
         perUnitQuantity?: T;
         unit?: T;
+        change?: T;
         id?: T;
       };
   ingredients?:
