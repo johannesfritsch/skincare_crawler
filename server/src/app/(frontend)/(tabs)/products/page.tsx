@@ -2,19 +2,10 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { desc, eq, ilike, or, sql } from 'drizzle-orm'
 import React, { Suspense } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
 import { ProductSearch } from '@/components/product-search'
+import { ProductCard } from '@/components/product-card'
+import { starsToScore10 } from '@/lib/score-utils'
 
 export const metadata = {
   title: 'Products — AnySkin',
@@ -30,50 +21,66 @@ export default async function ProductsPage({ searchParams }: Props) {
 
   const payload = await getPayload({ config: await config })
   const db = payload.db.drizzle
-  const { products, brands, product_types } = payload.db.tables
+  const t = payload.db.tables
 
-  const { media } = payload.db.tables
+  // Correlated subquery: avg creator sentiment per product (0–10 scale)
+  const creatorScoreSub = sql<number | null>`(
+    SELECT round(((avg(vm.overall_sentiment_score) + 1) * 5)::numeric, 1)
+    FROM video_mentions vm
+    WHERE vm.product_id = ${t.products}.id
+      AND vm.overall_sentiment_score IS NOT NULL
+  )`
 
-  // Build base query
+  // Build base query — join source_products for ratings
   let query = db
     .select({
-      id: products.id,
-      name: products.name,
-      gtin: products.gtin,
-      description: products.description,
-      brandName: brands.name,
-      productTypeName: product_types.name,
-      createdAt: products.createdAt,
-      imageUrl: sql<string | null>`coalesce(${media}.sizes_thumbnail_url, ${media}.url)`,
+      id: t.products.id,
+      name: t.products.name,
+      gtin: t.products.gtin,
+      brandName: t.brands.name,
+      productTypeName: t.product_types.name,
+      avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
+      creatorScore: creatorScoreSub,
+      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`,
     })
-    .from(products)
-    .leftJoin(brands, eq(products.brand, brands.id))
-    .leftJoin(product_types, eq(products.productType, product_types.id))
-    .leftJoin(media, eq(products.image, media.id))
-    .orderBy(desc(products.createdAt))
-    .limit(50)
+    .from(t.products)
+    .leftJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
+    .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
+    .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
+    .leftJoin(t.media, eq(t.products.image, t.media.id))
+    .groupBy(
+      t.products.id,
+      t.products.name,
+      t.products.gtin,
+      t.brands.name,
+      t.product_types.name,
+      sql`${t.media}.sizes_card_url`,
+      t.media.url,
+    )
+    .orderBy(desc(t.products.createdAt))
+    .limit(60)
     .$dynamic()
 
   // Build count query
   let countQuery = db
     .select({ count: sql<number>`count(*)` })
-    .from(products)
-    .leftJoin(brands, eq(products.brand, brands.id))
+    .from(t.products)
+    .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .$dynamic()
 
   if (searchTerm) {
     const pattern = `%${searchTerm}%`
     const whereClause = or(
-      ilike(products.name, pattern),
-      ilike(products.gtin, pattern),
-      ilike(brands.name, pattern),
+      ilike(t.products.name, pattern),
+      ilike(t.products.gtin, pattern),
+      ilike(t.brands.name, pattern),
     )
     query = query.where(whereClause)
     countQuery = countQuery.where(whereClause)
   }
 
   const [rows, countResult] = await Promise.all([query, countQuery])
-  const totalCount = countResult[0]?.count ?? 0
+  const totalCount = Number(countResult[0]?.count ?? 0)
 
   return (
     <div>
@@ -83,6 +90,16 @@ export default async function ProductsPage({ searchParams }: Props) {
         </Suspense>
       </div>
 
+      {/* Result count */}
+      {rows.length > 0 && (
+        <p className="text-xs text-muted-foreground mb-3">
+          {searchTerm
+            ? `${rows.length} of ${totalCount} result${totalCount !== 1 ? 's' : ''} for "${searchTerm}"`
+            : `${totalCount} product${totalCount !== 1 ? 's' : ''}`}
+        </p>
+      )}
+
+      {/* Search empty state */}
       {searchTerm && rows.length === 0 && (
         <div className="py-16 text-center">
           <p className="text-muted-foreground">
@@ -94,126 +111,29 @@ export default async function ProductsPage({ searchParams }: Props) {
         </div>
       )}
 
-      {/* Mobile: card list */}
-      <div className="flex flex-col gap-3 md:hidden">
-        {rows.map((row) => (
-          <Link key={row.id} href={`/products/${row.gtin}`}>
-            <Card className="transition-colors hover:bg-muted/50">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  {/* Thumbnail */}
-                  <div className="h-10 w-10 shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden p-1">
-                    {row.imageUrl ? (
-                      <Image
-                        src={row.imageUrl}
-                        alt={row.name ?? 'Product'}
-                        width={96}
-                        height={96}
-                        className="h-full w-full object-contain"
-                        sizes="40px"
-                      />
-                    ) : (
-                      <span className="text-sm font-semibold text-muted-foreground/30">
-                        {(row.name ?? '?')[0]?.toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">
-                      {row.name || <span className="text-muted-foreground">Unnamed</span>}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      {row.brandName || 'No brand'}
-                      {row.gtin && (
-                        <span> &middot; <code className="text-xs bg-muted px-1 py-0.5 rounded">{row.gtin}</code></span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    {row.productTypeName && (
-                      <Badge variant="secondary" className="text-xs">{row.productTypeName}</Badge>
-                    )}
-                    <span className="text-xs text-muted-foreground">
-                      {row.createdAt ? new Date(row.createdAt).toLocaleDateString('de-DE') : ''}
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
-      {/* Desktop: table */}
+      {/* Product grid */}
       {rows.length > 0 && (
-        <div className="hidden md:block rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>GTIN</TableHead>
-                <TableHead>Brand</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/products/${row.gtin}`} className="hover:underline">
-                      {row.name || <span className="text-muted-foreground">Unnamed</span>}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    {row.gtin ? (
-                      <code className="text-sm bg-muted px-1.5 py-0.5 rounded">{row.gtin}</code>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{row.brandName || <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell>
-                    {row.productTypeName ? (
-                      <Badge variant="secondary">{row.productTypeName}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground text-sm">
-                    {row.createdAt ? new Date(row.createdAt).toLocaleDateString('de-DE') : '—'}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          {rows.map((p) => (
+            <ProductCard
+              key={p.id}
+              gtin={p.gtin}
+              name={p.name}
+              brandName={p.brandName}
+              productTypeName={p.productTypeName}
+              creatorScore={p.creatorScore}
+              storeScore={p.avgRating != null && Number(p.avgRating) > 0 ? starsToScore10(Number(p.avgRating)) : null}
+              imageUrl={p.imageUrl}
+            />
+          ))}
         </div>
       )}
 
-      {/* Desktop empty state (when not searching — search empty state handled above) */}
+      {/* Global empty state */}
       {!searchTerm && rows.length === 0 && (
-        <div className="hidden md:block">
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>GTIN</TableHead>
-                  <TableHead>Brand</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Created</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                    No products found
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-muted-foreground text-sm">No products yet.</p>
+          <p className="text-xs text-muted-foreground mt-1">Scan a barcode or search to get started.</p>
         </div>
       )}
     </div>
