@@ -127,14 +127,15 @@ export async function persistCrawlResult(
     ? ((existing.docs[0] as Record<string, unknown>).priceHistory as Array<{ amount?: number | null; change?: string | null }> ?? [])
     : []
 
-  // Compute price change vs previous entry
+  // Compute price change vs previous entry (requires >= 5% move to count as drop/increase)
   const newAmount = data.priceCents ?? null
   let priceChange: string | null = null
   if (newAmount != null && existingHistory.length > 0) {
     const prevAmount = existingHistory[0]?.amount
-    if (prevAmount != null) {
-      if (newAmount < prevAmount) priceChange = 'drop'
-      else if (newAmount > prevAmount) priceChange = 'increase'
+    if (prevAmount != null && prevAmount > 0) {
+      const pctChange = (newAmount - prevAmount) / prevAmount
+      if (pctChange <= -0.05) priceChange = 'drop'
+      else if (pctChange >= 0.05) priceChange = 'increase'
       else priceChange = 'stable'
     }
   }
@@ -295,13 +296,14 @@ export async function persistDiscoveredProduct(
 
     let priceEntry: { recordedAt: string; amount: number; currency: string; change: string | null } | null = null
     if (product.price != null) {
-      // Compare with last entry in history (discovery appends, so last = newest)
+      // Compare with last entry in history (discovery appends, so last = newest; requires >= 5% move)
       let change: string | null = null
       if (existingHistory.length > 0) {
         const prevAmount = existingHistory[existingHistory.length - 1]?.amount
-        if (prevAmount != null) {
-          if (product.price < prevAmount) change = 'drop'
-          else if (product.price > prevAmount) change = 'increase'
+        if (prevAmount != null && prevAmount > 0) {
+          const pctChange = (product.price - prevAmount) / prevAmount
+          if (pctChange <= -0.05) change = 'drop'
+          else if (pctChange >= 0.05) change = 'increase'
           else change = 'stable'
         }
       }
@@ -1037,27 +1039,27 @@ export async function persistProductAggregationResult(
         change?: string | null
       }>)
 
-      // Determine change direction vs previous record
+      // Determine change direction vs previous record (requires >= 5% relative move)
       let change: string | null = null
       if (existingHistory.length > 0) {
         const prev = existingHistory[0] // newest first (prepended)
-        // Compare whichever scores are available; use the first that has both old & new
-        if (storeScore != null && prev.storeScore != null) {
-          const diff = storeScore - Number(prev.storeScore)
-          if (diff < 0) change = 'drop'
-          else if (diff > 0) change = 'increase'
-          else change = 'stable'
-        } else if (creatorScore != null && prev.creatorScore != null) {
-          const diff = creatorScore - Number(prev.creatorScore)
-          if (diff < 0) change = 'drop'
-          else if (diff > 0) change = 'increase'
-          else change = 'stable'
+        const scoreChange = (current: number, previous: number): 'drop' | 'increase' | 'stable' => {
+          if (previous === 0) return current > 0 ? 'increase' : 'stable'
+          const pct = (current - previous) / previous
+          if (pct <= -0.05) return 'drop'
+          if (pct >= 0.05) return 'increase'
+          return 'stable'
         }
-        // If a second score also exists, let it override to 'drop'/'increase' if it disagrees
+        // Compare whichever scores are available; use store score first
+        if (storeScore != null && prev.storeScore != null) {
+          change = scoreChange(storeScore, Number(prev.storeScore))
+        } else if (creatorScore != null && prev.creatorScore != null) {
+          change = scoreChange(creatorScore, Number(prev.creatorScore))
+        }
+        // If a second score also exists, let it override to 'drop'/'increase' if store was stable
         if (change === 'stable' && creatorScore != null && prev.creatorScore != null && storeScore != null && prev.storeScore != null) {
-          const creatorDiff = creatorScore - Number(prev.creatorScore)
-          if (creatorDiff < 0) change = 'drop'
-          else if (creatorDiff > 0) change = 'increase'
+          const creatorChange = scoreChange(creatorScore, Number(prev.creatorScore))
+          if (creatorChange !== 'stable') change = creatorChange
         }
       }
 
