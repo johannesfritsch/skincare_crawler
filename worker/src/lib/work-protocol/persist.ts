@@ -122,19 +122,33 @@ export async function persistCrawlResult(
   })
 
   const now = new Date().toISOString()
+
+  const existingHistory = existing.docs.length > 0
+    ? ((existing.docs[0] as Record<string, unknown>).priceHistory as Array<{ amount?: number | null; change?: string | null }> ?? [])
+    : []
+
+  // Compute price change vs previous entry
+  const newAmount = data.priceCents ?? null
+  let priceChange: string | null = null
+  if (newAmount != null && existingHistory.length > 0) {
+    const prevAmount = existingHistory[0]?.amount
+    if (prevAmount != null) {
+      if (newAmount < prevAmount) priceChange = 'drop'
+      else if (newAmount > prevAmount) priceChange = 'increase'
+      else priceChange = 'stable'
+    }
+  }
+
   const priceEntry = {
     recordedAt: now,
-    amount: data.priceCents ?? null,
+    amount: newAmount,
     currency: data.currency ?? 'EUR',
     perUnitAmount: data.perUnitAmount ?? null,
     perUnitCurrency: data.perUnitAmount ? (data.currency ?? 'EUR') : null,
     perUnitQuantity: data.perUnitQuantity ?? null,
     unit: data.perUnitUnit ?? null,
+    change: priceChange,
   }
-
-  const existingHistory = existing.docs.length > 0
-    ? ((existing.docs[0] as Record<string, unknown>).priceHistory as unknown[] ?? [])
-    : []
 
   const productPayload = {
     ...(data.gtin ? { gtin: data.gtin } : {}),
@@ -240,11 +254,6 @@ export async function persistDiscoveredProduct(
   })
 
   const now = new Date().toISOString()
-  const priceEntry = product.price != null ? {
-    recordedAt: now,
-    amount: product.price,
-    currency: product.currency ?? 'EUR',
-  } : null
 
   const discoveryData = {
     sourceUrl: normalizedUrl,
@@ -260,6 +269,14 @@ export async function persistDiscoveredProduct(
   let isNew: boolean
 
   if (existingProduct.docs.length === 0) {
+    // New product — no previous price to compare
+    const priceEntry = product.price != null ? {
+      recordedAt: now,
+      amount: product.price,
+      currency: product.currency ?? 'EUR',
+      change: null,
+    } : null
+
     const newProduct = await payload.create({
       collection: 'source-products',
       data: {
@@ -274,7 +291,23 @@ export async function persistDiscoveredProduct(
     log.info(`persistDiscoveredProduct: created new source-product #${sourceProductId}`)
   } else {
     sourceProductId = (existingProduct.docs[0] as Record<string, unknown>).id as number
-    const existingHistory = (existingProduct.docs[0] as Record<string, unknown>).priceHistory as unknown[] ?? []
+    const existingHistory = (existingProduct.docs[0] as Record<string, unknown>).priceHistory as Array<{ amount?: number | null }> ?? []
+
+    let priceEntry: { recordedAt: string; amount: number; currency: string; change: string | null } | null = null
+    if (product.price != null) {
+      // Compare with last entry in history (discovery appends, so last = newest)
+      let change: string | null = null
+      if (existingHistory.length > 0) {
+        const prevAmount = existingHistory[existingHistory.length - 1]?.amount
+        if (prevAmount != null) {
+          if (product.price < prevAmount) change = 'drop'
+          else if (product.price > prevAmount) change = 'increase'
+          else change = 'stable'
+        }
+      }
+      priceEntry = { recordedAt: now, amount: product.price, currency: product.currency ?? 'EUR', change }
+    }
+
     await payload.update({
       collection: 'source-products',
       id: sourceProductId,
@@ -960,6 +993,86 @@ export async function persistProductAggregationResult(
     updateData.productClaims = classification.productClaims
       .filter((e) => classifySourceProductIds?.[e.sourceIndex] !== undefined)
       .map((entry) => ({ claim: entry.claim, ...mapEvidence(entry) }))
+  }
+
+  // ── Score history ──
+  // Compute current store + creator scores and append to history
+  try {
+    // Store score: avg rating across source products (0–5 stars → 0–10)
+    let storeScore: number | null = null
+    if (sourceProductIds.length > 0) {
+      const sourceProducts = await payload.find({
+        collection: 'source-products',
+        where: { id: { in: sourceProductIds } },
+        limit: sourceProductIds.length,
+      })
+      const rated = (sourceProducts.docs as Array<{ rating?: number | null; ratingNum?: number | null }>)
+        .filter(sp => sp.rating != null && sp.ratingNum != null && Number(sp.ratingNum) > 0)
+      if (rated.length > 0) {
+        const avgRating = rated.reduce((sum, sp) => sum + Number(sp.rating), 0) / rated.length
+        storeScore = Math.round(avgRating * 2 * 10) / 10 // stars→0-10, 1 decimal
+      }
+    }
+
+    // Creator score: avg sentiment from video-mentions (-1…+1 → 0–10)
+    let creatorScore: number | null = null
+    const mentions = await payload.find({
+      collection: 'video-mentions',
+      where: { product: { equals: productId } },
+      limit: 500,
+    })
+    const scoredMentions = (mentions.docs as Array<{ overallSentimentScore?: number | null }>)
+      .filter(m => m.overallSentimentScore != null)
+    if (scoredMentions.length > 0) {
+      const avgSentiment = scoredMentions.reduce((sum, m) => sum + Number(m.overallSentimentScore), 0) / scoredMentions.length
+      creatorScore = Math.round(((avgSentiment + 1) * 5) * 10) / 10 // -1…+1 → 0–10, 1 decimal
+    }
+
+    // Only record if at least one score exists
+    if (storeScore != null || creatorScore != null) {
+      const existingHistory = ((product.scoreHistory ?? []) as Array<{
+        recordedAt: string
+        storeScore?: number | null
+        creatorScore?: number | null
+        change?: string | null
+      }>)
+
+      // Determine change direction vs previous record
+      let change: string | null = null
+      if (existingHistory.length > 0) {
+        const prev = existingHistory[0] // newest first (prepended)
+        // Compare whichever scores are available; use the first that has both old & new
+        if (storeScore != null && prev.storeScore != null) {
+          const diff = storeScore - Number(prev.storeScore)
+          if (diff < 0) change = 'drop'
+          else if (diff > 0) change = 'increase'
+          else change = 'stable'
+        } else if (creatorScore != null && prev.creatorScore != null) {
+          const diff = creatorScore - Number(prev.creatorScore)
+          if (diff < 0) change = 'drop'
+          else if (diff > 0) change = 'increase'
+          else change = 'stable'
+        }
+        // If a second score also exists, let it override to 'drop'/'increase' if it disagrees
+        if (change === 'stable' && creatorScore != null && prev.creatorScore != null && storeScore != null && prev.storeScore != null) {
+          const creatorDiff = creatorScore - Number(prev.creatorScore)
+          if (creatorDiff < 0) change = 'drop'
+          else if (creatorDiff > 0) change = 'increase'
+        }
+      }
+
+      const scoreEntry = {
+        recordedAt: new Date().toISOString(),
+        storeScore,
+        creatorScore,
+        change,
+      }
+
+      updateData.scoreHistory = [scoreEntry, ...existingHistory]
+      log.info(`persistProductAggregationResult: score history — store=${storeScore}, creator=${creatorScore}, change=${change}`)
+    }
+  } catch (error) {
+    warningMessages.push(`Score history computation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 
   await payload.update({
