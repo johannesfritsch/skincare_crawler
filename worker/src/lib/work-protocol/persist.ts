@@ -815,6 +815,8 @@ export interface PersistProductAggregationInput {
     tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }
   }
   classifySourceProductIds?: number[]
+  /** full = LLM classification + brand/ingredient matching + image. partial = score history + basic data only. */
+  scope: 'full' | 'partial'
 }
 
 export async function persistProductAggregationResult(
@@ -822,7 +824,7 @@ export async function persistProductAggregationResult(
   jobId: number,
   input: PersistProductAggregationInput,
 ): Promise<{ productId: number; tokensUsed: number; error?: string; warning?: string }> {
-  const { gtin, sourceProductIds, aggregated, classification, classifySourceProductIds } = input
+  const { gtin, sourceProductIds, aggregated, classification, classifySourceProductIds, scope } = input
   const jlog = log.forJob('product-aggregations' as JobCollection, jobId)
   log.info(`persistProductAggregationResult: GTIN=${gtin}, ${sourceProductIds.length} source products`)
   let tokensUsed = 0
@@ -878,75 +880,80 @@ export async function persistProductAggregationResult(
     updateData.gtin = aggregated.gtin
   }
 
-  // Match brand
-  if (aggregated.brandName) {
-    try {
-      const brandResult = await matchBrand(payload, aggregated.brandName, jlog)
-      tokensUsed += brandResult.tokensUsed.totalTokens
-      updateData.brand = brandResult.brandId
-      log.info(`persistProductAggregationResult: brand "${aggregated.brandName}" → brand #${brandResult.brandId}`)
-      jlog.info(`Brand "${aggregated.brandName}" → #${brandResult.brandId}`, { event: true, labels: ['brand-matching', 'persistence'] })
-    } catch (error) {
-      errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  // Match ingredients
-  if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
-    try {
-      const matchResult = await matchIngredients(payload, aggregated.ingredientNames, jlog)
-      tokensUsed += matchResult.tokensUsed.totalTokens
-
-      const matchedMap = new Map(
-        matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
-      )
-      updateData.ingredients = aggregated.ingredientNames.map((name) => ({
-        name,
-        ingredient: matchedMap.get(name) ?? null,
-      }))
-
-      log.info(`persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`)
-      jlog.info(`Ingredients: ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`, { event: true, labels: ['ingredient-matching', 'persistence'] })
-
-      if (matchResult.unmatched.length > 0) {
-        warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
+  // ── Full scope only: brand matching, ingredient matching, image upload, classification ──
+  if (scope === 'full') {
+    // Match brand
+    if (aggregated.brandName) {
+      try {
+        const brandResult = await matchBrand(payload, aggregated.brandName, jlog)
+        tokensUsed += brandResult.tokensUsed.totalTokens
+        updateData.brand = brandResult.brandId
+        log.info(`persistProductAggregationResult: brand "${aggregated.brandName}" → brand #${brandResult.brandId}`)
+        jlog.info(`Brand "${aggregated.brandName}" → #${brandResult.brandId}`, { event: true, labels: ['brand-matching', 'persistence'] })
+      } catch (error) {
+        errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
-    } catch (error) {
-      errorMessages.push(`Ingredient matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-  }
 
-  // Upload product image
-  if (aggregated.selectedImageUrl) {
-    try {
-      log.info(`persistProductAggregationResult: downloading image from ${aggregated.selectedImageUrl}`)
-      const imageRes = await fetch(aggregated.selectedImageUrl)
-      if (!imageRes.ok) {
-        warningMessages.push(`Image download failed (${imageRes.status}): ${aggregated.selectedImageUrl}`)
-      } else {
-        const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
-        const buffer = Buffer.from(await imageRes.arrayBuffer())
+    // Match ingredients
+    if (aggregated.ingredientNames && aggregated.ingredientNames.length > 0) {
+      try {
+        const matchResult = await matchIngredients(payload, aggregated.ingredientNames, jlog)
+        tokensUsed += matchResult.tokensUsed.totalTokens
 
-        // Derive filename from URL
-        const urlPath = new URL(aggregated.selectedImageUrl).pathname
-        const filename = urlPath.split('/').pop() || `product-${gtin}.jpg`
+        const matchedMap = new Map(
+          matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
+        )
+        updateData.ingredients = aggregated.ingredientNames.map((name) => ({
+          name,
+          ingredient: matchedMap.get(name) ?? null,
+        }))
 
-        const mediaDoc = await payload.create({
-          collection: 'media',
-          data: { alt: aggregated.selectedImageAlt || aggregated.name || gtin },
-          file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
-        })
-        const mediaId = (mediaDoc as { id: number }).id
-        updateData.image = mediaId
-        log.info(`persistProductAggregationResult: uploaded image → media #${mediaId}`)
-        jlog.info(`Image uploaded → media #${mediaId}`, { event: true, labels: ['image', 'persistence'] })
+        log.info(`persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`)
+        jlog.info(`Ingredients: ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${aggregated.ingredientNames.length}`, { event: true, labels: ['ingredient-matching', 'persistence'] })
+
+        if (matchResult.unmatched.length > 0) {
+          warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
+        }
+      } catch (error) {
+        errorMessages.push(`Ingredient matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
-    } catch (error) {
-      warningMessages.push(`Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+
+    // Upload product image
+    if (aggregated.selectedImageUrl) {
+      try {
+        log.info(`persistProductAggregationResult: downloading image from ${aggregated.selectedImageUrl}`)
+        const imageRes = await fetch(aggregated.selectedImageUrl)
+        if (!imageRes.ok) {
+          warningMessages.push(`Image download failed (${imageRes.status}): ${aggregated.selectedImageUrl}`)
+        } else {
+          const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
+          const buffer = Buffer.from(await imageRes.arrayBuffer())
+
+          // Derive filename from URL
+          const urlPath = new URL(aggregated.selectedImageUrl).pathname
+          const filename = urlPath.split('/').pop() || `product-${gtin}.jpg`
+
+          const mediaDoc = await payload.create({
+            collection: 'media',
+            data: { alt: aggregated.selectedImageAlt || aggregated.name || gtin },
+            file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
+          })
+          const mediaId = (mediaDoc as { id: number }).id
+          updateData.image = mediaId
+          log.info(`persistProductAggregationResult: uploaded image → media #${mediaId}`)
+          jlog.info(`Image uploaded → media #${mediaId}`, { event: true, labels: ['image', 'persistence'] })
+        }
+      } catch (error) {
+        warningMessages.push(`Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    }
+  } else {
+    log.info(`persistProductAggregationResult: scope=partial, skipping brand/ingredient matching, image upload`)
   }
 
-  // Apply classification
+  // Apply classification (only present for full scope)
   if (classification) {
     log.info(`persistProductAggregationResult: applying classification (type=${classification.productType}, ${classification.productAttributes.length} attributes, ${classification.productClaims.length} claims)`)
     jlog.info(`Classification: type=${classification.productType}, ${classification.productAttributes.length} attrs, ${classification.productClaims.length} claims`, { event: true, labels: ['classification', 'persistence'] })

@@ -929,6 +929,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   const jobId = work.jobId as number
   const language = work.language as string
   const aggregationType = work.aggregationType as string
+  const scope = (work.scope as string) || 'full'
   const lastCheckedSourceId = work.lastCheckedSourceId as number
   const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? ['dm', 'rossmann', 'mueller']
   const workItems = work.workItems as Array<{
@@ -945,7 +946,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     }>
   }>
 
-  log.info(`Product aggregation job #${jobId}: ${workItems.length} items (type=${aggregationType})`)
+  log.info(`Product aggregation job #${jobId}: ${workItems.length} items (type=${aggregationType}, scope=${scope})`)
 
   if (workItems.length === 0) {
     log.warn(`No work items for aggregation job #${jobId}, skipping submit`)
@@ -974,55 +975,58 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
         { imageSourcePriority },
       )
 
-      // Step 2: Build classify inputs
-      const classifySources: { id: number; description?: string; ingredientNames?: string[] }[] = []
-      for (const sp of item.sourceProducts) {
-        const ingredientNames = (sp.ingredients ?? [])
-          .map((i) => i.name)
-          .filter((n): n is string => !!n)
-        if (sp.description || ingredientNames.length > 0) {
-          classifySources.push({
-            id: sp.id,
-            description: sp.description || undefined,
-            ingredientNames: ingredientNames.length > 0 ? ingredientNames : undefined,
-          })
-        }
-      }
-
-      // Step 3: Classify product (OpenAI)
+      // Steps 2 & 3: Classify product (OpenAI) — only for full scope
       let classification: Record<string, unknown> | undefined
       let classifySourceProductIds: number[] | undefined
       let tokensUsed = 0
 
-      if (classifySources.length > 0) {
-        try {
-          const classifyResult = await classifyProduct(
-            classifySources.map((s) => ({ description: s.description, ingredientNames: s.ingredientNames })),
-            language,
-          )
-          tokensUsed = classifyResult.tokensUsed.totalTokens
-
-          classification = {
-            description: classifyResult.description,
-            productType: classifyResult.productType,
-            warnings: classifyResult.warnings,
-            skinApplicability: classifyResult.skinApplicability,
-            phMin: classifyResult.phMin,
-            phMax: classifyResult.phMax,
-            usageInstructions: classifyResult.usageInstructions,
-            usageSchedule: classifyResult.usageSchedule,
-            productAttributes: classifyResult.productAttributes,
-            productClaims: classifyResult.productClaims,
-            tokensUsed: classifyResult.tokensUsed,
+      if (scope === 'full') {
+        const classifySources: { id: number; description?: string; ingredientNames?: string[] }[] = []
+        for (const sp of item.sourceProducts) {
+          const ingredientNames = (sp.ingredients ?? [])
+            .map((i) => i.name)
+            .filter((n): n is string => !!n)
+          if (sp.description || ingredientNames.length > 0) {
+            classifySources.push({
+              id: sp.id,
+              description: sp.description || undefined,
+              ingredientNames: ingredientNames.length > 0 ? ingredientNames : undefined,
+            })
           }
-
-          // Map sourceIndex → sourceProduct.id for evidence
-          classifySourceProductIds = classifySources.map((s) => s.id)
-        } catch (e) {
-          const error = e instanceof Error ? e.message : String(e)
-          log.error(`Classification error for GTIN ${item.gtin}: ${error}`)
-          // Continue without classification
         }
+
+        if (classifySources.length > 0) {
+          try {
+            const classifyResult = await classifyProduct(
+              classifySources.map((s) => ({ description: s.description, ingredientNames: s.ingredientNames })),
+              language,
+            )
+            tokensUsed = classifyResult.tokensUsed.totalTokens
+
+            classification = {
+              description: classifyResult.description,
+              productType: classifyResult.productType,
+              warnings: classifyResult.warnings,
+              skinApplicability: classifyResult.skinApplicability,
+              phMin: classifyResult.phMin,
+              phMax: classifyResult.phMax,
+              usageInstructions: classifyResult.usageInstructions,
+              usageSchedule: classifyResult.usageSchedule,
+              productAttributes: classifyResult.productAttributes,
+              productClaims: classifyResult.productClaims,
+              tokensUsed: classifyResult.tokensUsed,
+            }
+
+            // Map sourceIndex → sourceProduct.id for evidence
+            classifySourceProductIds = classifySources.map((s) => s.id)
+          } catch (e) {
+            const error = e instanceof Error ? e.message : String(e)
+            log.error(`Classification error for GTIN ${item.gtin}: ${error}`)
+            // Continue without classification
+          }
+        }
+      } else {
+        log.info(`Skipping classification for GTIN ${item.gtin} (scope=partial)`)
       }
 
       results.push({
@@ -1053,6 +1057,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     jobId,
     lastCheckedSourceId,
     aggregationType,
+    scope,
     results,
   } as Parameters<typeof submitWork>[2])
   log.info(`Submitted aggregation results for job #${jobId}: ${results.length} items`)

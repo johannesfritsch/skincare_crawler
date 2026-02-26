@@ -737,6 +737,10 @@ export interface ProductAggregation {
   id: number;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
+   * Full: runs LLM classification (description, product type, attributes, claims), brand matching, ingredient matching, and image selection. Partial: only updates score history and basic product data (name, sources) — no LLM calls, no image downloads.
+   */
+  scope: 'full' | 'partial';
+  /**
    * Products to aggregate per batch.
    */
   itemsPerTick?: number | null;
@@ -1802,6 +1806,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
  */
 export interface ProductAggregationsSelect<T extends boolean = true> {
   status?: T;
+  scope?: T;
   itemsPerTick?: T;
   type?: T;
   gtins?: T;

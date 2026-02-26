@@ -515,8 +515,9 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
   const language = (job.language as string) || 'de'
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
+  const scope = ((job.scope as string) || 'full') as 'full' | 'partial'
   const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? ['dm', 'rossmann', 'mueller']
-  jlog.info(`buildProductAggregationWork #${jobId}: type=${aggregationType}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
+  jlog.info(`buildProductAggregationWork #${jobId}: type=${aggregationType}, scope=${scope}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
 
   // Initialize if pending
   if (job.status === 'pending') {
@@ -685,6 +686,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       jobId,
       language,
       aggregationType,
+      scope,
       imageSourcePriority,
       lastCheckedSourceId: lastId,
       workItems,
@@ -699,6 +701,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     jobId,
     language,
     aggregationType,
+    scope,
     imageSourcePriority,
     lastCheckedSourceId: (job.lastCheckedSourceId as number) || 0,
     workItems,

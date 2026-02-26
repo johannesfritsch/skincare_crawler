@@ -107,7 +107,7 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
 | `video-discoveries` | channelUrl, created/existing counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
-| `product-aggregations` | type (all/selected_gtins), language, imageSourcePriority, aggregated/errors/tokens |
+| `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, aggregated/errors/tokens |
 
 ### System
 

@@ -29,6 +29,23 @@ export const ProductAggregations: CollectionConfig = {
       },
     },
     {
+      name: 'scope',
+      type: 'select',
+      label: 'Scope',
+      defaultValue: 'full',
+      required: true,
+      options: [
+        { label: 'Full', value: 'full' },
+        { label: 'Partial', value: 'partial' },
+      ],
+      admin: {
+        position: 'sidebar',
+        description:
+          'Full: runs LLM classification (description, product type, attributes, claims), brand matching, ingredient matching, and image selection. ' +
+          'Partial: only updates score history and basic product data (name, sources) — no LLM calls, no image downloads.',
+      },
+    },
+    {
       name: 'itemsPerTick',
       type: 'number',
       label: 'Batch Size',

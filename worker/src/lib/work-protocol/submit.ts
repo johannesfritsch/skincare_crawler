@@ -206,6 +206,7 @@ interface SubmitProductAggregationBody {
   jobId: number
   lastCheckedSourceId: number
   aggregationType: string
+  scope: string
   results: Array<{
     gtin: string
     sourceProductIds: number[]
@@ -631,9 +632,9 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
 }
 
 async function submitProductAggregation(payload: PayloadRestClient, body: SubmitProductAggregationBody) {
-  const { jobId, lastCheckedSourceId, aggregationType, results } = body
+  const { jobId, lastCheckedSourceId, aggregationType, scope, results } = body
   const jlog = log.forJob('product-aggregations' as JobCollection, jobId)
-  log.info(`submitProductAggregation #${jobId}: ${results.length} results (type=${aggregationType})`)
+  log.info(`submitProductAggregation #${jobId}: ${results.length} results (type=${aggregationType}, scope=${scope})`)
 
   const job = await payload.findByID({ collection: 'product-aggregations', id: jobId }) as Record<string, unknown>
   let aggregated = (job.aggregated as number) ?? 0
@@ -663,6 +664,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         aggregated: result.aggregated,
         classification: result.classification,
         classifySourceProductIds: result.classifySourceProductIds,
+        scope: scope as 'full' | 'partial',
       })
 
       tokensUsed += persistResult.tokensUsed

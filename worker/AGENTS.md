@@ -227,18 +227,24 @@ Dispatches to per-type submit handlers. Each handler:
    - Brand: first non-null
    - Ingredients: from source with longest list
    - Image: first image from highest-priority source (configurable via imageSourcePriority, default: dm > rossmann > mueller)
-2. classifyProduct(client, sources, lang)  → LLM classification
+2. [full scope only] classifyProduct(client, sources, lang)  → LLM classification
    - Product type, attributes, claims with evidence
 3. Submit results
 ```
 
+**Scope** (`scope` field on job, passed through claim → handler → submit → persist):
+- `full`: Runs all LLM-heavy operations — `classifyProduct()`, `matchBrand()`, `matchIngredients()`, image download/upload, and score history computation.
+- `partial`: Skips all LLM calls and image operations. Only updates basic product data (name, GTIN, source product links) and computes score history. Use for cheap periodic score refreshes.
+
 **Persistence** (`persistProductAggregationResult`):
-- Creates/updates `products` record
-- Calls `matchBrand()` → links brand
-- Calls `matchIngredients()` → links ingredient records
-- Downloads selected image URL → uploads to `media` collection → sets `image` on product
-- Applies classification: productType, attributes (with evidence), claims (with evidence)
-- Computes score history: fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
+- Creates/updates `products` record (always)
+- Merges source product IDs (always)
+- Updates name/GTIN (always)
+- [full only] Calls `matchBrand()` → links brand
+- [full only] Calls `matchIngredients()` → links ingredient records
+- [full only] Downloads selected image URL → uploads to `media` collection → sets `image` on product
+- [full only] Applies classification: productType, attributes (with evidence), claims (with evidence)
+- Computes score history (always): fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
 
