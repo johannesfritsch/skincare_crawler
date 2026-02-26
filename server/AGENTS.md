@@ -1190,10 +1190,10 @@ src/app/(frontend)/
 ├── globals.css             # Tailwind theme, brand colors, standalone PWA overrides
 └── (tabs)/                 # Route group — all pages with bottom nav
     ├── layout.tsx          # App shell: header (burger|logo|profile) + bottom nav
-    ├── discover/page.tsx   # Top-rated products by category, horizontal scroll sections
+    ├── discover/page.tsx   # Top-rated products by category, horizontal scroll carousels with score pills
     ├── videos/page.tsx     # Recent videos with thumbnails, creators, mentions
     ├── products/
-    │   ├── page.tsx        # Product search with ?q= text filter
+    │   ├── page.tsx        # Product search — responsive grid of ProductCards with score pills
     │   └── [gtin]/
     │       ├── page.tsx    # Product detail (by GTIN, not numeric ID)
     │       └── not-found.tsx  # Product 404 with feedback form
@@ -1212,7 +1212,7 @@ src/app/(frontend)/
 | `AppHeader` | `components/app-header.tsx` | Client | Top bar: burger menu on tab roots, back button on sub-pages |
 | `AppDrawer` | `components/app-drawer.tsx` | Client | Slide-from-left burger menu (shadcn Sheet) |
 | `BarcodeScanner` | `components/barcode-scanner.tsx` | Client | Full-screen camera overlay with viewfinder |
-| `ProductCard` | `components/product-card.tsx` | Server | Reusable product card for horizontal scroll sections (with image support + letter fallback) |
+| `ProductCard` | `components/product-card.tsx` | Server | Reusable product card with image, name, brand, and compact tier-colored score pills (store + creator). Width controlled by caller via `className` prop (e.g. `w-40 shrink-0 snap-start` for carousels, or grid-auto in responsive grids). Props: `gtin`, `name`, `brandName`, `productTypeName?`, `creatorScore?` (0–10), `storeScore?` (0–10), `imageUrl?`, `className?`. Contains internal `ScorePill` component: tiny tier-colored badge with icon + score + label. Empty creator state shows gray "No reviews" pill. |
 | `ProductSearch` | `components/product-search.tsx` | Client | Search input with clear button, GTIN detection |
 | `ChannelFilter` | `components/channel-filter.tsx` | Client | Horizontally scrollable channel chips with avatars for video filtering |
 | `StoreLogo` | `components/store-logos.tsx` | Server | DM, Rossmann, Müller inline SVG logos (`<StoreLogo source="dm" />`), aspect-ratio-aware sizing |

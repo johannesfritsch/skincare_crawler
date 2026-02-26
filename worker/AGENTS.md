@@ -130,7 +130,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
-| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets) |
+| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets); computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
 
 ## 6 Job Types — Detailed
 
@@ -238,6 +238,7 @@ Dispatches to per-type submit handlers. Each handler:
 - Calls `matchIngredients()` → links ingredient records
 - Downloads selected image URL → uploads to `media` collection → sets `image` on product
 - Applies classification: productType, attributes (with evidence), claims (with evidence)
+- Computes score history: fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
 
