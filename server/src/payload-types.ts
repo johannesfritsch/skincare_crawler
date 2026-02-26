@@ -320,7 +320,11 @@ export interface ProductType {
 export interface Ingredient {
   id: number;
   name: string;
-  status?: ('pending' | 'crawled' | 'uncrawled') | null;
+  /**
+   * Molecular structure or visual reference for this ingredient
+   */
+  image?: (number | null) | Media;
+  status?: ('crawled' | 'uncrawled') | null;
   description?: string | null;
   casNumber?: string | null;
   ecNumber?: string | null;
@@ -1560,6 +1564,7 @@ export interface ProductTypesSelect<T extends boolean = true> {
  */
 export interface IngredientsSelect<T extends boolean = true> {
   name?: T;
+  image?: T;
   status?: T;
   description?: T;
   casNumber?: T;

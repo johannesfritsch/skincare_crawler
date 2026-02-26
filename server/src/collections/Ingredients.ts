@@ -21,24 +21,22 @@ export const Ingredients: CollectionConfig = {
       index: true,
     },
     {
-      name: 'recrawl',
-      type: 'ui',
+      name: 'image',
+      type: 'upload',
+      relationTo: 'media',
+      label: 'Image',
       admin: {
-        components: {
-          Field: '/components/RecrawlIngredientButton',
-        },
+        description: 'Molecular structure or visual reference for this ingredient',
       },
     },
     {
       name: 'status',
       type: 'select',
       label: 'Status',
-      defaultValue: 'pending',
+      defaultValue: 'uncrawled',
       options: [
-        { label: 'Pending', value: 'pending' },
         { label: 'Crawled', value: 'crawled' },
-        { label: 'Crawl Failed', value: 'crawl_failed' },
-        { label: 'Not Found', value: 'crawl_not_found' },
+        { label: 'Uncrawled', value: 'uncrawled' },
       ],
       index: true,
     },
