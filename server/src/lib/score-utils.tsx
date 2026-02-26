@@ -69,12 +69,13 @@ export function storeLabel(slug: string | null): string {
 
 /** Small score indicator badge with star + number, colored by tier */
 export function ScoreBadge({ score, className }: { score: number; className?: string }) {
-  const tier = scoreTier(score)
+  const n = Number(score)
+  const tier = scoreTier(n)
   return (
     <div className={cn('inline-flex items-center gap-1 rounded-lg border px-2 py-1', tierBadgeBg[tier], className)}>
       <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
       <span className={cn('text-sm font-bold leading-tight', tierTextColor[tier])}>
-        {score.toFixed(1)}
+        {n.toFixed(1)}
       </span>
     </div>
   )
