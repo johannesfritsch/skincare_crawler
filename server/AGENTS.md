@@ -49,6 +49,7 @@ src/
 │   └── product-search.tsx       # Search input component
 ├── lib/
 │   ├── barcode.ts               # Barcode detection (native + zxing-wasm)
+│   ├── score-utils.tsx           # Score tier system, ScoreBadge (server-safe, no 'use client')
 │   └── utils.ts                 # shadcn cn() utility
 ├── types/
 │   └── barcode-detector.d.ts    # BarcodeDetector Web API types
@@ -1222,8 +1223,24 @@ src/app/(frontend)/
 | `IngredientChipGroup` | `components/ingredient-chip-group.tsx` | Client | Tappable ingredient pills (amber for restricted, neutral for others). Opens bottom-sheet listing all ingredients as collapsible rows (one open at a time). Each row shows index, name, functions, and expands to show description, function pills, CAS number, and restriction warnings. Optimized for 50+ items. Props: `items: IngredientItem[]`. Exports `IngredientItem` type. |
 | `TraitChipGroup` | `components/trait-chip.tsx` | Client | Renders attribute/claim pills; tapping any chip opens a bottom-sheet (Sheet) listing ALL traits as collapsible rows, with the tapped one pre-expanded. Each row shows evidence in a blocky quote-style card: left-bordered quote block with ingredient pills or snippet text, plus store logo + name attribution below. Props: `items: TraitItem[]`. Exports `TraitItem`, `TraitEvidence` types. |
 | `CreatorScoreCard` | `components/score-sheet.tsx` | Client | Tappable creator score badge (sentiment color + creator avatars). Opens bottom-sheet listing all creators with avatar, name, mention count, individual sentiment score, and per-channel platform links (YouTube/Instagram/TikTok pills with platform icons). Props: `avgSentiment`, `dominantSentiment`, `totalMentions`, `creators: CreatorScoreItem[]`. Exports `CreatorScoreItem`, `CreatorChannel` types. |
-| `StoreScoreCard` | `components/score-sheet.tsx` | Client | Tappable store score badge (amber + store logos). Opens bottom-sheet listing all stores with logo, name, review count, and star rating. Props: `avgStoreRating`, `stores: StoreScoreItem[]`. |
+| `StoreScoreCard` | `components/score-sheet.tsx` | Client | Tappable store score badge (amber + store logos). Opens bottom-sheet listing all stores as white cards (`bg-card`) with logo, name, review count, star rating, and a `ScoreBadge` on the right. Props: `avgStoreRating`, `stores: StoreScoreItem[]`. |
+| `ScoreBadge` | `components/score-sheet.tsx` | Server | Small rounded badge showing a star icon + numeric score (0-10), colored by tier (emerald/lime/amber/rose). Used inside store cards on both the product detail page and the StoreScoreCard bottom-sheet. Props: `score: number`. |
 | `VideoDetailClient` | `components/video-detail-client.tsx` | Client | Full video detail page with YouTube IFrame API player, seekable timestamps, collapsible snippet blocks with product tiles, sentiment indicators, and quote cards. Supports `initialSnippetId` prop to auto-open a specific snippet and seek to its timestamp on load (used when deep-linking from product pages). Exports `VideoMentionItem`, `VideoQuote`, `VideoDetailClientProps` types. |
+
+### Score Tier System
+
+`lib/score-utils.tsx` is the **single source of truth** for the rating tier system. It is a plain (non-`'use client'`) file so it can be imported by both server and client components. It exports:
+
+- `ScoreTier` type — `'low' | 'mid' | 'good' | 'great' | 'gold'`
+- `scoreTier(score, opts?)` — maps 0–10 score to a tier (≥7.5 great, ≥5 good, ≥3 mid, else low). Pass `{ gold: true }` to enable the gold shimmer tier for scores ≥9 (only used for creator scores).
+- `starsToScore10(stars: number)` — converts 0–5 star rating to 0–10 scale
+- `storeLabel(slug: string | null)` — maps source slug to display name (dm→"dm", rossmann→"Rossmann", mueller→"Müller")
+- Color maps: `tierTextColor`, `tierCardBg`, `tierBadgeBg`, `tierDivider` — keyed by `ScoreTier`
+- `ScoreBadge` component — small rounded badge with star icon + tier-colored score number
+
+`components/score-sheet.tsx` (`'use client'`) re-exports everything from `score-utils` for backward compatibility, plus provides the interactive sheet components (`CreatorScoreCard`, `StoreScoreCard`).
+
+Server components (e.g. `products/[gtin]/page.tsx`) import directly from `@/lib/score-utils`. Client components can import from either location.
 
 ### Layout & Navigation
 
@@ -1303,7 +1320,7 @@ All sizes use `fit: 'inside'` to preserve the full image (no cropping). Frontend
 - **Sentiment scoring**: Per-mention score is -1 to +1. Overall sentiment displayed as a tappable `CreatorScoreCard` badge in the hero section; tapping opens a bottom-sheet listing all creators with individual scores.
 - **Store scoring**: Weighted average of store ratings displayed as a tappable `StoreScoreCard` badge in the hero section; tapping opens a bottom-sheet listing all stores with individual star ratings and review counts.
 - **Store logos**: `StoreLogo` component renders inline SVG for dm/rossmann/mueller based on `source` slug. DM uses `h-8`, Rossmann `h-6` (wide aspect ~6.25:1), Müller `h-7`. Also stored in worker driver `logoSvg` field.
-- **Store cards**: Left-aligned layout with logo on left, price + per-unit + rating + sparkline on right, external link icon. Grid: 1 col mobile, 2 cols sm, 3 cols lg.
+- **Store cards**: White (`bg-card`) cards with logo on left in a `bg-muted/40` box, price + per-unit + rating + sparkline in the middle, and a `ScoreBadge` (tier-colored score out of 10) on the right. External link icon. Grid: 1 col mobile, 2 cols sm, 3 cols lg.
 - **Price history**: Fetched from `source_products_price_history` table, grouped by source product, shows latest price with delta vs previous. **Sparkline** graph shows last 12 months (chronological, oldest→newest) using `<Sparkline />` component (green if price dropped, red if rose).
 - **Videos section**: Unified paginated list of all video mentions via `ProductVideoList`. Each card shows thumbnail with sentiment icon overlay + duration badge, title, creator avatar, timestamp at mention, and an optional featured quote strip (the quote with the highest absolute sentiment score for that mention). Clicking a card navigates to `/videos/{id}?snippetId={snippetId}`, which deep-links into the video detail page with that snippet auto-opened and its timestamp seeked.
 

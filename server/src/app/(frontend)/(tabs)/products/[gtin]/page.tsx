@@ -6,7 +6,6 @@ import Image from 'next/image'
 import {
   TrendingUp,
   TrendingDown,
-  Star,
   Video,
   ExternalLink,
 } from 'lucide-react'
@@ -18,6 +17,7 @@ import { TraitChipGroup, type TraitItem } from '@/components/trait-chip'
 import { ATTRIBUTE_META, CLAIM_META } from '@/lib/product-traits'
 import { AccordionSection } from '@/components/accordion-section'
 import { CreatorScoreCard, StoreScoreCard, type CreatorScoreItem, type StoreScoreItem } from '@/components/score-sheet'
+import { ScoreBadge, starsToScore10, storeLabel } from '@/lib/score-utils'
 import { DescriptionTeaser } from '@/components/description-teaser'
 import { IngredientChipGroup, type IngredientItem } from '@/components/ingredient-chip-group'
 
@@ -30,42 +30,7 @@ function formatPrice(cents: number | null): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`
 }
 
-/* ── Score tier system (mirrors score-sheet.tsx for consistent styling) ── */
 
-type ScoreTier = 'low' | 'mid' | 'good' | 'great' | 'gold'
-
-function scoreTier(score: number): ScoreTier {
-  if (score >= 9)   return 'gold'
-  if (score >= 7.5) return 'great'
-  if (score >= 5)   return 'good'
-  if (score >= 3)   return 'mid'
-  return 'low'
-}
-
-const tierCardBg: Record<ScoreTier, string> = {
-  low:   'bg-red-50 border-red-200/60',
-  mid:   'bg-amber-50 border-amber-200/60',
-  good:  'bg-emerald-50 border-emerald-200/60',
-  great: 'bg-emerald-50 border-emerald-200/60',
-  gold:  'bg-amber-50/60 score-gold-border',
-}
-
-const tierTextColor: Record<ScoreTier, string> = {
-  low:   'text-red-500',
-  mid:   'text-amber-500',
-  good:  'text-emerald-600',
-  great: 'text-emerald-600',
-  gold:  'score-gold-shimmer',
-}
-
-function storeLabel(slug: string | null): string {
-  switch (slug) {
-    case 'dm': return 'dm'
-    case 'rossmann': return 'Rossmann'
-    case 'mueller': return 'Müller'
-    default: return slug ?? 'Unknown'
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
@@ -495,26 +460,22 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           </div>
 
           {/* Score cards row */}
-          {(totalMentions > 0 || avgStoreRating != null) && (
-            <div className="flex flex-wrap gap-2 mt-5">
-              {/* Creator score */}
-              {totalMentions > 0 && avgSentiment != null && (
-                <CreatorScoreCard
-                  avgSentiment={avgSentiment}
-                  totalMentions={totalMentions}
-                  creators={typedCreatorStats as CreatorScoreItem[]}
-                />
-              )}
+          <div className="flex flex-wrap gap-2 mt-5">
+            {/* Creator score (shows empty state when no mentions) */}
+            <CreatorScoreCard
+              avgSentiment={avgSentiment}
+              totalMentions={totalMentions}
+              creators={typedCreatorStats as CreatorScoreItem[]}
+            />
 
-              {/* Store score */}
-              {avgStoreRating != null && (
-                <StoreScoreCard
-                  avgStoreRating={avgStoreRating}
-                  stores={ratedStores as StoreScoreItem[]}
-                />
-              )}
-            </div>
-          )}
+            {/* Store score */}
+            {avgStoreRating != null && (
+              <StoreScoreCard
+                avgStoreRating={avgStoreRating}
+                stores={ratedStores as StoreScoreItem[]}
+              />
+            )}
+          </div>
 
           {/* Attribute & claim chips */}
           {traitItems.length > 0 && (
@@ -575,8 +536,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                 : null
               const sparklineData = getSparklineData(sp.id)
               const hasRating = sp.rating != null && sp.ratingNum != null && (sp.ratingNum as number) > 0
-              const score10 = hasRating ? Number(sp.rating) * 2 : null
-              const tier = score10 != null ? scoreTier(score10) : null
+              const score10 = hasRating ? starsToScore10(Number(sp.rating)) : null
               const Row = sp.sourceUrl ? 'a' : 'div'
               const linkProps = sp.sourceUrl
                 ? { href: sp.sourceUrl, target: '_blank' as const, rel: 'noopener noreferrer' }
@@ -587,13 +547,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   key={sp.id}
                   {...linkProps}
                   className={cn(
-                    'flex items-center gap-3 rounded-xl border px-3.5 py-3',
-                    tier ? tierCardBg[tier] : 'bg-card',
+                    'flex items-center gap-3 rounded-xl border bg-card px-3.5 py-3',
                     sp.sourceUrl && 'active:opacity-80 touch-manipulation transition-colors',
                   )}
                 >
-                  {/* Store logo in white box */}
-                  <div className="shrink-0 flex items-center justify-center rounded-lg bg-white border border-border/60 size-10 p-1.5">
+                  {/* Store logo */}
+                  <div className="shrink-0 flex items-center justify-center rounded-lg bg-muted/40 border border-border/60 size-10 p-1.5">
                     <StoreLogo source={sp.source ?? ''} className="!h-5" />
                   </div>
 
@@ -630,14 +589,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                     </div>
                   )}
 
-                  {/* Score */}
-                  {score10 != null && tier != null && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                      <span className={cn('text-lg font-bold', tierTextColor[tier])}>
-                        {score10.toFixed(1)}
-                      </span>
-                    </div>
+                  {/* Score badge */}
+                  {score10 != null && (
+                    <ScoreBadge score={score10} />
                   )}
 
                   {/* External link icon */}

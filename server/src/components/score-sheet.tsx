@@ -16,6 +16,21 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { StoreLogo } from '@/components/store-logos'
 
+// Re-export everything from score-utils so existing imports from '@/components/score-sheet' keep working
+export {
+  type ScoreTier,
+  scoreTier,
+  tierTextColor,
+  tierCardBg,
+  tierBadgeBg,
+  tierDivider,
+  starsToScore10,
+  storeLabel,
+  ScoreBadge,
+} from '@/lib/score-utils'
+
+import { scoreTier, tierCardBg, tierTextColor, tierDivider, starsToScore10, storeLabel, ScoreBadge } from '@/lib/score-utils'
+
 /* ── Types ── */
 
 export interface CreatorChannel {
@@ -47,46 +62,6 @@ export interface StoreScoreItem {
   ratingNum: number | null
 }
 
-/* ── Score tier system (0–10 scale) ── */
-
-type ScoreTier = 'low' | 'mid' | 'good' | 'great' | 'gold'
-
-/** Map a 0–10 score to a color tier */
-function scoreTier(score: number): ScoreTier {
-  if (score >= 9)   return 'gold'
-  if (score >= 7.5) return 'great'
-  if (score >= 5)   return 'good'
-  if (score >= 3)   return 'mid'
-  return 'low'
-}
-
-/** Text color class for the score number */
-const tierTextColor: Record<ScoreTier, string> = {
-  low:   'text-red-500',
-  mid:   'text-amber-500',
-  good:  'text-emerald-600',
-  great: 'text-emerald-600',
-  gold:  'score-gold-shimmer', /* animated gradient via CSS */
-}
-
-/** Card background + border classes */
-const tierCardBg: Record<ScoreTier, string> = {
-  low:   'bg-red-50 border-red-200/60',
-  mid:   'bg-amber-50 border-amber-200/60',
-  good:  'bg-emerald-50 border-emerald-200/60',
-  great: 'bg-emerald-50 border-emerald-200/60',
-  gold:  'bg-amber-50/60 score-gold-border',
-}
-
-/** Divider color inside the card (between score and avatars/logos) */
-const tierDivider: Record<ScoreTier, string> = {
-  low:   'border-red-300/30',
-  mid:   'border-amber-300/30',
-  good:  'border-emerald-300/30',
-  great: 'border-emerald-300/30',
-  gold:  'border-amber-400/40',
-}
-
 /* ── Helpers ── */
 
 /** Convert raw sentiment (-1 to +1) to 0–10 display string */
@@ -97,20 +72,6 @@ function toScore10(raw: number): string {
 /** Convert raw sentiment (-1 to +1) to numeric 0–10 value */
 function toScore10Num(raw: number): number {
   return (raw + 1) * 5
-}
-
-/** Convert 0–5 star rating to 0–10 scale */
-function starsToScore10(stars: number): number {
-  return stars * 2
-}
-
-function storeLabel(slug: string | null): string {
-  switch (slug) {
-    case 'dm': return 'dm'
-    case 'rossmann': return 'Rossmann'
-    case 'mueller': return 'Müller'
-    default: return slug ?? 'Unknown'
-  }
 }
 
 function platformLabel(platform: string | null): string {
@@ -161,15 +122,28 @@ export function CreatorScoreCard({
   totalMentions,
   creators,
 }: {
-  avgSentiment: number
-  totalMentions: number
-  creators: CreatorScoreItem[]
+  avgSentiment?: number | null
+  totalMentions?: number
+  creators?: CreatorScoreItem[]
 }) {
   const [open, setOpen] = useState(false)
 
-  const sorted = [...creators].sort((a, b) => b.mentionCount - a.mentionCount)
-  const score = toScore10Num(avgSentiment)
-  const tier = scoreTier(score)
+  const hasData = (totalMentions ?? 0) > 0 && avgSentiment != null
+  const sorted = hasData ? [...(creators ?? [])].sort((a, b) => b.mentionCount - a.mentionCount) : []
+  const score = hasData ? toScore10Num(avgSentiment) : null
+  const tier = score != null ? scoreTier(score, { gold: true }) : null
+
+  /* ── Empty state ── */
+  if (!hasData) {
+    return (
+      <div className="inline-flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/40 px-3.5 py-2">
+        <span className="text-xl font-bold leading-tight text-muted-foreground/50">—</span>
+        <span className="text-[11px] text-muted-foreground leading-tight">
+          No creator reviews (yet)
+        </span>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -178,19 +152,20 @@ export function CreatorScoreCard({
         onClick={() => setOpen(true)}
         className={cn(
           'inline-flex items-center gap-2.5 rounded-xl border px-3.5 py-2 text-left transition-colors active:scale-[0.98] touch-manipulation',
-          tierCardBg[tier],
+          tierCardBg[tier!],
         )}
       >
-        <div className="flex flex-col">
-          <span className={cn('text-xl font-bold leading-tight', tierTextColor[tier])}>
-            {score.toFixed(1)}
+        <div className="flex flex-col items-start">
+          <span className={cn('inline-flex items-center gap-1 text-xl font-bold leading-tight', tierTextColor[tier!])}>
+            <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+            {score!.toFixed(1)}
           </span>
           <span className="text-[10px] text-muted-foreground leading-tight">
             Creator Score
           </span>
         </div>
         {sorted.length > 0 && (
-          <div className={cn('flex items-center -space-x-1.5 ml-1 pl-2.5 border-l', tierDivider[tier])}>
+          <div className={cn('flex items-center -space-x-1.5 ml-1 pl-2.5 border-l', tierDivider[tier!])}>
             {sorted.slice(0, 5).map((cs) => (
               <Avatar key={cs.creatorId ?? 'unknown'} size="sm" className="size-6 ring-2 ring-background">
                 {cs.channelImageUrl && <AvatarImage src={cs.channelImageUrl} alt={cs.creatorName ?? ''} />}
@@ -217,14 +192,14 @@ export function CreatorScoreCard({
           <SheetHeader className="pb-0 pt-2">
             <SheetTitle className="text-base">Creator Scores</SheetTitle>
             <SheetDescription className="text-xs">
-              Sentiment scores from {totalMentions} video mention{totalMentions !== 1 ? 's' : ''} by {creators.length} creator{creators.length !== 1 ? 's' : ''}
+              Sentiment scores from {totalMentions} video mention{totalMentions !== 1 ? 's' : ''} by {sorted.length} creator{sorted.length !== 1 ? 's' : ''}
             </SheetDescription>
           </SheetHeader>
           <div className="overflow-y-auto flex-1 -mx-4 px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
             <div className="space-y-2 pt-1">
               {sorted.map((cs) => {
                 const rowScore = cs.avgSentimentScore != null ? toScore10Num(Number(cs.avgSentimentScore)) : null
-                const rowTier = scoreTier(rowScore ?? 5)
+                const rowTier = scoreTier(rowScore ?? 5, { gold: true })
                 return (
                   <div
                     key={cs.creatorId ?? 'unknown'}
@@ -323,8 +298,9 @@ export function StoreScoreCard({
           tierCardBg[tier],
         )}
       >
-        <div className="flex flex-col">
-          <span className={cn('text-xl font-bold leading-tight', tierTextColor[tier])}>
+        <div className="flex flex-col items-start">
+          <span className={cn('inline-flex items-center gap-1 text-xl font-bold leading-tight', tierTextColor[tier])}>
+            <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
             {score.toFixed(1)}
           </span>
           <span className="text-[10px] text-muted-foreground leading-tight">
@@ -358,7 +334,6 @@ export function StoreScoreCard({
                 .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
                 .map((sp) => {
                   const rowScore = starsToScore10(Number(sp.rating))
-                  const rowTier = scoreTier(rowScore)
                   const Row = sp.sourceUrl ? 'a' : 'div'
                   const linkProps = sp.sourceUrl
                     ? { href: sp.sourceUrl, target: '_blank' as const, rel: 'noopener noreferrer' }
@@ -368,12 +343,11 @@ export function StoreScoreCard({
                       key={sp.id}
                       {...linkProps}
                       className={cn(
-                        'flex items-center gap-3 rounded-xl border px-3.5 py-3',
-                        tierCardBg[rowTier],
+                        'flex items-center gap-3 rounded-xl border bg-card px-3.5 py-3',
                         sp.sourceUrl && 'active:opacity-80 touch-manipulation transition-colors',
                       )}
                     >
-                      <div className="shrink-0 flex items-center justify-center rounded-lg bg-white border border-border/60 size-10 p-1.5">
+                      <div className="shrink-0 flex items-center justify-center rounded-lg bg-muted/40 border border-border/60 size-10 p-1.5">
                         <StoreLogo source={sp.source ?? ''} className="!h-5" />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -382,12 +356,7 @@ export function StoreScoreCard({
                           {sp.ratingNum?.toLocaleString()} review{sp.ratingNum !== 1 ? 's' : ''}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                        <span className={cn('text-lg font-bold', tierTextColor[rowTier])}>
-                          {rowScore.toFixed(1)}
-                        </span>
-                      </div>
+                      <ScoreBadge score={rowScore} />
                       {sp.sourceUrl && (
                         <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
                       )}
