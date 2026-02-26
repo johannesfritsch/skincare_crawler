@@ -591,7 +591,7 @@ export function VideoDetailClient({
                 key={snippet.snippetId}
                 snippet={snippet}
                 seekTo={seekTo}
-                defaultOpen={isTarget || (initialSnippetId == null && idx === 0)}
+                defaultOpen={isTarget}
                 snippetBlockRef={isTarget ? targetSnippetRef : undefined}
               />
             )

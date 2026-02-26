@@ -71,7 +71,6 @@ export interface Config {
     users: User;
     media: Media;
     brands: Brand;
-    categories: Category;
     'product-types': ProductType;
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
@@ -143,7 +142,6 @@ export interface Config {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
-    categories: CategoriesSelect<false> | CategoriesSelect<true>;
     'product-types': ProductTypesSelect<false> | ProductTypesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
@@ -299,22 +297,6 @@ export interface Media {
 export interface Brand {
   id: number;
   name: string;
-  description?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "categories".
- */
-export interface Category {
-  id: number;
-  name: string;
-  slug?: string | null;
-  /**
-   * Select a parent category to create a subcategory
-   */
-  parent?: (number | null) | Category;
   description?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -819,7 +801,6 @@ export interface Product {
   gtin?: string | null;
   description?: string | null;
   brand?: (number | null) | Brand;
-  category?: (number | null) | Category;
   productType?: (number | null) | ProductType;
   /**
    * Primary product image (aggregated from source products)
@@ -954,7 +935,7 @@ export interface Product {
     totalDocs?: number;
   };
   /**
-   * When data sources were last aggregated into name, category, and description
+   * When data sources were last aggregated into name, brand, and description
    */
   lastAggregatedAt?: string | null;
   /**
@@ -1333,10 +1314,6 @@ export interface PayloadLockedDocument {
         value: number | Brand;
       } | null)
     | ({
-        relationTo: 'categories';
-        value: number | Category;
-      } | null)
-    | ({
         relationTo: 'product-types';
         value: number | ProductType;
       } | null)
@@ -1550,18 +1527,6 @@ export interface BrandsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "categories_select".
- */
-export interface CategoriesSelect<T extends boolean = true> {
-  name?: T;
-  slug?: T;
-  parent?: T;
-  description?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "product-types_select".
  */
 export interface ProductTypesSelect<T extends boolean = true> {
@@ -1627,7 +1592,6 @@ export interface ProductsSelect<T extends boolean = true> {
   gtin?: T;
   description?: T;
   brand?: T;
-  category?: T;
   productType?: T;
   image?: T;
   publishedAt?: T;

@@ -3,7 +3,6 @@ interface AggregatedData {
   name?: string
   description?: string
   brandName?: string
-  categoryBreadcrumb?: string
   ingredientNames?: string[]
   selectedImageUrl?: string
   selectedImageAlt?: string | null
@@ -14,7 +13,6 @@ interface SourceProductData {
   gtin?: string | null
   name?: string | null
   brandName?: string | null
-  categoryBreadcrumb?: string | null
   source?: string | null
   ingredients?: Array<{ name?: string | null }> | null
   images?: Array<{ url: string; alt?: string | null }> | null
@@ -44,10 +42,6 @@ export function aggregateFromSources(sourceProducts: SourceProductData[], option
 
   // Brand: first non-null (should agree across sources)
   aggregated.brandName = sourceProducts.find((sp) => sp.brandName)?.brandName ?? undefined
-
-  // Category: first non-null categoryBreadcrumb string
-  const breadcrumb = sourceProducts.find((sp) => sp.categoryBreadcrumb)?.categoryBreadcrumb
-  if (breadcrumb) aggregated.categoryBreadcrumb = breadcrumb
 
   // Ingredients: pick the source with the longest ingredient list (most complete INCI)
   let bestIngredients: string[] = []

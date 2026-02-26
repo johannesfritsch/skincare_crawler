@@ -933,13 +933,11 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? ['dm', 'rossmann', 'mueller']
   const workItems = work.workItems as Array<{
     gtin: string
-    categoryBreadcrumb: string | null
     sourceProducts: Array<{
       id: number
       gtin: string | null
       name: string | null
       brandName: string | null
-      categoryBreadcrumb: string | null
       source: string | null
       ingredients: Array<{ name: string | null }> | null
       description: string | null
@@ -967,7 +965,6 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           gtin: sp.gtin ?? undefined,
           name: sp.name ?? undefined,
           brandName: sp.brandName ?? undefined,
-          categoryBreadcrumb: sp.categoryBreadcrumb ?? undefined,
           source: sp.source ?? undefined,
           ingredients: sp.ingredients
             ? sp.ingredients.map((i) => ({ name: i.name ?? undefined }))

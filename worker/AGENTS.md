@@ -49,7 +49,6 @@ worker/src/
     │   └── analyze-sentiment.ts      # analyzeSentiment (LLM) — extract quotes & sentiment per product
     │
     ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
-    ├── match-category.ts             # matchCategory(client, breadcrumb) — LLM-powered
     ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
     ├── match-product.ts              # matchProduct(client, brand, name, terms) — LLM-powered
     ├── classify-product.ts           # classifyProduct(client, sources, lang) — LLM-powered
@@ -131,7 +130,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
-| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchCategory (from categoryBreadcrumb string), matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets) |
+| `persistProductAggregationResult()` | Creates/updates `products`; runs matchBrand, matchIngredients, applies classification (productType, attributes, claims with evidence including sourceProduct ref and start/end offsets for description snippets) |
 
 ## 6 Job Types — Detailed
 
@@ -226,7 +225,6 @@ Dispatches to per-type submit handlers. Each handler:
    - GTIN: first non-null
    - Name: longest string
    - Brand: first non-null
-   - Category: first source-category ID
    - Ingredients: from source with longest list
    - Image: first image from highest-priority source (configurable via imageSourcePriority, default: dm > rossmann > mueller)
 2. classifyProduct(client, sources, lang)  → LLM classification
@@ -237,7 +235,6 @@ Dispatches to per-type submit handlers. Each handler:
 **Persistence** (`persistProductAggregationResult`):
 - Creates/updates `products` record
 - Calls `matchBrand()` → links brand
-- Calls `matchCategory()` → walks source-category parent chain for breadcrumb → links category
 - Calls `matchIngredients()` → links ingredient records
 - Downloads selected image URL → uploads to `media` collection → sets `image` on product
 - Applies classification: productType, attributes (with evidence), claims (with evidence)
@@ -321,7 +318,6 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 | Function | Input | Output | Called by |
 |----------|-------|--------|-----------|
 | `matchBrand(client, brandName, logger)` | brand name string | `{ brandId, tokensUsed }` | `persistProductAggregationResult` |
-| `matchCategory(client, breadcrumb, logger)` | category breadcrumb string | `{ categoryId, tokensUsed }` | `persistProductAggregationResult` |
 | `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `persistProductAggregationResult` |
 | `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `persistVideoProcessingResult` |
 | `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, warnings, skinApplicability, phMin, phMax, usageInstructions, usageSchedule, productAttributes[], productClaims[], tokensUsed }` — detail fields extracted from descriptions by LLM; evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `handleProductAggregation` |
@@ -354,7 +350,7 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
 - **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
 - **URL normalization**: All product URLs are passed through `normalizeProductUrl()` (in `source-product-queries.ts`) before storage or lookup. This strips query parameters, trailing slashes, hash fragments, and lowercases the URL. Applied in all 3 source drivers at URL construction time, in `persist.ts` (crawl results + discovered products + canonicalUrl), in `claim.ts` (URL parsing from job fields), and in query helpers (`findUncrawled`, `countUncrawled`, `resetProducts`). The `sourceUrl` field on `source-products` has a `unique: true` constraint to enforce deduplication at the DB level.
-- **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. During aggregation, this string is passed directly to `matchCategory()` — no intermediate `source-categories` collection.
+- **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. This is raw metadata from retailers; it is not mapped to any collection during aggregation.
 - **Deduplication**: Source-products are matched by `sourceUrl` (unique constraint) to prevent duplicates
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced

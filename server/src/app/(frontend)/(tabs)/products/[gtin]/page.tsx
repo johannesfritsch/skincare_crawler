@@ -3,7 +3,6 @@ import config from '@payload-config'
 import { eq, sql, desc } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import Image from 'next/image'
-import { Badge } from '@/components/ui/badge'
 import {
   TrendingUp,
   TrendingDown,
@@ -88,7 +87,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       gtin: t.products.gtin,
       description: t.products.description,
       brandName: t.brands.name,
-      categoryName: t.categories.name,
       productTypeName: t.product_types.name,
       publishedAt: t.products.publishedAt,
       lastAggregatedAt: t.products.lastAggregatedAt,
@@ -101,7 +99,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     })
     .from(t.products)
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
-    .leftJoin(t.categories, eq(t.products.category, t.categories.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
     .where(eq(t.products.gtin, gtin))
@@ -531,12 +528,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <DescriptionTeaser description={product.description} />
           )}
 
-          {/* Category pill */}
-          {product.categoryName && (
-            <div className="mt-2.5">
-              <Badge variant="secondary" className="text-xs">{product.categoryName}</Badge>
-            </div>
-          )}
         </div>
       </div>
 

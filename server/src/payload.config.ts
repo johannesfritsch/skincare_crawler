@@ -9,7 +9,6 @@ import sharp from 'sharp'
 import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Brands } from './collections/Brands'
-import { Categories } from './collections/Categories'
 import { ProductTypes } from './collections/ProductTypes'
 import { Ingredients } from './collections/Ingredients'
 import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
@@ -68,7 +67,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, Categories, ProductTypes, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
+  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

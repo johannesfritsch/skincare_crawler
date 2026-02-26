@@ -8,7 +8,7 @@ export const Products: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'gtin', 'brand', 'category', 'createdAt'],
+    defaultColumns: ['name', 'gtin', 'brand', 'productType', 'createdAt'],
     listSearchableFields: ['name', 'gtin'],
     group: 'Content',
   },
@@ -50,12 +50,6 @@ export const Products: CollectionConfig = {
               type: 'relationship',
               relationTo: 'brands',
               label: 'Brand',
-            },
-            {
-              name: 'category',
-              type: 'relationship',
-              relationTo: 'categories',
-              label: 'Category',
             },
             {
               name: 'productType',
@@ -398,7 +392,7 @@ export const Products: CollectionConfig = {
               type: 'date',
               label: 'Last Aggregated At',
               admin: {
-                description: 'When data sources were last aggregated into name, category, and description',
+                description: 'When data sources were last aggregated into name, brand, and description',
                 date: {
                   pickerAppearance: 'dayAndTime',
                 },

@@ -553,13 +553,11 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
 
   interface WorkItem {
     gtin: string
-    categoryBreadcrumb: string | null
     sourceProducts: Array<{
       id: number
       gtin: string | null
       name: string | null
       brandName: string | null
-      categoryBreadcrumb: string | null
       source: string | null
       ingredients: Array<{ name: string | null }> | null
       description: string | null
@@ -576,7 +574,6 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       gtin: (sp.gtin as string) ?? null,
       name: (sp.name as string) ?? null,
       brandName: (sp.brandName as string) ?? null,
-      categoryBreadcrumb: (sp.categoryBreadcrumb as string) ?? null,
       source: (sp.source as string) ?? null,
       ingredients: sp.ingredients
         ? (sp.ingredients as Array<{ name?: string | null }>).map((i) => ({ name: i.name ?? null }))
@@ -618,9 +615,8 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       if (allSources.docs.length === 0) continue
 
       const sourceProducts = allSources.docs.map((sp) => toSourceProductData(sp as Record<string, unknown>))
-      const categoryBreadcrumb = sourceProducts.find((sp) => sp.categoryBreadcrumb)?.categoryBreadcrumb ?? null
 
-      workItems.push({ gtin, categoryBreadcrumb, sourceProducts })
+      workItems.push({ gtin, sourceProducts })
     }
   } else {
     // 'all' type — cursor-based
@@ -676,9 +672,8 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       })
 
       const spData = allSources.docs.map((sp) => toSourceProductData(sp as Record<string, unknown>))
-      const categoryBreadcrumb = spData.find((sp) => sp.categoryBreadcrumb)?.categoryBreadcrumb ?? null
 
-      workItems.push({ gtin, categoryBreadcrumb, sourceProducts: spData })
+      workItems.push({ gtin, sourceProducts: spData })
     }
 
     const gtinsList = workItems.map((w) => w.gtin).join(', ')

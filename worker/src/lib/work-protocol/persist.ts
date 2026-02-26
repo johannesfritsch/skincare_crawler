@@ -4,7 +4,6 @@ import { getSourceSlugFromUrl, normalizeProductUrl } from '@/lib/source-product-
 
 import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
-import { matchCategory } from '@/lib/match-category'
 import { matchIngredients } from '@/lib/match-ingredients'
 import { createLogger, type JobCollection } from '@/lib/logger'
 
@@ -763,7 +762,6 @@ export interface PersistProductAggregationInput {
     gtin?: string
     name?: string
     brandName?: string
-    categoryBreadcrumb?: string
     ingredientNames?: string[]
     selectedImageUrl?: string
     selectedImageAlt?: string | null
@@ -855,23 +853,6 @@ export async function persistProductAggregationResult(
       jlog.info(`Brand "${aggregated.brandName}" → #${brandResult.brandId}`, { event: true, labels: ['brand-matching', 'persistence'] })
     } catch (error) {
       errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  // Match category from breadcrumb string
-  if (aggregated.categoryBreadcrumb) {
-    try {
-      const categoryResult = await matchCategory(payload, aggregated.categoryBreadcrumb, jlog)
-      tokensUsed += categoryResult.tokensUsed.totalTokens
-      if (categoryResult.categoryId) {
-        updateData.category = categoryResult.categoryId
-        log.info(`persistProductAggregationResult: category "${aggregated.categoryBreadcrumb}" → category #${categoryResult.categoryId}`)
-        jlog.info(`Category "${aggregated.categoryBreadcrumb}" → #${categoryResult.categoryId}`, { event: true, labels: ['category-matching', 'persistence'] })
-      } else {
-        log.info(`persistProductAggregationResult: category "${aggregated.categoryBreadcrumb}" → no match`)
-      }
-    } catch (error) {
-      errorMessages.push(`Category matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
