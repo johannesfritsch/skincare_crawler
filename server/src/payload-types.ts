@@ -942,7 +942,7 @@ export interface Product {
         storeScore?: number | null;
         creatorScore?: number | null;
         /**
-         * Score movement vs previous record
+         * Score movement vs previous record (>= 5% relative change)
          */
         change?: ('drop' | 'stable' | 'increase') | null;
         id?: string | null;

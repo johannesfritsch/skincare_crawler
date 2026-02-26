@@ -373,7 +373,7 @@ export const Products: CollectionConfig = {
           ],
         },
         {
-          label: 'History',
+          label: 'Scoring',
           fields: [
             {
               name: 'scoreHistory',
@@ -420,13 +420,18 @@ export const Products: CollectionConfig = {
                       ],
                       admin: {
                         width: '33%',
-                        description: 'Score movement vs previous record',
+                        description: 'Score movement vs previous record (>= 5% relative change)',
                       },
                     },
                   ],
                 },
               ],
             },
+          ],
+        },
+        {
+          label: 'Aggregations',
+          fields: [
             {
               name: 'aggregations',
               type: 'join',
