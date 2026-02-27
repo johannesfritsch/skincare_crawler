@@ -237,6 +237,22 @@ interface SubmitProductAggregationBody {
   }>
 }
 
+interface SubmitIngredientCrawlBody {
+  type: 'ingredient-crawl'
+  jobId: number
+  lastCheckedIngredientId: number
+  crawlType: string
+  results: Array<{
+    ingredientId: number
+    ingredientName: string
+    longDescription?: string
+    shortDescription?: string
+    imageMediaId?: number
+    tokensUsed: number
+    error?: string
+  }>
+}
+
 type SubmitBody =
   | SubmitProductCrawlBody
   | SubmitProductDiscoveryBody
@@ -244,6 +260,7 @@ type SubmitBody =
   | SubmitVideoDiscoveryBody
   | SubmitVideoProcessingBody
   | SubmitProductAggregationBody
+  | SubmitIngredientCrawlBody
 
 export async function submitWork(
   payload: PayloadRestClient,
@@ -264,6 +281,8 @@ export async function submitWork(
       return submitVideoProcessing(payload, body)
     case 'product-aggregation':
       return submitProductAggregation(payload, body)
+    case 'ingredient-crawl':
+      return submitIngredientCrawl(payload, body)
     default:
       return { error: 'Unknown job type' }
   }
@@ -740,4 +759,89 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
   }
 
   return { aggregated, errors, tokensUsed, done: shouldComplete }
+}
+
+// ─── Ingredient Crawl ───
+
+async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIngredientCrawlBody) {
+  const { jobId, lastCheckedIngredientId, crawlType, results } = body
+  const jlog = log.forJob('ingredient-crawls' as JobCollection, jobId)
+  log.info(`submitIngredientCrawl #${jobId}: ${results.length} results (type=${crawlType})`)
+
+  const job = await payload.findByID({ collection: 'ingredient-crawls', id: jobId }) as Record<string, unknown>
+  let crawled = (job.crawled as number) ?? 0
+  let errors = (job.errors as number) ?? 0
+  let tokensUsed = (job.tokensUsed as number) ?? 0
+
+  // Accumulate ingredient IDs from previous batches
+  const existingIngredientIds = ((job.ingredients ?? []) as unknown[]).map((i: unknown) =>
+    typeof i === 'object' && i !== null && 'id' in i ? (i as { id: number }).id : i as number,
+  )
+  const ingredientIds = new Set<number>(existingIngredientIds)
+
+  for (const result of results) {
+    if (result.error) {
+      errors++
+      jlog.error(`Ingredient #${result.ingredientId} "${result.ingredientName}": ${result.error}`, { event: true })
+      continue
+    }
+
+    try {
+      const updateData: Record<string, unknown> = {}
+      if (result.longDescription) updateData.longDescription = result.longDescription
+      if (result.shortDescription) updateData.shortDescription = result.shortDescription
+      if (result.imageMediaId) updateData.image = result.imageMediaId
+
+      await payload.update({
+        collection: 'ingredients',
+        id: result.ingredientId,
+        data: updateData,
+      })
+
+      tokensUsed += result.tokensUsed
+      crawled++
+      ingredientIds.add(result.ingredientId)
+      log.info(`submitIngredientCrawl #${jobId}: ingredient #${result.ingredientId} "${result.ingredientName}" ok`)
+    } catch (e) {
+      errors++
+      const msg = e instanceof Error ? e.message : String(e)
+      jlog.error(`Ingredient #${result.ingredientId} "${result.ingredientName}": persist failed: ${msg}`, { event: true })
+    }
+  }
+
+  // Completion check
+  const shouldComplete =
+    crawlType === 'selected' ||
+    (crawlType === 'all_uncrawled' && results.length === 0)
+
+  if (shouldComplete) {
+    await payload.update({
+      collection: 'ingredient-crawls',
+      id: jobId,
+      data: {
+        status: 'completed',
+        crawled,
+        errors,
+        tokensUsed,
+        ingredients: [...ingredientIds],
+        completedAt: new Date().toISOString(),
+      },
+    })
+    jlog.info(`Completed: ${crawled} crawled, ${errors} errors, ${tokensUsed} tokens`, { event: 'success' })
+  } else {
+    await payload.update({
+      collection: 'ingredient-crawls',
+      id: jobId,
+      data: {
+        crawled,
+        errors,
+        tokensUsed,
+        ingredients: [...ingredientIds],
+        ...(crawlType === 'all_uncrawled' ? { lastCheckedIngredientId } : {}),
+      },
+    })
+    jlog.info(`Batch done: ${crawled} crawled, ${errors} errors`, { event: true })
+  }
+
+  return { crawled, errors, tokensUsed, done: shouldComplete }
 }

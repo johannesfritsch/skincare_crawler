@@ -1058,6 +1058,233 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   log.info(`Submitted aggregation results for job #${jobId}: ${results.length} items`)
 }
 
+// ─── Ingredient Crawl ───
+
+async function handleIngredientCrawl(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const crawlType = work.crawlType as string
+  const lastCheckedIngredientId = work.lastCheckedIngredientId as number
+  const workItems = work.workItems as Array<{
+    ingredientId: number
+    ingredientName: string
+    hasImage: boolean
+  }>
+
+  log.info(`Ingredient crawl job #${jobId}: ${workItems.length} items (type=${crawlType})`)
+
+  if (workItems.length === 0) {
+    log.warn(`No work items for ingredient crawl job #${jobId}, skipping submit`)
+    return
+  }
+
+  const results: Array<Record<string, unknown>> = []
+
+  for (const item of workItems) {
+    log.info(`Crawling ingredient "${item.ingredientName}" (#${item.ingredientId})`)
+
+    try {
+      // Step 1: Build URL from ingredient name
+      const slug = item.ingredientName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+      const url = `https://incidecoder.com/ingredients/${slug}`
+      log.info(`Fetching ${url}`)
+
+      // Step 2: Fetch page
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      })
+
+      if (!response.ok) {
+        log.warn(`HTTP ${response.status} for "${item.ingredientName}" at ${url}`)
+        results.push({
+          ingredientId: item.ingredientId,
+          ingredientName: item.ingredientName,
+          tokensUsed: 0,
+          error: `HTTP ${response.status} from ${url}`,
+        })
+        continue
+      }
+
+      const html = await response.text()
+
+      // Step 3: Extract the description content
+      // INCIDecoder pages have a "Details" section with id="details" containing
+      // a .showmore-section > .content div with <p> tags.
+      // Some pages use "Geeky Details" as the section title instead.
+      let longDescription = ''
+
+      const stripHtml = (raw: string): string =>
+        raw
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/p>/gi, '\n\n')
+          .replace(/<\/li>/gi, '\n')
+          .replace(/<[^>]+>/g, '')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&micro;/g, '\u00B5')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/\[more\]/g, '')
+          .replace(/\[less\]/g, '')
+          .replace(/\r\n/g, '\n')
+          .replace(/(?:\s*\n){3,}/g, '\n\n')
+          .trim()
+
+      // Primary: extract from #details or #showmore-section-details .content
+      const detailsMatch = html.match(/id="(?:showmore-section-)?details"[^>]*>[\s\S]*?<div class="content">([\s\S]*?)<\/div>\s*<div class="showmore-link/i)
+        || html.match(/id="details"[^>]*>([\s\S]*?)(?:<div[^>]*class="[^"]*paddingt45[^"]*bold|<\/div>\s*<\/div>\s*$)/i)
+
+      if (detailsMatch) {
+        longDescription = stripHtml(detailsMatch[1])
+      }
+
+      // Fallback: try "Geeky Details" section (older page format)
+      if (!longDescription) {
+        const geekyMatch = html.match(/id="geeky[^"]*"[^>]*>([\s\S]*?)(?:<h2|<div[^>]*class="[^"]*showmore-section)/i)
+          || html.match(/Geeky\s*Details<\/h2>([\s\S]*?)(?:<h2|<div[^>]*class="[^"]*showmore-section)/i)
+        if (geekyMatch) {
+          longDescription = stripHtml(geekyMatch[1])
+        }
+      }
+
+      // Fallback: try "Quick Facts" section
+      if (!longDescription) {
+        const quickFactsMatch = html.match(/Quick\s*Facts<\/h2>([\s\S]*?)(?:<h2|<div[^>]*class="[^"]*showmore-section)/i)
+        if (quickFactsMatch) {
+          longDescription = stripHtml(quickFactsMatch[1])
+        }
+      }
+
+      if (!longDescription) {
+        log.warn(`No description content found for "${item.ingredientName}" at ${url}`)
+        results.push({
+          ingredientId: item.ingredientId,
+          ingredientName: item.ingredientName,
+          tokensUsed: 0,
+          error: `No description content found at ${url}`,
+        })
+        continue
+      }
+
+      log.info(`Extracted longDescription for "${item.ingredientName}" (${longDescription.length} chars)`)
+
+      // Step 4: Extract and upload ingredient image (skip if already has one)
+      let imageMediaId: number | undefined
+      if (!item.hasImage) {
+        // Look for the original image inside .imgcontainer
+        const imgMatch = html.match(/<div class="imgcontainer[^"]*"[\s\S]*?<img\s[^>]*src="([^"]+_original\.[^"]+)"/)
+          || html.match(/<div class="imgcontainer[^"]*"[\s\S]*?<img\s[^>]*src="([^"]+)"/)
+        if (imgMatch) {
+          const imageUrl = imgMatch[1]
+          log.info(`Downloading image for "${item.ingredientName}" from ${imageUrl}`)
+          try {
+            const imgRes = await fetch(imageUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+              },
+            })
+            if (imgRes.ok) {
+              const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
+              const buffer = Buffer.from(await imgRes.arrayBuffer())
+              const urlPath = new URL(imageUrl).pathname
+              const filename = urlPath.split('/').pop() || `${slug}.jpg`
+
+              const mediaDoc = await client.create({
+                collection: 'media',
+                data: { alt: item.ingredientName },
+                file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
+              })
+              imageMediaId = (mediaDoc as { id: number }).id
+              log.info(`Uploaded image for "${item.ingredientName}" → media #${imageMediaId}`)
+            } else {
+              log.warn(`Image download failed (${imgRes.status}) for "${item.ingredientName}"`)
+            }
+          } catch (e) {
+            log.warn(`Image download/upload error for "${item.ingredientName}": ${e instanceof Error ? e.message : String(e)}`)
+          }
+        } else {
+          log.debug(`No image found on page for "${item.ingredientName}"`)
+        }
+      } else {
+        log.debug(`Ingredient "${item.ingredientName}" already has an image, skipping`)
+      }
+
+      // Step 5: Generate short description via LLM
+      let shortDescription = ''
+      let tokensUsed = 0
+
+      const apiKey = process.env.OPENAI_API_KEY
+      if (apiKey) {
+        try {
+          const OpenAI = (await import('openai')).default
+          const openai = new OpenAI({ apiKey })
+
+          const llmResponse = await openai.chat.completions.create({
+            model: 'gpt-4.1-mini',
+            temperature: 0.7,
+            messages: [
+              {
+                role: 'system',
+                content: `You are a skincare ingredient expert who writes short, precise but entertaining descriptions of cosmetic ingredients. Write 1-2 sentences max. Be factual and informative but make it engaging and easy to understand for consumers. No fluff, no filler words. Do not start with the ingredient name.`,
+              },
+              {
+                role: 'user',
+                content: `Write a short description for the ingredient "${item.ingredientName}" based on this detailed information:\n\n${longDescription.substring(0, 3000)}`,
+              },
+            ],
+          })
+
+          shortDescription = llmResponse.choices[0]?.message?.content?.trim() || ''
+          tokensUsed = llmResponse.usage?.total_tokens || 0
+          log.info(`Generated shortDescription for "${item.ingredientName}" (${shortDescription.length} chars, ${tokensUsed} tokens)`)
+        } catch (e) {
+          const error = e instanceof Error ? e.message : String(e)
+          log.error(`LLM error generating short description for "${item.ingredientName}": ${error}`)
+          // Continue with longDescription only
+        }
+      } else {
+        log.warn('OPENAI_API_KEY not set, skipping short description generation')
+      }
+
+      results.push({
+        ingredientId: item.ingredientId,
+        ingredientName: item.ingredientName,
+        longDescription,
+        shortDescription: shortDescription || undefined,
+        imageMediaId,
+        tokensUsed,
+      })
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      log.error(`Error crawling ingredient "${item.ingredientName}": ${error}`)
+      results.push({
+        ingredientId: item.ingredientId,
+        ingredientName: item.ingredientName,
+        tokensUsed: 0,
+        error,
+      })
+    }
+
+    await heartbeat(jobId, 'ingredient-crawl')
+  }
+
+  await submitWork(client, worker, {
+    type: 'ingredient-crawl',
+    jobId,
+    lastCheckedIngredientId,
+    crawlType,
+    results,
+  } as Parameters<typeof submitWork>[2])
+  log.info(`Submitted ingredient crawl results for job #${jobId}: ${results.length} items`)
+}
+
 // ─── Main Loop ───
 
 async function main(): Promise<void> {
@@ -1127,6 +1354,9 @@ async function main(): Promise<void> {
           break
         case 'product-aggregation':
           await handleProductAggregation(work)
+          break
+        case 'ingredient-crawl':
+          await handleIngredientCrawl(work)
           break
         default:
           log.warn(`Unknown job type: ${work.type}`)

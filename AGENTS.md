@@ -84,7 +84,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 | `source-products` | Raw crawled data per retailer (status: uncrawled/crawled/failed, source: dm/mueller/rossmann, sourceUrl unique, categoryBreadcrumb text, ingredientsText raw textarea, priceHistory with change: drop/stable/increase) |
 | `brands` | Brand names |
 | `product-types` | Skincare types (cleanser, toner, moisturizer, etc.) with DE/EN names |
-| `ingredients` | Ingredient database (name, CAS#, EC#, CosIng ID, functions, restrictions) |
+| `ingredients` | Ingredient database (name, image, shortDescription, longDescription, description, CAS#, EC#, CosIng ID, functions, restrictions) |
 
 ### Video Data
 
@@ -108,6 +108,7 @@ All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 | `video-discoveries` | channelUrl, created/existing counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
 | `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, aggregated/errors/tokens |
+| `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |
 
 ### System
 

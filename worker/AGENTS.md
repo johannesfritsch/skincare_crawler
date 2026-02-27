@@ -248,6 +248,23 @@ Dispatches to per-type submit handlers. Each handler:
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
 
+### 7. ingredient-crawl
+
+**Handler**: `handleIngredientCrawl()`
+**Flow per ingredient**:
+
+```
+1. Build URL: https://incidecoder.com/ingredients/<sluggified-name>
+2. Fetch page via HTTP (no browser needed)
+3. Extract "Geeky Details" section as longDescription (fallback to "Quick Facts")
+4. LLM (gpt-4.1-mini, temperature 0.7): generate shortDescription — 1-2 sentences, precise but entertaining
+5. Submit results → update ingredient record with longDescription + shortDescription
+```
+
+**Crawl types**: `all_uncrawled` (cursor-based, processes ingredients missing longDescription), `selected` (specific ingredient IDs)
+
+**Persistence**: Inline in submit handler — updates `ingredients` record with `longDescription` and `shortDescription`.
+
 ## Source Drivers
 
 ### Interface (`source-discovery/types.ts`)

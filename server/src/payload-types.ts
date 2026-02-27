@@ -74,6 +74,7 @@ export interface Config {
     'product-types': ProductType;
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
+    'ingredient-crawls': IngredientCrawl;
     products: Product;
     'source-products': SourceProduct;
     'product-discoveries': ProductDiscovery;
@@ -97,6 +98,9 @@ export interface Config {
   };
   collectionsJoins: {
     'ingredients-discoveries': {
+      events: 'events';
+    };
+    'ingredient-crawls': {
       events: 'events';
     };
     products: {
@@ -145,6 +149,7 @@ export interface Config {
     'product-types': ProductTypesSelect<false> | ProductTypesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
+    'ingredient-crawls': IngredientCrawlsSelect<false> | IngredientCrawlsSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
@@ -325,6 +330,17 @@ export interface Ingredient {
    */
   image?: (number | null) | Media;
   status?: ('crawled' | 'uncrawled') | null;
+  /**
+   * LLM-generated concise but entertaining summary of the ingredient
+   */
+  shortDescription?: string | null;
+  /**
+   * Detailed ingredient description extracted from INCIDecoder
+   */
+  longDescription?: string | null;
+  /**
+   * Legacy description field (from CosIng)
+   */
   description?: string | null;
   casNumber?: string | null;
   ecNumber?: string | null;
@@ -433,6 +449,10 @@ export interface Event {
     | ({
         relationTo: 'video-processings';
         value: number | VideoProcessing;
+      } | null)
+    | ({
+        relationTo: 'ingredient-crawls';
+        value: number | IngredientCrawl;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -1278,6 +1298,53 @@ export interface VideoProcessing {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredient-crawls".
+ */
+export interface IngredientCrawl {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Ingredients to process per batch.
+   */
+  itemsPerTick?: number | null;
+  type: 'all_uncrawled' | 'selected';
+  /**
+   * Specific ingredients to crawl
+   */
+  ingredientIds?: (number | Ingredient)[] | null;
+  /**
+   * Total ingredients to crawl
+   */
+  total?: number | null;
+  /**
+   * Ingredients successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Ingredients that failed
+   */
+  errors?: number | null;
+  /**
+   * Total LLM tokens spent
+   */
+  tokensUsed?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Ingredients enriched by this crawl
+   */
+  ingredients?: (number | Ingredient)[] | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  lastCheckedIngredientId?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "workers".
  */
 export interface Worker {
@@ -1290,6 +1357,7 @@ export interface Worker {
     | 'video-discovery'
     | 'video-processing'
     | 'product-aggregation'
+    | 'ingredient-crawl'
   )[];
   status: 'active' | 'disabled';
   lastSeenAt?: string | null;
@@ -1346,6 +1414,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'ingredients-discoveries';
         value: number | IngredientsDiscovery;
+      } | null)
+    | ({
+        relationTo: 'ingredient-crawls';
+        value: number | IngredientCrawl;
       } | null)
     | ({
         relationTo: 'products';
@@ -1566,6 +1638,8 @@ export interface IngredientsSelect<T extends boolean = true> {
   name?: T;
   image?: T;
   status?: T;
+  shortDescription?: T;
+  longDescription?: T;
   description?: T;
   casNumber?: T;
   ecNumber?: T;
@@ -1603,6 +1677,27 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   completedAt?: T;
   termQueue?: T;
   events?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredient-crawls_select".
+ */
+export interface IngredientCrawlsSelect<T extends boolean = true> {
+  status?: T;
+  itemsPerTick?: T;
+  type?: T;
+  ingredientIds?: T;
+  total?: T;
+  crawled?: T;
+  errors?: T;
+  tokensUsed?: T;
+  startedAt?: T;
+  completedAt?: T;
+  ingredients?: T;
+  events?: T;
+  lastCheckedIngredientId?: T;
   updatedAt?: T;
   createdAt?: T;
 }

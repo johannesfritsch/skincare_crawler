@@ -5,7 +5,7 @@ import type { SourceSlug } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 import type { JobCollection } from '@/lib/logger'
 
-type JobType = 'product-crawl' | 'product-discovery' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation'
+type JobType = 'product-crawl' | 'product-discovery' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
 interface ActiveJob {
   type: JobType
@@ -22,6 +22,7 @@ const JOB_TYPE_TO_COLLECTION = {
   'video-discovery': 'video-discoveries',
   'video-processing': 'video-processings',
   'product-aggregation': 'product-aggregations',
+  'ingredient-crawl': 'ingredient-crawls',
 } as const
 
 const JOB_TYPE_TO_CAPABILITY = {
@@ -31,6 +32,7 @@ const JOB_TYPE_TO_CAPABILITY = {
   'video-discovery': 'video-discovery',
   'video-processing': 'video-processing',
   'product-aggregation': 'product-aggregation',
+  'ingredient-crawl': 'ingredient-crawl',
 } as const
 
 const log = createLogger('WorkProtocol')
@@ -121,6 +123,8 @@ export async function claimWork(
       return buildVideoProcessingWork(payload, selected.id)
     case 'product-aggregation':
       return buildProductAggregationWork(payload, selected.id)
+    case 'ingredient-crawl':
+      return buildIngredientCrawlWork(payload, selected.id)
     default:
       return { type: 'none' }
   }
@@ -702,6 +706,136 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     scope,
     imageSourcePriority,
     lastCheckedSourceId: (job.lastCheckedSourceId as number) || 0,
+    workItems,
+  }
+}
+
+// ─── Ingredient Crawl ───
+
+async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: number) {
+  const jlog = log.forJob('ingredient-crawls' as JobCollection, jobId)
+  jlog.info(`buildIngredientCrawlWork: job #${jobId}`)
+  const job = await payload.findByID({ collection: 'ingredient-crawls', id: jobId }) as Record<string, unknown>
+
+  const itemsPerTick = (job.itemsPerTick as number) ?? 10
+  const crawlType = ((job.type as string) || 'all_uncrawled') as 'all_uncrawled' | 'selected'
+  jlog.info(`buildIngredientCrawlWork #${jobId}: type=${crawlType}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
+
+  // Initialize if pending
+  if (job.status === 'pending') {
+    jlog.info(`buildIngredientCrawlWork #${jobId}: pending → in_progress`)
+    let total: number | undefined
+    if (crawlType === 'all_uncrawled') {
+      const count = await payload.count({
+        collection: 'ingredients',
+        where: {
+          or: [
+            { longDescription: { exists: false } },
+            { longDescription: { equals: '' } },
+          ],
+        },
+      })
+      total = count.totalDocs
+    } else {
+      const ids = (job.ingredientIds ?? []) as unknown[]
+      total = ids.length
+    }
+
+    await payload.update({
+      collection: 'ingredient-crawls',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        crawled: 0,
+        errors: 0,
+        tokensUsed: 0,
+        lastCheckedIngredientId: 0,
+        total,
+      },
+    })
+
+    jlog.info(`Started ingredient crawl (type=${crawlType}, total=${total})`, { event: 'start' })
+  }
+
+  interface WorkItem {
+    ingredientId: number
+    ingredientName: string
+    hasImage: boolean
+  }
+
+  const workItems: WorkItem[] = []
+
+  if (crawlType === 'selected') {
+    const ids = ((job.ingredientIds ?? []) as unknown[]).map((id: unknown) =>
+      typeof id === 'object' && id !== null && 'id' in id ? (id as { id: number }).id : id as number,
+    )
+
+    if (ids.length === 0) {
+      await payload.update({
+        collection: 'ingredient-crawls',
+        id: jobId,
+        data: { status: 'completed', completedAt: new Date().toISOString() },
+      })
+      jlog.info('Completed: no ingredients specified', { event: 'success' })
+      return { type: 'none' }
+    }
+
+    for (const id of ids) {
+      const ingredient = await payload.findByID({ collection: 'ingredients', id }) as Record<string, unknown>
+      workItems.push({ ingredientId: id, ingredientName: ingredient.name as string, hasImage: !!ingredient.image })
+    }
+  } else {
+    // 'all_uncrawled' — cursor-based
+    const lastCheckedId = (job.lastCheckedIngredientId as number) || 0
+
+    const ingredients = await payload.find({
+      collection: 'ingredients',
+      where: {
+        and: [
+          { id: { greater_than: lastCheckedId } },
+          {
+            or: [
+              { longDescription: { exists: false } },
+              { longDescription: { equals: '' } },
+            ],
+          },
+        ],
+      },
+      sort: 'id',
+      limit: itemsPerTick,
+    })
+
+    if (ingredients.docs.length === 0) {
+      jlog.info(`buildIngredientCrawlWork #${jobId}: no more ingredients after cursor ${lastCheckedId}, completing`)
+      await payload.update({
+        collection: 'ingredient-crawls',
+        id: jobId,
+        data: { status: 'completed', completedAt: new Date().toISOString() },
+      })
+      jlog.info(`Completed: ${(job.crawled as number) ?? 0} crawled, ${(job.errors as number) ?? 0} errors`, { event: 'success' })
+      return { type: 'none' }
+    }
+
+    for (const doc of ingredients.docs) {
+      const ingredient = doc as Record<string, unknown>
+      workItems.push({
+        ingredientId: ingredient.id as number,
+        ingredientName: ingredient.name as string,
+        hasImage: !!ingredient.image,
+      })
+    }
+  }
+
+  const lastId = workItems.length > 0 ? workItems[workItems.length - 1].ingredientId : 0
+  jlog.info(`buildIngredientCrawlWork #${jobId}: ${workItems.length} work items, cursor=${lastId}`)
+
+  return {
+    type: 'ingredient-crawl',
+    jobId,
+    crawlType,
+    lastCheckedIngredientId: lastId,
     workItems,
   }
 }

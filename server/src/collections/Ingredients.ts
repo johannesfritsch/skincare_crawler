@@ -41,9 +41,28 @@ export const Ingredients: CollectionConfig = {
       index: true,
     },
     {
+      name: 'shortDescription',
+      type: 'textarea',
+      label: 'Short Description',
+      admin: {
+        description: 'LLM-generated concise but entertaining summary of the ingredient',
+      },
+    },
+    {
+      name: 'longDescription',
+      type: 'textarea',
+      label: 'Long Description',
+      admin: {
+        description: 'Detailed ingredient description extracted from INCIDecoder',
+      },
+    },
+    {
       name: 'description',
       type: 'textarea',
       label: 'Description',
+      admin: {
+        description: 'Legacy description field (from CosIng)',
+      },
     },
     {
       name: 'casNumber',
