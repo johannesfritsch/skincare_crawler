@@ -17,7 +17,6 @@ export const ProductAggregations: CollectionConfig = {
     beforeChange: [enforceJobClaim],
   },
   fields: [
-    ...jobClaimFields,
     {
       name: 'status',
       type: 'select',
@@ -34,6 +33,7 @@ export const ProductAggregations: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    ...jobClaimFields,
     {
       name: 'scope',
       type: 'select',

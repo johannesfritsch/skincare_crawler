@@ -6,17 +6,6 @@ import type { Field } from 'payload'
  */
 export const jobClaimFields: Field[] = [
   {
-    name: 'claimedBy',
-    type: 'relationship',
-    relationTo: 'workers',
-    label: 'Claimed By',
-    admin: {
-      position: 'sidebar',
-      readOnly: true,
-      description: 'Worker currently processing this job',
-    },
-  },
-  {
     name: 'claimedAt',
     type: 'date',
     label: 'Claimed At',
@@ -27,6 +16,17 @@ export const jobClaimFields: Field[] = [
         pickerAppearance: 'dayAndTime',
       },
       description: 'When the current worker claimed this job',
+    },
+  },
+  {
+    name: 'claimedBy',
+    type: 'relationship',
+    relationTo: 'workers',
+    label: 'Claimed By',
+    admin: {
+      position: 'sidebar',
+      readOnly: true,
+      description: 'Worker currently processing this job',
     },
   },
 ]

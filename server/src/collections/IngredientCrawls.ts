@@ -17,7 +17,6 @@ export const IngredientCrawls: CollectionConfig = {
     beforeChange: [enforceJobClaim],
   },
   fields: [
-    ...jobClaimFields,
     {
       name: 'status',
       type: 'select',
@@ -34,6 +33,7 @@ export const IngredientCrawls: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    ...jobClaimFields,
     {
       name: 'itemsPerTick',
       type: 'number',

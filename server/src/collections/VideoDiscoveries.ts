@@ -17,7 +17,6 @@ export const VideoDiscoveries: CollectionConfig = {
     beforeChange: [enforceJobClaim],
   },
   fields: [
-    ...jobClaimFields,
     {
       name: 'channelUrl',
       type: 'text',
@@ -43,6 +42,7 @@ export const VideoDiscoveries: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    ...jobClaimFields,
     {
       name: 'itemsPerTick',
       type: 'number',

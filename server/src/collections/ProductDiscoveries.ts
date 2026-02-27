@@ -17,7 +17,6 @@ export const ProductDiscoveries: CollectionConfig = {
     beforeChange: [enforceJobClaim],
   },
   fields: [
-    ...jobClaimFields,
     // Main configuration - always visible
     {
       name: 'sourceUrls',
@@ -44,6 +43,7 @@ export const ProductDiscoveries: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    ...jobClaimFields,
     {
       name: 'itemsPerTick',
       type: 'number',

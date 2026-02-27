@@ -17,7 +17,6 @@ export const IngredientsDiscoveries: CollectionConfig = {
     beforeChange: [enforceJobClaim],
   },
   fields: [
-    ...jobClaimFields,
     // Main configuration - always visible
     {
       name: 'sourceUrl',
@@ -44,6 +43,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    ...jobClaimFields,
     {
       name: 'pagesPerTick',
       type: 'number',
