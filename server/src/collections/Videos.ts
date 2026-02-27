@@ -6,9 +6,10 @@ export const Videos: CollectionConfig = {
     singular: 'Video',
     plural: 'Videos',
   },
+  defaultSort: '-publishedAt',
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'channel', 'createdAt'],
+    defaultColumns: ['title', 'channel', 'publishedAt'],
     group: 'Social Media',
   },
   fields: [
