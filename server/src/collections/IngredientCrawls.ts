@@ -1,4 +1,6 @@
 import type { CollectionConfig } from 'payload'
+import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { jobClaimFields } from '@/hooks/jobClaimFields'
 
 export const IngredientCrawls: CollectionConfig = {
   slug: 'ingredient-crawls',
@@ -11,7 +13,11 @@ export const IngredientCrawls: CollectionConfig = {
     defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
     group: 'Jobs',
   },
+  hooks: {
+    beforeChange: [enforceJobClaim],
+  },
   fields: [
+    ...jobClaimFields,
     {
       name: 'status',
       type: 'select',

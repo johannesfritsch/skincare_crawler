@@ -40,10 +40,13 @@ const log = createLogger('WorkProtocol')
 export async function claimWork(
   payload: PayloadRestClient,
   worker: AuthenticatedWorker,
+  jobTimeoutMinutes = 30,
 ): Promise<Record<string, unknown>> {
-  log.debug(`claim: worker "${worker.name}" capabilities=[${worker.capabilities.join(', ')}]`)
+  log.debug(`claim: worker "${worker.name}" capabilities=[${worker.capabilities.join(', ')}], timeout=${jobTimeoutMinutes}m`)
 
-  // Find active jobs across all types the worker supports
+  const staleThreshold = new Date(Date.now() - jobTimeoutMinutes * 60 * 1000).toISOString()
+
+  // Find claimable jobs: pending, or in_progress with stale/missing claimedAt
   const activeJobs: ActiveJob[] = []
 
   const queries: Promise<void>[] = []
@@ -54,27 +57,31 @@ export async function claimWork(
 
     queries.push(
       (async () => {
-        const [inProgress, pending] = await Promise.all([
-          payload.find({ collection, where: { status: { equals: 'in_progress' } }, limit: 10 }),
+        const [staleInProgress, pending] = await Promise.all([
+          // In-progress jobs with stale or missing claimedAt (abandoned by crashed workers)
+          payload.find({
+            collection,
+            where: {
+              and: [
+                { status: { equals: 'in_progress' } },
+                {
+                  or: [
+                    { claimedAt: { less_than: staleThreshold } },
+                    { claimedAt: { exists: false } },
+                  ],
+                },
+              ],
+            },
+            limit: 10,
+          }),
           payload.find({ collection, where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
         ])
 
-        if (inProgress.totalDocs > 0 || pending.totalDocs > 0) {
-          log.debug(`claim: ${jobType}: ${inProgress.totalDocs} in_progress, ${pending.totalDocs} pending`)
+        if (staleInProgress.totalDocs > 0 || pending.totalDocs > 0) {
+          log.debug(`claim: ${jobType}: ${staleInProgress.totalDocs} stale in_progress, ${pending.totalDocs} pending`)
         }
 
-        for (const doc of inProgress.docs) {
-          const d = doc as Record<string, unknown>
-          const docType = d.type as string | undefined
-          activeJobs.push({
-            type: jobType as JobType,
-            id: d.id as number,
-            status: d.status as string,
-            crawlType: docType,
-            aggregationType: jobType === 'product-aggregation' ? docType : undefined,
-          })
-        }
-        for (const doc of pending.docs) {
+        for (const doc of [...staleInProgress.docs, ...pending.docs]) {
           const d = doc as Record<string, unknown>
           const docType = d.type as string | undefined
           activeJobs.push({
@@ -92,7 +99,7 @@ export async function claimWork(
   await Promise.all(queries)
 
   if (activeJobs.length === 0) {
-    log.debug('claim: no active jobs found')
+    log.debug('claim: no claimable jobs found')
     return { type: 'none' }
   }
 
@@ -102,32 +109,58 @@ export async function claimWork(
            (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery' || j.crawlType === 'selected_gtins')) ||
            (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
-  const selected = selectedTargetJobs.length > 0
-    ? selectedTargetJobs[0]
-    : activeJobs[Math.floor(Math.random() * activeJobs.length)]
 
-  const reason = selectedTargetJobs.length > 0 ? 'priority (selected target)' : `random (${activeJobs.length} candidates)`
-  log.info(`claim: selected ${selected.type} #${selected.id} (${selected.status}, ${reason})`)
+  // Build a priority-ordered list: selected targets first, then rest shuffled
+  const candidates = selectedTargetJobs.length > 0
+    ? [...selectedTargetJobs, ...activeJobs.filter((j) => !selectedTargetJobs.includes(j))]
+    : activeJobs.sort(() => Math.random() - 0.5)
 
-  // Build work unit based on job type
-  switch (selected.type) {
-    case 'product-crawl':
-      return buildProductCrawlWork(payload, selected.id)
-    case 'product-discovery':
-      return buildProductDiscoveryWork(payload, selected.id)
-    case 'ingredients-discovery':
-      return buildIngredientsDiscoveryWork(payload, selected.id)
-    case 'video-discovery':
-      return buildVideoDiscoveryWork(payload, selected.id)
-    case 'video-processing':
-      return buildVideoProcessingWork(payload, selected.id)
-    case 'product-aggregation':
-      return buildProductAggregationWork(payload, selected.id)
-    case 'ingredient-crawl':
-      return buildIngredientCrawlWork(payload, selected.id)
-    default:
-      return { type: 'none' }
+  // Try to claim jobs in order until one succeeds
+  const claimHeaders = { 'X-Job-Timeout-Minutes': String(jobTimeoutMinutes) }
+
+  for (const candidate of candidates) {
+    const collection = JOB_TYPE_TO_COLLECTION[candidate.type]
+    try {
+      await payload.update({
+        collection,
+        id: candidate.id,
+        data: {
+          claimedBy: worker.id,
+          claimedAt: new Date().toISOString(),
+        },
+        headers: claimHeaders,
+      })
+
+      log.info(`claim: claimed ${candidate.type} #${candidate.id} (${candidate.status})`)
+
+      // Build work unit based on job type
+      switch (candidate.type) {
+        case 'product-crawl':
+          return buildProductCrawlWork(payload, candidate.id)
+        case 'product-discovery':
+          return buildProductDiscoveryWork(payload, candidate.id)
+        case 'ingredients-discovery':
+          return buildIngredientsDiscoveryWork(payload, candidate.id)
+        case 'video-discovery':
+          return buildVideoDiscoveryWork(payload, candidate.id)
+        case 'video-processing':
+          return buildVideoProcessingWork(payload, candidate.id)
+        case 'product-aggregation':
+          return buildProductAggregationWork(payload, candidate.id)
+        case 'ingredient-crawl':
+          return buildIngredientCrawlWork(payload, candidate.id)
+        default:
+          return { type: 'none' }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      log.debug(`claim: failed to claim ${candidate.type} #${candidate.id}: ${msg}`)
+      // Try next candidate
+    }
   }
+
+  log.debug('claim: all candidates already claimed by other workers')
+  return { type: 'none' }
 }
 
 async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) {

@@ -1,4 +1,6 @@
 import type { CollectionConfig } from 'payload'
+import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { jobClaimFields } from '@/hooks/jobClaimFields'
 
 export const VideoProcessings: CollectionConfig = {
   slug: 'video-processings',
@@ -11,7 +13,11 @@ export const VideoProcessings: CollectionConfig = {
     defaultColumns: ['id', 'type', 'status', 'processed', 'errors', 'startedAt'],
     group: 'Jobs',
   },
+  hooks: {
+    beforeChange: [enforceJobClaim],
+  },
   fields: [
+    ...jobClaimFields,
     {
       name: 'status',
       type: 'select',

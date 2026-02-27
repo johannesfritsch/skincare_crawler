@@ -1,4 +1,6 @@
 import type { CollectionConfig } from 'payload'
+import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { jobClaimFields } from '@/hooks/jobClaimFields'
 
 export const ProductAggregations: CollectionConfig = {
   slug: 'product-aggregations',
@@ -11,7 +13,11 @@ export const ProductAggregations: CollectionConfig = {
     defaultColumns: ['id', 'type', 'status', 'aggregated', 'errors', 'startedAt'],
     group: 'Jobs',
   },
+  hooks: {
+    beforeChange: [enforceJobClaim],
+  },
   fields: [
+    ...jobClaimFields,
     {
       name: 'status',
       type: 'select',

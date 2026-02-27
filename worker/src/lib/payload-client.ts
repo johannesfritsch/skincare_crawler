@@ -27,12 +27,14 @@ interface UpdateByIDArgs {
   collection: string
   id: number
   data: Record<string, unknown>
+  headers?: Record<string, string>
 }
 
 interface UpdateByWhereArgs {
   collection: string
   where: Where
   data: Record<string, unknown>
+  headers?: Record<string, string>
 }
 
 type UpdateArgs = UpdateByIDArgs | UpdateByWhereArgs
@@ -100,11 +102,14 @@ export class PayloadRestClient {
     return h
   }
 
-  private async request(method: string, path: string, body?: unknown): Promise<unknown> {
+  private async request(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<unknown> {
     const url = `${this.baseUrl}/api${path}`
     const options: RequestInit = {
       method,
-      headers: this.headers(body !== undefined ? 'application/json' : undefined),
+      headers: {
+        ...this.headers(body !== undefined ? 'application/json' : undefined),
+        ...extraHeaders,
+      },
     }
     if (body !== undefined) {
       options.body = JSON.stringify(body)
@@ -160,12 +165,12 @@ export class PayloadRestClient {
 
   async update<T = Record<string, unknown>>(args: UpdateArgs): Promise<T> {
     if ('id' in args) {
-      const result = (await this.request('PATCH', `/${args.collection}/${args.id}`, args.data)) as { doc: T }
+      const result = (await this.request('PATCH', `/${args.collection}/${args.id}`, args.data, args.headers)) as { doc: T }
       return result.doc
     }
     // Bulk update by where
     const qs = encodeWhere(args.where)
-    const result = (await this.request('PATCH', `/${args.collection}?${qs}`, args.data)) as { docs: T[] }
+    const result = (await this.request('PATCH', `/${args.collection}?${qs}`, args.data, args.headers)) as { docs: T[] }
     return result.docs[0] as T
   }
 

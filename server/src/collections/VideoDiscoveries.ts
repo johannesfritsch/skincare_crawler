@@ -1,4 +1,6 @@
 import type { CollectionConfig } from 'payload'
+import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { jobClaimFields } from '@/hooks/jobClaimFields'
 
 export const VideoDiscoveries: CollectionConfig = {
   slug: 'video-discoveries',
@@ -11,7 +13,11 @@ export const VideoDiscoveries: CollectionConfig = {
     defaultColumns: ['channelUrl', 'status', 'discovered', 'created', 'startedAt'],
     group: 'Jobs',
   },
+  hooks: {
+    beforeChange: [enforceJobClaim],
+  },
   fields: [
+    ...jobClaimFields,
     {
       name: 'channelUrl',
       type: 'text',

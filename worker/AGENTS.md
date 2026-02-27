@@ -59,23 +59,28 @@ worker/src/
 
 ```
 1. Authenticate         GET /api/workers/me  →  AuthenticatedWorker
-2. claimWork(client)     Query all job collections for pending/in_progress
-                         Prioritize "selected target" jobs, else pick random
+2. claimWork(client)     Query all job collections for pending + stale in_progress
+                         Prioritize "selected target" jobs, else random
+                         Attempt to claim via PATCH (claimedBy + claimedAt)
+                         Server-side hook rejects if already claimed by another worker
+                         On rejection, try next candidate
                          Build work unit with all data needed by handler
 3. Run handler           handleProductCrawl / handleProductDiscovery / etc.
-4. submitWork(client)    Persist results → update job status/progress
-5. Sleep (POLL_INTERVAL) Repeat from step 2
+4. heartbeat()           Refreshes claimedAt + lastSeenAt during long operations
+5. submitWork(client)    Persist results → update job status/progress
+6. Sleep (POLL_INTERVAL) Repeat from step 2
 ```
 
 ### Env vars
 
 ```
-WORKER_SERVER_URL       Base URL of the server (default: http://localhost:3000)
-WORKER_API_KEY          API key from workers collection (required)
-WORKER_POLL_INTERVAL    Seconds between polls when idle (default: 10)
-LOG_LEVEL               debug|info|warn|error (default: info)
-OPENAI_API_KEY          For LLM tasks: matching, classification, video recognition
-DEEPGRAM_API_KEY        For Deepgram speech-to-text transcription
+WORKER_SERVER_URL              Base URL of the server (default: http://localhost:3000)
+WORKER_API_KEY                 API key from workers collection (required)
+WORKER_POLL_INTERVAL           Seconds between polls when idle (default: 10)
+WORKER_JOB_TIMEOUT_MINUTES     Minutes before abandoned job can be reclaimed (default: 30)
+LOG_LEVEL                      debug|info|warn|error (default: info)
+OPENAI_API_KEY                 For LLM tasks: matching, classification, video recognition
+DEEPGRAM_API_KEY               For Deepgram speech-to-text transcription
 ```
 
 ## REST Client (`PayloadRestClient`)
@@ -102,10 +107,14 @@ All requests use `Authorization: workers API-Key <key>` header.
 ### claimWork (`work-protocol/claim.ts`)
 
 1. For each job type the worker's capabilities include:
-   - Query `in_progress` and `pending` jobs (limit 10 each)
-2. Collect all active jobs across types
+   - Query `pending` jobs (limit 10)
+   - Query `in_progress` jobs with stale or missing `claimedAt` (older than `WORKER_JOB_TIMEOUT_MINUTES`, default 30m)
+2. Collect all claimable jobs across types
 3. Priority: "selected target" jobs first (selected_urls, selected_gtins, from_discovery), else random
-4. Call `build*Work()` for the selected job type — this:
+4. Attempt to claim by PATCHing `claimedBy` + `claimedAt` on the job (sends `X-Job-Timeout-Minutes` header)
+   - Server-side `enforceJobClaim` hook rejects if the job is already claimed by a different worker with a fresh `claimedAt`
+   - On rejection, try the next candidate
+5. Call `build*Work()` for the claimed job type — this:
    - Fetches the full job document
    - Initializes the job if pending (set status=in_progress, count totals, create stubs)
    - Builds and returns a typed work unit with all data needed by the handler
@@ -370,7 +379,8 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 ## Key Patterns
 
 - **Batch processing**: All jobs process `itemsPerTick` items per claim cycle (default 10, video processing default 1)
-- **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and job progress
+- **Job claim locking**: Each job has `claimedBy` (worker relationship) and `claimedAt` (date) fields. `claimWork()` PATCHes these to claim a job; a server-side `enforceJobClaim` hook rejects the PATCH if the job is already claimed by a different worker with a `claimedAt` within the timeout window. Claims older than `WORKER_JOB_TIMEOUT_MINUTES` (default 30m) are considered abandoned and can be reclaimed. Workers pass `X-Job-Timeout-Minutes` header so the server knows the timeout.
+- **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and refresh `claimedAt` on the job (keeping the claim alive)
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
 - **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
 - **URL normalization**: All product URLs are passed through `normalizeProductUrl()` (in `source-product-queries.ts`) before storage or lookup. This strips query parameters, trailing slashes, hash fragments, and lowercases the URL. Applied in all 3 source drivers at URL construction time, in `persist.ts` (crawl results + discovered products + canonicalUrl), in `claim.ts` (URL parsing from job fields), and in query helpers (`findUncrawled`, `countUncrawled`, `resetProducts`). The `sourceUrl` field on `source-products` has a `unique: true` constraint to enforce deduplication at the DB level.

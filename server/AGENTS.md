@@ -53,7 +53,9 @@ src/
 │   └── utils.ts                 # shadcn cn() utility
 ├── types/
 │   └── barcode-detector.d.ts    # BarcodeDetector Web API types
-├── hooks/                       # Hook functions
+├── hooks/
+│   ├── enforceJobClaim.ts       # beforeChange hook: distributed job locking via claimedBy/claimedAt
+│   └── jobClaimFields.ts        # Shared claimedBy + claimedAt field definitions for job collections
 ├── access/                      # Access control functions
 └── payload.config.ts            # Main config
 ```

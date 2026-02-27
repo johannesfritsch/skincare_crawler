@@ -69,6 +69,7 @@ cd worker && pnpm worker   # uses tsx, no build step needed
 WORKER_SERVER_URL=http://localhost:3000
 WORKER_API_KEY=<api-key-from-workers-collection>
 WORKER_POLL_INTERVAL=10          # seconds between idle polls
+WORKER_JOB_TIMEOUT_MINUTES=30   # minutes before abandoned job can be reclaimed
 LOG_LEVEL=debug|info|warn|error  # default: info
 OPENAI_API_KEY=sk-...            # for LLM tasks
 DEEPGRAM_API_KEY=...             # for speech-to-text transcription
@@ -99,6 +100,8 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 ### Job Collections
 
 All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
+
+All job collections have `claimedBy` (relationship to workers) and `claimedAt` (date) fields for distributed locking. A `beforeChange` hook (`enforceJobClaim`) prevents two workers from claiming the same job. Stale claims (older than `WORKER_JOB_TIMEOUT_MINUTES`, default 30m) are automatically released and can be reclaimed by another worker. Workers refresh `claimedAt` via heartbeat to keep claims alive.
 
 | Collection | Key fields |
 |------------|------------|

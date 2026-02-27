@@ -5,11 +5,12 @@
  * All business logic (claiming, persisting, matching) runs locally.
  *
  * Env vars:
- *   WORKER_SERVER_URL    — base URL of the server (e.g. http://localhost:3000)
- *   WORKER_API_KEY       — API key for the workers collection
- *   WORKER_POLL_INTERVAL — seconds between polls when idle (default: 10)
- *   LOG_LEVEL            — debug|info|warn|error (default: info)
- *   OPENAI_API_KEY       — for video processing and aggregation (optional)
+ *   WORKER_SERVER_URL         — base URL of the server (e.g. http://localhost:3000)
+ *   WORKER_API_KEY            — API key for the workers collection
+ *   WORKER_POLL_INTERVAL      — seconds between polls when idle (default: 10)
+ *   WORKER_JOB_TIMEOUT_MINUTES — minutes before a claimed job is considered abandoned (default: 30)
+ *   LOG_LEVEL                 — debug|info|warn|error (default: info)
+ *   OPENAI_API_KEY            — for video processing and aggregation (optional)
  */
 
 import 'dotenv/config'
@@ -58,6 +59,7 @@ console.log(`  LOG_LEVEL: ${process.env.LOG_LEVEL ?? '(default)'}`)
 const SERVER_URL = process.env.WORKER_SERVER_URL ?? 'http://localhost:3000'
 const API_KEY = process.env.WORKER_API_KEY ?? ''
 const DEFAULT_POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL ?? '10', 10) * 1000
+const JOB_TIMEOUT_MINUTES = parseInt(process.env.WORKER_JOB_TIMEOUT_MINUTES ?? '30', 10)
 
 if (!API_KEY) {
   console.error('[Worker] WORKER_API_KEY is required')
@@ -80,16 +82,18 @@ const COLLECTION_MAP: Record<string, string> = {
   'video-discovery': 'video-discoveries',
   'video-processing': 'video-processings',
   'product-aggregation': 'product-aggregations',
+  'ingredient-crawl': 'ingredient-crawls',
 }
 
 async function heartbeat(jobId: number, type: string, progress?: unknown): Promise<void> {
   try {
-    await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } })
-    if (progress !== undefined) {
-      const collection = COLLECTION_MAP[type]
-      if (collection) {
-        await client.update({ collection, id: jobId, data: { progress } as Record<string, unknown> })
-      }
+    const now = new Date().toISOString()
+    await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: now } })
+    const collection = COLLECTION_MAP[type]
+    if (collection) {
+      const jobData: Record<string, unknown> = { claimedAt: now }
+      if (progress !== undefined) jobData.progress = progress
+      await client.update({ collection, id: jobId, data: jobData })
     }
   } catch (e) {
     log.warn(`Heartbeat failed: ${e instanceof Error ? e.message : e}`)
@@ -1291,6 +1295,7 @@ async function main(): Promise<void> {
   log.info(`Starting worker`)
   log.info(`Server: ${SERVER_URL}`)
   log.info(`Default poll interval: ${DEFAULT_POLL_INTERVAL / 1000}s`)
+  log.info(`Job timeout: ${JOB_TIMEOUT_MINUTES}m`)
 
   // Authenticate via REST API
   const meResult = await client.me()
@@ -1324,7 +1329,7 @@ async function main(): Promise<void> {
       // Update worker lastSeenAt each loop iteration
       await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } }).catch(() => {})
 
-      const work = await claimWork(client, worker)
+      const work = await claimWork(client, worker, JOB_TIMEOUT_MINUTES)
 
       if (work.type === 'none') {
         log.debug(`No work, sleeping ${DEFAULT_POLL_INTERVAL / 1000}s`)

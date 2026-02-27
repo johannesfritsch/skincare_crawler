@@ -1,4 +1,6 @@
 import type { CollectionConfig } from 'payload'
+import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { jobClaimFields } from '@/hooks/jobClaimFields'
 
 export const IngredientsDiscoveries: CollectionConfig = {
   slug: 'ingredients-discoveries',
@@ -11,7 +13,11 @@ export const IngredientsDiscoveries: CollectionConfig = {
     defaultColumns: ['sourceUrl', 'status', 'discovered', 'created', 'startedAt'],
     group: 'Jobs',
   },
+  hooks: {
+    beforeChange: [enforceJobClaim],
+  },
   fields: [
+    ...jobClaimFields,
     // Main configuration - always visible
     {
       name: 'sourceUrl',
