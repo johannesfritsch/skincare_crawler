@@ -372,6 +372,11 @@ export interface Ingredient {
 export interface IngredientsDiscovery {
   id: number;
   /**
+   * URL that determines which driver to use (e.g., "https://ec.europa.eu/growth/tools-databases/cosing/")
+   */
+  sourceUrl: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
    * When the current worker claimed this job
    */
   claimedAt?: string | null;
@@ -379,11 +384,6 @@ export interface IngredientsDiscovery {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * URL that determines which driver to use (e.g., "https://ec.europa.eu/growth/tools-databases/cosing/")
-   */
-  sourceUrl: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Max pages per batch. Empty = unlimited.
    */
@@ -500,6 +500,14 @@ export interface ProductDiscovery {
    */
   sourceUrls: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
   /**
    * Max pages per batch. Empty = unlimited.
    */
@@ -794,6 +802,7 @@ export interface ProductCrawl {
  */
 export interface ProductAggregation {
   id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -802,7 +811,6 @@ export interface ProductAggregation {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Full: runs LLM classification (description, product type, attributes, claims), brand matching, ingredient matching, and image selection. Partial: only updates score history and basic product data (name, sources) — no LLM calls, no image downloads.
    */
@@ -1236,6 +1244,11 @@ export interface VideoMention {
 export interface VideoDiscovery {
   id: number;
   /**
+   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
+   */
+  channelUrl: string;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
    * When the current worker claimed this job
    */
   claimedAt?: string | null;
@@ -1243,11 +1256,6 @@ export interface VideoDiscovery {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
-   */
-  channelUrl: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Max videos per batch. Empty = unlimited.
    */
@@ -1280,6 +1288,7 @@ export interface VideoDiscovery {
  */
 export interface VideoProcessing {
   id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -1288,7 +1297,6 @@ export interface VideoProcessing {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Videos to process per batch.
    */
@@ -1366,6 +1374,7 @@ export interface VideoProcessing {
  */
 export interface IngredientCrawl {
   id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -1374,7 +1383,6 @@ export interface IngredientCrawl {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Ingredients to process per batch.
    */
@@ -1711,10 +1719,10 @@ export interface IngredientsSelect<T extends boolean = true> {
  * via the `definition` "ingredients-discoveries_select".
  */
 export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
-  claimedAt?: T;
-  claimedBy?: T;
   sourceUrl?: T;
   status?: T;
+  claimedAt?: T;
+  claimedBy?: T;
   pagesPerTick?: T;
   discovered?: T;
   created?: T;
@@ -1735,9 +1743,9 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
  * via the `definition` "ingredient-crawls_select".
  */
 export interface IngredientCrawlsSelect<T extends boolean = true> {
+  status?: T;
   claimedAt?: T;
   claimedBy?: T;
-  status?: T;
   itemsPerTick?: T;
   type?: T;
   ingredientIds?: T;
@@ -1901,6 +1909,8 @@ export interface SourceProductsSelect<T extends boolean = true> {
 export interface ProductDiscoveriesSelect<T extends boolean = true> {
   sourceUrls?: T;
   status?: T;
+  claimedAt?: T;
+  claimedBy?: T;
   itemsPerTick?: T;
   delay?: T;
   debug?: T;
@@ -1949,9 +1959,9 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
  * via the `definition` "product-aggregations_select".
  */
 export interface ProductAggregationsSelect<T extends boolean = true> {
+  status?: T;
   claimedAt?: T;
   claimedBy?: T;
-  status?: T;
   scope?: T;
   itemsPerTick?: T;
   type?: T;
@@ -2113,10 +2123,10 @@ export interface VideoMentionsSelect<T extends boolean = true> {
  * via the `definition` "video-discoveries_select".
  */
 export interface VideoDiscoveriesSelect<T extends boolean = true> {
-  claimedAt?: T;
-  claimedBy?: T;
   channelUrl?: T;
   status?: T;
+  claimedAt?: T;
+  claimedBy?: T;
   itemsPerTick?: T;
   discovered?: T;
   created?: T;
@@ -2132,9 +2142,9 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
  * via the `definition` "video-processings_select".
  */
 export interface VideoProcessingsSelect<T extends boolean = true> {
+  status?: T;
   claimedAt?: T;
   claimedBy?: T;
-  status?: T;
   itemsPerTick?: T;
   startedAt?: T;
   completedAt?: T;

@@ -106,10 +106,11 @@ All requests use `Authorization: workers API-Key <key>` header.
 
 ### claimWork (`work-protocol/claim.ts`)
 
-1. For each job type the worker's capabilities include:
-   - Query `pending` jobs (limit 10)
-   - Query `in_progress` jobs with stale or missing `claimedAt` (older than `WORKER_JOB_TIMEOUT_MINUTES`, default 30m)
-2. Collect all claimable jobs across types
+1. For each job type the worker's capabilities include, query three categories of claimable jobs:
+   - **Unclaimed in-progress**: `status=in_progress` AND `claimedBy` is null — jobs released between batches, immediately available for any worker
+   - **Stale in-progress**: `status=in_progress` AND `claimedBy` exists AND `claimedAt` older than `WORKER_JOB_TIMEOUT_MINUTES` (default 30m) — abandoned by crashed workers
+   - **Pending**: `status=pending` — new jobs not yet started
+2. Collect all claimable jobs across types (deduplicated by ID)
 3. Priority: "selected target" jobs first (selected_urls, selected_gtins, from_discovery), else random
 4. Attempt to claim by PATCHing `claimedBy` + `claimedAt` on the job (sends `X-Job-Timeout-Minutes` header)
    - Server-side `enforceJobClaim` hook rejects if the job is already claimed by a different worker with a fresh `claimedAt`
@@ -120,12 +121,16 @@ All requests use `Authorization: workers API-Key <key>` header.
    - Builds and returns a typed work unit with all data needed by the handler
    - May complete the job early if no work remains (returns `{ type: 'none' }`)
 
+**Important**: A freshly claimed in-progress job (`claimedBy` set, `claimedAt` recent) will NOT match any of these queries — this prevents double-processing. Workers are stateless; all job progress lives on the server.
+
 ### submitWork (`work-protocol/submit.ts`)
 
 Dispatches to per-type submit handlers. Each handler:
 1. Calls the appropriate `persist*()` function for each result item
 2. Updates job progress counters (crawled, errors, discovered, created, etc.)
-3. Checks completion condition and marks job `completed` if done
+3. Checks completion condition:
+   - **Done**: marks job `completed` with `completedAt` timestamp
+   - **Not done**: releases the claim by setting `claimedBy: null, claimedAt: null` — this makes the job immediately available for any worker to pick up on the next poll cycle
 4. Emits events via the logger
 
 ### persist (`work-protocol/persist.ts`)
@@ -379,8 +384,14 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 ## Key Patterns
 
 - **Batch processing**: All jobs process `itemsPerTick` items per claim cycle (default 10, video processing default 1)
-- **Job claim locking**: Each job has `claimedBy` (worker relationship) and `claimedAt` (date) fields. `claimWork()` PATCHes these to claim a job; a server-side `enforceJobClaim` hook rejects the PATCH if the job is already claimed by a different worker with a `claimedAt` within the timeout window. Claims older than `WORKER_JOB_TIMEOUT_MINUTES` (default 30m) are considered abandoned and can be reclaimed. Workers pass `X-Job-Timeout-Minutes` header so the server knows the timeout.
-- **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and refresh `claimedAt` on the job (keeping the claim alive)
+- **Job claim locking**: Each job has `claimedBy` (worker relationship) and `claimedAt` (date) fields. A job is in one of four states:
+  1. **Pending** (`status=pending`) — new, claimable by any worker
+  2. **Claimed** (`status=in_progress`, `claimedBy` set, `claimedAt` fresh) — actively being worked on, NOT claimable
+  3. **Released** (`status=in_progress`, `claimedBy` null) — between batches, claimable by any worker
+  4. **Stale** (`status=in_progress`, `claimedBy` set, `claimedAt` older than timeout) — worker crashed, claimable
+  
+  `claimWork()` PATCHes `claimedBy` + `claimedAt` to claim a job. A server-side `enforceJobClaim` hook rejects the PATCH if the job is already claimed by a different worker with a fresh `claimedAt`. Workers pass `X-Job-Timeout-Minutes` header so the server knows the timeout (default 30m). When a batch finishes but the job is not done, `submitWork()` releases the claim (`claimedBy: null, claimedAt: null`), making it immediately available for any worker. Workers are fully stateless — all progress lives on the server.
+- **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and refresh `claimedAt` on the job (keeping the claim alive during long batches)
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
 - **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
 - **URL normalization**: All product URLs are passed through `normalizeProductUrl()` (in `source-product-queries.ts`) before storage or lookup. This strips query parameters, trailing slashes, hash fragments, and lowercases the URL. Applied in all 3 source drivers at URL construction time, in `persist.ts` (crawl results + discovered products + canonicalUrl), in `claim.ts` (URL parsing from job fields), and in query helpers (`findUncrawled`, `countUncrawled`, `resetProducts`). The `sourceUrl` field on `source-products` has a `unique: true` constraint to enforce deduplication at the DB level.

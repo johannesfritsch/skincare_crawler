@@ -101,7 +101,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 All follow status lifecycle: `pending` → `in_progress` → `completed|failed`
 
-All job collections have `claimedBy` (relationship to workers) and `claimedAt` (date) fields for distributed locking. A `beforeChange` hook (`enforceJobClaim`) prevents two workers from claiming the same job. Stale claims (older than `WORKER_JOB_TIMEOUT_MINUTES`, default 30m) are automatically released and can be reclaimed by another worker. Workers refresh `claimedAt` via heartbeat to keep claims alive.
+All job collections have `claimedBy` (relationship to workers) and `claimedAt` (date) fields for distributed locking. A `beforeChange` hook (`enforceJobClaim`) prevents two workers from claiming the same job. Jobs cycle through claim states: **pending** → worker claims (sets `claimedBy`/`claimedAt`) → processes batch → **releases claim** (`claimedBy`/`claimedAt` set to null) → any worker claims next batch → ... → **completed**. Stale claims (older than `WORKER_JOB_TIMEOUT_MINUTES`, default 30m) are automatically released and can be reclaimed by another worker. Workers refresh `claimedAt` via heartbeat to keep claims alive during long batches. Workers are fully stateless; all progress lives on the server.
 
 | Collection | Key fields |
 |------------|------------|

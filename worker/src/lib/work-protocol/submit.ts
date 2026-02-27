@@ -363,7 +363,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
-      data: { crawled, errors },
+      data: { crawled, errors, claimedBy: null, claimedAt: null },
     })
     jlog.info(`Batch done: ${crawled} crawled, ${errors} errors, ${totalRemaining} remaining`, { event: true })
   }
@@ -440,6 +440,8 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         existing,
         productUrls: productUrls.join('\n'),
         progress: { currentUrlIndex, driverProgress },
+        claimedBy: null,
+        claimedAt: null,
         ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
       },
     })
@@ -508,6 +510,8 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
         currentPage,
         totalPagesForTerm,
         termQueue,
+        claimedBy: null,
+        claimedAt: null,
         ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
       },
     })
@@ -564,6 +568,8 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
       data: {
         created: totalCreated,
         existing: totalExisting,
+        claimedBy: null,
+        claimedAt: null,
       },
     })
   }
@@ -643,7 +649,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
     await payload.update({
       collection: 'video-processings',
       id: jobId,
-      data: { processed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment },
+      data: { processed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment, claimedBy: null, claimedAt: null },
     })
   }
 
@@ -752,6 +758,8 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         aggregated,
         errors,
         tokensUsed,
+        claimedBy: null,
+        claimedAt: null,
         ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
       },
     })
@@ -837,6 +845,8 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         errors,
         tokensUsed,
         ingredients: [...ingredientIds],
+        claimedBy: null,
+        claimedAt: null,
         ...(crawlType === 'all_uncrawled' ? { lastCheckedIngredientId } : {}),
       },
     })

@@ -57,19 +57,26 @@ export async function claimWork(
 
     queries.push(
       (async () => {
-        const [staleInProgress, pending] = await Promise.all([
-          // In-progress jobs with stale or missing claimedAt (abandoned by crashed workers)
+        const [unclaimedInProgress, staleInProgress, pending] = await Promise.all([
+          // In-progress jobs released between batches (claimedBy is null)
           payload.find({
             collection,
             where: {
               and: [
                 { status: { equals: 'in_progress' } },
-                {
-                  or: [
-                    { claimedAt: { less_than: staleThreshold } },
-                    { claimedAt: { exists: false } },
-                  ],
-                },
+                { claimedBy: { exists: false } },
+              ],
+            },
+            limit: 10,
+          }),
+          // In-progress jobs with stale claimedAt (abandoned by crashed workers)
+          payload.find({
+            collection,
+            where: {
+              and: [
+                { status: { equals: 'in_progress' } },
+                { claimedBy: { exists: true } },
+                { claimedAt: { less_than: staleThreshold } },
               ],
             },
             limit: 10,
@@ -77,16 +84,20 @@ export async function claimWork(
           payload.find({ collection, where: { status: { equals: 'pending' } }, limit: 10, sort: 'createdAt' }),
         ])
 
-        if (staleInProgress.totalDocs > 0 || pending.totalDocs > 0) {
-          log.debug(`claim: ${jobType}: ${staleInProgress.totalDocs} stale in_progress, ${pending.totalDocs} pending`)
+        if (unclaimedInProgress.totalDocs > 0 || staleInProgress.totalDocs > 0 || pending.totalDocs > 0) {
+          log.debug(`claim: ${jobType}: ${unclaimedInProgress.totalDocs} unclaimed in_progress, ${staleInProgress.totalDocs} stale in_progress, ${pending.totalDocs} pending`)
         }
 
-        for (const doc of [...staleInProgress.docs, ...pending.docs]) {
+        const seen = new Set<number>()
+        for (const doc of [...unclaimedInProgress.docs, ...staleInProgress.docs, ...pending.docs]) {
           const d = doc as Record<string, unknown>
+          const id = d.id as number
+          if (seen.has(id)) continue
+          seen.add(id)
           const docType = d.type as string | undefined
           activeJobs.push({
             type: jobType as JobType,
-            id: d.id as number,
+            id,
             status: d.status as string,
             crawlType: docType,
             aggregationType: jobType === 'product-aggregation' ? docType : undefined,
