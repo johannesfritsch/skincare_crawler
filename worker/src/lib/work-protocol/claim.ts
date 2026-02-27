@@ -417,7 +417,17 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
   const job = await payload.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
 
   const channelUrl = job.channelUrl as string
-  jlog.info(`buildVideoDiscoveryWork #${jobId}: channel=${channelUrl}`)
+
+  interface VideoDiscoveryJobProgress {
+    currentOffset: number
+  }
+
+  const progress = job.progress as VideoDiscoveryJobProgress | null
+  const currentOffset = progress?.currentOffset ?? 0
+  const batchSize = (job.itemsPerTick as number) || 50
+  const maxVideos = (job.maxVideos as number) ?? undefined
+
+  jlog.info(`buildVideoDiscoveryWork #${jobId}: channel=${channelUrl}, offset=${currentOffset}, batchSize=${batchSize}, maxVideos=${maxVideos ?? 'unlimited'}`)
 
   // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
@@ -432,6 +442,7 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
         discovered: 0,
         created: 0,
         existing: 0,
+        progress: null,
       },
     })
     jlog.info(`Started video discovery: ${channelUrl}`, { event: 'start' })
@@ -441,9 +452,9 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
     type: 'video-discovery',
     jobId,
     channelUrl,
-    itemsPerTick: (job.itemsPerTick as number) ?? 10,
-    created: (job.created as number) ?? 0,
-    existing: (job.existing as number) ?? 0,
+    currentOffset,
+    batchSize,
+    maxVideos,
   }
 }
 

@@ -408,8 +408,6 @@ export async function persistVideoDiscoveryResult(
   jobId: number,
   channelUrl: string,
   videos: DiscoveredVideo[],
-  offset: number,
-  batchSize: number,
 ): Promise<{ created: number; existing: number }> {
   // Derive canonical URL from yt-dlp's channel_url (e.g. /channel/UC...)
   const canonicalUrl = videos[0]?.channelUrl ?? undefined
@@ -518,12 +516,11 @@ export async function persistVideoDiscoveryResult(
     channelId = newChannel.id
   }
 
-  // Process batch
-  const batch = videos.slice(offset, offset + batchSize)
+  // Process all videos in this batch
   let created = 0
   let existing = 0
 
-  for (const video of batch) {
+  for (const video of videos) {
     const existingVideo = await payload.find({
       collection: 'videos',
       where: { externalUrl: { equals: video.externalUrl } },

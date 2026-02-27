@@ -46,11 +46,21 @@ export const VideoDiscoveries: CollectionConfig = {
     {
       name: 'itemsPerTick',
       type: 'number',
-      label: 'Batch Size',
+      label: 'Videos per Batch',
       min: 1,
       admin: {
         position: 'sidebar',
-        description: 'Max videos per batch. Empty = unlimited.',
+        description: 'Videos fetched per claim cycle. Default: 50. Empty = 50.',
+      },
+    },
+    {
+      name: 'maxVideos',
+      type: 'number',
+      label: 'Max Videos',
+      min: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Stop after this many videos. Empty = unlimited (all videos on channel).',
       },
     },
     {
@@ -96,6 +106,15 @@ export const VideoDiscoveries: CollectionConfig = {
                   },
                 },
               ],
+            },
+            {
+              name: 'progress',
+              type: 'json',
+              label: 'Progress State',
+              admin: {
+                readOnly: true,
+                description: 'Internal state for resumable discovery (currentOffset)',
+              },
             },
             {
               type: 'row',

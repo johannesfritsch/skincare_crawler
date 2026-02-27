@@ -353,11 +353,11 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
 async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const channelUrl = work.channelUrl as string
-  const itemsPerTick = work.itemsPerTick as number
-  const previousCreated = work.created as number
-  const previousExisting = work.existing as number
+  const currentOffset = work.currentOffset as number
+  const batchSize = work.batchSize as number
+  const maxVideos = work.maxVideos as number | undefined
 
-  log.info(`Video discovery job #${jobId}: ${channelUrl}`)
+  log.info(`Video discovery job #${jobId}: ${channelUrl}, offset=${currentOffset}, batchSize=${batchSize}, maxVideos=${maxVideos ?? 'unlimited'}`)
 
   const driver = getVideoDriver(channelUrl)
   if (!driver) {
@@ -365,20 +365,43 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
     return
   }
 
-  const videos = await driver.discoverVideos(channelUrl)
-  const offset = previousCreated + previousExisting
-  const batchSize = itemsPerTick
+  // Compute how many videos to fetch this batch (respect maxVideos limit)
+  let fetchCount = batchSize
+  if (maxVideos !== undefined) {
+    const remaining = maxVideos - currentOffset
+    if (remaining <= 0) {
+      log.info(`Already at maxVideos limit (${maxVideos}), nothing to fetch`)
+      await submitWork(client, worker, {
+        type: 'video-discovery',
+        jobId,
+        channelUrl,
+        videos: [],
+        reachedEnd: true,
+        nextOffset: currentOffset,
+        maxVideos,
+      } as Parameters<typeof submitWork>[2])
+      return
+    }
+    fetchCount = Math.min(batchSize, remaining)
+  }
 
-  log.info(`Found ${videos.length} videos, submitting batch from offset ${offset}`)
+  // yt-dlp uses 1-based indices
+  const startIndex = currentOffset + 1
+  const endIndex = currentOffset + fetchCount
+
+  const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex })
+  const nextOffset = currentOffset + result.videos.length
+
+  log.info(`Fetched ${result.videos.length} videos [${startIndex}–${endIndex}], reachedEnd=${result.reachedEnd}`)
 
   await submitWork(client, worker, {
     type: 'video-discovery',
     jobId,
     channelUrl,
-    videos,
-    totalVideos: videos.length,
-    offset,
-    batchSize,
+    videos: result.videos,
+    reachedEnd: result.reachedEnd,
+    nextOffset,
+    maxVideos,
   } as Parameters<typeof submitWork>[2])
 
   log.info(`Submitted video discovery results`)

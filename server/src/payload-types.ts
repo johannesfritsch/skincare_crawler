@@ -1257,9 +1257,13 @@ export interface VideoDiscovery {
    */
   claimedBy?: (number | null) | Worker;
   /**
-   * Max videos per batch. Empty = unlimited.
+   * Videos fetched per claim cycle. Default: 50. Empty = 50.
    */
   itemsPerTick?: number | null;
+  /**
+   * Stop after this many videos. Empty = unlimited (all videos on channel).
+   */
+  maxVideos?: number | null;
   /**
    * Videos found on the channel
    */
@@ -1272,6 +1276,18 @@ export interface VideoDiscovery {
    * Videos already in database
    */
   existing?: number | null;
+  /**
+   * Internal state for resumable discovery (currentOffset)
+   */
+  progress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   startedAt?: string | null;
   completedAt?: string | null;
   events?: {
@@ -2128,9 +2144,11 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   itemsPerTick?: T;
+  maxVideos?: T;
   discovered?: T;
   created?: T;
   existing?: T;
+  progress?: T;
   startedAt?: T;
   completedAt?: T;
   events?: T;

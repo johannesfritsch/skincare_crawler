@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import type { VideoDiscoveryDriver, DiscoveredVideo } from '../types'
+import type { VideoDiscoveryDriver, DiscoveredVideo, VideoDiscoveryPageOptions, VideoDiscoveryPageResult } from '../types'
 import { createLogger } from '@/lib/logger'
 
 const log = createLogger('YouTube')
@@ -36,14 +36,31 @@ async function fetchChannelAvatarUrl(channelUrl: string): Promise<string | undef
   }
 }
 
-function runYtDlp(channelUrl: string): Promise<string> {
+/**
+ * Run yt-dlp with --playlist-start / --playlist-end to fetch a specific range
+ * of videos from a channel. These are 1-based indices into the channel's
+ * video list (newest first by default).
+ */
+function runYtDlp(channelUrl: string, startIndex: number, endIndex: number): Promise<string> {
+  const args = [
+    '--skip-download',
+    '--dump-json',
+    '--playlist-start', String(startIndex),
+    '--playlist-end', String(endIndex),
+    channelUrl,
+  ]
   return new Promise((resolve, reject) => {
     const proc = execFile(
       'yt-dlp',
-      ['--skip-download', '--dump-json', channelUrl],
+      args,
       { maxBuffer: 100 * 1024 * 1024, timeout: 300_000 },
       (error, stdout, stderr) => {
         if (error) {
+          // yt-dlp exits with error when range is beyond the playlist — treat as empty
+          if (stderr?.includes('Requested range') || stdout === '') {
+            resolve('')
+            return
+          }
           reject(new Error(`yt-dlp failed: ${stderr || error.message}`))
           return
         }
@@ -54,6 +71,40 @@ function runYtDlp(channelUrl: string): Promise<string> {
       reject(new Error(`Failed to spawn yt-dlp: ${err.message}`))
     })
   })
+}
+
+function parseYtDlpOutput(stdout: string, channelAvatarUrl?: string): DiscoveredVideo[] {
+  if (!stdout.trim()) return []
+
+  const lines = stdout.trim().split('\n').filter(Boolean)
+  const videos: DiscoveredVideo[] = []
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line) as YtDlpEntry
+      if (!entry.id || !entry.title) continue
+
+      videos.push({
+        externalId: entry.id,
+        title: entry.title,
+        description: entry.description || undefined,
+        thumbnailUrl: entry.thumbnail || undefined,
+        externalUrl: entry.webpage_url || `https://www.youtube.com/watch?v=${entry.id}`,
+        uploadDate: entry.upload_date
+          ? `${entry.upload_date.slice(0, 4)}-${entry.upload_date.slice(4, 6)}-${entry.upload_date.slice(6, 8)}`
+          : undefined,
+        timestamp: entry.timestamp ?? undefined,
+        duration: entry.duration || undefined,
+        viewCount: entry.view_count ?? undefined,
+        likeCount: entry.like_count ?? undefined,
+        channelName: entry.channel || undefined,
+        channelUrl: entry.channel_url || undefined,
+        channelAvatarUrl,
+      })
+    } catch {
+      log.warn(`Failed to parse yt-dlp line: ${line.substring(0, 100)}`)
+    }
+  }
+  return videos
 }
 
 export const youtubeDriver: VideoDiscoveryDriver = {
@@ -69,10 +120,13 @@ export const youtubeDriver: VideoDiscoveryDriver = {
     }
   },
 
-  async discoverVideos(channelUrl: string): Promise<DiscoveredVideo[]> {
-    log.info(`Running yt-dlp for ${channelUrl}`)
+  async discoverVideoPage(channelUrl: string, options: VideoDiscoveryPageOptions): Promise<VideoDiscoveryPageResult> {
+    const { startIndex, endIndex } = options
+    const requestedCount = endIndex - startIndex + 1
+
+    log.info(`Running yt-dlp for ${channelUrl} [${startIndex}–${endIndex}]`)
     const [stdout, channelAvatarUrl] = await Promise.all([
-      runYtDlp(channelUrl),
+      runYtDlp(channelUrl, startIndex, endIndex),
       fetchChannelAvatarUrl(channelUrl),
     ])
 
@@ -80,38 +134,12 @@ export const youtubeDriver: VideoDiscoveryDriver = {
       log.info(`Found channel avatar: ${channelAvatarUrl}`)
     }
 
-    // yt-dlp outputs one JSON object per line
-    const lines = stdout.trim().split('\n').filter(Boolean)
-    log.info(`yt-dlp returned ${lines.length} entries`)
+    const videos = parseYtDlpOutput(stdout, channelAvatarUrl)
+    log.info(`yt-dlp returned ${videos.length} entries (requested ${requestedCount})`)
 
-    const videos: DiscoveredVideo[] = []
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line) as YtDlpEntry
-        if (!entry.id || !entry.title) continue
-
-        videos.push({
-          externalId: entry.id,
-          title: entry.title,
-          description: entry.description || undefined,
-          thumbnailUrl: entry.thumbnail || undefined,
-          externalUrl: entry.webpage_url || `https://www.youtube.com/watch?v=${entry.id}`,
-          uploadDate: entry.upload_date
-            ? `${entry.upload_date.slice(0, 4)}-${entry.upload_date.slice(4, 6)}-${entry.upload_date.slice(6, 8)}`
-            : undefined,
-          timestamp: entry.timestamp ?? undefined,
-          duration: entry.duration || undefined,
-          viewCount: entry.view_count ?? undefined,
-          likeCount: entry.like_count ?? undefined,
-          channelName: entry.channel || undefined,
-          channelUrl: entry.channel_url || undefined,
-          channelAvatarUrl,
-        })
-      } catch {
-        log.warn(`Failed to parse yt-dlp line: ${line.substring(0, 100)}`)
-      }
+    return {
+      videos,
+      reachedEnd: videos.length < requestedCount,
     }
-
-    return videos
   },
 }

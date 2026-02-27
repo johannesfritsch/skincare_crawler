@@ -128,9 +128,12 @@ interface SubmitVideoDiscoveryBody {
   jobId: number
   channelUrl: string
   videos: DiscoveredVideo[]
-  totalVideos: number
-  offset: number
-  batchSize: number
+  /** True if yt-dlp returned fewer videos than requested (end of channel) */
+  reachedEnd: boolean
+  /** The offset to resume from on the next batch (currentOffset + videos.length) */
+  nextOffset: number
+  /** Max videos limit from the job (undefined = unlimited) */
+  maxVideos?: number
 }
 
 interface VideoProcessingScreenshot {
@@ -521,33 +524,24 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
 }
 
 async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVideoDiscoveryBody) {
-  const { jobId, channelUrl, videos, totalVideos, offset, batchSize } = body
+  const { jobId, channelUrl, videos, reachedEnd, nextOffset, maxVideos } = body
   const jlog = log.forJob('video-discoveries' as JobCollection, jobId)
-  log.info(`submitVideoDiscovery #${jobId}: ${videos.length} videos total, offset=${offset}, batchSize=${batchSize}`)
+  log.info(`submitVideoDiscovery #${jobId}: ${videos.length} videos in batch, reachedEnd=${reachedEnd}, nextOffset=${nextOffset}`)
 
   const job = await payload.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
 
-  // Mark as in_progress if pending
-  if (job.status === 'pending') {
-    await payload.update({
-      collection: 'video-discoveries',
-      id: jobId,
-      data: {
-        status: 'in_progress',
-        startedAt: new Date().toISOString(),
-        discovered: totalVideos,
-      },
-    })
-    jlog.info(`Started video discovery: ${totalVideos} videos found`, { event: 'start' })
-  }
+  const result = await persistVideoDiscoveryResult(payload, jobId, channelUrl, videos)
 
-  const result = await persistVideoDiscoveryResult(payload, jobId, channelUrl, videos, offset, batchSize)
-
+  const totalDiscovered = ((job.discovered as number) ?? 0) + videos.length
   const totalCreated = ((job.created as number) ?? 0) + result.created
   const totalExisting = ((job.existing as number) ?? 0) + result.existing
-  const allDone = totalCreated + totalExisting >= totalVideos
 
-  log.info(`submitVideoDiscovery #${jobId}: batch ${result.created} created, ${result.existing} existing; total ${totalCreated}+${totalExisting}/${totalVideos}, done=${allDone}`)
+  // Done if: yt-dlp returned fewer videos than requested (end of channel),
+  // or we've hit the maxVideos limit
+  const hitMaxVideos = maxVideos !== undefined && nextOffset >= maxVideos
+  const allDone = reachedEnd || hitMaxVideos
+
+  log.info(`submitVideoDiscovery #${jobId}: batch ${result.created} created, ${result.existing} existing; total ${totalCreated}+${totalExisting}, discovered=${totalDiscovered}, done=${allDone}`)
 
   if (allDone) {
     await payload.update({
@@ -555,19 +549,23 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
       id: jobId,
       data: {
         status: 'completed',
+        discovered: totalDiscovered,
         created: totalCreated,
         existing: totalExisting,
+        progress: null,
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${totalCreated} created, ${totalExisting} existing`, { event: 'success' })
+    jlog.info(`Completed: ${totalDiscovered} discovered, ${totalCreated} created, ${totalExisting} existing`, { event: 'success' })
   } else {
     await payload.update({
       collection: 'video-discoveries',
       id: jobId,
       data: {
+        discovered: totalDiscovered,
         created: totalCreated,
         existing: totalExisting,
+        progress: { currentOffset: nextOffset },
         claimedBy: null,
         claimedAt: null,
       },

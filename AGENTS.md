@@ -108,7 +108,7 @@ All job collections have `claimedBy` (relationship to workers) and `claimedAt` (
 | `product-crawls` | source, type (all/selected_urls/selected_gtins/from_discovery), scope, progress |
 | `product-discoveries` | sourceUrls, progress, discovered/created/existing counts |
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
-| `video-discoveries` | channelUrl, created/existing counts |
+| `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), created/existing/discovered counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
 | `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, aggregated/errors/tokens |
 | `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |

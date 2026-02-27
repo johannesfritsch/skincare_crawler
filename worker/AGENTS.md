@@ -182,7 +182,11 @@ Dispatches to per-type submit handlers. Each handler:
 ### 4. video-discovery
 
 **Handler**: `handleVideoDiscovery()`
-**Flow**: `getVideoDriver(channelUrl)` → lists all videos → submit in batches
+**Flow**: `getVideoDriver(channelUrl)` → `driver.discoverVideoPage(url, { startIndex, endIndex })` → submit batch → release claim → repeat until end of channel or `maxVideos` reached
+
+**Resumption**: Stores `currentOffset` (0-based video index) in the job's `progress` JSON field. Each batch fetches `itemsPerTick` (default 50) videos via yt-dlp's `--playlist-start`/`--playlist-end` flags (1-based). The batch is done when the driver returns fewer videos than requested (`reachedEnd`) or when the offset reaches `maxVideos`.
+
+**Key params**: `itemsPerTick` (videos per batch, default 50), `maxVideos` (stop after this many, unlimited if empty)
 
 **Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails. Fetches the channel avatar (from YouTube `og:image` meta tag) and always updates the `channels.image` field — both for new and existing channels.
 
