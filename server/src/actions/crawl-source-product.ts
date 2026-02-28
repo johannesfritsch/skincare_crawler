@@ -13,12 +13,26 @@ export async function crawlSourceProduct(
     id: sourceProductId,
   })
 
-  if (!sourceProduct.sourceUrl) {
-    return { success: false, error: 'Source product has no URL' }
-  }
-
   if (!sourceProduct.source) {
     return { success: false, error: 'Source product has no source' }
+  }
+
+  // Get the default source-variant's URL
+  const variants = await payload.find({
+    collection: 'source-variants',
+    where: {
+      and: [
+        { sourceProduct: { equals: sourceProductId } },
+        { isDefault: { equals: true } },
+      ],
+    },
+    limit: 1,
+    depth: 0,
+  })
+
+  const defaultVariant = variants.docs[0]
+  if (!defaultVariant?.sourceUrl) {
+    return { success: false, error: 'Source product has no variant with a URL' }
   }
 
   const crawl = await payload.create({
@@ -26,7 +40,7 @@ export async function crawlSourceProduct(
     data: {
       source: sourceProduct.source,
       type: 'selected_urls',
-      urls: sourceProduct.sourceUrl,
+      urls: defaultVariant.sourceUrl,
       scope: 'recrawl',
       status: 'pending',
     },

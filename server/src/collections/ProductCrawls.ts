@@ -46,6 +46,17 @@ export const ProductCrawls: CollectionConfig = {
       },
     },
     {
+      name: 'crawlVariants',
+      type: 'checkbox',
+      label: 'Crawl Variants',
+      defaultValue: true,
+      admin: {
+        position: 'sidebar',
+        description:
+          'Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.',
+      },
+    },
+    {
       name: 'debug',
       type: 'checkbox',
       label: 'Debug Mode',

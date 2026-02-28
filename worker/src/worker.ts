@@ -143,11 +143,13 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   const jobId = work.jobId as number
   const jlog = log.forJob('product-crawls' as JobCollection, jobId)
   const workItems = work.workItems as Array<{
+    sourceVariantId: number
     sourceProductId: number
     sourceUrl: string
     source: string
   }>
   const debug = work.debug as boolean
+  const crawlVariants = work.crawlVariants as boolean
 
   log.info(`Product crawl job #${jobId}: ${workItems.length} items`)
 
@@ -157,6 +159,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   }
 
   const results: Array<{
+    sourceVariantId: number
     sourceProductId: number
     sourceUrl: string
     source: string
@@ -190,7 +193,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
     }
   }
 
-  await submitWork(client, worker, { type: 'product-crawl', jobId, results } as Parameters<typeof submitWork>[2])
+  await submitWork(client, worker, { type: 'product-crawl', jobId, results, crawlVariants } as Parameters<typeof submitWork>[2])
   log.info(`Submitted crawl results for job #${jobId}`)
 }
 

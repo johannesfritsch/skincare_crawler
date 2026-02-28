@@ -77,6 +77,7 @@ export interface Config {
     'ingredient-crawls': IngredientCrawl;
     products: Product;
     'source-products': SourceProduct;
+    'source-variants': SourceVariant;
     'product-discoveries': ProductDiscovery;
     'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
@@ -109,6 +110,7 @@ export interface Config {
       aggregations: 'product-aggregations';
     };
     'source-products': {
+      sourceVariants: 'source-variants';
       discoveries: 'discovery-results';
       crawls: 'crawl-results';
     };
@@ -152,6 +154,7 @@ export interface Config {
     'ingredient-crawls': IngredientCrawlsSelect<false> | IngredientCrawlsSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
+    'source-variants': SourceVariantsSelect<false> | SourceVariantsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
@@ -583,15 +586,7 @@ export interface DiscoveryResult {
  */
 export interface SourceProduct {
   id: number;
-  /**
-   * Global Trade Item Number
-   */
-  gtin?: string | null;
   status?: ('uncrawled' | 'crawled') | null;
-  /**
-   * URL from which this product was crawled (normalized: no query params, no trailing slash)
-   */
-  sourceUrl?: string | null;
   source?: ('dm' | 'mueller' | 'rossmann') | null;
   /**
    * Source-specific article number (e.g., DM Artikelnummer)
@@ -642,21 +637,11 @@ export interface SourceProduct {
         id?: string | null;
       }[]
     | null;
-  variants?:
-    | {
-        dimension: string;
-        options?:
-          | {
-              label: string;
-              value?: string | null;
-              gtin?: string | null;
-              isSelected?: boolean | null;
-              id?: string | null;
-            }[]
-          | null;
-        id?: string | null;
-      }[]
-    | null;
+  sourceVariants?: {
+    docs?: (number | SourceVariant)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   /**
    * Timestamped price entries from each crawl
    */
@@ -703,6 +688,42 @@ export interface SourceProduct {
   createdAt: string;
 }
 /**
+ * Individual purchasable variants of source products, each with a unique URL
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-variants".
+ */
+export interface SourceVariant {
+  id: number;
+  sourceProduct: number | SourceProduct;
+  /**
+   * Variant-specific URL. For DM/Rossmann: the GTIN-based product URL. For Mueller: base URL with ?itemId= parameter.
+   */
+  sourceUrl?: string | null;
+  /**
+   * Global Trade Item Number for this specific variant
+   */
+  gtin?: string | null;
+  /**
+   * Human-readable label (e.g. "Shade 420 - Nude Rose", "50ml")
+   */
+  variantLabel?: string | null;
+  /**
+   * The dimension this variant represents (e.g. "Color", "Size")
+   */
+  variantDimension?: string | null;
+  /**
+   * Whether this is the primary/selected variant on the source page
+   */
+  isDefault?: boolean | null;
+  /**
+   * When this specific variant was last crawled
+   */
+  crawledAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "crawl-results".
  */
@@ -736,6 +757,10 @@ export interface ProductCrawl {
    * Products to crawl per batch.
    */
   itemsPerTick?: number | null;
+  /**
+   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
+   */
+  crawlVariants?: boolean | null;
   /**
    * Keep browser visible (non-headless).
    */
@@ -1500,6 +1525,10 @@ export interface PayloadLockedDocument {
         value: number | SourceProduct;
       } | null)
     | ({
+        relationTo: 'source-variants';
+        value: number | SourceVariant;
+      } | null)
+    | ({
         relationTo: 'product-discoveries';
         value: number | ProductDiscovery;
       } | null)
@@ -1858,9 +1887,7 @@ export interface ProductsSelect<T extends boolean = true> {
  * via the `definition` "source-products_select".
  */
 export interface SourceProductsSelect<T extends boolean = true> {
-  gtin?: T;
   status?: T;
-  sourceUrl?: T;
   source?: T;
   sourceArticleNumber?: T;
   brandName?: T;
@@ -1884,21 +1911,7 @@ export interface SourceProductsSelect<T extends boolean = true> {
         alt?: T;
         id?: T;
       };
-  variants?:
-    | T
-    | {
-        dimension?: T;
-        options?:
-          | T
-          | {
-              label?: T;
-              value?: T;
-              gtin?: T;
-              isSelected?: T;
-              id?: T;
-            };
-        id?: T;
-      };
+  sourceVariants?: T;
   priceHistory?:
     | T
     | {
@@ -1915,6 +1928,21 @@ export interface SourceProductsSelect<T extends boolean = true> {
   ingredientsText?: T;
   discoveries?: T;
   crawls?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-variants_select".
+ */
+export interface SourceVariantsSelect<T extends boolean = true> {
+  sourceProduct?: T;
+  sourceUrl?: T;
+  gtin?: T;
+  variantLabel?: T;
+  variantDimension?: T;
+  isDefault?: T;
+  crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1951,6 +1979,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   itemsPerTick?: T;
+  crawlVariants?: T;
   debug?: T;
   type?: T;
   source?: T;

@@ -451,8 +451,17 @@ export const rossmannDriver: SourceDriver = {
               const gtinMatch = href.match(/\/p\/(\d+)/)
               const optGtin = gtinMatch ? gtinMatch[1] : null
               const isSelected = li.classList.contains('active')
+              // Resolve relative href to full URL using the browser's URL API
+              let variantUrl: string | null = null
+              if (href) {
+                try {
+                  variantUrl = new URL(href, window.location.href).href
+                } catch {
+                  variantUrl = null
+                }
+              }
               if (linkText) {
-                options.push({ label: linkText, value: null, gtin: optGtin, isSelected })
+                options.push({ label: linkText, value: variantUrl, gtin: optGtin, isSelected })
               }
             })
             if (options.length > 0) {

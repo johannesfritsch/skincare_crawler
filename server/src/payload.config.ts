@@ -14,6 +14,7 @@ import { Ingredients } from './collections/Ingredients'
 import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
 import { SourceProducts } from './collections/SourceProducts'
+import { SourceVariants } from './collections/SourceVariants'
 
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
 import { ProductCrawls } from './collections/ProductCrawls'
@@ -68,7 +69,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, SourceProducts, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
+  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, SourceProducts, SourceVariants, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

@@ -13,7 +13,7 @@ worker/src/
     ├── browser.ts                    # Playwright browser management
     ├── stealth-fetch.ts              # Fetch with anti-bot headers
     ├── parse-ingredients.ts          # Ingredient text → name[] parser (LLM, handles footnotes/asterisks)
-    ├── source-product-queries.ts     # Source-product DB query helpers + normalizeProductUrl()
+    ├── source-product-queries.ts     # Source-product/variant DB query helpers + normalizeProductUrl() + normalizeVariantUrl()
     │
     ├── work-protocol/
     │   ├── types.ts                  # AuthenticatedWorker interface
@@ -137,9 +137,9 @@ Dispatches to per-type submit handlers. Each handler:
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | Updates/creates `source-products` with scraped data, price history, source category lookup; creates `crawl-results` join record |
+| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record |
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
-| `persistDiscoveredProduct()` | Creates/updates `source-products` (status=uncrawled); creates `discovery-results` join record |
+| `persistDiscoveredProduct()` | Dedup by source-variant URL; creates `source-products` + default `source-variant` together when new; updates existing parent source-product when variant URL already exists; creates `discovery-results` join record |
 
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
@@ -151,17 +151,21 @@ Dispatches to per-type submit handlers. Each handler:
 ### 1. product-crawl
 
 **Handler**: `handleProductCrawl()`
-**Flow**: For each work item → `getSourceDriverBySlug(source)` → `driver.scrapeProduct(url)` → collect results → `submitWork()`
+**Flow**: For each work item (with `sourceVariantId`, `sourceProductId`, `sourceUrl`, `source`) → `getSourceDriverBySlug(source)` → `driver.scrapeProduct(url)` → collect results → `submitWork()`
 
 **Crawl types**:
-- `all` — all uncrawled source-products for given source(s)
-- `selected_urls` — specific URLs from the job's `urls` field
-- `selected_gtins` — look up source-products by GTIN, crawl their URLs
+- `all` — all uncrawled source-variants (whose parent source-product has `status=uncrawled`) for given source(s)
+- `selected_urls` — specific URLs from the job's `urls` field (normalized via `normalizeVariantUrl` which preserves `?itemId=` for Mueller)
+- `selected_gtins` — look up source-variants by GTIN, crawl their URLs
 - `from_discovery` — crawl URLs from a linked product-discovery job
 
-**Scope**: `recrawl` resets matching products back to `uncrawled` (optionally filtered by `minCrawlAge`)
+**Scope**: `recrawl` resets matching source-products back to `uncrawled` and clears `crawledAt` on their variants (optionally filtered by `minCrawlAge`)
 
-**Resumption**: Source-products with `status=uncrawled` are the implicit work queue. Each batch fetches `itemsPerTick` (default 10) uncrawled items.
+**`crawlVariants`** (default: true): When enabled, after crawling a variant, any sibling variant URLs discovered on the page are also crawled. All three drivers (DM, Mueller, Rossmann) extract full variant URLs from the page — the driver is the source of truth for URL construction, persist just stores whatever the driver provides. The parent source-product stays `uncrawled` until all its variants have been crawled. When disabled, only the default variant per product is crawled and the parent is immediately marked `crawled`.
+
+**Variant tracking**: Each source-variant has a `crawledAt` timestamp set when it is individually crawled. `findUncrawledVariants()` skips variants where `crawledAt` is already set. When `crawlVariants=true` for scoped jobs (selected_urls, selected_gtins, from_discovery), the system resolves the original URLs to source-product IDs and finds ALL their uncrawled variants (including sibling variants with different URLs).
+
+**Resumption**: Source-variants whose parent has `status=uncrawled` and whose own `crawledAt` is null are the implicit work queue (via `findUncrawledVariants()`). Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 ### 2. product-discovery
 
@@ -319,7 +323,7 @@ interface ScrapedProductData {
   amount?: number
   amountUnit?: string
   images: Array<{ url: string; alt?: string | null }>
-  variants: Array<{ dimension: string; options: Array<{ label, value, gtin, isSelected }> }>
+  variants: Array<{ dimension: string; options: Array<{ label, value (full variant URL), gtin, isSelected }> }>
   labels?: string[]
   rating?: number
   ratingNum?: number
@@ -398,9 +402,12 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and refresh `claimedAt` on the job (keeping the claim alive during long batches)
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
 - **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
-- **URL normalization**: All product URLs are passed through `normalizeProductUrl()` (in `source-product-queries.ts`) before storage or lookup. This strips query parameters, trailing slashes, hash fragments, and lowercases the URL. Applied in all 3 source drivers at URL construction time, in `persist.ts` (crawl results + discovered products + canonicalUrl), in `claim.ts` (URL parsing from job fields), and in query helpers (`findUncrawled`, `countUncrawled`, `resetProducts`). The `sourceUrl` field on `source-products` has a `unique: true` constraint to enforce deduplication at the DB level.
+- **URL normalization**: Two normalization functions exist in `source-product-queries.ts`:
+  - `normalizeProductUrl()` — strips all query parameters, trailing slashes, hash fragments, and lowercases. Used for base product URLs on source-products (applied in source drivers, persist.ts, claim.ts).
+  - `normalizeVariantUrl()` — same as above but preserves `?itemId=` for Mueller URLs. Used for source-variant URLs where Mueller variants need the itemId param to distinguish variants sharing the same base URL. Applied to all variant URLs from all drivers in persist.ts.
+- **Variant URLs**: Drivers are the source of truth for variant URL construction. Each driver extracts the full variant URL from the page (DM: from API `href` field; Mueller: from tile link `href`; Rossmann: from variant list link `href`). `persistCrawlResult` stores whatever the driver provides — no URL inference or construction outside the driver.
 - **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. This is raw metadata from retailers; it is not mapped to any collection during aggregation.
-- **Deduplication**: Source-products are matched by `sourceUrl` (unique constraint) to prevent duplicates
+- **Deduplication**: Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicates. Source-products no longer have a `sourceUrl` field — dedup happens at the variant level.
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)

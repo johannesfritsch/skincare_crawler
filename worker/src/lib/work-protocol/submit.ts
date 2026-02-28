@@ -93,7 +93,9 @@ interface DiscoveredVideo {
 interface SubmitProductCrawlBody {
   type: 'product-crawl'
   jobId: number
+  crawlVariants: boolean
   results: Array<{
+    sourceVariantId: number
     sourceProductId: number
     sourceUrl: string
     source: SourceSlug
@@ -292,7 +294,7 @@ export async function submitWork(
 }
 
 async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProductCrawlBody) {
-  const { jobId, results } = body
+  const { jobId, results, crawlVariants } = body
   const jlog = log.forJob('product-crawls' as JobCollection, jobId)
   log.info(`submitProductCrawl #${jobId}: ${results.length} results`)
 
@@ -305,10 +307,12 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       try {
         await persistCrawlResult(payload, {
           crawlId: jobId,
+          sourceVariantId: result.sourceVariantId,
           sourceProductId: result.sourceProductId,
           sourceUrl: result.sourceUrl,
           source: result.source,
           data: result.data,
+          crawlVariants,
         })
         crawled++
         log.info(`submitProductCrawl #${jobId}: ok ${result.sourceUrl}`)
@@ -324,7 +328,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     }
   }
 
-  // Count remaining — scoped to this job's sourceUrls if applicable
+  // Count remaining — scoped to this job's source-variant URLs (or source-product IDs when crawlVariants=true)
   let sourceUrls: string[] | undefined
   if (job.type === 'selected_urls') {
     sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
@@ -333,19 +337,39 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
     sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean)
   } else if (job.type === 'selected_gtins') {
+    // GTINs now live on source-variants
     const gtins = ((job.gtins as string) ?? '').split('\n').map((g: string) => g.trim()).filter(Boolean)
-    const products = await payload.find({
-      collection: 'source-products',
+    const variants = await payload.find({
+      collection: 'source-variants',
       where: { gtin: { in: gtins.join(',') } },
       limit: 10000,
     })
-    sourceUrls = products.docs.map((p) => (p as Record<string, unknown>).sourceUrl).filter(Boolean) as string[]
+    sourceUrls = variants.docs.map((v) => (v as Record<string, unknown>).sourceUrl).filter(Boolean) as string[]
+  }
+
+  // When crawlVariants=true and we have scoped URLs, resolve to source-product IDs
+  // so sibling variants (with different URLs) are also counted as remaining work
+  let countOpts: { sourceUrls?: string[]; sourceProductIds?: number[] } | undefined
+  if (crawlVariants && sourceUrls && sourceUrls.length > 0) {
+    const svResult = await payload.find({
+      collection: 'source-variants',
+      where: { sourceUrl: { in: sourceUrls.join(',') } },
+      limit: 100000,
+    })
+    const spIds = [...new Set(svResult.docs.map((doc) => {
+      const sv = doc as Record<string, unknown>
+      const spRef = sv.sourceProduct as number | Record<string, unknown>
+      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+    }))]
+    countOpts = { sourceProductIds: spIds }
+  } else if (sourceUrls) {
+    countOpts = { sourceUrls }
   }
 
   const sources = job.source === 'all' ? ['dm', 'mueller', 'rossmann'] : [job.source as string]
   let totalRemaining = 0
   for (const source of sources) {
-    totalRemaining += await countUncrawled(payload, source as SourceSlug, sourceUrls ? { sourceUrls } : undefined)
+    totalRemaining += await countUncrawled(payload, source as SourceSlug, countOpts)
   }
 
   if (totalRemaining === 0) {

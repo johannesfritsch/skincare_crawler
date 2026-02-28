@@ -536,7 +536,7 @@ export const dmDriver: SourceDriver = {
         for (const group of data.variants.colors) {
           const options = (group.options ?? []).map((opt) => ({
             label: opt.label ?? opt.colorLabel ?? '',
-            value: opt.hex ?? null,
+            value: opt.href ? normalizeProductUrl(`https://www.dm.de${opt.href}`) : null,
             gtin: opt.gtin != null ? String(opt.gtin) : null,
             isSelected: opt.isSelected ?? false,
           }))

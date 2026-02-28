@@ -1289,12 +1289,14 @@ Key details:
 ```typescript
 const payload = await getPayload({ config: await config })
 const db = payload.db.drizzle
-const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products
+const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.source_variants
 
-// Table names are snake_case: products, brands, product_types, source_products
+// Table names are snake_case: products, brands, product_types, source_products, source_variants
 // Column names are camelCase: t.source_products.ratingNum (NOT rating_num)
 // Payload array fields → separate tables: products_ingredients, products_product_claims
 // hasMany relationships → {collection}_rels join table (e.g. products_rels)
+// source_variants has: sourceProduct (FK → source_products), sourceUrl (unique), gtin, variantLabel, variantDimension, isDefault
+// GTINs and sourceUrls live on source_variants, NOT source_products
 
 // Image sizes (from Media collection upload config) are flattened DB columns:
 // sizes_thumbnail_url, sizes_card_url, sizes_detail_url — access via sql template:

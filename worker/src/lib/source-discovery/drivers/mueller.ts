@@ -567,12 +567,20 @@ export const muellerDriver: SourceDriver = {
               const contentEl = tile.querySelector('[class*="product-attribute-tile__content"]')
               const isSelected = contentEl?.className?.includes('--selected') ?? false
 
+              // Build the full variant URL from the link href
               let value: string | null = null
               const link = tile.querySelector('a[href]')
               if (link) {
                 const href = link.getAttribute('href') || ''
-                const itemMatch = href.match(/itemId=(\d+)/)
-                value = itemMatch ? itemMatch[1] : null
+                if (href) {
+                  try {
+                    // Resolve relative hrefs against the current page URL
+                    const fullUrl = new URL(href, window.location.href)
+                    value = fullUrl.href
+                  } catch {
+                    value = null
+                  }
+                }
               }
 
               options.push({ label, value, gtin: tileGtin, isSelected })

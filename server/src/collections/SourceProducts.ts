@@ -11,24 +11,36 @@ export const SourceProducts: CollectionConfig = {
     defaultColumns: ['name', 'brandName', 'source', 'status', 'createdAt'],
     group: 'Content',
     description: 'Products crawled from source stores',
-    listSearchableFields: ['name', 'brandName', 'gtin', 'sourceUrl'],
+    listSearchableFields: ['name', 'brandName'],
     components: {
       edit: {
         SaveButton: '@/components/SourceProductSaveButton',
       },
     },
   },
-  fields: [
-    {
-      name: 'gtin',
-      type: 'text',
-      label: 'GTIN',
-      index: true,
-      admin: {
-        description: 'Global Trade Item Number',
-        position: 'sidebar',
+  hooks: {
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'source-variants',
+          where: { sourceProduct: { equals: id } },
+          req,
+        })
+        await req.payload.delete({
+          collection: 'crawl-results',
+          where: { sourceProduct: { equals: id } },
+          req,
+        })
+        await req.payload.delete({
+          collection: 'discovery-results',
+          where: { sourceProduct: { equals: id } },
+          req,
+        })
       },
-    },
+    ],
+  },
+  fields: [
     {
       name: 'status',
       type: 'select',
@@ -40,17 +52,6 @@ export const SourceProducts: CollectionConfig = {
       ],
       index: true,
       admin: {
-        position: 'sidebar',
-      },
-    },
-    {
-      name: 'sourceUrl',
-      type: 'text',
-      label: 'Source URL',
-      unique: true,
-      index: true,
-      admin: {
-        description: 'URL from which this product was crawled (normalized: no query params, no trailing slash)',
         position: 'sidebar',
       },
     },
@@ -209,46 +210,22 @@ export const SourceProducts: CollectionConfig = {
           label: 'Variants',
           fields: [
             {
-              name: 'variants',
-              type: 'array',
-              label: 'Variant Dimensions',
-              fields: [
-                {
-                  name: 'dimension',
-                  type: 'text',
-                  label: 'Dimension',
-                  required: true,
+              name: 'sourceVariants',
+              type: 'join',
+              collection: 'source-variants',
+              on: 'sourceProduct',
+              admin: {
+                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel', 'isDefault'],
+              },
+            },
+            {
+              name: 'downloadVariantGtins',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '@/components/DownloadVariantGtinsButton',
                 },
-                {
-                  name: 'options',
-                  type: 'array',
-                  label: 'Options',
-                  fields: [
-                    {
-                      name: 'label',
-                      type: 'text',
-                      label: 'Label',
-                      required: true,
-                    },
-                    {
-                      name: 'value',
-                      type: 'text',
-                      label: 'Value',
-                    },
-                    {
-                      name: 'gtin',
-                      type: 'text',
-                      label: 'GTIN',
-                    },
-                    {
-                      name: 'isSelected',
-                      type: 'checkbox',
-                      label: 'Selected',
-                      defaultValue: false,
-                    },
-                  ],
-                },
-              ],
+              },
             },
           ],
         },
