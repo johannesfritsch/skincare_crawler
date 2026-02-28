@@ -9,7 +9,7 @@ export const VideoMentions: CollectionConfig = {
   admin: {
     useAsTitle: 'id',
     defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
-    group: 'Social Media',
+    group: 'Videos',
   },
   fields: [
     {

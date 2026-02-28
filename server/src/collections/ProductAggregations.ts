@@ -11,7 +11,7 @@ export const ProductAggregations: CollectionConfig = {
   admin: {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'aggregated', 'errors', 'startedAt'],
-    group: 'Jobs',
+    group: 'Products',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

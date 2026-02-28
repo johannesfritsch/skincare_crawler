@@ -9,7 +9,7 @@ export const Creators: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'createdAt'],
-    group: 'Social Media',
+    group: 'Videos',
   },
   fields: [
     {

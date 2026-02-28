@@ -10,7 +10,7 @@ export const ProductVariants: CollectionConfig = {
     useAsTitle: 'label',
     defaultColumns: ['label', 'gtin', 'product', 'isDefault', 'createdAt'],
     listSearchableFields: ['gtin', 'label'],
-    group: 'Content',
+    group: 'Products',
   },
   fields: [
     {

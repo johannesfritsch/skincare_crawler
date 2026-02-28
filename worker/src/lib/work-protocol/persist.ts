@@ -160,8 +160,8 @@ export async function persistCrawlResult(
     labels: data.labels?.map((l) => ({ label: l })) ?? [],
     images: data.images,
     priceHistory: [priceEntry, ...existingHistory],
-    rating: data.rating ?? null,
-    ratingNum: data.ratingNum ?? null,
+    rating: data.rating || null,
+    ratingNum: data.ratingNum || null,
     ingredientsText: data.ingredientsText ?? null,
   }
 
@@ -304,8 +304,8 @@ export async function persistDiscoveredProduct(
     brandName: product.brandName,
     name: product.name,
     categoryBreadcrumb: product.category ?? null,
-    rating: product.rating,
-    ratingNum: product.ratingCount,
+    rating: product.rating || null,
+    ratingNum: product.ratingCount || null,
   }
 
   let sourceProductId: number

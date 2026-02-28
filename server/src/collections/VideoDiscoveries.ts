@@ -11,7 +11,7 @@ export const VideoDiscoveries: CollectionConfig = {
   admin: {
     useAsTitle: 'channelUrl',
     defaultColumns: ['channelUrl', 'status', 'discovered', 'created', 'startedAt'],
-    group: 'Jobs',
+    group: 'Videos',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

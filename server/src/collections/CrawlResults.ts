@@ -7,7 +7,7 @@ export const CrawlResults: CollectionConfig = {
     plural: 'Crawl Results',
   },
   admin: {
-    group: 'Jobs',
+    group: 'Products',
     hidden: true,
   },
   fields: [

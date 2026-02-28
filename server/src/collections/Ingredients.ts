@@ -9,7 +9,7 @@ export const Ingredients: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'status', 'crawledAt', 'createdAt'],
-    group: 'Content',
+    group: 'Ingredients',
   },
   fields: [
     {

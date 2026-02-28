@@ -9,7 +9,7 @@ export const VideoSnippets: CollectionConfig = {
   admin: {
     useAsTitle: 'video',
     defaultColumns: ['video', 'timestampStart', 'matchingType', 'referencedProducts'],
-    group: 'Social Media',
+    group: 'Videos',
   },
   fields: [
     // --- Sidebar ---

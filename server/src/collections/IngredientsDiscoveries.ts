@@ -11,7 +11,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
   admin: {
     useAsTitle: 'sourceUrl',
     defaultColumns: ['sourceUrl', 'status', 'discovered', 'created', 'startedAt'],
-    group: 'Jobs',
+    group: 'Ingredients',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

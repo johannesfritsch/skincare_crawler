@@ -10,7 +10,7 @@ export const Products: CollectionConfig = {
     useAsTitle: 'name',
     defaultColumns: ['name', 'brand', 'productType', 'createdAt'],
     listSearchableFields: ['name'],
-    group: 'Content',
+    group: 'Products',
   },
   fields: [
     {

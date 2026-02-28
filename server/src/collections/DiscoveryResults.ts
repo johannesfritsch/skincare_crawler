@@ -7,7 +7,7 @@ export const DiscoveryResults: CollectionConfig = {
     plural: 'Discovery Results',
   },
   admin: {
-    group: 'Jobs',
+    group: 'Products',
     hidden: true,
   },
   fields: [

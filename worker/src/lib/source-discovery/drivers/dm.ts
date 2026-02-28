@@ -455,8 +455,8 @@ export const dmDriver: SourceDriver = {
             ? Math.round(Number(trackingData.price) * 100)
             : undefined,
           currency: trackingData?.currency as string | undefined,
-          rating: ratingData?.ratingValue as number | undefined,
-          ratingCount: ratingData?.ratingCount as number | undefined,
+          rating: (ratingData?.ratingValue as number | undefined) || undefined,
+          ratingCount: (ratingData?.ratingCount as number | undefined) || undefined,
           category: leaf.breadcrumb,
           categoryUrl: leafCategoryUrl,
         })
@@ -523,8 +523,8 @@ export const dmDriver: SourceDriver = {
             ? Math.round(Number(trackingData.price) * 100)
             : undefined,
           currency: trackingData?.currency as string | undefined,
-          rating: ratingData?.ratingValue as number | undefined,
-          ratingCount: ratingData?.ratingCount as number | undefined,
+          rating: (ratingData?.ratingValue as number | undefined) || undefined,
+          ratingCount: (ratingData?.ratingCount as number | undefined) || undefined,
         })
       }
 
@@ -637,8 +637,8 @@ export const dmDriver: SourceDriver = {
         images,
         variants,
         labels,
-        rating: data.rating?.ratingValue ?? undefined,
-        ratingNum: data.rating?.ratingCount ?? undefined,
+        rating: data.rating?.ratingValue || undefined,
+        ratingNum: data.rating?.ratingCount || undefined,
         sourceArticleNumber,
         categoryBreadcrumbs,
         canonicalUrl,

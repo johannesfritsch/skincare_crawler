@@ -11,7 +11,7 @@ export const VideoProcessings: CollectionConfig = {
   admin: {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'processed', 'errors', 'startedAt'],
-    group: 'Jobs',
+    group: 'Videos',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

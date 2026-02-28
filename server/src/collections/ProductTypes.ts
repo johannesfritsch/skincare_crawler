@@ -9,7 +9,7 @@ export const ProductTypes: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'nameDE', 'slug'],
-    group: 'Content',
+    group: 'Products',
     components: {
       beforeList: ['/components/SeedProductTypesButton'],
     },

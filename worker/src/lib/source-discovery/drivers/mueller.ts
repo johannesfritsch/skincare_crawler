@@ -117,7 +117,7 @@ export const muellerDriver: SourceDriver = {
                       filled++
                     }
                   })
-                  rating = filled
+                  rating = filled || null
                 }
                 return { href, name, priceCents, rating }
               }),
@@ -372,7 +372,7 @@ export const muellerDriver: SourceDriver = {
                     filled++
                   }
                 })
-                rating = filled
+                rating = filled || null
               }
               return { href, name, priceCents, rating }
             }),
@@ -576,7 +576,7 @@ export const muellerDriver: SourceDriver = {
                 filled++
               }
             })
-            rating = filled
+            rating = filled || null
           }
 
           const images: Array<{ url: string; alt: string | null }> = []

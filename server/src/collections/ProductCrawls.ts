@@ -11,7 +11,7 @@ export const ProductCrawls: CollectionConfig = {
   admin: {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
-    group: 'Jobs',
+    group: 'Products',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

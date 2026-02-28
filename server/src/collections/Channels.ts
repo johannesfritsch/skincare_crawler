@@ -9,7 +9,7 @@ export const Channels: CollectionConfig = {
   admin: {
     useAsTitle: 'externalUrl',
     defaultColumns: ['creator', 'platform', 'createdAt'],
-    group: 'Social Media',
+    group: 'Videos',
   },
   fields: [
     {

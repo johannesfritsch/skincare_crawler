@@ -7,7 +7,7 @@ export const SearchResults: CollectionConfig = {
     plural: 'Search Results',
   },
   admin: {
-    group: 'Jobs',
+    group: 'Products',
     hidden: true,
   },
   fields: [

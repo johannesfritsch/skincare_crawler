@@ -11,7 +11,7 @@ export const ProductSearches: CollectionConfig = {
   admin: {
     useAsTitle: 'query',
     defaultColumns: ['query', 'sources', 'status', 'discovered', 'created', 'startedAt'],
-    group: 'Jobs',
+    group: 'Products',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

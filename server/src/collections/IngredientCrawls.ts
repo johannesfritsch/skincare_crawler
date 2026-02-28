@@ -11,7 +11,7 @@ export const IngredientCrawls: CollectionConfig = {
   admin: {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
-    group: 'Jobs',
+    group: 'Ingredients',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

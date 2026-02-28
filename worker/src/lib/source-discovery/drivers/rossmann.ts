@@ -117,6 +117,7 @@ export const rossmannDriver: SourceDriver = {
                     rating = (rating > 0 ? rating - 1 : 0) + parseFloat(widthMatch[1]) / 100
                   }
                 }
+                rating = rating || null
                 const spans = ratingsContainer.querySelectorAll('span')
                 const lastSpan = spans[spans.length - 1]
                 if (lastSpan) {
@@ -402,6 +403,7 @@ export const rossmannDriver: SourceDriver = {
                     rating = (rating > 0 ? rating - 1 : 0) + parseFloat(widthMatch[1]) / 100
                   }
                 }
+                rating = rating || null
                 const spans = ratingsContainer.querySelectorAll('span')
                 const lastSpan = spans[spans.length - 1]
                 if (lastSpan) {
