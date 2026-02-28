@@ -49,7 +49,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     .select({
       id: t.products.id,
       name: t.products.name,
-      gtin: t.products.gtin,
+      gtin: t.product_variants.gtin,
       description: t.products.description,
       brandName: t.brands.name,
       productTypeName: t.product_types.name,
@@ -66,7 +66,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
-    .where(eq(t.products.gtin, gtin))
+    .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
+    .where(eq(t.product_variants.gtin, gtin))
     .limit(1)
 
   if (!product) notFound()

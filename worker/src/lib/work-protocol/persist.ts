@@ -749,17 +749,20 @@ export async function persistVideoProcessingResult(
     let referencedProductIds: number[] = []
 
     if (segment.matchingType === 'barcode' && segment.barcode) {
-      // Look up product by GTIN
-      const products = await payload.find({
-        collection: 'products',
+      // Look up product by GTIN via product-variants
+      const variants = await payload.find({
+        collection: 'product-variants',
         where: { gtin: { equals: segment.barcode } },
         limit: 1,
       })
-      if (products.docs.length > 0) {
-        referencedProductIds = [(products.docs[0] as { id: number }).id]
-        log.info(`GTIN ${segment.barcode} → product #${(products.docs[0] as { id: number }).id}`)
+      if (variants.docs.length > 0) {
+        const variant = variants.docs[0] as Record<string, unknown>
+        const productRef = variant.product as number | Record<string, unknown>
+        const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+        referencedProductIds = [pid]
+        log.info(`GTIN ${segment.barcode} → product-variant → product #${pid}`)
       } else {
-        log.info(`No product found for GTIN ${segment.barcode}`)
+        log.info(`No product-variant found for GTIN ${segment.barcode}`)
       }
     } else if (segment.matchingType === 'visual' && segment.recognitionResults) {
       // Match each recognition result via DB + LLM
@@ -904,27 +907,48 @@ export async function persistProductAggregationResult(
     return { productId: 0, tokensUsed: 0, error: 'No data to aggregate from sources' }
   }
 
-  // Find or create Product by GTIN
-  const existingProducts = await payload.find({
-    collection: 'products',
+  // Find or create Product by looking up product-variants by GTIN
+  let productId: number
+  const existingVariants = await payload.find({
+    collection: 'product-variants',
     where: { gtin: { equals: gtin } },
     limit: 1,
   })
 
-  let productId: number
-  if (existingProducts.docs.length > 0) {
-    productId = (existingProducts.docs[0] as { id: number }).id
-    log.info(`persistProductAggregationResult: GTIN=${gtin} → existing product #${productId}`)
+  if (existingVariants.docs.length > 0) {
+    const variant = existingVariants.docs[0] as Record<string, unknown>
+    const productRef = variant.product as number | Record<string, unknown>
+    productId = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+    log.info(`persistProductAggregationResult: GTIN=${gtin} → existing product-variant → product #${productId}`)
   } else {
+    // Create a new product and a default product-variant for this GTIN
     const newProduct = await payload.create({
       collection: 'products',
       data: {
-        gtin,
         name: aggregated.name || undefined,
       },
     }) as { id: number }
     productId = newProduct.id
-    log.info(`persistProductAggregationResult: GTIN=${gtin} → new product #${productId}`)
+
+    // Find source-variants with this GTIN to link to the product-variant
+    const matchingSourceVariants = await payload.find({
+      collection: 'source-variants',
+      where: { gtin: { equals: gtin } },
+      limit: 100,
+    })
+    const sourceVariantIds = matchingSourceVariants.docs.map((sv) => (sv as { id: number }).id)
+
+    await payload.create({
+      collection: 'product-variants',
+      data: {
+        product: productId,
+        gtin,
+        label: aggregated.name || gtin,
+        isDefault: true,
+        ...(sourceVariantIds.length > 0 ? { sourceVariants: sourceVariantIds } : {}),
+      },
+    })
+    log.info(`persistProductAggregationResult: GTIN=${gtin} → new product #${productId} + product-variant`)
   }
 
   const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
@@ -942,10 +966,6 @@ export async function persistProductAggregationResult(
 
   if (aggregated.name) {
     updateData.name = aggregated.name
-  }
-
-  if (aggregated.gtin && !product.gtin) {
-    updateData.gtin = aggregated.gtin
   }
 
   // ── Full scope only: brand matching, ingredient matching, image upload, classification ──
@@ -1008,11 +1028,11 @@ export async function persistProductAggregationResult(
 
           // Derive filename from URL
           const urlPath = new URL(aggregated.selectedImageUrl).pathname
-          const filename = urlPath.split('/').pop() || `product-${gtin}.jpg`
+          const filename = urlPath.split('/').pop() || `product-${productId}.jpg`
 
           const mediaDoc = await payload.create({
             collection: 'media',
-            data: { alt: aggregated.selectedImageAlt || aggregated.name || gtin },
+            data: { alt: aggregated.selectedImageAlt || aggregated.name || `Product ${productId}` },
             file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
           })
           const mediaId = (mediaDoc as { id: number }).id

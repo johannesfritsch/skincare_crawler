@@ -1,6 +1,6 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { desc, eq, gt, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import Link from 'next/link'
 import { ChevronRight, Star, Trophy } from 'lucide-react'
 
@@ -24,9 +24,10 @@ export default async function ListsPage() {
     })
     .from(t.product_types)
     .innerJoin(t.products, eq(t.products.productType, t.product_types.id))
-    .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
+    .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
     .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
-    .where(gt(t.source_products.rating, 0))
+    .where(sql`${t.source_products.rating} > 0 AND ${t.product_variants.isDefault} = true`)
     .groupBy(t.product_types.id, t.product_types.name, t.product_types.slug)
     .orderBy(desc(sql`count(DISTINCT ${t.products.id})`))
 

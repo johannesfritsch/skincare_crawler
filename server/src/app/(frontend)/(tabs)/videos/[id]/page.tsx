@@ -1,6 +1,6 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { eq, sql, asc, inArray } from 'drizzle-orm'
+import { and, eq, sql, asc, inArray } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { VideoDetailClient, type VideoMentionItem, type VideoQuote } from '@/components/video-detail-client'
@@ -92,13 +92,14 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
         snippetId: t.video_mentions.videoSnippet,
         productId: t.video_mentions.product,
         productName: t.products.name,
-        productGtin: t.products.gtin,
+        productGtin: t.product_variants.gtin,
         productImageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
         brandName: t.brands.name,
         overallSentiment: t.video_mentions.overallSentiment,
       })
       .from(t.video_mentions)
       .leftJoin(t.products, eq(t.video_mentions.product, t.products.id))
+      .leftJoin(t.product_variants, and(eq(t.product_variants.product, t.products.id), eq(t.product_variants.isDefault, true)))
       .leftJoin(t.media, eq(t.products.image, t.media.id))
       .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
       .where(inArray(t.video_mentions.videoSnippet, snippetIds))

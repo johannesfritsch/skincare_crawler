@@ -76,6 +76,7 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscovery;
     'ingredient-crawls': IngredientCrawl;
     products: Product;
+    'product-variants': ProductVariant;
     'source-products': SourceProduct;
     'source-variants': SourceVariant;
     'product-discoveries': ProductDiscovery;
@@ -107,6 +108,7 @@ export interface Config {
       events: 'events';
     };
     products: {
+      variants: 'product-variants';
       videoSnippets: 'video-snippets';
       videoMentions: 'video-mentions';
       aggregations: 'product-aggregations';
@@ -159,6 +161,7 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     'ingredient-crawls': IngredientCrawlsSelect<false> | IngredientCrawlsSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
+    'product-variants': ProductVariantsSelect<false> | ProductVariantsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
     'source-variants': SourceVariantsSelect<false> | SourceVariantsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
@@ -989,10 +992,6 @@ export interface ProductAggregation {
 export interface Product {
   id: number;
   name?: string | null;
-  /**
-   * Global Trade Item Number
-   */
-  gtin?: string | null;
   description?: string | null;
   brand?: (number | null) | Brand;
   productType?: (number | null) | ProductType;
@@ -1001,6 +1000,14 @@ export interface Product {
    */
   image?: (number | null) | Media;
   publishedAt?: string | null;
+  /**
+   * Product variants, each with their own GTIN and retailer source links
+   */
+  variants?: {
+    docs?: (number | ProductVariant)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   /**
    * Product warnings extracted from descriptions (e.g. "Avoid contact with eyes")
    */
@@ -1151,6 +1158,36 @@ export interface Product {
    * Links to crawled source product data
    */
   sourceProducts?: (number | SourceProduct)[] | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-variants".
+ */
+export interface ProductVariant {
+  id: number;
+  product: number | Product;
+  /**
+   * Global Trade Item Number for this specific variant
+   */
+  gtin?: string | null;
+  /**
+   * Variant-specific label (e.g. "50ml", "Rose Gold", "SPF 30")
+   */
+  label?: string | null;
+  /**
+   * Variant-specific product image (aggregated from source variants)
+   */
+  image?: (number | null) | Media;
+  /**
+   * Links to retailer-specific variants for this product variant
+   */
+  sourceVariants?: (number | SourceVariant)[] | null;
+  /**
+   * Whether this is the primary variant shown on the product page
+   */
+  isDefault?: boolean | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1607,6 +1644,10 @@ export interface PayloadLockedDocument {
         value: number | Product;
       } | null)
     | ({
+        relationTo: 'product-variants';
+        value: number | ProductVariant;
+      } | null)
+    | ({
         relationTo: 'source-products';
         value: number | SourceProduct;
       } | null)
@@ -1906,12 +1947,12 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
  */
 export interface ProductsSelect<T extends boolean = true> {
   name?: T;
-  gtin?: T;
   description?: T;
   brand?: T;
   productType?: T;
   image?: T;
   publishedAt?: T;
+  variants?: T;
   warnings?: T;
   skinApplicability?: T;
   phMin?: T;
@@ -1973,6 +2014,20 @@ export interface ProductsSelect<T extends boolean = true> {
   aggregations?: T;
   lastAggregatedAt?: T;
   sourceProducts?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-variants_select".
+ */
+export interface ProductVariantsSelect<T extends boolean = true> {
+  product?: T;
+  gtin?: T;
+  label?: T;
+  image?: T;
+  sourceVariants?: T;
+  isDefault?: T;
   updatedAt?: T;
   createdAt?: T;
 }

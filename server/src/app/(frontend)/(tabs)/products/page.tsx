@@ -1,6 +1,6 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { desc, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, or, sql } from 'drizzle-orm'
 import React, { Suspense } from 'react'
 import Link from 'next/link'
 import { ProductSearch } from '@/components/product-search'
@@ -36,7 +36,7 @@ export default async function ProductsPage({ searchParams }: Props) {
     .select({
       id: t.products.id,
       name: t.products.name,
-      gtin: t.products.gtin,
+      gtin: t.product_variants.gtin,
       brandName: t.brands.name,
       productTypeName: t.product_types.name,
       avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
@@ -44,7 +44,8 @@ export default async function ProductsPage({ searchParams }: Props) {
       imageUrl: sql<string | null>`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`,
     })
     .from(t.products)
-    .leftJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
+    .leftJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
     .leftJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
@@ -52,7 +53,7 @@ export default async function ProductsPage({ searchParams }: Props) {
     .groupBy(
       t.products.id,
       t.products.name,
-      t.products.gtin,
+      t.product_variants.gtin,
       t.brands.name,
       t.product_types.name,
       sql`${t.media}.sizes_card_url`,
@@ -66,18 +67,22 @@ export default async function ProductsPage({ searchParams }: Props) {
   let countQuery = db
     .select({ count: sql<number>`count(*)` })
     .from(t.products)
+    .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .$dynamic()
 
   if (searchTerm) {
     const pattern = `%${searchTerm}%`
-    const whereClause = or(
+    const searchFilter = or(
       ilike(t.products.name, pattern),
-      ilike(t.products.gtin, pattern),
+      ilike(t.product_variants.gtin, pattern),
       ilike(t.brands.name, pattern),
     )
-    query = query.where(whereClause)
-    countQuery = countQuery.where(whereClause)
+    query = query.where(and(eq(t.product_variants.isDefault, true), searchFilter))
+    countQuery = countQuery.where(and(eq(t.product_variants.isDefault, true), searchFilter))
+  } else {
+    query = query.where(eq(t.product_variants.isDefault, true))
+    countQuery = countQuery.where(eq(t.product_variants.isDefault, true))
   }
 
   const [rows, countResult] = await Promise.all([query, countQuery])

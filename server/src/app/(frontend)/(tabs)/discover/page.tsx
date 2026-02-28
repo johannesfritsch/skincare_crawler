@@ -1,6 +1,6 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { desc, eq, gt, isNotNull, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { ProductCard } from '@/components/product-card'
 import { starsToScore10 } from '@/lib/score-utils'
 
@@ -25,7 +25,7 @@ export default async function DiscoverPage() {
   const columns = {
     id: t.products.id,
     name: t.products.name,
-    gtin: t.products.gtin,
+    gtin: t.product_variants.gtin,
     brandName: t.brands.name,
     productTypeName: t.product_types.name,
     avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
@@ -37,7 +37,7 @@ export default async function DiscoverPage() {
   const groupCols = [
     t.products.id,
     t.products.name,
-    t.products.gtin,
+    t.product_variants.gtin,
     t.brands.name,
     t.product_types.name,
     sql`${t.media}.sizes_card_url`,
@@ -48,12 +48,13 @@ export default async function DiscoverPage() {
   const topProducts = await db
     .select(columns)
     .from(t.products)
-    .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
+    .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
     .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
-    .where(gt(t.source_products.rating, 0))
+    .where(sql`${t.source_products.rating} > 0 AND ${t.product_variants.isDefault} = true`)
     .groupBy(...groupCols)
     .orderBy(desc(sql`avg(${t.source_products.rating})`))
     .limit(100)
@@ -73,12 +74,13 @@ export default async function DiscoverPage() {
   const recentProducts = await db
     .select(columns)
     .from(t.products)
-    .leftJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
+    .leftJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
     .leftJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
-    .where(isNotNull(t.products.name))
+    .where(sql`${t.products.name} IS NOT NULL AND ${t.product_variants.isDefault} = true`)
     .groupBy(...groupCols)
     .orderBy(desc(t.products.createdAt))
     .limit(12)

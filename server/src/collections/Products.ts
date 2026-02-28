@@ -8,8 +8,8 @@ export const Products: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'gtin', 'brand', 'productType', 'createdAt'],
-    listSearchableFields: ['name', 'gtin'],
+    defaultColumns: ['name', 'brand', 'productType', 'createdAt'],
+    listSearchableFields: ['name'],
     group: 'Content',
   },
   fields: [
@@ -29,16 +29,6 @@ export const Products: CollectionConfig = {
                 }
                 return true
               },
-            },
-            {
-              name: 'gtin',
-              type: 'text',
-              label: 'GTIN',
-              unique: true,
-              admin: {
-                description: 'Global Trade Item Number',
-              },
-              index: true,
             },
             {
               name: 'description',
@@ -74,6 +64,21 @@ export const Products: CollectionConfig = {
                 date: {
                   pickerAppearance: 'dayAndTime',
                 },
+              },
+            },
+          ],
+        },
+        {
+          label: 'Variants',
+          fields: [
+            {
+              name: 'variants',
+              type: 'join',
+              collection: 'product-variants',
+              on: 'product',
+              admin: {
+                defaultColumns: ['label', 'gtin', 'isDefault'],
+                description: 'Product variants, each with their own GTIN and retailer source links',
               },
             },
           ],

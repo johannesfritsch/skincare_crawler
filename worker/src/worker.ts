@@ -831,13 +831,16 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           // Gather all unique product IDs from segment recognition results
           for (const seg of segmentResults) {
             if (seg.matchingType === 'barcode' && seg.barcode) {
-              const products = await client.find({
-                collection: 'products',
+              const variants = await client.find({
+                collection: 'product-variants',
                 where: { gtin: { equals: seg.barcode as string } },
                 limit: 1,
               })
-              if (products.docs.length > 0) {
-                referencedProductIds.add((products.docs[0] as { id: number }).id)
+              if (variants.docs.length > 0) {
+                const variant = variants.docs[0] as Record<string, unknown>
+                const productRef = variant.product as number | Record<string, unknown>
+                const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+                referencedProductIds.add(pid)
               }
             } else if (seg.recognitionResults) {
               // Visual product IDs will be resolved in persist, but for sentiment
@@ -891,13 +894,16 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             const segProductIds: number[] = []
 
             if (seg.matchingType === 'barcode' && seg.barcode) {
-              const products = await client.find({
-                collection: 'products',
+              const variants = await client.find({
+                collection: 'product-variants',
                 where: { gtin: { equals: seg.barcode as string } },
                 limit: 1,
               })
-              if (products.docs.length > 0) {
-                segProductIds.push((products.docs[0] as { id: number }).id)
+              if (variants.docs.length > 0) {
+                const variant = variants.docs[0] as Record<string, unknown>
+                const productRef = variant.product as number | Record<string, unknown>
+                const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+                segProductIds.push(pid)
               }
             } else if (seg.recognitionResults) {
               for (const recog of seg.recognitionResults as Array<{ brand: string | null; productName: string | null; searchTerms: string[] }>) {
