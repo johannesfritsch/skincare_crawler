@@ -48,7 +48,8 @@ export default async function DiscoverPage() {
   const topProducts = await db
     .select(columns)
     .from(t.products)
-    .innerJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
+    .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
@@ -72,7 +73,8 @@ export default async function DiscoverPage() {
   const recentProducts = await db
     .select(columns)
     .from(t.products)
-    .leftJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
+    .leftJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .leftJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))

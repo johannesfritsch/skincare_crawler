@@ -966,7 +966,6 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     gtin: string
     sourceProducts: Array<{
       id: number
-      gtin: string | null
       name: string | null
       brandName: string | null
       source: string | null
@@ -993,7 +992,6 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       const aggregated = aggregateFromSources(
         item.sourceProducts.map((sp) => ({
           id: sp.id,
-          gtin: sp.gtin ?? undefined,
           name: sp.name ?? undefined,
           brandName: sp.brandName ?? undefined,
           source: sp.source ?? undefined,

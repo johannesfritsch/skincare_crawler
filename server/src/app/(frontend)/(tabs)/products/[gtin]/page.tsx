@@ -118,16 +118,17 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       .leftJoin(t.source_products, eq(t.products_product_attributes.sourceProduct, t.source_products.id))
       .where(eq(t.products_product_attributes._parentID, productId)),
 
-    /* Source products */
+    /* Source products (joined via source_variants by GTIN) */
     db.select({
       id: t.source_products.id,
       source: t.source_products.source,
       name: t.source_products.name,
-      sourceUrl: t.source_products.sourceUrl,
+      sourceUrl: t.source_variants.sourceUrl,
       rating: t.source_products.rating,
       ratingNum: t.source_products.ratingNum,
-    }).from(t.source_products)
-      .where(eq(t.source_products.gtin, gtin)),
+    }).from(t.source_variants)
+      .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
+      .where(eq(t.source_variants.gtin, gtin)),
 
     /* Video mentions for this product */
     db.select({

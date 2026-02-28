@@ -1297,6 +1297,11 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 // hasMany relationships → {collection}_rels join table (e.g. products_rels)
 // source_variants has: sourceProduct (FK → source_products), sourceUrl (unique), gtin, variantLabel, variantDimension, isDefault
 // GTINs and sourceUrls live on source_variants, NOT source_products
+//
+// To join products → source_products (for ratings, etc.), go through source_variants:
+//   .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+//   .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
+// Use leftJoin instead of innerJoin when products without source data should still appear.
 
 // Image sizes (from Media collection upload config) are flattened DB columns:
 // sizes_thumbnail_url, sizes_card_url, sizes_detail_url — access via sql template:

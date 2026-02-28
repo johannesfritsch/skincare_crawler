@@ -44,7 +44,8 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
       imageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
     })
     .from(t.products)
-    .innerJoin(t.source_products, eq(t.source_products.gtin, t.products.gtin))
+    .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.products.gtin))
+    .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
     .where(eq(t.products.productType, productType.id))

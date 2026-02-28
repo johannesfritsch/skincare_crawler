@@ -645,7 +645,6 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     gtin: string
     sourceProducts: Array<{
       id: number
-      gtin: string | null
       name: string | null
       brandName: string | null
       source: string | null
@@ -661,7 +660,6 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   function toSourceProductData(sp: Record<string, unknown>) {
     return {
       id: sp.id as number,
-      gtin: (sp.gtin as string) ?? null,
       name: (sp.name as string) ?? null,
       brandName: (sp.brandName as string) ?? null,
       source: (sp.source as string) ?? null,
@@ -673,6 +671,38 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
             .map((img) => ({ url: img.url!, alt: img.alt ?? null }))
         : null,
     }
+  }
+
+  // Helper: find all crawled source-products that have a source-variant with the given GTIN
+  async function findSourceProductsByGtin(gtin: string): Promise<Record<string, unknown>[]> {
+    // Find source-variants with this GTIN
+    const variants = await payload.find({
+      collection: 'source-variants',
+      where: { gtin: { equals: gtin } },
+      limit: 100,
+    })
+    if (variants.docs.length === 0) return []
+
+    // Get unique parent source-product IDs
+    const spIds = [...new Set(variants.docs.map((v) => {
+      const sv = v as Record<string, unknown>
+      const spRef = sv.sourceProduct as number | Record<string, unknown>
+      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+    }))]
+
+    // Fetch only crawled source-products
+    const result = await payload.find({
+      collection: 'source-products',
+      where: {
+        and: [
+          { id: { in: spIds.join(',') } },
+          { status: { equals: 'crawled' } },
+        ],
+      },
+      limit: 100,
+    })
+
+    return result.docs as Record<string, unknown>[]
   }
 
   if (aggregationType === 'selected_gtins') {
@@ -689,25 +719,13 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     }
 
     for (const gtin of gtinList) {
-      const allSources = await payload.find({
-        collection: 'source-products',
-        where: {
-          and: [
-            { gtin: { equals: gtin } },
-            { status: { equals: 'crawled' } },
-          ],
-        },
-        limit: 100,
-      })
+      const sourceDocs = await findSourceProductsByGtin(gtin)
+      if (sourceDocs.length === 0) continue
 
-      if (allSources.docs.length === 0) continue
-
-      const sourceProducts = allSources.docs.map((sp) => toSourceProductData(sp as Record<string, unknown>))
-
-      workItems.push({ gtin, sourceProducts })
+      workItems.push({ gtin, sourceProducts: sourceDocs.map(toSourceProductData) })
     }
   } else {
-    // 'all' type — cursor-based
+    // 'all' type — cursor-based: iterate crawled source-products, look up GTINs from their variants
     const lastCheckedSourceId = (job.lastCheckedSourceId as number) || 0
 
     const sourceProducts = await payload.find({
@@ -733,35 +751,41 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       return { type: 'none' }
     }
 
-    // Collect unique GTINs, up to itemsPerTick
+    // For each source-product, look up GTINs from its variants and collect unique GTINs
     const seenGtins = new Set<string>()
     let lastId = lastCheckedSourceId
 
     for (const doc of sourceProducts.docs) {
       const sp = doc as Record<string, unknown>
       lastId = sp.id as number
-      if (!sp.gtin) continue
-      if (seenGtins.has(sp.gtin as string)) continue
       if (seenGtins.size >= itemsPerTick) break
-      seenGtins.add(sp.gtin as string)
-    }
 
-    // For each unique GTIN, fetch all crawled source products
-    for (const gtin of seenGtins) {
-      const allSources = await payload.find({
-        collection: 'source-products',
+      // Look up GTINs from this source-product's variants
+      const variants = await payload.find({
+        collection: 'source-variants',
         where: {
           and: [
-            { gtin: { equals: gtin } },
-            { status: { equals: 'crawled' } },
+            { sourceProduct: { equals: sp.id as number } },
+            { gtin: { exists: true } },
           ],
         },
         limit: 100,
       })
 
-      const spData = allSources.docs.map((sp) => toSourceProductData(sp as Record<string, unknown>))
+      for (const v of variants.docs) {
+        const gtin = (v as Record<string, unknown>).gtin as string
+        if (gtin && !seenGtins.has(gtin)) {
+          seenGtins.add(gtin)
+        }
+      }
+    }
 
-      workItems.push({ gtin, sourceProducts: spData })
+    // For each unique GTIN, fetch all crawled source-products that share it
+    for (const gtin of seenGtins) {
+      const sourceDocs = await findSourceProductsByGtin(gtin)
+      if (sourceDocs.length === 0) continue
+
+      workItems.push({ gtin, sourceProducts: sourceDocs.map(toSourceProductData) })
     }
 
     const gtinsList = workItems.map((w) => w.gtin).join(', ')

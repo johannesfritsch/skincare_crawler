@@ -52,7 +52,7 @@ worker/src/
     ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
     ├── match-product.ts              # matchProduct(client, brand, name, terms) — LLM-powered
     ├── classify-product.ts           # classifyProduct(client, sources, lang) — LLM-powered
-    └── aggregate-product.ts          # aggregateFromSources(sourceProducts) — pure logic
+    └── aggregate-product.ts          # aggregateFromSources(sourceProducts) — pure logic (no GTIN; GTIN comes from work item)
 ```
 
 ## Main Loop (`worker.ts`)
@@ -244,11 +244,11 @@ Dispatches to per-type submit handlers. Each handler:
 
 ```
 1. aggregateFromSources(sourceProducts, { imageSourcePriority })    → merged data (pure logic)
-   - GTIN: first non-null
    - Name: longest string
    - Brand: first non-null
    - Ingredients: from source with longest raw text
    - Image: first image from highest-priority source (configurable via imageSourcePriority, default: dm > rossmann > mueller)
+   Note: GTIN comes from the work item (resolved via source-variants in claim), not from source products
 2. [full scope only] classifyProduct(client, sources, lang)  → LLM classification
    - Product type, attributes, claims with evidence
 3. Submit results
@@ -269,6 +269,8 @@ Dispatches to per-type submit handlers. Each handler:
 - Computes score history (always): fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
+
+**GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches the crawled source-products. The GTIN is passed as a top-level field on each work item; individual source products do not carry GTINs.
 
 ### 7. ingredient-crawl
 

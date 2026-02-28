@@ -1,5 +1,4 @@
 interface AggregatedData {
-  gtin?: string
   name?: string
   description?: string
   brandName?: string
@@ -10,7 +9,6 @@ interface AggregatedData {
 
 interface SourceProductData {
   id: number
-  gtin?: string | null
   name?: string | null
   brandName?: string | null
   source?: string | null
@@ -29,10 +27,6 @@ export function aggregateFromSources(sourceProducts: SourceProductData[], option
   if (sourceProducts.length === 0) return null
 
   const aggregated: AggregatedData = {}
-
-  // GTIN: take from first source (they all share the same GTIN)
-  const gtin = sourceProducts.find((sp) => sp.gtin)?.gtin
-  if (gtin) aggregated.gtin = gtin
 
   // Name: pick the longest non-null name (most complete, e.g. includes variant label)
   const names = sourceProducts.map((sp) => sp.name).filter((n): n is string => !!n)
