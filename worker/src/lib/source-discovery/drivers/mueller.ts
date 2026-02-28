@@ -1,4 +1,4 @@
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
@@ -305,6 +305,124 @@ export const muellerDriver: SourceDriver = {
     const done = queue.length === 0 && !currentLeaf
     log.info(`Tick done: ${pagesUsed} pages used, done=${done}`)
     return { done, pagesUsed }
+  },
+
+  async searchProducts(
+    options: ProductSearchOptions,
+  ): Promise<ProductSearchResult> {
+    const { query, maxResults = 50, debug = false } = options
+    const products: import('../types').DiscoveredProduct[] = []
+
+    log.info(`Searching Mueller for "${query}" (maxResults=${maxResults})`)
+
+    const browser = await launchBrowser({ headless: !debug })
+    try {
+      const page = await browser.newPage()
+
+      // Navigate to search page
+      const searchUrl = `https://www.mueller.de/search/?q=${encodeURIComponent(query)}`
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('a[data-track-id="product"], [class*="search-no-results"]', { timeout: 15000 }).catch(() => {})
+      await sleep(randomDelay(1000, 2000))
+
+      // Get the last page number from pagination links (1-based)
+      function getLastPage() {
+        return page.$$eval(
+          'a[data-testid^="pageLink-"]',
+          (links) => {
+            let max = 1
+            for (const link of links) {
+              const testId = link.getAttribute('data-testid') || ''
+              const match = testId.match(/pageLink-(\d+)/)
+              if (match) {
+                const num = parseInt(match[1], 10)
+                if (num > max) max = num
+              }
+            }
+            return max
+          },
+        ).catch(() => 1)
+      }
+
+      // Scrape product tiles on the current page
+      function scrapeSearchTiles() {
+        return page.$$eval(
+          'a[data-track-id="product"]',
+          (links) =>
+            links.map((link) => {
+              const href = link.getAttribute('href') || ''
+              const name = link.getAttribute('aria-label') || ''
+              const priceEl = link.querySelector('span[data-track-id="priceContainer"]')
+              const priceText = priceEl?.textContent?.trim() || ''
+              const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
+              let priceCents: number | null = null
+              if (priceMatch) {
+                priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
+              }
+              // Rating: count filled star images (not empty ones)
+              const starImages = link.querySelectorAll('[class*="star-rating"] img, [class*="star-rating"] svg')
+              let rating: number | null = null
+              if (starImages.length > 0) {
+                let filled = 0
+                starImages.forEach((img) => {
+                  const src = img.getAttribute('src') || img.getAttribute('href') || ''
+                  const alt = img.getAttribute('alt') || ''
+                  const cls = img.getAttribute('class') || ''
+                  if (!src.includes('star-rating-empty') && !alt.includes('star-rating-empty') && !cls.includes('empty')) {
+                    filled++
+                  }
+                })
+                rating = filled
+              }
+              return { href, name, priceCents, rating }
+            }),
+        )
+      }
+
+      // Scrape all pages
+      let currentPage = 1
+      while (products.length < maxResults) {
+        const tiles = await scrapeSearchTiles()
+        log.info(`Search page ${currentPage}: found ${tiles.length} product tiles`)
+
+        for (const t of tiles) {
+          if (products.length >= maxResults) break
+          const rawUrl = t.href
+            ? (t.href.startsWith('http') ? t.href : `https://www.mueller.de${t.href}`)
+            : null
+          const productUrl = rawUrl ? normalizeProductUrl(rawUrl) : null
+          if (!productUrl) continue
+          products.push({
+            productUrl,
+            name: t.name || undefined,
+            price: t.priceCents ?? undefined,
+            currency: 'EUR',
+            rating: t.rating ?? undefined,
+          })
+        }
+
+        // Check if there are more pages
+        const lastPage = await getLastPage()
+        if (currentPage >= lastPage || products.length >= maxResults) break
+
+        currentPage++
+        const nextUrl = `https://www.mueller.de/search/?q=${encodeURIComponent(query)}&page=${currentPage}`
+        log.info(`Navigating to search page ${currentPage}: ${nextUrl}`)
+        await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
+        await page.waitForSelector('a[data-track-id="product"]', { timeout: 15000 }).catch(() => {})
+        await sleep(randomDelay(1000, 2000))
+      }
+
+      if (debug) {
+        log.info(`Debug mode: browser kept open. Press "Resume" in the Playwright inspector to continue.`)
+        await page.pause()
+      }
+    } finally {
+      await browser.close()
+    }
+
+    log.info(`Mueller search for "${query}": ${products.length} products found`)
+    return { products }
   },
 
   async scrapeProduct(

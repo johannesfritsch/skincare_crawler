@@ -29,7 +29,7 @@ export const Workers: CollectionConfig = {
       options: [
         { label: 'Product Crawl', value: 'product-crawl' },
         { label: 'Product Discovery', value: 'product-discovery' },
-
+        { label: 'Product Search', value: 'product-search' },
         { label: 'Ingredients Discovery', value: 'ingredients-discovery' },
         { label: 'Video Discovery', value: 'video-discovery' },
         { label: 'Video Processing', value: 'video-processing' },

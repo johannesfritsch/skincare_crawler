@@ -75,7 +75,7 @@ OPENAI_API_KEY=sk-...            # for LLM tasks
 DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 ```
 
-## Database Schema (22 Collections)
+## Database Schema (26 Collections)
 
 ### Core Data
 
@@ -108,6 +108,7 @@ All job collections have `claimedBy` (relationship to workers) and `claimedAt` (
 |------------|------------|
 | `product-crawls` | source, type (all/selected_urls/selected_gtins/from_discovery), scope, crawlVariants (default true), progress |
 | `product-discoveries` | sourceUrls, progress, discovered/created/existing counts |
+| `product-searches` | query, sources (dm/mueller/rossmann), maxResults, discovered/created/existing counts |
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
 | `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), created/existing/discovered counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
@@ -124,6 +125,7 @@ All job collections have `claimedBy` (relationship to workers) and `claimedAt` (
 | `media` | File uploads |
 | `crawl-results` | Join table: product-crawls → source-products (hidden) |
 | `discovery-results` | Join table: product-discoveries → source-products (hidden) |
+| `search-results` | Join table: product-searches → source-products (hidden) |
 
 ## End-to-End Data Flow
 

@@ -146,7 +146,7 @@ Dispatches to per-type submit handlers. Each handler:
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
 | `persistProductAggregationResult()` | Creates/updates `products`; [full only] runs matchBrand, parses raw ingredientsText via `parseIngredients()` LLM call then matchIngredients, uploads image, applies classification (productType, attributes, claims with evidence); [always] computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
 
-## 6 Job Types — Detailed
+## 8 Job Types — Detailed
 
 ### 1. product-crawl
 
@@ -176,14 +176,27 @@ Dispatches to per-type submit handlers. Each handler:
 
 **Key params**: `maxPages` (pages per tick), `delay` (ms between requests, default 2000)
 
-### 3. ingredients-discovery
+### 3. product-search
+
+**Handler**: `handleProductSearch()`
+**Flow**: For each selected source → `getSourceDriverBySlug(slug)` → `driver.searchProducts({ query, maxResults })` → collect all results → submit all at once → complete
+
+**One-shot job**: Unlike discovery, search jobs run to completion in a single claim cycle. No pagination state, no resumption needed.
+
+**Key params**: `query` (search text), `sources` (dm/mueller/rossmann, multi-select), `maxResults` (per source, default 50)
+
+**Persistence**: Reuses `persistDiscoveredProduct()` from discovery pipeline. Creates `search-results` join records (not `discovery-results`). Each result tracks which source it came from.
+
+**Driver support**: All three drivers fully implemented. DM uses API-based search (`product-search.services.dmtech.com`). Rossmann and Mueller use Playwright-based browser scraping of their search pages (`/de/search?text=` and `/search/?q=` respectively), with pagination support.
+
+### 4. ingredients-discovery
 
 **Handler**: `handleIngredientsDiscovery()`
 **Flow**: `getIngredientsDriver(url)` → crawls CosIng → yields `ScrapedIngredientData[]` → submit
 
 **Resumption**: Stores `currentTerm`, `currentPage`, `totalPagesForTerm`, `termQueue` (list of search terms to process)
 
-### 4. video-discovery
+### 5. video-discovery
 
 **Handler**: `handleVideoDiscovery()`
 **Flow**: `getVideoDriver(channelUrl)` → `driver.discoverVideoPage(url, { startIndex, endIndex })` → submit batch → release claim → repeat until end of channel or `maxVideos` reached
@@ -194,7 +207,7 @@ Dispatches to per-type submit handlers. Each handler:
 
 **Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails. Fetches the channel avatar (from YouTube `og:image` meta tag) and always updates the `channels.image` field — both for new and existing channels.
 
-### 5. video-processing
+### 6. video-processing
 
 **Handler**: `handleVideoProcessing()` (~700 lines, most complex handler)
 **Flow per video**:
@@ -237,7 +250,7 @@ Dispatches to per-type submit handlers. Each handler:
 
 **Persistence**: Creates `video-snippets` per segment (with referencedProducts + transcript fields). Creates `video-mentions` linking snippets to products with quotes and sentiment (only when transcript data exists). Saves full transcript + word timestamps on the video. For visual matches, calls `matchProduct()` to find/create product records.
 
-### 6. product-aggregation
+### 7. product-aggregation
 
 **Handler**: `handleProductAggregation()`
 **Flow per GTIN**:
@@ -272,7 +285,7 @@ Dispatches to per-type submit handlers. Each handler:
 
 **GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches the crawled source-products. The GTIN is passed as a top-level field on each work item; individual source products do not carry GTINs.
 
-### 7. ingredient-crawl
+### 8. ingredient-crawl
 
 **Handler**: `handleIngredientCrawl()`
 **Flow per ingredient**:
@@ -300,6 +313,7 @@ interface SourceDriver {
   logoSvg: string            // inline SVG markup for the store logo (used in frontend UI)
   matches(url: string): boolean
   discoverProducts(options: ProductDiscoveryOptions): Promise<ProductDiscoveryResult>
+  searchProducts(options: ProductSearchOptions): Promise<ProductSearchResult>
   scrapeProduct(url: string, options?: { debug?: boolean }): Promise<ScrapedProductData | null>
 }
 ```

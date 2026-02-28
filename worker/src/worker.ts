@@ -276,6 +276,47 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
   )
 }
 
+async function handleProductSearch(work: Record<string, unknown>): Promise<void> {
+  const jobId = work.jobId as number
+  const query = work.query as string
+  const sources = work.sources as string[]
+  const maxResults = (work.maxResults as number) ?? 50
+  const debug = (work.debug as boolean) ?? false
+
+  log.info(`handleProductSearch #${jobId}: query="${query}", sources=[${sources.join(', ')}], maxResults=${maxResults}`)
+
+  const allProducts: Array<{ product: DiscoveredProduct; source: string }> = []
+
+  for (const sourceSlug of sources) {
+    const driver = getSourceDriverBySlug(sourceSlug)
+    if (!driver) {
+      log.warn(`handleProductSearch #${jobId}: no driver for source "${sourceSlug}", skipping`)
+      continue
+    }
+
+    try {
+      const result = await driver.searchProducts({ query, maxResults, debug })
+      log.info(`handleProductSearch #${jobId}: ${driver.label} returned ${result.products.length} products`)
+
+      for (const product of result.products) {
+        allProducts.push({ product, source: sourceSlug })
+      }
+    } catch (e) {
+      log.error(`handleProductSearch #${jobId}: error searching ${driver.label}: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+
+  log.info(`handleProductSearch #${jobId}: ${allProducts.length} total products across ${sources.length} sources`)
+
+  await submitWork(client, worker, {
+    type: 'product-search',
+    jobId,
+    products: allProducts as Array<{ product: DiscoveredProduct; source: import('@/lib/source-product-queries').SourceSlug }>,
+  } as Parameters<typeof submitWork>[2])
+
+  log.info(`Submitted search results: ${allProducts.length} products`)
+}
+
 async function handleIngredientsDiscovery(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const sourceUrl = work.sourceUrl as string
@@ -1371,6 +1412,9 @@ async function main(): Promise<void> {
           break
         case 'product-discovery':
           await handleProductDiscovery(work)
+          break
+        case 'product-search':
+          await handleProductSearch(work)
           break
         case 'ingredients-discovery':
           await handleIngredientsDiscovery(work)

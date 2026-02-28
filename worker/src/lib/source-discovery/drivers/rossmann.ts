@@ -1,4 +1,4 @@
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../types'
 import { launchBrowser } from '@/lib/browser'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
@@ -331,6 +331,135 @@ export const rossmannDriver: SourceDriver = {
     const done = queue.length === 0 && !currentLeaf
     log.info(`Tick done: ${pagesUsed} pages used, done=${done}`)
     return { done, pagesUsed }
+  },
+
+  async searchProducts(
+    options: ProductSearchOptions,
+  ): Promise<ProductSearchResult> {
+    const { query, maxResults = 50, debug = false } = options
+    const products: import('../types').DiscoveredProduct[] = []
+
+    log.info(`Searching Rossmann for "${query}" (maxResults=${maxResults})`)
+
+    const browser = await launchBrowser({ headless: !debug })
+    try {
+      const page = await browser.newPage()
+
+      // Navigate to search page
+      const searchUrl = `https://www.rossmann.de/de/search?text=${encodeURIComponent(query)}`
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('[data-testid="product-card"], [data-testid="search-no-results"]', { timeout: 15000 }).catch(() => {})
+      await sleep(randomDelay(1000, 2000))
+
+      // Get total page count from pagination links (0-based index in testid, but represents page numbers)
+      function getLastPageIndex() {
+        return page.$$eval(
+          'a[data-testid^="search-page-"]',
+          (links) => {
+            let max = 0
+            for (const link of links) {
+              const testId = link.getAttribute('data-testid') || ''
+              const match = testId.match(/search-page-(\d+)/)
+              if (match) {
+                const idx = parseInt(match[1], 10) - 1
+                if (idx > max) max = idx
+              }
+            }
+            return max
+          },
+        ).catch(() => 0)
+      }
+
+      // Scrape product cards on the current page
+      function scrapeSearchCards() {
+        return page.$$eval(
+          '[data-testid="product-card"]',
+          (cards) =>
+            cards.map((card) => {
+              const gtin = card.getAttribute('data-item-ean') || ''
+              const name = card.getAttribute('data-item-name') || ''
+              const brand = card.getAttribute('data-item-brand') || ''
+              const imageLink = card.querySelector('figure[data-testid="product-image"] a[href]')
+              const href = imageLink?.getAttribute('href') || ''
+              const priceEl = card.querySelector('[data-testid="product-price"] .sr-only')
+              const priceText = priceEl?.textContent || ''
+              const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
+              let priceCents: number | null = null
+              if (priceMatch) {
+                priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
+              }
+              const ratingsContainer = card.querySelector('[data-testid="product-ratings"]')
+              let rating: number | null = null
+              let ratingCount: number | null = null
+              if (ratingsContainer) {
+                const filledStars = ratingsContainer.querySelectorAll('svg.text-red')
+                rating = filledStars.length
+                const partialContainer = ratingsContainer.querySelector('[style*="width"]')
+                if (partialContainer) {
+                  const style = partialContainer.getAttribute('style') || ''
+                  const widthMatch = style.match(/width:\s*([\d.]+)%/)
+                  if (widthMatch) {
+                    rating = (rating > 0 ? rating - 1 : 0) + parseFloat(widthMatch[1]) / 100
+                  }
+                }
+                const spans = ratingsContainer.querySelectorAll('span')
+                const lastSpan = spans[spans.length - 1]
+                if (lastSpan) {
+                  const countMatch = lastSpan.textContent?.match(/(\d+)/)
+                  if (countMatch) {
+                    ratingCount = parseInt(countMatch[1], 10)
+                  }
+                }
+              }
+              return { gtin, name, brand, href, priceCents, rating, ratingCount }
+            }),
+        )
+      }
+
+      // Scrape all pages
+      let pageIndex = 0
+      while (products.length < maxResults) {
+        const cards = await scrapeSearchCards()
+        log.info(`Search page ${pageIndex}: found ${cards.length} product cards`)
+
+        for (const p of cards) {
+          if (products.length >= maxResults) break
+          const productUrl = p.href ? normalizeProductUrl(`https://www.rossmann.de${p.href}`) : null
+          if (!productUrl) continue
+          products.push({
+            gtin: p.gtin || undefined,
+            productUrl,
+            brandName: p.brand || undefined,
+            name: p.name || undefined,
+            price: p.priceCents ?? undefined,
+            currency: 'EUR',
+            rating: p.rating ?? undefined,
+            ratingCount: p.ratingCount ?? undefined,
+          })
+        }
+
+        // Check if there are more pages
+        const lastIdx = await getLastPageIndex()
+        if (pageIndex >= lastIdx || products.length >= maxResults) break
+
+        pageIndex++
+        const nextUrl = `https://www.rossmann.de/de/search?text=${encodeURIComponent(query)}&pageIndex=${pageIndex}`
+        log.info(`Navigating to search page ${pageIndex}: ${nextUrl}`)
+        await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
+        await page.waitForSelector('[data-testid="product-card"]', { timeout: 15000 }).catch(() => {})
+        await sleep(randomDelay(1000, 2000))
+      }
+
+      if (debug) {
+        log.info(`Debug mode: browser kept open. Press "Resume" in the Playwright inspector to continue.`)
+        await page.pause()
+      }
+    } finally {
+      await browser.close()
+    }
+
+    log.info(`Rossmann search for "${query}": ${products.length} products found`)
+    return { products }
   },
 
   async scrapeProduct(

@@ -5,7 +5,7 @@ import type { SourceSlug } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 import type { JobCollection } from '@/lib/logger'
 
-type JobType = 'product-crawl' | 'product-discovery' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
+type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
 interface ActiveJob {
   type: JobType
@@ -18,6 +18,7 @@ interface ActiveJob {
 const JOB_TYPE_TO_COLLECTION = {
   'product-crawl': 'product-crawls',
   'product-discovery': 'product-discoveries',
+  'product-search': 'product-searches',
   'ingredients-discovery': 'ingredients-discoveries',
   'video-discovery': 'video-discoveries',
   'video-processing': 'video-processings',
@@ -28,6 +29,7 @@ const JOB_TYPE_TO_COLLECTION = {
 const JOB_TYPE_TO_CAPABILITY = {
   'product-crawl': 'product-crawl',
   'product-discovery': 'product-discovery',
+  'product-search': 'product-search',
   'ingredients-discovery': 'ingredients-discovery',
   'video-discovery': 'video-discovery',
   'video-processing': 'video-processing',
@@ -150,6 +152,8 @@ export async function claimWork(
           return buildProductCrawlWork(payload, candidate.id)
         case 'product-discovery':
           return buildProductDiscoveryWork(payload, candidate.id)
+        case 'product-search':
+          return buildProductSearchWork(payload, candidate.id)
         case 'ingredients-discovery':
           return buildIngredientsDiscoveryWork(payload, candidate.id)
         case 'video-discovery':
@@ -399,6 +403,46 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
     maxPages,
     delay,
     debug: (job.debug as boolean) ?? false,
+  }
+}
+
+async function buildProductSearchWork(payload: PayloadRestClient, jobId: number) {
+  const jlog = log.forJob('product-searches' as JobCollection, jobId)
+  jlog.info(`buildProductSearchWork: job #${jobId}`)
+  const job = await payload.findByID({ collection: 'product-searches', id: jobId }) as Record<string, unknown>
+
+  const query = (job.query as string) ?? ''
+  const sources = (job.sources as string[]) ?? ['dm', 'mueller', 'rossmann']
+  const maxResults = (job.maxResults as number) ?? 50
+  const debug = (job.debug as boolean) ?? false
+
+  jlog.info(`buildProductSearchWork #${jobId}: query="${query}", sources=[${sources.join(', ')}], maxResults=${maxResults}`)
+
+  // Initialize job if pending
+  if (job.status === 'pending') {
+    jlog.info(`buildProductSearchWork #${jobId}: pending → in_progress`)
+    await payload.update({
+      collection: 'product-searches',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        discovered: 0,
+        created: 0,
+        existing: 0,
+      },
+    })
+    jlog.info(`Started product search: "${query}" across [${sources.join(', ')}]`, { event: 'start' })
+  }
+
+  return {
+    type: 'product-search',
+    jobId,
+    query,
+    sources,
+    maxResults,
+    debug,
   }
 }
 

@@ -1,4 +1,4 @@
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ScrapedProductData } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
@@ -181,6 +181,30 @@ async function fetchProductPage(
     }
   } catch (error) {
     log.error(`Error fetching products for category ${categoryId} page ${page}: ${String(error)}`)
+    return null
+  }
+}
+
+// Fetch a single page of text search results
+async function fetchSearchPage(
+  query: string,
+  page: number,
+  pageSize: number = 60,
+): Promise<{ products: Array<Record<string, unknown>>; totalPages: number } | null> {
+  const url = `https://product-search.services.dmtech.com/de/search?query=${encodeURIComponent(query)}&pageSize=${pageSize}&currentPage=${page}&sort=relevance&searchType=search`
+  try {
+    const res = await stealthFetch(url, { headers: getSearchHeaders() })
+    if (!res.ok) {
+      log.info(`Product search failed for query "${query}" page ${page}: ${res.status}`)
+      return null
+    }
+    const data = await res.json()
+    return {
+      products: data.products ?? [],
+      totalPages: data.totalPages ?? 1,
+    }
+  } catch (error) {
+    log.error(`Error searching for "${query}" page ${page}: ${String(error)}`)
     return null
   }
 }
@@ -462,6 +486,54 @@ export const dmDriver: SourceDriver = {
     const done = currentLeafIndex >= categoryLeaves.length
     log.info(`Tick done: ${pagesUsed} pages used, done=${done}`)
     return { done, pagesUsed }
+  },
+
+  async searchProducts(
+    options: ProductSearchOptions,
+  ): Promise<ProductSearchResult> {
+    const { query, maxResults = 50 } = options
+    const products: import('../types').DiscoveredProduct[] = []
+    const pageSize = 60
+    let currentPage = 0
+    const maxPages = Math.ceil(maxResults / pageSize)
+
+    log.info(`Searching DM for "${query}" (maxResults=${maxResults})`)
+
+    while (currentPage < maxPages && products.length < maxResults) {
+      const result = await fetchSearchPage(query, currentPage, pageSize)
+      if (!result || result.products.length === 0) break
+
+      for (const product of result.products) {
+        if (products.length >= maxResults) break
+
+        const gtin = String((product as Record<string, unknown>).gtin ?? '')
+        const tileData = (product as Record<string, unknown>).tileData as Record<string, unknown> | undefined
+        const productUrl = tileData?.self ? normalizeProductUrl(`https://www.dm.de${tileData.self}`) : (gtin ? normalizeProductUrl(`https://www.dm.de/p${gtin}.html`) : null)
+        if (!productUrl) continue
+
+        const trackingData = tileData?.trackingData as Record<string, unknown> | undefined
+        const ratingData = tileData?.rating as Record<string, unknown> | undefined
+
+        products.push({
+          gtin: gtin || undefined,
+          productUrl,
+          brandName: (product as Record<string, unknown>).brandName as string | undefined,
+          name: (product as Record<string, unknown>).title as string | undefined,
+          price: trackingData?.price != null
+            ? Math.round(Number(trackingData.price) * 100)
+            : undefined,
+          currency: trackingData?.currency as string | undefined,
+          rating: ratingData?.ratingValue as number | undefined,
+          ratingCount: ratingData?.ratingCount as number | undefined,
+        })
+      }
+
+      currentPage++
+      if (currentPage >= result.totalPages) break
+    }
+
+    log.info(`DM search for "${query}": ${products.length} products found`)
+    return { products }
   },
 
   async scrapeProduct(

@@ -17,6 +17,7 @@ import { SourceProducts } from './collections/SourceProducts'
 import { SourceVariants } from './collections/SourceVariants'
 
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
+import { ProductSearches } from './collections/ProductSearches'
 import { ProductCrawls } from './collections/ProductCrawls'
 import { ProductAggregations } from './collections/ProductAggregations'
 import { IngredientCrawls } from './collections/IngredientCrawls'
@@ -31,6 +32,7 @@ import { VideoProcessings } from './collections/VideoProcessings'
 
 import { CrawlResults } from './collections/CrawlResults'
 import { DiscoveryResults } from './collections/DiscoveryResults'
+import { SearchResults } from './collections/SearchResults'
 import { Workers } from './collections/Workers'
 
 const filename = fileURLToPath(import.meta.url)
@@ -69,7 +71,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, SourceProducts, SourceVariants, ProductDiscoveries, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
+  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, SourceProducts, SourceVariants, ProductDiscoveries, ProductSearches, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, SearchResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

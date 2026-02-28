@@ -68,6 +68,16 @@ export interface ScrapedProductData {
   warnings: string[]
 }
 
+export interface ProductSearchOptions {
+  query: string
+  maxResults?: number   // max products to return (default: 50)
+  debug?: boolean       // keep browser visible (non-headless)
+}
+
+export interface ProductSearchResult {
+  products: DiscoveredProduct[]
+}
+
 export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
 
 export interface SourceDriver {
@@ -81,6 +91,10 @@ export interface SourceDriver {
   discoverProducts(
     options: ProductDiscoveryOptions,
   ): Promise<ProductDiscoveryResult>
+
+  searchProducts(
+    options: ProductSearchOptions,
+  ): Promise<ProductSearchResult>
 
   scrapeProduct(
     sourceUrl: string,

@@ -79,10 +79,12 @@ export interface Config {
     'source-products': SourceProduct;
     'source-variants': SourceVariant;
     'product-discoveries': ProductDiscovery;
+    'product-searches': ProductSearch;
     'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
     'crawl-results': CrawlResult;
     'discovery-results': DiscoveryResult;
+    'search-results': SearchResult;
     events: Event;
     creators: Creator;
     channels: Channel;
@@ -116,6 +118,10 @@ export interface Config {
     };
     'product-discoveries': {
       discoveredProducts: 'discovery-results';
+      events: 'events';
+    };
+    'product-searches': {
+      searchResults: 'search-results';
       events: 'events';
     };
     'product-crawls': {
@@ -156,10 +162,12 @@ export interface Config {
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
     'source-variants': SourceVariantsSelect<false> | SourceVariantsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
+    'product-searches': ProductSearchesSelect<false> | ProductSearchesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
     'crawl-results': CrawlResultsSelect<false> | CrawlResultsSelect<true>;
     'discovery-results': DiscoveryResultsSelect<false> | DiscoveryResultsSelect<true>;
+    'search-results': SearchResultsSelect<false> | SearchResultsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
@@ -430,6 +438,7 @@ export interface Worker {
   capabilities: (
     | 'product-crawl'
     | 'product-discovery'
+    | 'product-search'
     | 'ingredients-discovery'
     | 'video-discovery'
     | 'video-processing'
@@ -464,6 +473,10 @@ export interface Event {
     | ({
         relationTo: 'product-discoveries';
         value: number | ProductDiscovery;
+      } | null)
+    | ({
+        relationTo: 'product-searches';
+        value: number | ProductSearch;
       } | null)
     | ({
         relationTo: 'product-crawls';
@@ -818,6 +831,79 @@ export interface ProductCrawl {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-searches".
+ */
+export interface ProductSearch {
+  id: number;
+  /**
+   * Product name, brand, or keyword to search for across selected stores.
+   */
+  query: string;
+  /**
+   * Which stores to search. All selected by default.
+   */
+  sources: ('dm' | 'mueller' | 'rossmann')[];
+  /**
+   * Maximum products to import per source. Default: 50.
+   */
+  maxResults?: number | null;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  /**
+   * Products found across all sources
+   */
+  discovered?: number | null;
+  /**
+   * New products created
+   */
+  created?: number | null;
+  /**
+   * Products already in database
+   */
+  existing?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  searchResults?: {
+    docs?: (number | SearchResult)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "search-results".
+ */
+export interface SearchResult {
+  id: number;
+  search: number | ProductSearch;
+  sourceProduct: number | SourceProduct;
+  /**
+   * Which source this result came from
+   */
+  source?: ('dm' | 'mueller' | 'rossmann') | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1533,6 +1619,10 @@ export interface PayloadLockedDocument {
         value: number | ProductDiscovery;
       } | null)
     | ({
+        relationTo: 'product-searches';
+        value: number | ProductSearch;
+      } | null)
+    | ({
         relationTo: 'product-crawls';
         value: number | ProductCrawl;
       } | null)
@@ -1547,6 +1637,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'discovery-results';
         value: number | DiscoveryResult;
+      } | null)
+    | ({
+        relationTo: 'search-results';
+        value: number | SearchResult;
       } | null)
     | ({
         relationTo: 'events';
@@ -1972,6 +2066,28 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-searches_select".
+ */
+export interface ProductSearchesSelect<T extends boolean = true> {
+  query?: T;
+  sources?: T;
+  maxResults?: T;
+  status?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  debug?: T;
+  discovered?: T;
+  created?: T;
+  existing?: T;
+  startedAt?: T;
+  completedAt?: T;
+  searchResults?: T;
+  events?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "product-crawls_select".
  */
 export interface ProductCrawlsSelect<T extends boolean = true> {
@@ -2044,6 +2160,17 @@ export interface DiscoveryResultsSelect<T extends boolean = true> {
   discovery?: T;
   sourceProduct?: T;
   error?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "search-results_select".
+ */
+export interface SearchResultsSelect<T extends boolean = true> {
+  search?: T;
+  sourceProduct?: T;
+  source?: T;
   updatedAt?: T;
   createdAt?: T;
 }

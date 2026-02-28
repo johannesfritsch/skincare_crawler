@@ -276,7 +276,8 @@ export async function persistCrawlFailure(
 // ─── Product Discovery ───
 
 export interface PersistDiscoveredProductInput {
-  discoveryId: number
+  discoveryId: number | null
+  searchId?: number | null
   product: DiscoveredProduct
   source: SourceSlug
 }
@@ -391,11 +392,13 @@ export async function persistDiscoveredProduct(
     log.info(`persistDiscoveredProduct: updated existing source-product #${sourceProductId} (variant url=${variantUrl})`)
   }
 
-  // Create DiscoveryResult join record
-  await payload.create({
-    collection: 'discovery-results',
-    data: { discovery: discoveryId, sourceProduct: sourceProductId },
-  })
+  // Create DiscoveryResult join record (only for discovery jobs, not search jobs)
+  if (discoveryId != null) {
+    await payload.create({
+      collection: 'discovery-results',
+      data: { discovery: discoveryId, sourceProduct: sourceProductId },
+    })
+  }
 
   return { sourceProductId, isNew }
 }

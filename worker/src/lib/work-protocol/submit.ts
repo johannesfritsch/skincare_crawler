@@ -114,6 +114,12 @@ interface SubmitProductDiscoveryBody {
   pagesUsed: number
 }
 
+interface SubmitProductSearchBody {
+  type: 'product-search'
+  jobId: number
+  products: Array<{ product: DiscoveredProduct; source: SourceSlug }>
+}
+
 interface SubmitIngredientsDiscoveryBody {
   type: 'ingredients-discovery'
   jobId: number
@@ -261,6 +267,7 @@ interface SubmitIngredientCrawlBody {
 type SubmitBody =
   | SubmitProductCrawlBody
   | SubmitProductDiscoveryBody
+  | SubmitProductSearchBody
   | SubmitIngredientsDiscoveryBody
   | SubmitVideoDiscoveryBody
   | SubmitVideoProcessingBody
@@ -278,6 +285,8 @@ export async function submitWork(
       return submitProductCrawl(payload, body)
     case 'product-discovery':
       return submitProductDiscovery(payload, body)
+    case 'product-search':
+      return submitProductSearch(payload, body)
     case 'ingredients-discovery':
       return submitIngredientsDiscovery(payload, body)
     case 'video-discovery':
@@ -475,6 +484,65 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   }
 
   return { discovered, created, existing, done }
+}
+
+async function submitProductSearch(payload: PayloadRestClient, body: SubmitProductSearchBody) {
+  const { jobId, products } = body
+  const jlog = log.forJob('product-searches' as JobCollection, jobId)
+  log.info(`submitProductSearch #${jobId}: ${products.length} products`)
+
+  let created = 0
+  let existing = 0
+  let discovered = 0
+
+  for (const { product, source } of products) {
+    discovered++
+
+    try {
+      const result = await persistDiscoveredProduct(payload, {
+        discoveryId: null,
+        searchId: jobId,
+        product,
+        source,
+      })
+      if (result.isNew) {
+        created++
+      } else {
+        existing++
+      }
+
+      // Create search-results join record
+      await payload.create({
+        collection: 'search-results',
+        data: {
+          search: jobId,
+          sourceProduct: result.sourceProductId,
+          source,
+        },
+      })
+    } catch (e) {
+      log.error(`submitProductSearch #${jobId}: persist error for ${product.productUrl}: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+
+  log.info(`submitProductSearch #${jobId}: ${discovered} discovered, ${created} created, ${existing} existing`)
+
+  await payload.update({
+    collection: 'product-searches',
+    id: jobId,
+    data: {
+      status: 'completed',
+      discovered,
+      created,
+      existing,
+      completedAt: new Date().toISOString(),
+      claimedBy: null,
+      claimedAt: null,
+    },
+  })
+  jlog.info(`Completed: ${discovered} discovered, ${created} created, ${existing} existing`, { event: 'success' })
+
+  return { discovered, created, existing }
 }
 
 async function submitIngredientsDiscovery(payload: PayloadRestClient, body: SubmitIngredientsDiscoveryBody) {
