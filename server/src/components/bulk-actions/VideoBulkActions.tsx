@@ -1,14 +1,13 @@
 'use client'
 
 import React from 'react'
-import { BulkJobBar } from '@/components/BulkJobBar'
+import { BulkJobMenuItem } from '@/components/BulkJobBar'
 import { bulkProcessVideos } from '@/actions/job-actions'
 
-export default function VideoBulkActions() {
+export default function VideoBulkMenuItem() {
   return (
-    <BulkJobBar
+    <BulkJobMenuItem
       label="Process"
-      runningLabel="Processing..."
       createJob={bulkProcessVideos}
       jobCollection="video-processings"
     />

@@ -1,14 +1,13 @@
 'use client'
 
 import React from 'react'
-import { BulkJobBar } from '@/components/BulkJobBar'
+import { BulkJobMenuItem } from '@/components/BulkJobBar'
 import { bulkAggregateProducts } from '@/actions/job-actions'
 
-export default function ProductBulkActions() {
+export default function ProductBulkMenuItem() {
   return (
-    <BulkJobBar
+    <BulkJobMenuItem
       label="Aggregate"
-      runningLabel="Aggregating..."
       createJob={bulkAggregateProducts}
       jobCollection="product-aggregations"
     />
