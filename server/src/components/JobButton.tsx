@@ -18,9 +18,11 @@ interface JobButtonProps {
   createJob: () => Promise<JobResult>
   /** Server action that polls job status, returns { status, errors } */
   getStatus: (jobId: number) => Promise<{ status: string; errors?: number }>
+  /** Called when the job completes successfully (e.g. router.refresh) */
+  onCompleted?: () => void
 }
 
-export function JobButton({ label, runningLabel, createJob, getStatus }: JobButtonProps) {
+export function JobButton({ label, runningLabel, createJob, getStatus, onCompleted }: JobButtonProps) {
   const [state, setState] = useState<JobState>('idle')
   const [jobId, setJobId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -42,6 +44,7 @@ export function JobButton({ label, runningLabel, createJob, getStatus }: JobButt
         if (result.status === 'completed') {
           setState('completed')
           stopPolling()
+          onCompleted?.()
         } else if (result.status === 'failed') {
           setState('failed')
           setError(`Failed (${result.errors ?? 0} errors)`)
@@ -57,7 +60,7 @@ export function JobButton({ label, runningLabel, createJob, getStatus }: JobButt
     poll()
     pollRef.current = setInterval(poll, POLL_INTERVAL)
     return stopPolling
-  }, [jobId, state, stopPolling, getStatus])
+  }, [jobId, state, stopPolling, getStatus, onCompleted])
 
   const handleClick = async () => {
     setState('creating')
