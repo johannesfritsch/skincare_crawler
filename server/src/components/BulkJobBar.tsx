@@ -217,40 +217,26 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
       statusText = ''
   }
 
-  const borderColor = state === 'failed'
-    ? 'var(--theme-error-200, #fecaca)'
-    : state === 'completed'
-      ? 'var(--theme-success-200, #bbf7d0)'
-      : 'var(--theme-elevation-200)'
-
   return (
     <div
       style={{
-        marginBottom: '8px',
-        borderRadius: 'var(--style-radius-s, 4px)',
-        border: `1px solid ${borderColor}`,
-        overflow: 'hidden',
         fontSize: '13px',
+        padding: 'calc(var(--base) * 0.6) calc(var(--base) * 0.8)',
+        borderBottom: '1px solid var(--theme-elevation-100)',
       }}
     >
-      {/* Header row */}
+      {/* Status line */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          padding: '8px 12px',
           fontWeight: 500,
-          background: state === 'failed'
-            ? 'var(--theme-error-50, #fef2f2)'
-            : state === 'completed'
-              ? 'var(--theme-success-50, #f0fdf4)'
-              : 'var(--theme-elevation-100)',
           color: state === 'failed'
             ? 'var(--theme-error-500)'
             : state === 'completed'
               ? 'var(--theme-success-500)'
-              : 'var(--theme-text)',
+              : 'var(--theme-elevation-400)',
         }}
       >
         {isActive && <Spinner />}
@@ -264,8 +250,7 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
           style={{
             maxHeight: '160px',
             overflowY: 'auto',
-            padding: '6px 12px',
-            background: 'var(--theme-elevation-0)',
+            marginTop: 'calc(var(--base) * 0.4)',
           }}
         >
           {events.map((event, i) => (
@@ -274,13 +259,13 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
               style={{
                 display: 'flex',
                 gap: '8px',
-                padding: '2px 0',
+                padding: '1px 0',
                 lineHeight: '1.4',
                 color: event.type === 'error'
                   ? 'var(--theme-error-500)'
                   : event.type === 'warning'
                     ? 'var(--theme-warning-500, #d97706)'
-                    : 'var(--theme-elevation-600)',
+                    : 'var(--theme-elevation-400)',
               }}
             >
               <span style={{ flexShrink: 0, opacity: 0.5 }}>
