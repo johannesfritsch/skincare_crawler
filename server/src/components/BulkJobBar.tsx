@@ -11,7 +11,7 @@ type JobState = 'idle' | 'creating' | 'pending' | 'running' | 'completed' | 'fai
 type JobResult = { success: boolean; jobId?: number; error?: string }
 type JobCollection = Parameters<typeof getJobStatus>[0]
 
-const POLL_INTERVAL = 2000
+const POLL_INTERVAL = 1000
 
 // ---- Module-level pub/sub for cross-slot state sharing ----
 
