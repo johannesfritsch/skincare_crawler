@@ -729,10 +729,6 @@ export interface SourceVariant {
    */
   variantDimension?: string | null;
   /**
-   * Whether this is the primary/selected variant on the source page
-   */
-  isDefault?: boolean | null;
-  /**
    * When this specific variant was last crawled
    */
   crawledAt?: string | null;
@@ -1184,10 +1180,6 @@ export interface ProductVariant {
    * Links to retailer-specific variants for this product variant
    */
   sourceVariants?: (number | SourceVariant)[] | null;
-  /**
-   * Whether this is the primary variant shown on the product page
-   */
-  isDefault?: boolean | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2027,7 +2019,6 @@ export interface ProductVariantsSelect<T extends boolean = true> {
   label?: T;
   image?: T;
   sourceVariants?: T;
-  isDefault?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2090,7 +2081,6 @@ export interface SourceVariantsSelect<T extends boolean = true> {
   gtin?: T;
   variantLabel?: T;
   variantDimension?: T;
-  isDefault?: T;
   crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;

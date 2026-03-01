@@ -262,7 +262,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
           }) as { id: number }
           await payload.create({
             collection: 'source-variants',
-            data: { sourceProduct: stubProduct.id, sourceUrl: url, isDefault: true },
+            data: { sourceProduct: stubProduct.id, sourceUrl: url },
           })
           stubsCreated++
         }

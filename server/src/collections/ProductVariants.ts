@@ -8,7 +8,7 @@ export const ProductVariants: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'label',
-    defaultColumns: ['label', 'gtin', 'product', 'isDefault', 'createdAt'],
+    defaultColumns: ['label', 'gtin', 'product', 'createdAt'],
     listSearchableFields: ['gtin', 'label'],
     group: 'Products',
   },
@@ -58,14 +58,6 @@ export const ProductVariants: CollectionConfig = {
         description: 'Links to retailer-specific variants for this product variant',
       },
     },
-    {
-      name: 'isDefault',
-      type: 'checkbox',
-      label: 'Default Variant',
-      defaultValue: false,
-      admin: {
-        description: 'Whether this is the primary variant shown on the product page',
-      },
-    },
+
   ],
 }

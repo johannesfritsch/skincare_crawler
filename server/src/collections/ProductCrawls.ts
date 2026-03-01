@@ -12,7 +12,7 @@ export const ProductCrawls: CollectionConfig = {
   admin: {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
-    group: 'Products',
+    group: 'Source Products',
   },
   hooks: {
     beforeChange: [enforceJobClaim],

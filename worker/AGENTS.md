@@ -137,9 +137,9 @@ Dispatches to per-type submit handlers. Each handler:
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record |
+| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann); for Mueller, deletes the base-URL variant (no `?itemId=`) when `?itemId=` variants are discovered (avoids duplicate entries); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record |
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
-| `persistDiscoveredProduct()` | Dedup by source-variant URL; creates `source-products` + default `source-variant` together when new; updates existing parent source-product when variant URL already exists; creates `discovery-results` join record |
+| `persistDiscoveredProduct()` | Dedup by source-variant URL; creates `source-products` + source-variant together when new; updates existing parent source-product when variant URL already exists; creates `discovery-results` join record |
 
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |

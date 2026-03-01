@@ -27,7 +27,7 @@ export default async function ListsPage() {
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
     .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
     .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
-    .where(sql`${t.source_products.rating} > 0 AND ${t.product_variants.isDefault} = true`)
+    .where(sql`${t.source_products.rating} > 0`)
     .groupBy(t.product_types.id, t.product_types.name, t.product_types.slug)
     .orderBy(desc(sql`count(DISTINCT ${t.products.id})`))
 

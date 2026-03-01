@@ -1,6 +1,6 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm'
+import { desc, eq, ilike, or, sql } from 'drizzle-orm'
 import React, { Suspense } from 'react'
 import Link from 'next/link'
 import { ProductSearch } from '@/components/product-search'
@@ -36,7 +36,7 @@ export default async function ProductsPage({ searchParams }: Props) {
     .select({
       id: t.products.id,
       name: t.products.name,
-      gtin: t.product_variants.gtin,
+      gtin: sql<string | null>`min(${t.product_variants.gtin})`,
       brandName: t.brands.name,
       productTypeName: t.product_types.name,
       avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
@@ -53,7 +53,6 @@ export default async function ProductsPage({ searchParams }: Props) {
     .groupBy(
       t.products.id,
       t.products.name,
-      t.product_variants.gtin,
       t.brands.name,
       t.product_types.name,
       sql`${t.media}.sizes_card_url`,
@@ -78,11 +77,8 @@ export default async function ProductsPage({ searchParams }: Props) {
       ilike(t.product_variants.gtin, pattern),
       ilike(t.brands.name, pattern),
     )
-    query = query.where(and(eq(t.product_variants.isDefault, true), searchFilter))
-    countQuery = countQuery.where(and(eq(t.product_variants.isDefault, true), searchFilter))
-  } else {
-    query = query.where(eq(t.product_variants.isDefault, true))
-    countQuery = countQuery.where(eq(t.product_variants.isDefault, true))
+    query = query.where(searchFilter)
+    countQuery = countQuery.where(searchFilter)
   }
 
   const [rows, countResult] = await Promise.all([query, countQuery])

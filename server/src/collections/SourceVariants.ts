@@ -8,10 +8,9 @@ export const SourceVariants: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'sourceUrl',
-    defaultColumns: ['sourceUrl', 'gtin', 'sourceProduct', 'variantLabel', 'isDefault', 'createdAt'],
+    defaultColumns: ['sourceUrl', 'gtin', 'sourceProduct', 'variantLabel', 'createdAt'],
     listSearchableFields: ['sourceUrl', 'gtin'],
-    group: 'Products',
-    hidden: true,
+    group: 'Source Products',
     description: 'Individual purchasable variants of source products, each with a unique URL',
   },
   fields: [
@@ -57,15 +56,6 @@ export const SourceVariants: CollectionConfig = {
       label: 'Variant Dimension',
       admin: {
         description: 'The dimension this variant represents (e.g. "Color", "Size")',
-      },
-    },
-    {
-      name: 'isDefault',
-      type: 'checkbox',
-      label: 'Default Variant',
-      defaultValue: false,
-      admin: {
-        description: 'Whether this is the primary/selected variant on the source page',
       },
     },
     {

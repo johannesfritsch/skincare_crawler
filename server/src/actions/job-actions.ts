@@ -92,18 +92,13 @@ export async function crawlSourceProduct(sourceProductId: number): Promise<JobRe
 
   const variants = await payload.find({
     collection: 'source-variants',
-    where: {
-      and: [
-        { sourceProduct: { equals: sourceProductId } },
-        { isDefault: { equals: true } },
-      ],
-    },
+    where: { sourceProduct: { equals: sourceProductId } },
     limit: 1,
     depth: 0,
   })
 
-  const defaultVariant = variants.docs[0]
-  if (!defaultVariant?.sourceUrl) {
+  const firstVariant = variants.docs[0]
+  if (!firstVariant?.sourceUrl) {
     return { success: false, error: 'Source product has no variant with a URL' }
   }
 
@@ -112,7 +107,7 @@ export async function crawlSourceProduct(sourceProductId: number): Promise<JobRe
     data: {
       source: sourceProduct.source,
       type: 'selected_urls',
-      urls: defaultVariant.sourceUrl,
+      urls: firstVariant.sourceUrl,
       scope: 'recrawl',
       status: 'pending',
     },
@@ -226,16 +221,11 @@ export async function bulkCrawlSourceProducts(ids: number[]): Promise<JobResult>
     depth: 0,
   })
 
-  // Get default variant URLs for all selected source products
+  // Get variant URLs for all selected source products (one per product)
   const variants = await payload.find({
     collection: 'source-variants',
-    where: {
-      and: [
-        { sourceProduct: { in: ids } },
-        { isDefault: { equals: true } },
-      ],
-    },
-    limit: ids.length,
+    where: { sourceProduct: { in: ids } },
+    limit: ids.length * 10,
     depth: 0,
   })
 

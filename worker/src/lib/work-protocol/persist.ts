@@ -210,7 +210,6 @@ export async function persistCrawlResult(
               gtin: option.gtin || undefined,
               variantLabel: option.label || undefined,
               variantDimension: variantGroup.dimension || undefined,
-              isDefault: false,
             },
           })
           log.debug(`persistCrawlResult: created sibling variant ${siblingUrl} (gtin=${option.gtin ?? 'none'}, label=${option.label})`)
@@ -218,6 +217,36 @@ export async function persistCrawlResult(
           // Unique constraint race — safe to ignore
           log.debug(`persistCrawlResult: skipped sibling variant ${siblingUrl}: ${e instanceof Error ? e.message : e}`)
         }
+      }
+    }
+  }
+
+  // For Mueller: if the crawled variant is the base URL (no ?itemId=) and ?itemId= sibling
+  // variants now exist, delete the base-URL variant to avoid duplicates. The base URL variant
+  // is redundant once specific itemId variants are known.
+  const crawledUrl = new URL(variantUrl)
+  const hasItemId = crawledUrl.searchParams.has('itemId')
+  if (!hasItemId && data.variants.some((vg) => vg.options.length > 0)) {
+    const allVariantsCheck = await payload.find({
+      collection: 'source-variants',
+      where: { sourceProduct: { equals: sourceProductId } },
+      limit: 1000,
+    })
+    const itemIdVariants = allVariantsCheck.docs.filter((v) => {
+      const sv = v as Record<string, unknown>
+      const svUrl = sv.sourceUrl as string
+      try { return new URL(svUrl).searchParams.has('itemId') } catch { return false }
+    })
+    if (itemIdVariants.length > 0) {
+      // Delete the base-URL source-variant (the one we just crawled)
+      try {
+        await payload.delete({
+          collection: 'source-variants',
+          where: { id: { equals: sourceVariantId } },
+        })
+        log.info(`persistCrawlResult: deleted base-URL variant #${sourceVariantId} — ${itemIdVariants.length} ?itemId= variants exist`)
+      } catch (e) {
+        log.warn(`persistCrawlResult: failed to delete base-URL variant #${sourceVariantId}: ${e instanceof Error ? e.message : e}`)
       }
     }
   }
@@ -339,7 +368,6 @@ export async function persistDiscoveredProduct(
         sourceProduct: sourceProductId,
         sourceUrl: variantUrl,
         gtin: product.gtin || undefined,
-        isDefault: true,
       },
     })
 
@@ -944,7 +972,6 @@ export async function persistProductAggregationResult(
         product: productId,
         gtin,
         label: aggregated.name || gtin,
-        isDefault: true,
         ...(sourceVariantIds.length > 0 ? { sourceVariants: sourceVariantIds } : {}),
       },
     })

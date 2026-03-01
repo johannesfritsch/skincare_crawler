@@ -10,7 +10,7 @@ export const SourceProducts: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'brandName', 'source', 'status', 'createdAt'],
-    group: 'Products',
+    group: 'Source Products',
     description: 'Products crawled from source stores',
     listSearchableFields: ['name', 'brandName'],
     components: {
@@ -214,7 +214,7 @@ export const SourceProducts: CollectionConfig = {
               collection: 'source-variants',
               on: 'sourceProduct',
               admin: {
-                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel', 'isDefault'],
+                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel'],
               },
             },
             {

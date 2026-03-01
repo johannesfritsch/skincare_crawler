@@ -25,7 +25,7 @@ export default async function DiscoverPage() {
   const columns = {
     id: t.products.id,
     name: t.products.name,
-    gtin: t.product_variants.gtin,
+    gtin: sql<string | null>`min(${t.product_variants.gtin})`,
     brandName: t.brands.name,
     productTypeName: t.product_types.name,
     avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
@@ -37,7 +37,6 @@ export default async function DiscoverPage() {
   const groupCols = [
     t.products.id,
     t.products.name,
-    t.product_variants.gtin,
     t.brands.name,
     t.product_types.name,
     sql`${t.media}.sizes_card_url`,
@@ -54,7 +53,7 @@ export default async function DiscoverPage() {
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
-    .where(sql`${t.source_products.rating} > 0 AND ${t.product_variants.isDefault} = true`)
+    .where(sql`${t.source_products.rating} > 0`)
     .groupBy(...groupCols)
     .orderBy(desc(sql`avg(${t.source_products.rating})`))
     .limit(100)
@@ -80,7 +79,7 @@ export default async function DiscoverPage() {
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.media, eq(t.products.image, t.media.id))
-    .where(sql`${t.products.name} IS NOT NULL AND ${t.product_variants.isDefault} = true`)
+    .where(sql`${t.products.name} IS NOT NULL`)
     .groupBy(...groupCols)
     .orderBy(desc(t.products.createdAt))
     .limit(12)

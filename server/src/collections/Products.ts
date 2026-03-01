@@ -84,7 +84,7 @@ export const Products: CollectionConfig = {
               collection: 'product-variants',
               on: 'product',
               admin: {
-                defaultColumns: ['label', 'gtin', 'isDefault'],
+                defaultColumns: ['label', 'gtin'],
                 description: 'Product variants, each with their own GTIN and retailer source links',
               },
             },

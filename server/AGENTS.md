@@ -1320,8 +1320,8 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 // Column names are camelCase: t.source_products.ratingNum (NOT rating_num)
 // Payload array fields → separate tables: products_ingredients, products_product_claims
 // hasMany relationships → {collection}_rels join table (e.g. products_rels)
-// product_variants has: product (FK → products), gtin (unique), label, image (FK → media), isDefault
-// source_variants has: sourceProduct (FK → source_products), sourceUrl (unique), gtin, variantLabel, variantDimension, isDefault
+// product_variants has: product (FK → products), gtin (unique), label, image (FK → media)
+// source_variants has: sourceProduct (FK → source_products), sourceUrl (unique), gtin, variantLabel, variantDimension
 // GTINs live on product_variants (unified) and source_variants (per-retailer), NOT on products or source_products
 //
 // To join products → source_products (for ratings, etc.), go through product_variants + source_variants:
@@ -1329,7 +1329,7 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 //   .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
 //   .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
 // Use leftJoin instead of innerJoin when products without source data should still appear.
-// When listing products (one row per product), filter with eq(t.product_variants.isDefault, true) to avoid duplicates.
+// When listing products (one row per product), use min(gtin) in select + GROUP BY product.id to deduplicate.
 
 // Image sizes (from Media collection upload config) are flattened DB columns:
 // sizes_thumbnail_url, sizes_card_url, sizes_detail_url — access via sql template:
