@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { useSelection } from '@payloadcms/ui'
+import { Button, useSelection } from '@payloadcms/ui'
 import { getJobStatus } from '@/actions/job-actions'
 
 type JobState = 'idle' | 'creating' | 'pending' | 'running' | 'completed' | 'failed'
@@ -105,6 +105,7 @@ export function BulkJobBar({ label, runningLabel, createJob, jobCollection }: Bu
   if (!count || count === 0) return null
 
   const isActive = state === 'creating' || state === 'pending' || state === 'running'
+  const buttonStyle = state === 'failed' ? ('error' as const) : ('secondary' as const)
 
   let buttonText: string
   switch (state) {
@@ -128,48 +129,20 @@ export function BulkJobBar({ label, runningLabel, createJob, jobCollection }: Bu
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        padding: '10px 16px',
-        marginBottom: '4px',
-        borderRadius: 'var(--style-radius-s, 4px)',
-        background: state === 'failed'
-          ? 'var(--theme-error-50, #fef2f2)'
-          : state === 'completed'
-            ? 'var(--theme-success-50, #f0fdf4)'
-            : 'var(--theme-elevation-100)',
-        border: '1px solid var(--theme-elevation-200)',
-        transition: 'all 0.2s ease',
-      }}
-    >
-      {isActive && <Spinner />}
-      {state === 'completed' && <Checkmark />}
-      {state === 'failed' && <XMark />}
-
-      <button
+    <div style={{ marginBottom: '4px' }}>
+      <Button
+        buttonStyle={buttonStyle}
+        size="small"
         type="button"
         disabled={isActive || state === 'completed'}
         onClick={handleClick}
-        style={{
-          all: 'unset',
-          cursor: isActive || state === 'completed' ? 'default' : 'pointer',
-          fontWeight: 500,
-          fontSize: '13px',
-          color: state === 'failed'
-            ? 'var(--theme-error-500)'
-            : state === 'completed'
-              ? 'var(--theme-success-500)'
-              : 'var(--theme-text)',
-          opacity: isActive ? 0.7 : 1,
-          textDecoration: state === 'idle' ? 'underline' : 'none',
-          textUnderlineOffset: '2px',
-        }}
+        tooltip={error ?? undefined}
       >
-        {buttonText}
-      </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {isActive && <Spinner />}
+          {buttonText}
+        </span>
+      </Button>
     </div>
   )
 }
@@ -190,18 +163,4 @@ function Spinner() {
   )
 }
 
-function Checkmark() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M3 7.5L5.5 10L11 4" stroke="var(--theme-success-500)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
-function XMark() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M4 4l6 6M10 4l-6 6" stroke="var(--theme-error-500)" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
-}
