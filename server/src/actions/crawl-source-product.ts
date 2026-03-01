@@ -48,3 +48,21 @@ export async function crawlSourceProduct(
 
   return { success: true, crawlId: crawl.id }
 }
+
+export async function getCrawlStatus(
+  crawlId: number,
+): Promise<{ status: string; crawled?: number; errors?: number }> {
+  const payload = await getPayload({ config })
+
+  const crawl = await payload.findByID({
+    collection: 'product-crawls',
+    id: crawlId,
+    depth: 0,
+  })
+
+  return {
+    status: crawl.status as string,
+    crawled: (crawl.crawled as number) ?? 0,
+    errors: (crawl.errors as number) ?? 0,
+  }
+}

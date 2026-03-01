@@ -777,6 +777,25 @@ export const Posts: CollectionConfig = {
 
 4. **Minimize serialized props** - Server Components serialize props sent to client
 
+### Using `@payloadcms/ui` Components
+
+When building custom admin components, always use Payload's built-in UI primitives from `@payloadcms/ui` instead of raw HTML elements. This ensures visual consistency with the rest of the admin panel and automatic theme support (light/dark mode, spacing, typography).
+
+Key components:
+
+- `Button` — primary UI button. Props: `buttonStyle` (`'primary'`, `'secondary'`, `'error'`, `'pill'`, `'subtle'`), `size` (`'small'`, `'medium'`, `'large'`), `disabled`, `tooltip`, `type`, `onClick`. Use this for any clickable action in custom views.
+- `SaveButton` — the standard document save button. Use alongside custom buttons (e.g. `<SaveButton />` + `<Button>Crawl</Button>`).
+- `useDocumentInfo()` — hook to get `id`, `collection`, etc. in client components.
+- `useField(path)` / `useFormFields(selector)` — hooks for reading field values.
+
+Import from the top-level package in admin components:
+
+```tsx
+import { Button, SaveButton, useDocumentInfo } from '@payloadcms/ui'
+```
+
+Do **not** roll custom styled `<button>` elements — they will look out of place and break when Payload updates its theme.
+
 ### Styling Components
 
 ```tsx
