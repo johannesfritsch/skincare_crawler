@@ -22,8 +22,7 @@ import { initLogger, createLogger, type JobCollection } from '@/lib/logger'
 import { claimWork } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
-import { getSourceDriverBySlug } from '@/lib/source-discovery/driver'
-import { getSourceDriver } from '@/lib/source-discovery/driver'
+import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
@@ -1008,7 +1007,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   const aggregationType = work.aggregationType as string
   const scope = (work.scope as string) || 'full'
   const lastCheckedSourceId = work.lastCheckedSourceId as number
-  const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? ['dm', 'rossmann', 'mueller']
+  const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
   const workItems = work.workItems as Array<{
     gtin: string
     sourceProducts: Array<{

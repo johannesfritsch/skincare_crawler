@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { SOURCE_OPTIONS } from './shared/store-fields'
 
 export const SearchResults: CollectionConfig = {
   slug: 'search-results',
@@ -28,11 +29,7 @@ export const SearchResults: CollectionConfig = {
     {
       name: 'source',
       type: 'select',
-      options: [
-        { label: 'dm', value: 'dm' },
-        { label: 'Müller', value: 'mueller' },
-        { label: 'Rossmann', value: 'rossmann' },
-      ],
+      options: [...SOURCE_OPTIONS],
       admin: {
         readOnly: true,
         description: 'Which source this result came from',

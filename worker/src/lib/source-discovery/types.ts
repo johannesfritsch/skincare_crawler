@@ -83,6 +83,8 @@ export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
 export interface SourceDriver {
   slug: SourceSlug
   label: string
+  /** Hostnames this driver handles (e.g. ['www.dm.de', 'dm.de']) */
+  hosts: string[]
   /** Inline SVG markup for the store logo (used in frontend UI) */
   logoSvg: string
 

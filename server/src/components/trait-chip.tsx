@@ -39,6 +39,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { StoreLogo } from '@/components/store-logos'
+import { storeLabel } from '@/lib/score-utils'
 import type { TraitIcon } from '@/lib/product-traits'
 
 /* ── Icon lookup ── */
@@ -108,14 +109,7 @@ const toneHighlight = {
   neutral: 'bg-muted',
 } as const
 
-function storeLabel(slug: string | null): string {
-  switch (slug) {
-    case 'dm': return 'dm'
-    case 'rossmann': return 'Rossmann'
-    case 'mueller': return 'Müller'
-    default: return slug ?? 'Unknown'
-  }
-}
+
 
 /* ── Tone-aware border color for quote block ── */
 

@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { SOURCE_OPTIONS, ALL_SOURCE_SLUGS } from './shared/store-fields'
 
 export const ProductSearches: CollectionConfig = {
   slug: 'product-searches',
@@ -32,12 +33,8 @@ export const ProductSearches: CollectionConfig = {
       label: 'Sources',
       hasMany: true,
       required: true,
-      defaultValue: ['dm', 'mueller', 'rossmann'],
-      options: [
-        { label: 'dm', value: 'dm' },
-        { label: 'Müller', value: 'mueller' },
-        { label: 'Rossmann', value: 'rossmann' },
-      ],
+      defaultValue: [...ALL_SOURCE_SLUGS],
+      options: [...SOURCE_OPTIONS],
       admin: {
         description: 'Which stores to search. All selected by default.',
       },

@@ -2,6 +2,7 @@ import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
 import { findUncrawledVariants, getSourceSlugFromUrl, countUncrawled, resetProducts, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
+import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
 import type { JobCollection } from '@/lib/logger'
 
@@ -185,7 +186,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
   jlog.info(`buildProductCrawlWork #${jobId}: type=${job.type}, source=${job.source}, status=${job.status}`)
 
   // Determine source drivers
-  const sources: string[] = job.source === 'all' ? ['dm', 'mueller', 'rossmann'] : [job.source as string]
+  const sources: string[] = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
 
   // Build URL list based on type — URLs are now source-variant URLs (preserving itemId for Mueller)
   let sourceUrls: string[] | undefined
@@ -412,7 +413,7 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
   const job = await payload.findByID({ collection: 'product-searches', id: jobId }) as Record<string, unknown>
 
   const query = (job.query as string) ?? ''
-  const sources = (job.sources as string[]) ?? ['dm', 'mueller', 'rossmann']
+  const sources = (job.sources as string[]) ?? [...ALL_SOURCE_SLUGS]
   const maxResults = (job.maxResults as number) ?? 50
   const debug = (job.debug as boolean) ?? false
 
@@ -649,7 +650,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const language = (job.language as string) || 'de'
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
   const scope = ((job.scope as string) || 'full') as 'full' | 'partial'
-  const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? ['dm', 'rossmann', 'mueller']
+  const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
   jlog.info(`buildProductAggregationWork #${jobId}: type=${aggregationType}, scope=${scope}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
 
   // Initialize if pending

@@ -1,5 +1,6 @@
 import { Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { STORE_LABELS } from '@/collections/shared/store-fields'
 
 /* ── Score tier system (0–10 scale) ── */
 
@@ -57,14 +58,10 @@ export function starsToScore10(stars: number): number {
   return stars * 2
 }
 
-/** Map source slug to display name */
+/** Map source slug to display name (data-driven from shared store config) */
 export function storeLabel(slug: string | null): string {
-  switch (slug) {
-    case 'dm': return 'dm'
-    case 'rossmann': return 'Rossmann'
-    case 'mueller': return 'Müller'
-    default: return slug ?? 'Unknown'
-  }
+  if (!slug) return 'Unknown'
+  return STORE_LABELS[slug] ?? slug
 }
 
 /** Small score indicator badge with star + number, colored by tier */

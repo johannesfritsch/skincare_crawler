@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { SOURCE_OPTIONS_WITH_ALL } from './shared/store-fields'
 
 export const ProductCrawls: CollectionConfig = {
   slug: 'product-crawls',
@@ -95,12 +96,7 @@ export const ProductCrawls: CollectionConfig = {
               label: 'Store',
               required: true,
               defaultValue: 'all',
-              options: [
-                { label: 'All Stores', value: 'all' },
-                { label: 'DM', value: 'dm' },
-                { label: 'Rossmann', value: 'rossmann' },
-                { label: 'Müller', value: 'mueller' },
-              ],
+              options: [...SOURCE_OPTIONS_WITH_ALL],
               admin: {
                 description: 'Which store(s) to crawl products from.',
                 condition: (data) =>

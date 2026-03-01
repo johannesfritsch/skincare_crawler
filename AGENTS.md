@@ -152,6 +152,61 @@ Whenever you make changes to the codebase, **update the relevant AGENTS.md file(
 
 If a change spans both server and worker (e.g. adding a new job type with a new collection and a new handler), update all three files accordingly.
 
+## Adding a New Store Driver
+
+The system is designed to scale to 10-15 store drivers. Store-specific logic lives exclusively in driver files; shared code (persist, aggregation, matching, frontend display) is store-agnostic and derives configuration from centralized registries.
+
+### Architecture: Where store slugs are defined
+
+Store slugs are centralized in **two registry files** (one per process):
+
+| Registry | Process | Exports | Consumers |
+|----------|---------|---------|-----------|
+| `worker/src/lib/source-discovery/driver.ts` | Worker | `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `getAllSourceDrivers()` | claim.ts, submit.ts, worker.ts, aggregate-product.ts, source-product-queries.ts |
+| `server/src/collections/shared/store-fields.ts` | Server | `SOURCE_OPTIONS`, `SOURCE_OPTIONS_WITH_ALL`, `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `STORE_LABELS` | Collection configs (SourceProducts, ProductCrawls, ProductSearches, SearchResults, ProductAggregations), score-utils.tsx |
+
+The worker registry derives its lists from the `drivers[]` array (each driver declares its own `slug`, `label`, `hosts`). Source filters and URL matchers in `source-product-queries.ts` are also derived from the driver registry automatically.
+
+The server registry is a simple static list (server and worker are separate processes — no cross-process imports). Frontend display functions (`storeLabel()` in `score-utils.tsx`, `StoreLogo` in `store-logos.tsx`) use map lookups with graceful fallbacks for unknown slugs.
+
+### Step-by-step: Adding a new store
+
+1. **Create the driver** — `worker/src/lib/source-discovery/drivers/<slug>.ts`
+   - Implement the `SourceDriver` interface: `slug`, `label`, `hosts`, `logoSvg`, `matches()`, `discoverProducts()`, `searchProducts()`, `scrapeProduct()`
+   - Use existing drivers as reference (DM for API-based, Rossmann/Mueller for Playwright-based)
+
+2. **Register the driver** — `worker/src/lib/source-discovery/driver.ts`
+   - Import the driver and add it to the `drivers[]` array
+   - `ALL_SOURCE_SLUGS` and `DEFAULT_IMAGE_SOURCE_PRIORITY` update automatically
+
+3. **Update the `SourceSlug` type** — `worker/src/lib/source-discovery/types.ts`
+   - Add the new slug to the `SourceSlug` union type (e.g. `'dm' | 'mueller' | 'rossmann' | 'newstore'`)
+
+4. **Update server store registry** — `server/src/collections/shared/store-fields.ts`
+   - Add `{ label: 'Store Name', value: 'newslug' }` to `SOURCE_OPTIONS`
+   - All collection configs that use `SOURCE_OPTIONS` / `SOURCE_OPTIONS_WITH_ALL` / `ALL_SOURCE_SLUGS` / `DEFAULT_IMAGE_SOURCE_PRIORITY` update automatically
+
+5. **Add the store logo** — `server/src/components/store-logos.tsx`
+   - Create a new logo component function (inline SVG)
+   - Add it to `LOGO_MAP` (the `StoreLogo` component dispatches via map lookup; unknown slugs fall back to text)
+
+6. **Run `pnpm generate:types`** in the server to regenerate `payload-types.ts`
+
+7. **Create a database migration** — `ALTER TYPE ... ADD VALUE 'newslug'` for each affected Postgres enum:
+   - `enum_source_products_source`
+   - `enum_product_crawls_source`
+   - `enum_product_searches_sources`
+   - `enum_search_results_source`
+
+### What you do NOT need to touch
+
+- `claim.ts`, `submit.ts`, `worker.ts`, `aggregate-product.ts` — all use `ALL_SOURCE_SLUGS` / `DEFAULT_IMAGE_SOURCE_PRIORITY` from the driver registry
+- `source-product-queries.ts` — `SOURCE_FILTERS` and `URL_MATCHERS` are derived from the driver registry's `hosts` field
+- `score-utils.tsx` — `storeLabel()` uses `STORE_LABELS` map with fallback to raw slug
+- `trait-chip.tsx` — imports `storeLabel()` from `score-utils.tsx`
+- Persist functions (`persist.ts`) — fully store-agnostic
+- Aggregation logic — fully store-agnostic
+
 ## Development Notes
 
 - **TypeScript** throughout; worker uses `@/` path aliases via tsconfig

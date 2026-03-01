@@ -603,7 +603,7 @@ export interface DiscoveryResult {
 export interface SourceProduct {
   id: number;
   status?: ('uncrawled' | 'crawled') | null;
-  source?: ('dm' | 'mueller' | 'rossmann') | null;
+  source?: ('dm' | 'rossmann' | 'mueller') | null;
   /**
    * Source-specific article number (e.g., DM Artikelnummer)
    */
@@ -850,7 +850,7 @@ export interface ProductSearch {
   /**
    * Which stores to search. All selected by default.
    */
-  sources: ('dm' | 'mueller' | 'rossmann')[];
+  sources: ('dm' | 'rossmann' | 'mueller')[];
   /**
    * Maximum products to import per source. Default: 50.
    */
@@ -906,7 +906,7 @@ export interface SearchResult {
   /**
    * Which source this result came from
    */
-  source?: ('dm' | 'mueller' | 'rossmann') | null;
+  source?: ('dm' | 'rossmann' | 'mueller') | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -943,7 +943,7 @@ export interface ProductAggregation {
    */
   language?: ('de' | 'en') | null;
   /**
-   * Ordered list of sources to prefer when selecting a product image. First source with images wins. Default: ["dm", "rossmann", "mueller"]
+   * Ordered list of source slugs to prefer when selecting a product image. First source with images wins.
    */
   imageSourcePriority?:
     | {

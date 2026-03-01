@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { DEFAULT_IMAGE_SOURCE_PRIORITY } from './shared/store-fields'
 
 export const ProductAggregations: CollectionConfig = {
   slug: 'product-aggregations',
@@ -105,10 +106,10 @@ export const ProductAggregations: CollectionConfig = {
               name: 'imageSourcePriority',
               type: 'json',
               label: 'Image Source Priority',
-              defaultValue: ['dm', 'rossmann', 'mueller'],
+              defaultValue: DEFAULT_IMAGE_SOURCE_PRIORITY,
               admin: {
                 description:
-                  'Ordered list of sources to prefer when selecting a product image. First source with images wins. Default: ["dm", "rossmann", "mueller"]',
+                  'Ordered list of source slugs to prefer when selecting a product image. First source with images wins.',
               },
             },
           ],

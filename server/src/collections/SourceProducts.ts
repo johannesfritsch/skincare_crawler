@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { SOURCE_OPTIONS } from './shared/store-fields'
 
 export const SourceProducts: CollectionConfig = {
   slug: 'source-products',
@@ -60,11 +61,7 @@ export const SourceProducts: CollectionConfig = {
       type: 'select',
       label: 'Source',
       index: true,
-      options: [
-        { label: 'DM', value: 'dm' },
-        { label: 'Mueller', value: 'mueller' },
-        { label: 'Rossmann', value: 'rossmann' },
-      ],
+      options: [...SOURCE_OPTIONS],
       admin: {
         position: 'sidebar',
       },

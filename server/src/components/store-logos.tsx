@@ -1,3 +1,4 @@
+import React from 'react'
 import { cn } from '@/lib/utils'
 
 interface StoreLogoProps {
@@ -39,16 +40,19 @@ function MuellerLogo({ className }: StoreLogoProps) {
   )
 }
 
+/**
+ * Map of source slug → logo component.
+ * When adding a new store, add its logo component above and register it here.
+ */
+const LOGO_MAP: Record<string, (props: StoreLogoProps) => React.JSX.Element> = {
+  dm: DmLogo,
+  rossmann: RossmannLogo,
+  mueller: MuellerLogo,
+}
+
 /** Returns the appropriate store logo/icon for a given source slug */
 export function StoreLogo({ source, className }: { source: string; className?: string }) {
-  switch (source) {
-    case 'dm':
-      return <DmLogo className={className} />
-    case 'rossmann':
-      return <RossmannLogo className={className} />
-    case 'mueller':
-      return <MuellerLogo className={className} />
-    default:
-      return <span className={cn('text-xs font-medium text-muted-foreground', className)}>{source}</span>
-  }
+  const Logo = LOGO_MAP[source]
+  if (Logo) return <Logo className={className} />
+  return <span className={cn('text-xs font-medium text-muted-foreground', className)}>{source}</span>
 }

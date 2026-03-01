@@ -3,6 +3,7 @@ import type { AuthenticatedWorker } from './types'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import type { JobCollection } from '@/lib/logger'
 import { getSourceSlugFromUrl, countUncrawled } from '@/lib/source-product-queries'
+import { ALL_SOURCE_SLUGS } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
 import {
   persistCrawlResult,
@@ -375,7 +376,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     countOpts = { sourceUrls }
   }
 
-  const sources = job.source === 'all' ? ['dm', 'mueller', 'rossmann'] : [job.source as string]
+  const sources = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
   let totalRemaining = 0
   for (const source of sources) {
     totalRemaining += await countUncrawled(payload, source as SourceSlug, countOpts)
@@ -414,9 +415,17 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
 
   const job = await payload.findByID({ collection: 'product-discoveries', id: jobId }) as Record<string, unknown>
 
-  // Determine source from first URL
+  // Determine source from URLs (try each until one matches a known driver)
   const sourceUrls = ((job.sourceUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
-  const source = (sourceUrls.length > 0 ? getSourceSlugFromUrl(sourceUrls[0]) : null) ?? 'dm'
+  let source: SourceSlug | null = null
+  for (const url of sourceUrls) {
+    source = getSourceSlugFromUrl(url)
+    if (source) break
+  }
+  if (!source) {
+    log.error(`submitProductDiscovery #${jobId}: could not determine source from URLs, skipping`)
+    return { discovered: 0, created: 0, existing: 0, error: 'unknown source' }
+  }
 
   // Persist each product
   let created = (job.created as number) ?? 0

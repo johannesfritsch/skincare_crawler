@@ -20,7 +20,7 @@ interface AggregateOptions {
   imageSourcePriority?: string[]
 }
 
-const DEFAULT_IMAGE_SOURCE_PRIORITY = ['dm', 'rossmann', 'mueller']
+import { DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
 // Aggregate data from multiple source products for the same GTIN
 export function aggregateFromSources(sourceProducts: SourceProductData[], options?: AggregateOptions): AggregatedData | null {

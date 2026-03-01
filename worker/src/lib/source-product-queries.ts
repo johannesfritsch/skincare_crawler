@@ -1,18 +1,15 @@
 import type { PayloadRestClient, Where } from './payload-client'
+import { getAllSourceDrivers } from './source-discovery/driver'
 
-export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
+export type { SourceSlug } from './source-discovery/types'
+import type { SourceSlug } from './source-discovery/types'
 
-const SOURCE_FILTERS: Record<SourceSlug, Where> = {
-  dm: { or: [{ source: { equals: 'dm' } }, { source: { exists: false } }] },
-  mueller: { source: { equals: 'mueller' } },
-  rossmann: { source: { equals: 'rossmann' } },
-}
+// Derive source filters and URL matchers from the driver registry — no manual slug lists needed
+const SOURCE_FILTERS: Record<string, Where> = Object.fromEntries(
+  getAllSourceDrivers().map((d) => [d.slug, { source: { equals: d.slug } }]),
+)
 
-const URL_MATCHERS: Array<{ slug: SourceSlug; hosts: string[] }> = [
-  { slug: 'dm', hosts: ['www.dm.de', 'dm.de'] },
-  { slug: 'mueller', hosts: ['www.mueller.de', 'mueller.de'] },
-  { slug: 'rossmann', hosts: ['www.rossmann.de', 'rossmann.de'] },
-]
+const URL_MATCHERS = getAllSourceDrivers().map((d) => ({ slug: d.slug, hosts: d.hosts }))
 
 /**
  * Normalize a product URL by stripping ALL query parameters, fragments, and trailing slashes.
