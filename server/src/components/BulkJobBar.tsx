@@ -222,6 +222,7 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
       style={{
         fontSize: '13px',
         padding: 'calc(var(--base) * 0.6) calc(var(--base) * 0.8)',
+        background: 'var(--theme-elevation-50)',
         borderBottom: '1px solid var(--theme-elevation-100)',
       }}
     >
