@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { useSelection } from '@payloadcms/ui'
+import { useRouter } from 'next/navigation'
+import { Button, useSelection } from '@payloadcms/ui'
 import { getJobStatus, getJobEvents } from '@/actions/job-actions'
 import type { JobEvent } from '@/actions/job-actions'
 
@@ -184,6 +185,7 @@ interface BulkJobStatusBarProps {
 export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusBarProps) {
   const { state, error, events } = useJobState(jobCollection)
   const logRef = useRef<HTMLDivElement>(null)
+  const router = useRouter()
 
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
@@ -241,7 +243,17 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
         }}
       >
         {isActive && <Spinner />}
-        {statusText}
+        <span>{statusText}</span>
+        {state === 'completed' && (
+          <Button
+            buttonStyle="secondary"
+            size="small"
+            type="button"
+            onClick={() => router.refresh()}
+          >
+            Reload
+          </Button>
+        )}
       </div>
 
       {/* Event log */}
