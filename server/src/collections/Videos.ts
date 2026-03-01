@@ -11,6 +11,11 @@ export const Videos: CollectionConfig = {
     useAsTitle: 'title',
     defaultColumns: ['title', 'channel', 'publishedAt'],
     group: 'Videos',
+    components: {
+      edit: {
+        SaveButton: '@/components/VideoSaveButton',
+      },
+    },
   },
   fields: [
     {

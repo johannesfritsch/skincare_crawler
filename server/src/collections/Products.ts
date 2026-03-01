@@ -11,6 +11,11 @@ export const Products: CollectionConfig = {
     defaultColumns: ['name', 'brand', 'productType', 'createdAt'],
     listSearchableFields: ['name'],
     group: 'Products',
+    components: {
+      edit: {
+        SaveButton: '@/components/ProductSaveButton',
+      },
+    },
   },
   fields: [
     {

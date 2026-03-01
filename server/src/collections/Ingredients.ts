@@ -10,6 +10,11 @@ export const Ingredients: CollectionConfig = {
     useAsTitle: 'name',
     defaultColumns: ['name', 'status', 'crawledAt', 'createdAt'],
     group: 'Ingredients',
+    components: {
+      edit: {
+        SaveButton: '@/components/IngredientSaveButton',
+      },
+    },
   },
   fields: [
     {

@@ -39,8 +39,12 @@ src/
 │   └── (payload)/               # Payload admin routes
 ├── collections/                 # Collection configs
 ├── globals/                     # Global configs
+├── actions/
+│   └── job-actions.ts           # Server actions: create jobs + poll status (shared by all JobButtons)
 ├── components/                  # Shared React components
 │   ├── ui/                      # shadcn/ui primitives
+│   ├── JobButton.tsx            # Shared job button with state machine + polling (used by all SaveButton wrappers)
+│   ├── *SaveButton.tsx          # Per-collection SaveButton wrappers (SourceProduct, Product, Video, Channel, Ingredient)
 │   ├── anyskin-logo.tsx         # SVG wordmark
 │   ├── bottom-nav.tsx           # 5-tab bottom navigation
 │   ├── app-drawer.tsx           # Burger menu drawer

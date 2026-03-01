@@ -10,6 +10,11 @@ export const Channels: CollectionConfig = {
     useAsTitle: 'externalUrl',
     defaultColumns: ['creator', 'platform', 'createdAt'],
     group: 'Videos',
+    components: {
+      edit: {
+        SaveButton: '@/components/ChannelSaveButton',
+      },
+    },
   },
   fields: [
     {

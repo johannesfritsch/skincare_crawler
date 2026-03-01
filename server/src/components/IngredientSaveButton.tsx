@@ -4,9 +4,9 @@ import React from 'react'
 import { SaveButton, useDocumentInfo } from '@payloadcms/ui'
 import type { SaveButtonClientProps } from 'payload'
 import { JobButton } from '@/components/JobButton'
-import { crawlSourceProduct, getJobStatus } from '@/actions/job-actions'
+import { crawlIngredient, getJobStatus } from '@/actions/job-actions'
 
-export default function SourceProductSaveButton(props: SaveButtonClientProps) {
+export default function IngredientSaveButton(props: SaveButtonClientProps) {
   const { id } = useDocumentInfo()
 
   return (
@@ -14,10 +14,10 @@ export default function SourceProductSaveButton(props: SaveButtonClientProps) {
       <SaveButton />
       {id && (
         <JobButton
-          label="Crawl"
+          label="Crawl Info"
           runningLabel="Crawling..."
-          createJob={() => crawlSourceProduct(Number(id))}
-          getStatus={(jobId) => getJobStatus('product-crawls', jobId)}
+          createJob={() => crawlIngredient(Number(id))}
+          getStatus={(jobId) => getJobStatus('ingredient-crawls', jobId)}
         />
       )}
     </div>
