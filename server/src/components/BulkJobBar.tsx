@@ -249,7 +249,10 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
             buttonStyle="secondary"
             size="small"
             type="button"
-            onClick={() => router.refresh()}
+            onClick={() => {
+              setState(jobCollection, { state: 'idle', error: null, events: [] })
+              router.refresh()
+            }}
           >
             Reload
           </Button>
