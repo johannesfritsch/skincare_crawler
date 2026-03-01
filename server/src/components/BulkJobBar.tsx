@@ -184,6 +184,7 @@ interface BulkJobStatusBarProps {
 
 export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusBarProps) {
   const { state, error, events } = useJobState(jobCollection)
+  const { selectAll, toggleAll } = useSelection()
   const logRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
@@ -250,6 +251,7 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
             size="small"
             type="button"
             onClick={() => {
+              if (selectAll !== 'none') toggleAll()
               setState(jobCollection, { state: 'idle', error: null, events: [] })
               router.refresh()
             }}
