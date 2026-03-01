@@ -11,6 +11,7 @@ export const SOURCE_OPTIONS = [
   { label: 'DM', value: 'dm' },
   { label: 'Rossmann', value: 'rossmann' },
   { label: 'Müller', value: 'mueller' },
+  { label: 'PURISH', value: 'purish' },
 ] as const
 
 /** Store source options with an "All Stores" option prepended */

@@ -27,7 +27,8 @@ worker/src/
     │   └── drivers/
     │       ├── dm.ts                 # DM drugstore driver
     │       ├── mueller.ts            # Mueller driver
-    │       └── rossmann.ts           # Rossmann driver
+    │       ├── rossmann.ts           # Rossmann driver
+    │       └── purish.ts             # PURISH driver (Shopify API-based)
     │
     ├── ingredients-discovery/
     │   ├── types.ts                  # ScrapedIngredientData
@@ -308,7 +309,7 @@ Dispatches to per-type submit handlers. Each handler:
 
 ```typescript
 interface SourceDriver {
-  slug: SourceSlug           // 'dm' | 'mueller' | 'rossmann'
+  slug: SourceSlug           // 'dm' | 'mueller' | 'rossmann' | 'purish'
   label: string
   logoSvg: string            // inline SVG markup for the store logo (used in frontend UI)
   matches(url: string): boolean

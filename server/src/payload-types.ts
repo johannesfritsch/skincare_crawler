@@ -603,7 +603,7 @@ export interface DiscoveryResult {
 export interface SourceProduct {
   id: number;
   status?: ('uncrawled' | 'crawled') | null;
-  source?: ('dm' | 'rossmann' | 'mueller') | null;
+  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
   /**
    * Source-specific article number (e.g., DM Artikelnummer)
    */
@@ -784,7 +784,7 @@ export interface ProductCrawl {
   /**
    * Which store(s) to crawl products from.
    */
-  source?: ('all' | 'dm' | 'rossmann' | 'mueller') | null;
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish') | null;
   /**
    * One product URL per line. The store is detected automatically from the URL.
    */
@@ -846,7 +846,7 @@ export interface ProductSearch {
   /**
    * Which stores to search. All selected by default.
    */
-  sources: ('dm' | 'rossmann' | 'mueller')[];
+  sources: ('dm' | 'rossmann' | 'mueller' | 'purish')[];
   /**
    * Maximum products to import per source. Default: 50.
    */
@@ -902,7 +902,7 @@ export interface SearchResult {
   /**
    * Which source this result came from
    */
-  source?: ('dm' | 'rossmann' | 'mueller') | null;
+  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
   updatedAt: string;
   createdAt: string;
 }

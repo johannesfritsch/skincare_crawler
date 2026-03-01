@@ -40,6 +40,15 @@ function MuellerLogo({ className }: StoreLogoProps) {
   )
 }
 
+/** PURISH — text wordmark */
+function PurishLogo({ className }: StoreLogoProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 28" className={cn('h-5 w-auto', className)}>
+      <text x="0" y="23" fontFamily="Arial,Helvetica,sans-serif" fontWeight="700" fontSize="26" fill="#000">PURISH</text>
+    </svg>
+  )
+}
+
 /**
  * Map of source slug → logo component.
  * When adding a new store, add its logo component above and register it here.
@@ -48,6 +57,7 @@ const LOGO_MAP: Record<string, (props: StoreLogoProps) => React.JSX.Element> = {
   dm: DmLogo,
   rossmann: RossmannLogo,
   mueller: MuellerLogo,
+  purish: PurishLogo,
 }
 
 /** Returns the appropriate store logo/icon for a given source slug */

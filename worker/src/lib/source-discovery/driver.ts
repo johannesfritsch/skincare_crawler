@@ -2,8 +2,9 @@ import type { SourceDriver, SourceSlug } from './types'
 import { dmDriver } from './drivers/dm'
 import { rossmannDriver } from './drivers/rossmann'
 import { muellerDriver } from './drivers/mueller'
+import { purishDriver } from './drivers/purish'
 
-const drivers: SourceDriver[] = [dmDriver, rossmannDriver, muellerDriver]
+const drivers: SourceDriver[] = [dmDriver, rossmannDriver, muellerDriver, purishDriver]
 
 /** All registered source slugs, derived from the driver registry */
 export const ALL_SOURCE_SLUGS: SourceSlug[] = drivers.map((d) => d.slug)

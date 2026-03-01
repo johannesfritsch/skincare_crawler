@@ -78,7 +78,7 @@ export interface ProductSearchResult {
   products: DiscoveredProduct[]
 }
 
-export type SourceSlug = 'dm' | 'mueller' | 'rossmann'
+export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish'
 
 export interface SourceDriver {
   slug: SourceSlug
