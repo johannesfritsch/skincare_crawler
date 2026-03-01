@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@deepgram/sdk": "^4.11.3",
-    "@sparticuz/chromium": "^133.0.0",
     "dotenv": "16.4.7",
     "openai": "^6.16.0",
     "playwright-core": "1.56.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "sharp": "^0.34.2",
     "sharp-phash": "^2.2.0"
   },

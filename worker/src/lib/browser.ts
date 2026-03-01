@@ -1,25 +1,20 @@
-import chromium from '@sparticuz/chromium'
-import { chromium as pwChromium, type Browser } from 'playwright-core'
+import { chromium } from 'playwright-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
+import type { Browser } from 'playwright-core'
+
+// Register stealth plugin once at module level — patches navigator.webdriver,
+// chrome runtime, plugins, webgl, permissions, and other fingerprinting vectors.
+chromium.use(StealthPlugin())
 
 interface BrowserOptions {
   headless?: boolean
 }
 
 export async function launchBrowser(options: BrowserOptions = {}): Promise<Browser> {
-  const isVercel = !!process.env.VERCEL
   const headless = options.headless ?? true
 
-  if (isVercel) {
-    const executablePath = await chromium.executablePath()
-    return pwChromium.launch({
-      args: chromium.args,
-      executablePath,
-      headless: true, // Always headless on Vercel
-    })
-  } else {
-    return pwChromium.launch({
-      channel: 'chrome',
-      headless,
-    })
-  }
+  return chromium.launch({
+    channel: 'chrome',
+    headless,
+  })
 }

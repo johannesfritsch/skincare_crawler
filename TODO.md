@@ -6,3 +6,4 @@
 - ✅ Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers
 - ✅ Rename ProductQuotes to VideoMentions
 - ✅ Make sure that no 0 is in rating of no ratings are there for a SourceProduct
+- Fix mueller.de bot detection (maybe just wait a second?)

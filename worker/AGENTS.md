@@ -10,7 +10,7 @@ worker/src/
 └── lib/
     ├── payload-client.ts             # REST client mirroring Payload's local API
     ├── logger.ts                     # Structured logger with event emission
-    ├── browser.ts                    # Playwright browser management
+    ├── browser.ts                    # Playwright browser management (stealth-enabled via playwright-extra)
     ├── stealth-fetch.ts              # Fetch with anti-bot headers
     ├── parse-ingredients.ts          # Ingredient text → name[] parser (LLM, handles footnotes/asterisks)
     ├── source-product-queries.ts     # Source-product/variant DB query helpers + normalizeProductUrl() + normalizeVariantUrl()
@@ -426,6 +426,7 @@ jlog.info('scraped product', { event: true })      // creates Events linked to j
 - **Deduplication**: Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicates. Source-products no longer have a `sourceUrl` field — dedup happens at the variant level.
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
+- **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)
 
