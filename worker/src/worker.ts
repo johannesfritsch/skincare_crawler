@@ -18,7 +18,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { PayloadRestClient } from '@/lib/payload-client'
-import { initLogger, createLogger, type JobCollection } from '@/lib/logger'
+import { initLogger, createLogger } from '@/lib/logger'
 import { claimWork } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
@@ -95,7 +95,7 @@ async function heartbeat(jobId: number, type: string, progress?: unknown): Promi
       await client.update({ collection, id: jobId, data: jobData })
     }
   } catch (e) {
-    log.warn(`Heartbeat failed: ${e instanceof Error ? e.message : e}`)
+    log.warn('Heartbeat failed', { error: e instanceof Error ? e.message : String(e) })
   }
 }
 
@@ -106,7 +106,7 @@ function sleep(ms: number): Promise<void> {
 async function uploadMedia(filePath: string, alt: string, mimetype: string): Promise<number> {
   const buffer = fs.readFileSync(filePath)
   const sizeKB = (buffer.length / 1024).toFixed(1)
-  log.debug(`Uploading media: ${path.basename(filePath)} (${sizeKB} KB, ${mimetype})`)
+  log.debug('Uploading media', { file: path.basename(filePath), sizeKB: Number(sizeKB), mimetype })
 
   const blob = new Blob([buffer], { type: mimetype })
   const formData = new FormData()
@@ -127,12 +127,12 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string): Pro
 
   if (!res.ok) {
     const text = await res.text()
-    log.error(`Media upload failed (${elapsed}ms) → ${res.status}: ${text.slice(0, 200)}`)
+    log.error('Media upload failed', { elapsedMs: elapsed, status: res.status, response: text.slice(0, 200) })
     throw new Error(`Media upload failed (${res.status}): ${text}`)
   }
 
   const data = (await res.json()) as { doc: { id: number } }
-  log.debug(`Media uploaded (${elapsed}ms) → media #${data.doc.id}`)
+  log.debug('Media uploaded', { elapsedMs: elapsed, mediaId: data.doc.id })
   return data.doc.id
 }
 
@@ -140,7 +140,7 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string): Pro
 
 async function handleProductCrawl(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
-  const jlog = log.forJob('product-crawls' as JobCollection, jobId)
+  const jlog = log.forJob('product-crawls', jobId)
   const workItems = work.workItems as Array<{
     sourceVariantId: number
     sourceProductId: number
@@ -150,10 +150,10 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   const debug = work.debug as boolean
   const crawlVariants = work.crawlVariants as boolean
 
-  log.info(`Product crawl job #${jobId}: ${workItems.length} items`)
+  log.info('Product crawl job', { jobId, items: workItems.length })
 
   if (workItems.length === 0) {
-    log.warn(`No work items for job #${jobId}, skipping submit`)
+    log.warn('No work items, skipping submit', { jobId })
     return
   }
 
@@ -169,7 +169,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   for (const item of workItems) {
     const driver = getSourceDriverBySlug(item.source)
     if (!driver) {
-      jlog.error(`No driver for source: ${item.source}`, { event: true, labels: ['scraping'] })
+      jlog.error('No driver for source', { source: item.source }, { event: true, labels: ['scraping'] })
       results.push({
         ...item,
         data: null,
@@ -178,26 +178,27 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
       continue
     }
 
-    log.info(`  Scraping ${item.sourceUrl}`)
+    log.info('Scraping source URL', { sourceUrl: item.sourceUrl })
     try {
-      const data = await driver.scrapeProduct(item.sourceUrl, { debug })
+      const data = await driver.scrapeProduct(item.sourceUrl, { debug, logger: jlog })
       results.push({ ...item, data })
       if (!data) {
         results[results.length - 1].error = 'scrapeProduct returned null'
       }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      log.error(`  Error: ${error}`)
+      log.error('Scrape error', { sourceUrl: item.sourceUrl, error })
       results.push({ ...item, data: null, error })
     }
   }
 
   await submitWork(client, worker, { type: 'product-crawl', jobId, results, crawlVariants } as Parameters<typeof submitWork>[2])
-  log.info(`Submitted crawl results for job #${jobId}`)
+  log.info('Submitted crawl results', { jobId })
 }
 
 async function handleProductDiscovery(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
+  const jlog = log.forJob('product-discoveries', jobId)
   const sourceUrls = work.sourceUrls as string[]
   let currentUrlIndex = work.currentUrlIndex as number
   let driverProgress = work.driverProgress as unknown
@@ -205,9 +206,7 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
   const delay = work.delay as number
   const debug = work.debug as boolean
 
-  log.info(
-    `Product discovery job #${jobId}: ${sourceUrls.length} URLs, starting at ${currentUrlIndex}`,
-  )
+  log.info('Product discovery job', { jobId, urlCount: sourceUrls.length, currentUrlIndex })
 
   const discoveredProducts: DiscoveredProduct[] = []
   let totalPagesUsed = 0
@@ -220,13 +219,13 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
     const url = sourceUrls[currentUrlIndex]
     const driver = getSourceDriver(url)
     if (!driver) {
-      log.warn(`No driver for URL: ${url}`)
+      log.warn('No driver for URL', { url })
       currentUrlIndex++
       driverProgress = null
       continue
     }
 
-    log.info(`Discovering from ${url}`)
+    log.info('Discovering from URL', { url })
 
     const result = await driver.discoverProducts({
       url,
@@ -243,6 +242,7 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
       maxPages: pagesRemaining,
       delay,
       debug,
+      logger: jlog,
     })
 
     totalPagesUsed += result.pagesUsed
@@ -270,42 +270,41 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
     pagesUsed: totalPagesUsed,
   } as Parameters<typeof submitWork>[2])
 
-  log.info(
-    `Submitted discovery results: ${discoveredProducts.length} products, done=${done}`,
-  )
+  log.info('Submitted discovery results', { products: discoveredProducts.length, done })
 }
 
 async function handleProductSearch(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
+  const jlog = log.forJob('product-searches', jobId)
   const query = work.query as string
   const sources = work.sources as string[]
   const maxResults = (work.maxResults as number) ?? 50
   const debug = (work.debug as boolean) ?? false
 
-  log.info(`handleProductSearch #${jobId}: query="${query}", sources=[${sources.join(', ')}], maxResults=${maxResults}`)
+  log.info('Product search job', { jobId, query, sources: sources.join(', '), maxResults })
 
   const allProducts: Array<{ product: DiscoveredProduct; source: string }> = []
 
   for (const sourceSlug of sources) {
     const driver = getSourceDriverBySlug(sourceSlug)
     if (!driver) {
-      log.warn(`handleProductSearch #${jobId}: no driver for source "${sourceSlug}", skipping`)
+      log.warn('No driver for source, skipping', { jobId, source: sourceSlug })
       continue
     }
 
     try {
-      const result = await driver.searchProducts({ query, maxResults, debug })
-      log.info(`handleProductSearch #${jobId}: ${driver.label} returned ${result.products.length} products`)
+      const result = await driver.searchProducts({ query, maxResults, debug, logger: jlog })
+      log.info('Search results from source', { jobId, source: driver.label, products: result.products.length })
 
       for (const product of result.products) {
         allProducts.push({ product, source: sourceSlug })
       }
     } catch (e) {
-      log.error(`handleProductSearch #${jobId}: error searching ${driver.label}: ${e instanceof Error ? e.message : e}`)
+      log.error('Search error', { jobId, source: driver.label, error: e instanceof Error ? e.message : String(e) })
     }
   }
 
-  log.info(`handleProductSearch #${jobId}: ${allProducts.length} total products across ${sources.length} sources`)
+  log.info('Search totals', { jobId, totalProducts: allProducts.length, sourceCount: sources.length })
 
   await submitWork(client, worker, {
     type: 'product-search',
@@ -313,7 +312,7 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
     products: allProducts as Array<{ product: DiscoveredProduct; source: import('@/lib/source-product-queries').SourceSlug }>,
   } as Parameters<typeof submitWork>[2])
 
-  log.info(`Submitted search results: ${allProducts.length} products`)
+  log.info('Submitted search results', { products: allProducts.length })
 }
 
 async function handleIngredientsDiscovery(work: Record<string, unknown>): Promise<void> {
@@ -325,11 +324,11 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
   let termQueue = work.termQueue as string[]
   const pagesPerTick = work.pagesPerTick as number | undefined
 
-  log.info(`Ingredients discovery job #${jobId}`)
+  log.info('Ingredients discovery job', { jobId })
 
   const driver = getIngredientsDriver(sourceUrl)
   if (!driver) {
-    log.error(`No ingredients driver for URL: ${sourceUrl}`)
+    log.error('No ingredients driver for URL', { sourceUrl })
     return
   }
 
@@ -361,7 +360,7 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
     }
 
     // Fetch page
-    log.info(`Fetching "${currentTerm}" page ${currentPage}/${totalPagesForTerm}`)
+    log.info('Fetching ingredients page', { term: currentTerm, page: currentPage, totalPages: totalPagesForTerm })
     const ingredients = await driver.fetchPage(currentTerm, currentPage)
     allIngredients.push(...ingredients)
     pagesProcessed++
@@ -390,7 +389,7 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
     done,
   } as Parameters<typeof submitWork>[2])
 
-  log.info(`Submitted ingredients: ${allIngredients.length} items, done=${done}`)
+  log.info('Submitted ingredients', { items: allIngredients.length, done })
 }
 
 async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void> {
@@ -400,11 +399,11 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const batchSize = work.batchSize as number
   const maxVideos = work.maxVideos as number | undefined
 
-  log.info(`Video discovery job #${jobId}: ${channelUrl}, offset=${currentOffset}, batchSize=${batchSize}, maxVideos=${maxVideos ?? 'unlimited'}`)
+  log.info('Video discovery job', { jobId, channelUrl, currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited' })
 
   const driver = getVideoDriver(channelUrl)
   if (!driver) {
-    log.error(`No video driver for URL: ${channelUrl}`)
+    log.error('No video driver for URL', { channelUrl })
     return
   }
 
@@ -413,7 +412,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   if (maxVideos !== undefined) {
     const remaining = maxVideos - currentOffset
     if (remaining <= 0) {
-      log.info(`Already at maxVideos limit (${maxVideos}), nothing to fetch`)
+      log.info('Already at maxVideos limit, nothing to fetch', { maxVideos })
       await submitWork(client, worker, {
         type: 'video-discovery',
         jobId,
@@ -435,7 +434,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex })
   const nextOffset = currentOffset + result.videos.length
 
-  log.info(`Fetched ${result.videos.length} videos [${startIndex}–${endIndex}], reachedEnd=${result.reachedEnd}`)
+  log.info('Fetched videos', { count: result.videos.length, startIndex, endIndex, reachedEnd: result.reachedEnd })
 
   await submitWork(client, worker, {
     type: 'video-discovery',
@@ -447,12 +446,12 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
     maxVideos,
   } as Parameters<typeof submitWork>[2])
 
-  log.info(`Submitted video discovery results`)
+  log.info('Submitted video discovery results')
 }
 
 async function handleVideoProcessing(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
-  const jlog = log.forJob('video-processings' as JobCollection, jobId)
+  const jlog = log.forJob('video-processings', jobId)
   const videos = work.videos as Array<{
     videoId: number
     externalUrl: string
@@ -464,14 +463,14 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
   const transcriptionLanguage = (work.transcriptionLanguage as string) ?? 'de'
   const transcriptionModel = (work.transcriptionModel as string) ?? 'nova-3'
 
-  log.info(`Video processing job #${jobId}: ${videos.length} videos, transcription=${transcriptionEnabled ? `${transcriptionLanguage}/${transcriptionModel}` : 'disabled'}`)
+  log.info('Video processing job', { jobId, videos: videos.length, transcription: transcriptionEnabled ? `${transcriptionLanguage}/${transcriptionModel}` : 'disabled' })
 
   const results: Array<Record<string, unknown>> = []
 
   for (const video of videos) {
-    log.info(`════════════════════════════════════════════════════`)
-    log.info(`Processing: "${video.title}" (id=${video.videoId})`)
-    log.info(`URL: ${video.externalUrl}`)
+    log.info('════════════════════════════════════════════════════')
+    log.info('Processing video', { title: video.title, videoId: video.videoId })
+    log.info('Video URL', { url: video.externalUrl })
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-video-'))
     const videoPath = path.join(tmpDir, 'video.mp4')
@@ -484,13 +483,13 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
       // Step 1: Download video
       await downloadVideo(video.externalUrl, videoPath)
       const fileSizeMB = (fs.statSync(videoPath).size / (1024 * 1024)).toFixed(1)
-      jlog.info(`Video "${video.title}": downloaded (${fileSizeMB} MB)`, { event: true, labels: ['video-processing'] })
+      jlog.info('Video downloaded', { title: video.title, sizeMB: Number(fileSizeMB) }, { event: true, labels: ['video-processing'] })
       await heartbeat(jobId, 'video-processing')
 
       // Step 2: Upload video mp4 as media
-      log.info(`── Upload video to media ──`)
+      log.info('Uploading video to media')
       const videoMediaId = await uploadMedia(videoPath, video.title || `Video ${video.videoId}`, 'video/mp4')
-      log.info(`Uploaded video as media #${videoMediaId}`)
+      log.info('Uploaded video as media', { mediaId: videoMediaId })
       await heartbeat(jobId, 'video-processing')
 
       // Step 3: Get duration + scene detection
@@ -509,8 +508,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         }
       }
 
-      log.info(`${segments.length} segments from ${sceneChanges.length} scene changes`)
-      jlog.info(`Video "${video.title}": ${sceneChanges.length} scene changes, ${segments.length} segments`, { event: true, labels: ['video-processing', 'scene-detection'] })
+      log.info('Segments built', { segments: segments.length, sceneChanges: sceneChanges.length })
+      jlog.info('Scene detection complete', { title: video.title, sceneChanges: sceneChanges.length, segments: segments.length }, { event: true, labels: ['video-processing', 'scene-detection'] })
 
       // Step 5: Process each segment
       const segmentResults: Array<Record<string, unknown>> = []
@@ -524,7 +523,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         const eventLog: string[] = []
         eventLog.push(`── ${segLabel} ${segTime} (${segDuration.toFixed(1)}s) ──`)
 
-        log.info(`── ${segLabel}: ${seg.start.toFixed(1)}s – ${seg.end.toFixed(1)}s ──`)
+        log.info('Processing segment', { segment: segLabel, startS: Number(seg.start.toFixed(1)), endS: Number(seg.end.toFixed(1)) })
 
         // Extract screenshots
         const prefix = `seg${String(i).padStart(3, '0')}`
@@ -533,7 +532,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         eventLog.push(`Screenshots: ${screenshotFiles.length} extracted (1fps)`)
 
         // First pass: scan for barcodes (stop at first hit)
-        log.info(`Scanning ${screenshotFiles.length} screenshots for barcodes...`)
+        log.info('Scanning screenshots for barcodes', { count: screenshotFiles.length })
         let foundBarcode: string | null = null
         let barcodeScreenshotIndex: number | null = null
 
@@ -542,15 +541,15 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           if (barcode) {
             foundBarcode = barcode
             barcodeScreenshotIndex = j
-            log.info(`Barcode found in screenshot ${j + 1}, skipping remaining`)
+            log.info('Barcode found, skipping remaining', { screenshot: j + 1, barcode })
             break
           }
         }
 
         if (foundBarcode) {
           // ── Barcode path ──
-          log.info(`Barcode path: ${foundBarcode}`)
-          jlog.info(`Video "${video.title}" seg ${i + 1}: barcode ${foundBarcode}`, { event: true, labels: ['video-processing', 'barcode'] })
+          log.info('Barcode path matched', { barcode: foundBarcode })
+          jlog.info('Barcode found in segment', { title: video.title, segment: i + 1, barcode: foundBarcode }, { event: true, labels: ['video-processing', 'barcode'] })
           eventLog.push(``)
           eventLog.push(`Path: BARCODE`)
           eventLog.push(`Barcode scan: found ${foundBarcode} in screenshot ${barcodeScreenshotIndex! + 1}/${screenshotFiles.length}`)
@@ -558,7 +557,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           const screenshots: Array<Record<string, unknown>> = []
           for (let j = 0; j < screenshotFiles.length; j++) {
             const ts = Math.floor(seg.start) + j
-            log.info(`Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
+            log.info('Uploading screenshot', { index: j + 1, total: screenshotFiles.length, timestampS: ts })
             const imageMediaId = await uploadMedia(screenshotFiles[j], `${video.title} – ${ts}s`, 'image/jpeg')
 
             const entry: Record<string, unknown> = { imageMediaId }
@@ -581,7 +580,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           })
         } else {
           // ── Visual path ──
-          log.info(`No barcode found, using visual recognition path`)
+          log.info('No barcode found, using visual recognition path')
           eventLog.push(`Barcode scan: no barcode found (scanned ${screenshotFiles.length} screenshots)`)
           eventLog.push(``)
           eventLog.push(`Path: VISUAL`)
@@ -614,8 +613,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             hashResults.push({ thumbnailPath, hash, distance: bestDistance, screenshotGroup: assignedGroup })
           }
 
-          log.info(`${clusterRepresentatives.length} clusters formed`)
-          jlog.info(`Video "${video.title}" seg ${i + 1}: no barcode, ${clusterRepresentatives.length} clusters`, { event: true, labels: ['video-processing'] })
+          log.info('Clusters formed', { clusters: clusterRepresentatives.length })
+          jlog.info('Visual clustering complete', { title: video.title, segment: i + 1, clusters: clusterRepresentatives.length }, { event: true, labels: ['video-processing'] })
 
           eventLog.push(``)
           eventLog.push(`Clustering: ${clusterRepresentatives.length} clusters from ${screenshotFiles.length} screenshots`)
@@ -636,8 +635,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           )
           totalTokensUsed += classifyResult.tokensUsed.totalTokens
           const candidateClusters = new Set(classifyResult.candidates)
-          log.info(`Phase 1: ${candidateClusters.size} product clusters out of ${clusterRepresentatives.length}`)
-          jlog.info(`Video "${video.title}" seg ${i + 1}: ${candidateClusters.size} product candidates`, { event: true, labels: ['video-processing', 'recognition'] })
+          log.info('Phase 1 classification complete', { productClusters: candidateClusters.size, totalClusters: clusterRepresentatives.length })
+          jlog.info('Product candidates identified', { title: video.title, segment: i + 1, candidates: candidateClusters.size }, { event: true, labels: ['video-processing', 'recognition'] })
           await heartbeat(jobId, 'video-processing')
 
           eventLog.push(``)
@@ -670,11 +669,11 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
               }
             }
 
-            log.info(`Phase 2: Recognizing product from cluster ${clusterGroup} (${selected.length} screenshots)`)
+            log.info('Phase 2: recognizing product', { clusterGroup, screenshots: selected.length })
             const recognition = await recognizeProduct(selected)
             if (recognition) {
               totalTokensUsed += recognition.tokensUsed.totalTokens
-              jlog.info(`Video "${video.title}" seg ${i + 1}: "${recognition.brand ?? 'unknown'}" / "${recognition.productName ?? 'unknown'}"`, { event: true, labels: ['video-processing', 'recognition'] })
+              jlog.info('Product recognized', { title: video.title, segment: i + 1, brand: recognition.brand ?? 'unknown', product: recognition.productName ?? 'unknown' }, { event: true, labels: ['video-processing', 'recognition'] })
               recognitionResults.push({
                 clusterGroup,
                 brand: recognition.brand,
@@ -707,7 +706,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             const file = screenshotFiles[j]
             const hr = hashResults[j]
             const ts = Math.floor(seg.start) + j
-            log.info(`Uploading screenshot ${j + 1}/${screenshotFiles.length} (t=${ts}s)`)
+            log.info('Uploading screenshot', { index: j + 1, total: screenshotFiles.length, timestampS: ts })
 
             const imageMediaId = await uploadMedia(file, `${video.title} – ${ts}s`, 'image/jpeg')
             const thumbnailMediaId = await uploadMedia(hr.thumbnailPath, `${video.title} – ${ts}s thumb`, 'image/png')
@@ -780,13 +779,13 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           const uniqueKeywords = [...new Set(productKeywords)]
 
           // Step T2: Transcribe with Deepgram
-          log.debug(`DEEPGRAM_API_KEY present: ${!!process.env.DEEPGRAM_API_KEY} (${process.env.DEEPGRAM_API_KEY?.length ?? 0} chars)`)
+          log.debug('DEEPGRAM_API_KEY check', { present: !!process.env.DEEPGRAM_API_KEY, length: process.env.DEEPGRAM_API_KEY?.length ?? 0 })
           const rawTranscription = await transcribeAudio(audioPath, {
             language: transcriptionLanguage,
             model: transcriptionModel,
             keywords: uniqueKeywords,
           })
-          jlog.info(`Video "${video.title}": transcribed ${rawTranscription.words.length} words`, { event: true, labels: ['video-processing', 'transcription'] })
+          jlog.info('Transcription complete', { title: video.title, words: rawTranscription.words.length }, { event: true, labels: ['video-processing', 'transcription'] })
           await heartbeat(jobId, 'video-processing')
 
           // Step T3: Fetch all brand names from DB for LLM correction context
@@ -804,7 +803,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             recognizedProductNames,
           )
           tokensTranscriptCorrection = correction.tokensUsed.totalTokens
-          jlog.info(`Video "${video.title}": transcript corrected (${correction.corrections.length} fixes, ${tokensTranscriptCorrection} tokens)`, { event: true, labels: ['video-processing', 'transcription'] })
+          jlog.info('Transcript corrected', { title: video.title, fixes: correction.corrections.length, tokens: tokensTranscriptCorrection }, { event: true, labels: ['video-processing', 'transcription'] })
           await heartbeat(jobId, 'video-processing')
 
           // Use corrected transcript text but keep original word timestamps
@@ -948,18 +947,18 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             await heartbeat(jobId, 'video-processing')
           }
 
-          jlog.info(`Video "${video.title}": sentiment analysis complete (${tokensSentiment} tokens)`, { event: true, labels: ['video-processing', 'sentiment'] })
+          jlog.info('Sentiment analysis complete', { title: video.title, tokens: tokensSentiment }, { event: true, labels: ['video-processing', 'sentiment'] })
         } catch (transcriptionError) {
           const msg = transcriptionError instanceof Error ? transcriptionError.message : String(transcriptionError)
-          log.error(`Transcription pipeline failed for video #${video.videoId}: ${msg}`)
-          jlog.error(`Video "${video.title}": transcription failed — ${msg}`, { event: true, labels: ['video-processing', 'transcription'] })
+          log.error('Transcription pipeline failed', { videoId: video.videoId, error: msg })
+          jlog.error('Transcription failed', { title: video.title, error: msg }, { event: true, labels: ['video-processing', 'transcription'] })
           // Continue without transcription data — segments are still saved
         }
       }
 
       const totalTokensAll = totalTokensUsed + tokensTranscriptCorrection + tokensSentiment
-      log.info(`Done processing video #${video.videoId}: ${segmentResults.length} segments, ${totalTokensAll} tokens (recognition=${totalTokensUsed}, correction=${tokensTranscriptCorrection}, sentiment=${tokensSentiment})`)
-      jlog.info(`Video "${video.title}": ${segmentResults.length} segments, ${totalTokensAll} tokens`, { event: true, labels: ['video-processing'] })
+      log.info('Done processing video', { videoId: video.videoId, segments: segmentResults.length, totalTokens: totalTokensAll, recognitionTokens: totalTokensUsed, correctionTokens: tokensTranscriptCorrection, sentimentTokens: tokensSentiment })
+      jlog.info('Video processing complete', { title: video.title, segments: segmentResults.length, tokens: totalTokensAll }, { event: true, labels: ['video-processing'] })
 
       results.push({
         videoId: video.videoId,
@@ -976,8 +975,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
       })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      log.error(`FAILED processing video #${video.videoId}: ${msg}`)
-      jlog.error(`Video "${video.title}": failed — ${msg}`, { event: true, labels: ['video-processing'] })
+      log.error('Video processing failed', { videoId: video.videoId, error: msg })
+      jlog.error('Video processing failed', { title: video.title, error: msg }, { event: true, labels: ['video-processing'] })
       results.push({
         videoId: video.videoId,
         success: false,
@@ -988,17 +987,17 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         tokensSentiment: 0,
       })
     } finally {
-      log.info(`Cleaning up: ${tmpDir}`)
+      log.info('Cleaning up temp dir', { tmpDir })
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true })
       } catch (e) {
-        log.warn(`Cleanup failed: ${e}`)
+        log.warn('Cleanup failed', { error: e instanceof Error ? e.message : String(e) })
       }
     }
   }
 
   await submitWork(client, worker, { type: 'video-processing', jobId, results } as Parameters<typeof submitWork>[2])
-  log.info(`Submitted video processing results for job #${jobId}`)
+  log.info('Submitted video processing results', { jobId })
 }
 
 async function handleProductAggregation(work: Record<string, unknown>): Promise<void> {
@@ -1021,17 +1020,17 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     }>
   }>
 
-  log.info(`Product aggregation job #${jobId}: ${workItems.length} items (type=${aggregationType}, scope=${scope})`)
+  log.info('Product aggregation job', { jobId, items: workItems.length, type: aggregationType, scope })
 
   if (workItems.length === 0) {
-    log.warn(`No work items for aggregation job #${jobId}, skipping submit`)
+    log.warn('No work items for aggregation job, skipping submit', { jobId })
     return
   }
 
   const results: Array<Record<string, unknown>> = []
 
   for (const item of workItems) {
-    log.info(`Aggregating GTIN ${item.gtin} (${item.sourceProducts.length} sources)`)
+    log.info('Aggregating GTIN', { gtin: item.gtin, sources: item.sourceProducts.length })
 
     try {
       // Step 1: Aggregate from sources (pure)
@@ -1090,12 +1089,12 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
             classifySourceProductIds = classifySources.map((s) => s.id)
           } catch (e) {
             const error = e instanceof Error ? e.message : String(e)
-            log.error(`Classification error for GTIN ${item.gtin}: ${error}`)
+            log.error('Classification error', { gtin: item.gtin, error })
             // Continue without classification
           }
         }
       } else {
-        log.info(`Skipping classification for GTIN ${item.gtin} (scope=partial)`)
+        log.info('Skipping classification (partial scope)', { gtin: item.gtin })
       }
 
       results.push({
@@ -1108,7 +1107,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       })
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      log.error(`Error aggregating GTIN ${item.gtin}: ${error}`)
+      log.error('Error aggregating GTIN', { gtin: item.gtin, error })
       results.push({
         gtin: item.gtin,
         sourceProductIds: item.sourceProducts.map((sp) => sp.id),
@@ -1129,7 +1128,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     scope,
     results,
   } as Parameters<typeof submitWork>[2])
-  log.info(`Submitted aggregation results for job #${jobId}: ${results.length} items`)
+  log.info('Submitted aggregation results', { jobId, items: results.length })
 }
 
 // ─── Ingredient Crawl ───
@@ -1144,17 +1143,17 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
     hasImage: boolean
   }>
 
-  log.info(`Ingredient crawl job #${jobId}: ${workItems.length} items (type=${crawlType})`)
+  log.info('Ingredient crawl job', { jobId, items: workItems.length, type: crawlType })
 
   if (workItems.length === 0) {
-    log.warn(`No work items for ingredient crawl job #${jobId}, skipping submit`)
+    log.warn('No work items for ingredient crawl, skipping submit', { jobId })
     return
   }
 
   const results: Array<Record<string, unknown>> = []
 
   for (const item of workItems) {
-    log.info(`Crawling ingredient "${item.ingredientName}" (#${item.ingredientId})`)
+    log.info('Crawling ingredient', { name: item.ingredientName, ingredientId: item.ingredientId })
 
     try {
       // Step 1: Build URL from ingredient name
@@ -1163,7 +1162,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
       const url = `https://incidecoder.com/ingredients/${slug}`
-      log.info(`Fetching ${url}`)
+      log.info('Fetching ingredient page', { url })
 
       // Step 2: Fetch page
       const response = await fetch(url, {
@@ -1174,7 +1173,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       })
 
       if (!response.ok) {
-        log.warn(`HTTP ${response.status} for "${item.ingredientName}" at ${url}`)
+        log.warn('HTTP error fetching ingredient', { status: response.status, name: item.ingredientName, url })
         results.push({
           ingredientId: item.ingredientId,
           ingredientName: item.ingredientName,
@@ -1237,7 +1236,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       }
 
       if (!longDescription) {
-        log.warn(`No description content found for "${item.ingredientName}" at ${url}`)
+        log.warn('No description content found', { name: item.ingredientName, url })
         results.push({
           ingredientId: item.ingredientId,
           ingredientName: item.ingredientName,
@@ -1247,7 +1246,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
         continue
       }
 
-      log.info(`Extracted longDescription for "${item.ingredientName}" (${longDescription.length} chars)`)
+      log.info('Extracted long description', { name: item.ingredientName, chars: longDescription.length })
 
       // Step 4: Extract and upload ingredient image (skip if already has one)
       let imageMediaId: number | undefined
@@ -1257,7 +1256,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
           || html.match(/<div class="imgcontainer[^"]*"[\s\S]*?<img\s[^>]*src="([^"]+)"/)
         if (imgMatch) {
           const imageUrl = imgMatch[1]
-          log.info(`Downloading image for "${item.ingredientName}" from ${imageUrl}`)
+           log.info('Downloading ingredient image', { name: item.ingredientName, imageUrl })
           try {
             const imgRes = await fetch(imageUrl, {
               headers: {
@@ -1276,18 +1275,18 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
                 file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
               })
               imageMediaId = (mediaDoc as { id: number }).id
-              log.info(`Uploaded image for "${item.ingredientName}" → media #${imageMediaId}`)
+               log.info('Uploaded ingredient image', { name: item.ingredientName, mediaId: imageMediaId })
             } else {
-              log.warn(`Image download failed (${imgRes.status}) for "${item.ingredientName}"`)
+              log.warn('Image download failed', { status: imgRes.status, name: item.ingredientName })
             }
           } catch (e) {
-            log.warn(`Image download/upload error for "${item.ingredientName}": ${e instanceof Error ? e.message : String(e)}`)
+            log.warn('Image download/upload error', { name: item.ingredientName, error: e instanceof Error ? e.message : String(e) })
           }
         } else {
-          log.debug(`No image found on page for "${item.ingredientName}"`)
+          log.debug('No image found on page', { name: item.ingredientName })
         }
       } else {
-        log.debug(`Ingredient "${item.ingredientName}" already has an image, skipping`)
+        log.debug('Ingredient already has image, skipping', { name: item.ingredientName })
       }
 
       // Step 5: Generate short description via LLM
@@ -1317,10 +1316,10 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
 
           shortDescription = llmResponse.choices[0]?.message?.content?.trim() || ''
           tokensUsed = llmResponse.usage?.total_tokens || 0
-          log.info(`Generated shortDescription for "${item.ingredientName}" (${shortDescription.length} chars, ${tokensUsed} tokens)`)
+          log.info('Generated short description', { name: item.ingredientName, chars: shortDescription.length, tokens: tokensUsed })
         } catch (e) {
           const error = e instanceof Error ? e.message : String(e)
-          log.error(`LLM error generating short description for "${item.ingredientName}": ${error}`)
+          log.error('LLM error generating short description', { name: item.ingredientName, error })
           // Continue with longDescription only
         }
       } else {
@@ -1337,7 +1336,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       })
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      log.error(`Error crawling ingredient "${item.ingredientName}": ${error}`)
+      log.error('Error crawling ingredient', { name: item.ingredientName, error })
       results.push({
         ingredientId: item.ingredientId,
         ingredientName: item.ingredientName,
@@ -1356,16 +1355,14 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
     crawlType,
     results,
   } as Parameters<typeof submitWork>[2])
-  log.info(`Submitted ingredient crawl results for job #${jobId}: ${results.length} items`)
+  log.info('Submitted ingredient crawl results', { jobId, items: results.length })
 }
 
 // ─── Main Loop ───
 
 async function main(): Promise<void> {
-  log.info(`Starting worker`)
-  log.info(`Server: ${SERVER_URL}`)
-  log.info(`Default poll interval: ${DEFAULT_POLL_INTERVAL / 1000}s`)
-  log.info(`Job timeout: ${JOB_TIMEOUT_MINUTES}m`)
+  log.info('Starting worker')
+  log.info('Worker config', { server: SERVER_URL, pollIntervalS: DEFAULT_POLL_INTERVAL / 1000, jobTimeoutM: JOB_TIMEOUT_MINUTES })
 
   // Authenticate via REST API
   const meResult = await client.me()
@@ -1387,7 +1384,7 @@ async function main(): Promise<void> {
     status: me.status,
   }
 
-  log.info(`Authenticated as "${worker.name}" (#${worker.id}), capabilities=[${worker.capabilities.join(', ')}]`)
+  log.info('Authenticated', { name: worker.name, workerId: worker.id, capabilities: worker.capabilities.join(', ') })
 
   // Update lastSeenAt on startup
   await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } })
@@ -1402,14 +1399,14 @@ async function main(): Promise<void> {
       const work = await claimWork(client, worker, JOB_TIMEOUT_MINUTES)
 
       if (work.type === 'none') {
-        log.debug(`No work, sleeping ${DEFAULT_POLL_INTERVAL / 1000}s`)
+        log.debug('No work, sleeping', { sleepS: DEFAULT_POLL_INTERVAL / 1000 })
         await sleep(DEFAULT_POLL_INTERVAL)
         continue
       }
 
       currentJobType = work.type as string
       currentJobId = work.jobId
-      log.info(`Dispatching ${work.type} job #${work.jobId}`)
+      log.info('Dispatching job', { jobType: work.type as string, jobId: work.jobId as number })
 
       switch (work.type) {
         case 'product-crawl':
@@ -1437,12 +1434,11 @@ async function main(): Promise<void> {
           await handleIngredientCrawl(work)
           break
         default:
-          log.warn(`Unknown job type: ${work.type}`)
+          log.warn('Unknown job type', { jobType: work.type as string })
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      const jobCtx = currentJobType ? ` (${currentJobType} #${currentJobId})` : ''
-      log.error(`Error in main loop${jobCtx}: ${msg}`)
+      log.error('Error in main loop', { jobType: currentJobType ?? null, jobId: (currentJobId as number) ?? null, error: msg })
       // Wait before retrying after errors
       await sleep(DEFAULT_POLL_INTERVAL)
     }

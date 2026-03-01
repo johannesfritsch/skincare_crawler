@@ -6,9 +6,9 @@ import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
 import { matchIngredients } from '@/lib/match-ingredients'
 import { parseIngredients } from '@/lib/parse-ingredients'
-import { createLogger, type JobCollection } from '@/lib/logger'
+import { createLogger } from '@/lib/logger'
 
-const log = createLogger('WorkProtocol')
+const log = createLogger('Persist')
 
 interface ScrapedProductData {
   gtin?: string
@@ -106,8 +106,8 @@ export async function persistCrawlResult(
 ): Promise<{ productId: number; warnings: string[] }> {
   const { crawlId, sourceVariantId, sourceProductId, source, data, crawlVariants } = input
   const variantUrl = normalizeVariantUrl(input.sourceUrl)
-  const jlog = log.forJob('product-crawls' as JobCollection, crawlId)
-  log.info(`persistCrawlResult: crawl #${crawlId}, sourceVariant #${sourceVariantId}, sourceProduct #${sourceProductId}, source=${source}`)
+  const jlog = log.forJob('product-crawls', crawlId)
+  log.info('persistCrawlResult: starting', { crawlId, sourceVariantId, sourceProductId, source })
   const warnings = [...data.warnings]
 
   // Build category breadcrumb string
@@ -165,7 +165,7 @@ export async function persistCrawlResult(
     ingredientsText: data.ingredientsText ?? null,
   }
 
-  log.info(`persistCrawlResult: updating source-product #${sourceProductId}`)
+  log.info('persistCrawlResult: updating source-product', { sourceProductId })
   await payload.update({
     collection: 'source-products',
     id: sourceProductId,
@@ -212,10 +212,10 @@ export async function persistCrawlResult(
               variantDimension: variantGroup.dimension || undefined,
             },
           })
-          log.debug(`persistCrawlResult: created sibling variant ${siblingUrl} (gtin=${option.gtin ?? 'none'}, label=${option.label})`)
+          log.debug('persistCrawlResult: created sibling variant', { url: siblingUrl, gtin: option.gtin ?? 'none', label: option.label })
         } catch (e) {
           // Unique constraint race — safe to ignore
-          log.debug(`persistCrawlResult: skipped sibling variant ${siblingUrl}: ${e instanceof Error ? e.message : e}`)
+          log.debug('persistCrawlResult: skipped sibling variant', { url: siblingUrl, error: e instanceof Error ? e.message : String(e) })
         }
       }
     }
@@ -244,9 +244,9 @@ export async function persistCrawlResult(
           collection: 'source-variants',
           where: { id: { equals: sourceVariantId } },
         })
-        log.info(`persistCrawlResult: deleted base-URL variant #${sourceVariantId} — ${itemIdVariants.length} ?itemId= variants exist`)
+        log.info('persistCrawlResult: deleted base-URL variant', { sourceVariantId, itemIdVariantCount: itemIdVariants.length })
       } catch (e) {
-        log.warn(`persistCrawlResult: failed to delete base-URL variant #${sourceVariantId}: ${e instanceof Error ? e.message : e}`)
+        log.warn('persistCrawlResult: failed to delete base-URL variant', { sourceVariantId, error: e instanceof Error ? e.message : String(e) })
       }
     }
   }
@@ -264,7 +264,7 @@ export async function persistCrawlResult(
       return !sv.crawledAt
     })
     if (uncrawledSiblings.length > 0) {
-      log.info(`persistCrawlResult: ${uncrawledSiblings.length} uncrawled sibling variant(s) remain — keeping source-product #${sourceProductId} as uncrawled`)
+      log.info('persistCrawlResult: uncrawled siblings remain, keeping source-product as uncrawled', { uncrawledCount: uncrawledSiblings.length, sourceProductId })
       await payload.update({
         collection: 'source-products',
         id: sourceProductId,
@@ -281,7 +281,7 @@ export async function persistCrawlResult(
 
   // Log warnings
   if (warnings.length > 0) {
-    log.info(`persistCrawlResult: source-product #${sourceProductId} has ${warnings.length} warning(s)`)
+    log.info('persistCrawlResult: source-product has warnings', { sourceProductId, warningCount: warnings.length })
   }
   for (const warning of warnings) {
     jlog.warn(warning, { event: true })
@@ -318,7 +318,7 @@ export async function persistDiscoveredProduct(
   const { discoveryId, product, source } = input
   const variantUrl = normalizeVariantUrl(product.productUrl)
   const effectiveSource = getSourceSlugFromUrl(variantUrl) ?? source
-  log.info(`persistDiscoveredProduct: discovery #${discoveryId}, url=${variantUrl}, source=${effectiveSource}`)
+  log.info('persistDiscoveredProduct: starting', { discoveryId, url: variantUrl, source: effectiveSource })
 
   // Dedup by source-variant URL (the unique key is now on source-variants, not source-products)
   const existingVariant = await payload.find({
@@ -372,7 +372,7 @@ export async function persistDiscoveredProduct(
     })
 
     isNew = true
-    log.info(`persistDiscoveredProduct: created new source-product #${sourceProductId} + default variant url=${variantUrl}`)
+    log.info('persistDiscoveredProduct: created new source-product + default variant', { sourceProductId, url: variantUrl })
   } else {
     // Existing variant → update its parent source-product
     const sv = existingVariant.docs[0] as Record<string, unknown>
@@ -417,7 +417,7 @@ export async function persistDiscoveredProduct(
     }
 
     isNew = false
-    log.info(`persistDiscoveredProduct: updated existing source-product #${sourceProductId} (variant url=${variantUrl})`)
+    log.info('persistDiscoveredProduct: updated existing source-product', { sourceProductId, url: variantUrl })
   }
 
   // Create DiscoveryResult join record (only for discovery jobs, not search jobs)
@@ -552,7 +552,7 @@ export async function persistVideoDiscoveryResult(
         channelImageId = media.id
       }
     } catch (e) {
-      log.warn(`Failed to download channel avatar from ${channelAvatarUrl}: ${String(e)}`)
+      log.warn('Failed to download channel avatar', { url: channelAvatarUrl, error: String(e) })
     }
   }
 
@@ -648,7 +648,7 @@ export async function persistVideoDiscoveryResult(
           imageId = media.id
         }
       } catch (e) {
-        log.warn(`Failed to download thumbnail for ${video.externalUrl}: ${String(e)}`)
+        log.warn('Failed to download thumbnail', { url: video.externalUrl, error: String(e) })
       }
     }
 
@@ -747,8 +747,8 @@ export async function persistVideoProcessingResult(
   snippetTranscripts?: SnippetTranscript[],
   snippetVideoQuotes?: VideoQuoteData[][],
 ): Promise<void> {
-  const jlog = log.forJob('video-processings' as JobCollection, jobId)
-  log.info(`persistVideoProcessingResult: video #${videoId}, ${segments.length} segments`)
+  const jlog = log.forJob('video-processings', jobId)
+  log.info('persistVideoProcessingResult: starting', { videoId, segmentCount: segments.length })
 
   // Delete existing snippets and their video-mentions for this video
   const existingSnippets = await payload.find({
@@ -769,7 +769,7 @@ export async function persistVideoProcessingResult(
       collection: 'video-snippets',
       where: { video: { equals: videoId } },
     })
-    log.info(`Deleted ${existingSnippets.docs.length} existing snippets (and their video-mentions) for video #${videoId}`)
+    log.info('Deleted existing snippets and video-mentions', { snippetCount: existingSnippets.docs.length, videoId })
   }
 
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -788,9 +788,9 @@ export async function persistVideoProcessingResult(
         const productRef = variant.product as number | Record<string, unknown>
         const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
         referencedProductIds = [pid]
-        log.info(`GTIN ${segment.barcode} → product-variant → product #${pid}`)
+        log.info('GTIN matched to product via product-variant', { gtin: segment.barcode, productId: pid })
       } else {
-        log.info(`No product-variant found for GTIN ${segment.barcode}`)
+        log.info('No product-variant found for GTIN', { gtin: segment.barcode })
       }
     } else if (segment.matchingType === 'visual' && segment.recognitionResults) {
       // Match each recognition result via DB + LLM
@@ -799,7 +799,7 @@ export async function persistVideoProcessingResult(
           const matchResult = await matchProduct(payload, recog.brand, recog.productName, recog.searchTerms, jlog)
           if (matchResult) {
             referencedProductIds.push(matchResult.productId)
-            log.info(`Cluster ${recog.clusterGroup} → product #${matchResult.productId} ("${matchResult.productName}")`)
+            log.info('Visual recognition matched to product', { clusterGroup: recog.clusterGroup, productId: matchResult.productId, productName: matchResult.productName })
           }
         }
       }
@@ -863,7 +863,7 @@ export async function persistVideoProcessingResult(
             overallSentimentScore: vq.overallSentimentScore,
           },
         })
-        log.info(`Created video-mention for snippet #${snippetId} → product #${vq.productId} (${vq.quotes.length} quotes, ${vq.overallSentiment})`)
+        log.info('Created video-mention', { snippetId, productId: vq.productId, quoteCount: vq.quotes.length, sentiment: vq.overallSentiment })
       }
     }
 
@@ -884,7 +884,7 @@ export async function persistVideoProcessingResult(
     },
   })
 
-  log.info(`Video #${videoId}: ${segments.length} segments persisted, marked as processed`)
+  log.info('Video persisted and marked as processed', { videoId, segmentCount: segments.length })
 }
 
 // ─── Product Aggregation ───
@@ -924,14 +924,14 @@ export async function persistProductAggregationResult(
   input: PersistProductAggregationInput,
 ): Promise<{ productId: number; tokensUsed: number; error?: string; warning?: string }> {
   const { gtin, sourceProductIds, aggregated, classification, classifySourceProductIds, scope } = input
-  const jlog = log.forJob('product-aggregations' as JobCollection, jobId)
-  log.info(`persistProductAggregationResult: GTIN=${gtin}, ${sourceProductIds.length} source products`)
+  const jlog = log.forJob('product-aggregations', jobId)
+  log.info('persistProductAggregationResult: starting', { gtin, sourceProductCount: sourceProductIds.length })
   let tokensUsed = 0
   const errorMessages: string[] = []
   const warningMessages: string[] = []
 
   if (!aggregated) {
-    log.info(`persistProductAggregationResult: GTIN=${gtin} — no data to aggregate`)
+    log.info('persistProductAggregationResult: no data to aggregate', { gtin })
     return { productId: 0, tokensUsed: 0, error: 'No data to aggregate from sources' }
   }
 
@@ -947,7 +947,7 @@ export async function persistProductAggregationResult(
     const variant = existingVariants.docs[0] as Record<string, unknown>
     const productRef = variant.product as number | Record<string, unknown>
     productId = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
-    log.info(`persistProductAggregationResult: GTIN=${gtin} → existing product-variant → product #${productId}`)
+    log.info('persistProductAggregationResult: found existing product via variant', { gtin, productId })
   } else {
     // Create a new product and a default product-variant for this GTIN
     const newProduct = await payload.create({
@@ -975,7 +975,7 @@ export async function persistProductAggregationResult(
         ...(sourceVariantIds.length > 0 ? { sourceVariants: sourceVariantIds } : {}),
       },
     })
-    log.info(`persistProductAggregationResult: GTIN=${gtin} → new product #${productId} + product-variant`)
+    log.info('persistProductAggregationResult: created new product + product-variant', { gtin, productId })
   }
 
   const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
@@ -1003,8 +1003,8 @@ export async function persistProductAggregationResult(
         const brandResult = await matchBrand(payload, aggregated.brandName, jlog)
         tokensUsed += brandResult.tokensUsed.totalTokens
         updateData.brand = brandResult.brandId
-        log.info(`persistProductAggregationResult: brand "${aggregated.brandName}" → brand #${brandResult.brandId}`)
-        jlog.info(`Brand "${aggregated.brandName}" → #${brandResult.brandId}`, { event: true, labels: ['brand-matching', 'persistence'] })
+        log.info('persistProductAggregationResult: brand matched', { brandName: aggregated.brandName, brandId: brandResult.brandId })
+        jlog.info('Brand matched', { brandName: aggregated.brandName, brandId: brandResult.brandId }, { event: true, labels: ['brand-matching', 'persistence'] })
       } catch (error) {
         errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
@@ -1015,7 +1015,7 @@ export async function persistProductAggregationResult(
       try {
         // Step 1: Parse raw text into individual ingredient names (LLM)
         const ingredientNames = await parseIngredients(aggregated.ingredientsText)
-        log.info(`persistProductAggregationResult: parsed ${ingredientNames.length} ingredients from raw text`)
+        log.info('persistProductAggregationResult: parsed ingredients from raw text', { ingredientCount: ingredientNames.length })
 
         if (ingredientNames.length > 0) {
           // Step 2: Match parsed names against ingredient database
@@ -1030,8 +1030,8 @@ export async function persistProductAggregationResult(
             ingredient: matchedMap.get(name) ?? null,
           }))
 
-          log.info(`persistProductAggregationResult: ingredients ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${ingredientNames.length}`)
-          jlog.info(`Ingredients: ${matchResult.matched.length} matched, ${matchResult.unmatched.length} unmatched out of ${ingredientNames.length}`, { event: true, labels: ['ingredient-matching', 'persistence'] })
+          log.info('persistProductAggregationResult: ingredients matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
+          jlog.info('Ingredients matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length }, { event: true, labels: ['ingredient-matching', 'persistence'] })
 
           if (matchResult.unmatched.length > 0) {
             warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
@@ -1045,7 +1045,7 @@ export async function persistProductAggregationResult(
     // Upload product image
     if (aggregated.selectedImageUrl) {
       try {
-        log.info(`persistProductAggregationResult: downloading image from ${aggregated.selectedImageUrl}`)
+        log.info('persistProductAggregationResult: downloading image', { url: aggregated.selectedImageUrl })
         const imageRes = await fetch(aggregated.selectedImageUrl)
         if (!imageRes.ok) {
           warningMessages.push(`Image download failed (${imageRes.status}): ${aggregated.selectedImageUrl}`)
@@ -1064,21 +1064,21 @@ export async function persistProductAggregationResult(
           })
           const mediaId = (mediaDoc as { id: number }).id
           updateData.image = mediaId
-          log.info(`persistProductAggregationResult: uploaded image → media #${mediaId}`)
-          jlog.info(`Image uploaded → media #${mediaId}`, { event: true, labels: ['image', 'persistence'] })
+          log.info('persistProductAggregationResult: uploaded image', { mediaId })
+          jlog.info('Image uploaded', { mediaId }, { event: true, labels: ['image', 'persistence'] })
         }
       } catch (error) {
         warningMessages.push(`Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
   } else {
-    log.info(`persistProductAggregationResult: scope=partial, skipping brand/ingredient matching, image upload`)
+    log.info('persistProductAggregationResult: scope=partial, skipping brand/ingredient matching, image upload')
   }
 
   // Apply classification (only present for full scope)
   if (classification) {
-    log.info(`persistProductAggregationResult: applying classification (type=${classification.productType}, ${classification.productAttributes.length} attributes, ${classification.productClaims.length} claims)`)
-    jlog.info(`Classification: type=${classification.productType}, ${classification.productAttributes.length} attrs, ${classification.productClaims.length} claims`, { event: true, labels: ['classification', 'persistence'] })
+    log.info('persistProductAggregationResult: applying classification', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
+    jlog.info('Classification applied', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length }, { event: true, labels: ['classification', 'persistence'] })
     if (classification.description) {
       updateData.description = classification.description
     }
@@ -1200,7 +1200,7 @@ export async function persistProductAggregationResult(
       }
 
       updateData.scoreHistory = [scoreEntry, ...existingHistory]
-      log.info(`persistProductAggregationResult: score history — store=${storeScore}, creator=${creatorScore}, change=${change}`)
+      log.info('persistProductAggregationResult: score history computed', { storeScore, creatorScore, change })
     }
   } catch (error) {
     warningMessages.push(`Score history computation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

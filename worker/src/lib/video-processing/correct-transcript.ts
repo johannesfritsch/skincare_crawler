@@ -66,7 +66,7 @@ ${brandNames.join(', ')}
 Product names referenced in this video:
 ${productNames.join(', ')}`
 
-  log.info(`Correcting transcript: ${rawTranscript.length} chars, ${brandNames.length} brands, ${productNames.length} products`)
+  log.info('Correcting transcript', { charCount: rawTranscript.length, brandCount: brandNames.length, productCount: productNames.length })
 
   try {
     const response = await openai.chat.completions.create({
@@ -83,7 +83,7 @@ ${productNames.join(', ')}`
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    log.info(`Correction tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.info('Correction tokens', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
 
     if (!content) {
       log.info('Empty response from correction LLM, returning original transcript')
@@ -95,7 +95,7 @@ ${productNames.join(', ')}`
       correctedWords: Array<{ original: string; corrected: string; reason: string }>
     }
 
-    log.info(`Corrections applied: ${parsed.correctedWords?.length ?? 0} words changed`)
+    log.info('Corrections applied', { wordsChanged: parsed.correctedWords?.length ?? 0 })
 
     return {
       correctedTranscript: parsed.correctedTranscript ?? rawTranscript,
@@ -103,7 +103,7 @@ ${productNames.join(', ')}`
       tokensUsed,
     }
   } catch (error) {
-    log.error('Transcript correction failed: ' + String(error))
+    log.error('Transcript correction failed', { error: String(error) })
     return { correctedTranscript: rawTranscript, corrections: [], tokensUsed }
   }
 }

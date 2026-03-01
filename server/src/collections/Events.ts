@@ -8,7 +8,7 @@ export const Events: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'message',
-    defaultColumns: ['type', 'level', 'component', 'message', 'job', 'createdAt'],
+    defaultColumns: ['type', 'level', 'component', 'message', 'data', 'job', 'createdAt'],
     group: 'System',
   },
   fields: [
@@ -57,6 +57,13 @@ export const Events: CollectionConfig = {
       name: 'message',
       type: 'textarea',
       required: true,
+    },
+    {
+      name: 'data',
+      type: 'json',
+      admin: {
+        description: 'Structured metadata from the log call (key-value pairs)',
+      },
     },
     {
       name: 'job',

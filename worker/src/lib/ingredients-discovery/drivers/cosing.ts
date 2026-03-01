@@ -55,9 +55,13 @@ async function fetchWithRetry<T>(
 
       if (attempt < MAX_RETRIES && isRetryableError(error)) {
         const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt) // Exponential backoff: 2s, 4s, 8s
-        log.info(
-          `${context}: Network error (${lastError.message}), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
-        )
+        log.info('Network error, retrying', {
+          context,
+          error: lastError.message,
+          delayMs: delay,
+          attempt: attempt + 1,
+          maxRetries: MAX_RETRIES,
+        })
         await sleep(delay)
       } else {
         throw lastError
@@ -151,7 +155,7 @@ async function fetchCosIngPage(searchTerm: string, pageNumber: number): Promise<
 
     if (!response.ok) {
       const errorText = await response.text()
-      log.error(`API error response: ${errorText.substring(0, 500)}`)
+      log.error('API error response', { body: errorText.substring(0, 500) })
       throw new Error(`API request failed: ${response.status} ${response.statusText}`)
     }
 
@@ -193,20 +197,20 @@ export const cosIngDriver: DiscoveryDriver = {
   },
 
   async checkTerm(term: string): Promise<{ split: true; subTerms: string[] } | { split: false; totalPages: number }> {
-    log.info(`Checking term "${term}"`)
+    log.info('Checking term', { term })
 
     const firstPage = await fetchCosIngPage(term, 1)
     const totalResults = firstPage.totalResults
     const totalPages = Math.ceil(totalResults / PAGE_SIZE)
 
-    log.info(`Term "${term}": ${totalResults} results, ${totalPages} pages`)
+    log.info('Term check complete', { term, totalResults, totalPages })
 
     if (totalResults === 0) {
       return { split: false, totalPages: 0 }
     }
 
     if (totalPages > MAX_PAGES) {
-      log.info(`Term "${term}" exceeds ${MAX_PAGES} pages, splitting into sub-terms`)
+      log.info('Term exceeds max pages, splitting', { term, totalPages, maxPages: MAX_PAGES })
       const subTerms = ALPHABET.map((letter) => term + letter)
       return { split: true, subTerms }
     }
@@ -215,12 +219,12 @@ export const cosIngDriver: DiscoveryDriver = {
   },
 
   async fetchPage(term: string, page: number): Promise<ScrapedIngredientData[]> {
-    log.info(`Fetching term "${term}" page ${page}`)
+    log.info('Fetching page', { term, page })
 
     const pageData = await fetchCosIngPage(term, page)
 
     if (!pageData.results || pageData.results.length === 0) {
-      log.info(`Term "${term}" page ${page}: empty results`)
+      log.info('Empty results', { term, page })
       return []
     }
 
@@ -230,7 +234,7 @@ export const cosIngDriver: DiscoveryDriver = {
       if (parsed) ingredients.push(parsed)
     }
 
-    log.info(`Term "${term}" page ${page}: ${ingredients.length} ingredients parsed from ${pageData.results.length} results`)
+    log.info('Page parsed', { term, page, parsed: ingredients.length, total: pageData.results.length })
     return ingredients
   },
 }

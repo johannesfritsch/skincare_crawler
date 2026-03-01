@@ -80,6 +80,7 @@ WORKER_API_KEY                 API key from workers collection (required)
 WORKER_POLL_INTERVAL           Seconds between polls when idle (default: 10)
 WORKER_JOB_TIMEOUT_MINUTES     Minutes before abandoned job can be reclaimed (default: 30)
 LOG_LEVEL                      debug|info|warn|error (default: info)
+LOG_FORMAT                     text|json (default: text; json = newline-delimited JSON for log aggregators)
 OPENAI_API_KEY                 For LLM tasks: matching, classification, video recognition
 DEEPGRAM_API_KEY               For Deepgram speech-to-text transcription
 ```
@@ -389,20 +390,73 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 
 ## Logging (`lib/logger.ts`)
 
+Structured logger with dual output: human-readable console + remote event emission to the server's `events` collection.
+
+### Structured log data
+
+Every log call accepts an optional `LogData` object (flat `Record<string, string | number | boolean | null | undefined>`) as the second argument. Dynamic values (counts, URLs, IDs, names, durations) go here instead of being interpolated into the message string.
+
 ```typescript
-const log = createLogger('ComponentName')
+const log = createLogger('DM')
 
-log.debug('message')                              // console only (if LOG_LEVEL allows)
-log.info('message')                               // console only
-log.info('message', { event: true })              // console + creates Events record in DB
-log.info('message', { event: 'start' })           // console + Events with explicit type
-log.info('message', { labels: ['scraping'] })     // add labels for filtering
+// Basic — static message + structured data
+log.info('Page loaded', { url, statusCode: 200 })
+log.warn('Rate limited', { retryAfterMs: 5000 })
 
-const jlog = log.forJob('product-crawls', 42)     // scoped to a job (required for event emission)
-jlog.info('scraped product', { event: true })      // creates Events linked to job #42
+// Console output (text mode, default):
+//   14:32:05 INF DM         Page loaded              url=https://... statusCode=200
+
+// Console output (JSON mode, LOG_FORMAT=json):
+//   {"ts":"2026-03-01T14:32:05.123Z","level":"info","tag":"DM","msg":"Page loaded","url":"https://...","statusCode":200}
 ```
 
-**Levels**: `debug` < `info` < `warn` < `error`. Set via `LOG_LEVEL` env var.
+### Event emission
+
+Events are only emitted when `{ event: true }` (or `{ event: 'start' }` etc.) is passed AND the logger is job-scoped via `forJob()`.
+
+```typescript
+const jlog = log.forJob('product-crawls', 42)
+
+// Structured data + event emission
+jlog.info('Batch crawled', { crawled: 10, errors: 2 }, { event: true, labels: ['scraping'] })
+jlog.info('Crawl completed', { total: 100 }, { event: 'success' })
+
+// Backward compat — EventOpts as second arg still works (no data)
+jlog.info('Started', { event: 'start' })
+```
+
+The `data` object is sent to the server as a JSON field on the `events` collection record, making it queryable/filterable in the admin UI.
+
+### Logger tags
+
+Each module creates a logger with a PascalCase tag. Tags are distinct per module:
+
+| Tag | Module |
+|-----|--------|
+| `Worker` | `worker.ts` (main loop, handlers) |
+| `Claim` | `work-protocol/claim.ts` |
+| `Submit` | `work-protocol/submit.ts` |
+| `Persist` | `work-protocol/persist.ts` |
+| `DM`, `Mueller`, `Rossmann`, `PurishDriver` | Source drivers |
+| `YouTube` | Video discovery driver |
+| `CosIng` | Ingredients discovery driver |
+| `matchBrand`, `matchIngredients`, `matchProduct`, `classifyProduct` | Matching/classification functions |
+| `processVideo`, `recognizeProduct`, `transcribeAudio`, `correctTranscript`, `analyzeSentiment` | Video processing functions |
+
+### Driver logger passthrough
+
+Source drivers accept an optional `logger` in their options (`scrapeProduct`, `discoverProducts`, `searchProducts`). The handler passes the job-scoped `jlog` so driver-level events (network failures, parse errors, anti-bot detection) appear in the admin UI's event log for the job.
+
+### Job collections
+
+The `JobCollection` type covers all 8 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-discoveries`, `video-processings`, `ingredient-crawls`.
+
+### Configuration
+
+- **`LOG_LEVEL`**: `debug` | `info` | `warn` | `error` (default: `info`)
+- **`LOG_FORMAT`**: `text` | `json` (default: `text`). Use `json` for log aggregators (ELK, Datadog, CloudWatch).
+
+**Levels**: `debug` < `info` < `warn` < `error`.
 
 **Event types**: `start`, `success`, `info`, `warning`, `error`. Auto-derived from log level, or set explicitly.
 

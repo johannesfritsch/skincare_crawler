@@ -71,8 +71,7 @@ export async function classifyScreenshots(
     })
   }
 
-  log.info(`── Phase 1: Classify ${images.length} cluster thumbnails ──`)
-  log.info('Model: gpt-4.1-mini, temperature: 0, detail: low')
+  log.info('Classifying cluster thumbnails', { imageCount: images.length, model: 'gpt-4.1-mini' })
 
   try {
     const response = await openai.chat.completions.create({
@@ -89,8 +88,8 @@ export async function classifyScreenshots(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    log.info('Response: ' + (content ?? '(empty)'))
-    log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.debug('Classification response', { response: content ?? '(empty)' })
+    log.info('Classification tokens', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
 
     if (!content) {
       log.error('Empty response from classification')
@@ -102,10 +101,10 @@ export async function classifyScreenshots(
       .filter((r) => r.isProduct)
       .map((r) => r.cluster)
 
-    log.info(`Product candidates: clusters [${candidates.join(', ')}]`)
+    log.info('Product candidates identified', { clusters: candidates.join(', ') })
     return { candidates, tokensUsed }
   } catch (error) {
-    log.error('Classification failed: ' + String(error))
+    log.error('Classification failed', { error: String(error) })
     return { candidates: [], tokensUsed }
   }
 }
@@ -132,8 +131,7 @@ export async function recognizeProduct(
     })
   }
 
-  log.info(`── Phase 2: Recognize product from ${imagePaths.length} screenshots ──`)
-  log.info('Model: gpt-4.1-mini, temperature: 0, detail: auto')
+  log.info('Recognizing product from screenshots', { imageCount: imagePaths.length, model: 'gpt-4.1-mini' })
 
   try {
     const response = await openai.chat.completions.create({
@@ -150,8 +148,8 @@ export async function recognizeProduct(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    log.info('Response: ' + (content ?? '(empty)'))
-    log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.debug('Recognition response', { response: content ?? '(empty)' })
+    log.info('Recognition tokens', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
 
     if (!content) {
       log.error('Empty response from recognition')
@@ -159,7 +157,7 @@ export async function recognizeProduct(
     }
 
     const parsed = JSON.parse(content) as { brand: string | null; productName: string | null; searchTerms: string[] }
-    log.info(`Brand: ${parsed.brand ?? 'unknown'}, Product: ${parsed.productName ?? 'unknown'}, Terms: [${parsed.searchTerms.join(', ')}]`)
+    log.info('Product recognized', { brand: parsed.brand ?? 'unknown', productName: parsed.productName ?? 'unknown', searchTerms: parsed.searchTerms.join(', ') })
 
     return {
       brand: parsed.brand,
@@ -168,7 +166,7 @@ export async function recognizeProduct(
       tokensUsed,
     }
   } catch (error) {
-    log.error('Recognition failed: ' + String(error))
+    log.error('Recognition failed', { error: String(error) })
     return null
   }
 }

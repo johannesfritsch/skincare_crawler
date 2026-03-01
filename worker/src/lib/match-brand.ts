@@ -40,7 +40,7 @@ export async function matchBrand(
   const tokensUsed: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
   // Step 1: Exact DB match
-  log.info('── Step 1: Exact DB Match ──')
+  log.info('Exact DB match')
   const exactResult = await payload.find({
     collection: 'brands',
     where: { name: { equals: brandName } },
@@ -49,8 +49,8 @@ export async function matchBrand(
 
   if (exactResult.docs.length === 1) {
     const doc = exactResult.docs[0] as { id: number; name: string }
-    log.info(`  "${brandName}" → EXACT MATCH (id: ${doc.id})`)
-    jlog?.info(`Brand "${brandName}" — exact match #${doc.id}`, { event: true, labels: ['brand-matching'] })
+    log.info('Brand exact match', { brand: brandName, brandId: doc.id })
+    jlog?.info('Brand exact match', { brand: brandName, brandId: doc.id }, { event: true, labels: ['brand-matching'] })
     return {
       brandId: doc.id,
       brandName: doc.name,
@@ -60,7 +60,7 @@ export async function matchBrand(
   }
 
   // Step 2: Fuzzy search + LLM disambiguation
-  log.info('── Step 2: Fuzzy Search ──')
+  log.info('Fuzzy search')
   const fuzzyResult = await payload.find({
     collection: 'brands',
     where: { name: { like: brandName } },
@@ -68,11 +68,11 @@ export async function matchBrand(
   })
 
   const fuzzyDocs = fuzzyResult.docs as Array<{ id: number; name: string }>
-  log.info(`  "${brandName}" → ${fuzzyDocs.length} fuzzy candidates: [${fuzzyDocs.map((d) => d.name).join(', ')}]`)
+  log.info('Fuzzy candidates found', { brand: brandName, count: fuzzyDocs.length })
 
   if (fuzzyDocs.length === 1) {
-    log.info(`  AUTO-MATCH → "${fuzzyDocs[0].name}" (id: ${fuzzyDocs[0].id})`)
-    jlog?.info(`Brand "${brandName}" — auto-match "${fuzzyDocs[0].name}" #${fuzzyDocs[0].id}`, { event: true, labels: ['brand-matching'] })
+    log.info('Brand auto-match', { brand: brandName, matched: fuzzyDocs[0].name, brandId: fuzzyDocs[0].id })
+    jlog?.info('Brand auto-match', { brand: brandName, matched: fuzzyDocs[0].name, brandId: fuzzyDocs[0].id }, { event: true, labels: ['brand-matching'] })
     return {
       brandId: fuzzyDocs[0].id,
       brandName: fuzzyDocs[0].name,
@@ -87,9 +87,8 @@ export async function matchBrand(
     const candidates = fuzzyDocs.map((d) => d.name)
     const userContent = JSON.stringify({ brandName, candidates })
 
-    log.info('── LLM Disambiguation ──')
-    log.info('Model: gpt-4.1-mini, temperature: 0')
-    log.info('User prompt: ' + userContent)
+    log.info('LLM disambiguation', { model: 'gpt-4.1-mini', temperature: 0 })
+    log.debug('LLM prompt', { prompt: userContent })
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4.1-mini',
@@ -105,8 +104,8 @@ export async function matchBrand(
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    log.info('Response: ' + (content ?? '(empty)'))
-    log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.debug('LLM response', { response: content ?? '(empty)' })
+    log.info('LLM tokens used', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
 
     if (content) {
       try {
@@ -114,8 +113,8 @@ export async function matchBrand(
         if (parsed.selectedName) {
           const match = fuzzyDocs.find((d) => d.name === parsed.selectedName)
           if (match) {
-            log.info(`  LLM selected → "${match.name}" (id: ${match.id})`)
-            jlog?.info(`Brand "${brandName}" — LLM selected "${match.name}" #${match.id}`, { event: true, labels: ['brand-matching', 'llm'] })
+            log.info('Brand LLM selected', { brand: brandName, matched: match.name, brandId: match.id })
+            jlog?.info('Brand LLM selected', { brand: brandName, matched: match.name, brandId: match.id }, { event: true, labels: ['brand-matching', 'llm'] })
             return {
               brandId: match.id,
               brandName: match.name,
@@ -125,14 +124,14 @@ export async function matchBrand(
           }
         }
       } catch {
-        log.error('Failed to parse LLM response: ' + content)
-        jlog?.warn(`Brand "${brandName}" — LLM parse failure`, { event: true, labels: ['brand-matching', 'llm'] })
+        log.error('Failed to parse LLM response', { brand: brandName })
+        jlog?.warn('Brand LLM parse failure', { brand: brandName }, { event: true, labels: ['brand-matching', 'llm'] })
       }
     }
   }
 
   // Step 3: Create — re-check for race conditions, then create
-  log.info('── Step 3: Create ──')
+  log.info('Create brand')
   const recheck = await payload.find({
     collection: 'brands',
     where: { name: { equals: brandName } },
@@ -141,8 +140,8 @@ export async function matchBrand(
 
   if (recheck.docs.length === 1) {
     const doc = recheck.docs[0] as { id: number; name: string }
-    log.info(`  Race condition avoided — found "${doc.name}" (id: ${doc.id})`)
-    jlog?.info(`Brand "${brandName}" — found on recheck #${doc.id}`, { event: true, labels: ['brand-matching'] })
+    log.info('Race condition avoided', { brand: doc.name, brandId: doc.id })
+    jlog?.info('Brand found on recheck', { brand: brandName, brandId: doc.id }, { event: true, labels: ['brand-matching'] })
     return {
       brandId: doc.id,
       brandName: doc.name,
@@ -156,8 +155,8 @@ export async function matchBrand(
     data: { name: brandName },
   }) as { id: number; name: string }
 
-  log.info(`  Created brand "${brandName}" (id: ${newBrand.id})`)
-  jlog?.info(`Brand "${brandName}" — created #${newBrand.id}`, { event: true, labels: ['brand-matching'] })
+  log.info('Brand created', { brand: brandName, brandId: newBrand.id })
+  jlog?.info('Brand created', { brand: brandName, brandId: newBrand.id }, { event: true, labels: ['brand-matching'] })
 
   return {
     brandId: newBrand.id,

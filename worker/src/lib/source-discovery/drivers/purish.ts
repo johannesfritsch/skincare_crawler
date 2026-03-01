@@ -289,7 +289,7 @@ function parseSearchResultsJson(html: string): ShopifySearchPageProduct[] | null
   try {
     return JSON.parse(html.slice(start, end + 1))
   } catch (e) {
-    log.warn(`parseSearchResultsJson: failed to parse JSON: ${e}`)
+    log.warn('Failed to parse searchResultsJson', { error: String(e) })
     return null
   }
 }
@@ -321,7 +321,7 @@ export const purishDriver: SourceDriver = {
     if (!progress) {
       const handles = await discoverCollectionHandles(url)
       if (handles.length === 0) {
-        log.warn(`discoverProducts: no collections found for ${url}`)
+        log.warn('No collections found', { url })
         return { done: true, pagesUsed: 0 }
       }
       progress = { collectionHandles: handles, currentIndex: 0, currentPage: 1 }
@@ -330,11 +330,11 @@ export const purishDriver: SourceDriver = {
     while (progress.currentIndex < progress.collectionHandles.length && pagesUsed < maxPages) {
       const handle = progress.collectionHandles[progress.currentIndex]
       const apiUrl = `${BASE_URL}/collections/${handle}/products.json?limit=250&page=${progress.currentPage}`
-      log.info(`discoverProducts: fetching ${apiUrl}`)
+      log.info('Fetching collection products', { url: apiUrl })
 
       const res = await stealthFetch(apiUrl)
       if (!res.ok) {
-        log.warn(`discoverProducts: failed to fetch collection ${handle} page ${progress.currentPage}: ${res.status}`)
+        log.warn('Failed to fetch collection', { handle, page: progress.currentPage, status: res.status })
         progress.currentIndex++
         progress.currentPage = 1
         continue
@@ -395,11 +395,11 @@ export const purishDriver: SourceDriver = {
     let page = 1
     while (products.length < maxResults) {
       const searchUrl = `${BASE_URL}/search?q=${encodeURIComponent(query)}&type=product&page=${page}`
-      log.info(`searchProducts: ${searchUrl}`)
+      log.info('Searching products', { url: searchUrl })
 
       const res = await stealthFetch(searchUrl)
       if (!res.ok) {
-        log.warn(`searchProducts: search failed: ${res.status}`)
+        log.warn('Search failed', { status: res.status })
         break
       }
 
@@ -443,23 +443,23 @@ export const purishDriver: SourceDriver = {
       }
     }
     if (!handle) {
-      log.warn(`scrapeProduct: could not extract handle from ${sourceUrl}`)
+      log.warn('Could not extract handle from URL', { url: sourceUrl })
       return null
     }
 
     const apiUrl = `${BASE_URL}/products/${handle}.json`
-    log.info(`scrapeProduct: fetching ${apiUrl}`)
+    log.info('Fetching product', { url: apiUrl })
 
     const res = await stealthFetch(apiUrl)
     if (!res.ok) {
-      log.warn(`scrapeProduct: failed to fetch ${apiUrl}: ${res.status}`)
+      log.warn('Failed to fetch product', { url: apiUrl, status: res.status })
       return null
     }
 
     const data = await res.json() as { product: ShopifyProduct }
     const product = data.product
     if (!product) {
-      log.warn(`scrapeProduct: no product in response for ${handle}`)
+      log.warn('No product in response', { handle })
       return null
     }
 

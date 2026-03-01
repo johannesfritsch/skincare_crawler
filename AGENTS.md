@@ -73,6 +73,7 @@ WORKER_API_KEY=<api-key-from-workers-collection>
 WORKER_POLL_INTERVAL=10          # seconds between idle polls
 WORKER_JOB_TIMEOUT_MINUTES=30   # minutes before abandoned job can be reclaimed
 LOG_LEVEL=debug|info|warn|error  # default: info
+LOG_FORMAT=text|json             # default: text; json for log aggregators
 OPENAI_API_KEY=sk-...            # for LLM tasks
 DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 ```
@@ -124,7 +125,7 @@ All job collections have `claimedBy` (relationship to workers) and `claimedAt` (
 |------------|---------|
 | `users` | Admin users (Payload auth) |
 | `workers` | Worker processes (API key auth, capabilities list, lastSeenAt) |
-| `events` | Structured audit log (type, level, component, message, job polymorphic relation, labels) |
+| `events` | Structured audit log (type, level, component, message, data JSON for structured metadata, job polymorphic relation, labels) |
 | `media` | File uploads |
 | `crawl-results` | Join table: product-crawls → source-products (hidden) |
 | `discovery-results` | Join table: product-discoveries → source-products (hidden) |

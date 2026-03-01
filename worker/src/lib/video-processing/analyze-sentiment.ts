@@ -158,9 +158,9 @@ async function refineSummaries(
       }
     }
 
-    log.info(`Refined summaries: ${totalCount} → ${refinedCount}`)
+    log.info('Refined summaries', { before: totalCount, after: refinedCount })
   } catch (error) {
-    log.error('Summary refinement failed: ' + String(error))
+    log.error('Summary refinement failed', { error: String(error) })
     // Keep original summaries on failure
   }
 }
@@ -212,7 +212,7 @@ ${postTranscript || '(none)'}
 Referenced products:
 ${productList}${singleProductHint}`
 
-  log.info(`Analyzing sentiment: ${transcript.length} chars, ${referencedProducts.length} products`)
+  log.info('Analyzing sentiment', { charCount: transcript.length, productCount: referencedProducts.length })
 
   try {
     const response = await openai.chat.completions.create({
@@ -229,7 +229,7 @@ ${productList}${singleProductHint}`
     tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
     const content = response.choices[0]?.message?.content?.trim()
-    log.info(`Sentiment tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+    log.info('Sentiment tokens', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
 
     if (!content) {
       log.info('Empty response from sentiment LLM')
@@ -239,7 +239,7 @@ ${productList}${singleProductHint}`
     const parsed = JSON.parse(content) as { products: ProductQuoteResult[] }
     const products = parsed.products ?? []
 
-    log.info(`Sentiment results: ${products.length} products with quotes`)
+    log.info('Sentiment results', { productCount: products.length })
 
     // Refine summaries: fix grammar, remove meaningless entries
     await refineSummaries(products, tokensUsed)
@@ -254,7 +254,7 @@ ${productList}${singleProductHint}`
       tokensUsed,
     }
   } catch (error) {
-    log.error('Sentiment analysis failed: ' + String(error))
+    log.error('Sentiment analysis failed', { error: String(error) })
     return { products: [], tokensUsed }
   }
 }

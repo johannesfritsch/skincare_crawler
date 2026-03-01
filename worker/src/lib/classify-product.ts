@@ -184,9 +184,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   const languageLabel = language === 'de' ? 'German' : 'English'
   const systemPrompt = SYSTEM_PROMPT.replace('{{LANGUAGE}}', languageLabel)
 
-  log.info('── LLM Call: Product Classification ──')
-  log.info('Model: gpt-4.1-mini, temperature: 0')
-  log.info(`Sources: ${sources.length}, language: ${languageLabel}`)
+  log.info('LLM product classification', { model: 'gpt-4.1-mini', temperature: 0, sources: sources.length, language: languageLabel })
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -204,8 +202,8 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   }
 
   const content = response.choices[0]?.message?.content?.trim()
-  log.info('Response: ' + (content ?? '(empty)'))
-  log.info(`Tokens: ${tokensUsed.promptTokens} prompt + ${tokensUsed.completionTokens} completion = ${tokensUsed.totalTokens} total`)
+  log.debug('LLM response', { response: content ?? '(empty)' })
+  log.info('LLM tokens used', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
 
   if (!content) {
     throw new Error('Empty response from OpenAI during product classification')
@@ -233,14 +231,14 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   let productType = result.productType ?? 'other'
   if (!VALID_PRODUCT_TYPES.has(productType)) {
-    log.info(`Invalid productType "${productType}", falling back to "other"`)
-    jlog?.warn(`Classification: invalid productType "${productType}", falling back to "other"`, { event: true, labels: ['classification', 'llm'] })
+    log.info('Invalid productType, falling back to other', { productType })
+    jlog?.warn('Classification invalid productType', { productType }, { event: true, labels: ['classification', 'llm'] })
     productType = 'other'
   }
 
   const rawAttributes = (result.productAttributes ?? []).filter((entry) => {
     if (!VALID_ATTRIBUTES.has(entry.attribute)) {
-      log.info(`Dropping invalid attribute: "${entry.attribute}"`)
+      log.info('Dropping invalid attribute', { attribute: entry.attribute })
       return false
     }
     return true
@@ -248,7 +246,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   const rawClaims = (result.productClaims ?? []).filter((entry) => {
     if (!VALID_CLAIMS.has(entry.claim)) {
-      log.info(`Dropping invalid claim: "${entry.claim}"`)
+      log.info('Dropping invalid claim', { claim: entry.claim })
       return false
     }
     return true
@@ -259,7 +257,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
 
   let skinApplicability = result.skinApplicability ?? null
   if (skinApplicability && !VALID_SKIN_APPLICABILITY.has(skinApplicability)) {
-    log.info(`Invalid skinApplicability "${skinApplicability}", dropping`)
+    log.info('Invalid skinApplicability, dropping', { skinApplicability })
     skinApplicability = null
   }
 
@@ -280,7 +278,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
     }
   }
 
-  jlog?.info(`Classification: type=${productType}, ${rawAttributes.length} attrs, ${rawClaims.length} claims`, { event: true, labels: ['classification'] })
+  jlog?.info('Classification complete', { productType, attributes: rawAttributes.length, claims: rawClaims.length }, { event: true, labels: ['classification'] })
 
   return {
     description: result.description ?? '',

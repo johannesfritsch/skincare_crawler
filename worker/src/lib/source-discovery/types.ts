@@ -26,6 +26,8 @@ export interface ProductDiscoveryOptions {
   maxPages?: number
   delay?: number  // ms between requests, default 2000
   debug?: boolean // keep browser visible (non-headless)
+  /** Job-scoped logger for event emission. Drivers use their own console logger if not provided. */
+  logger?: import('@/lib/logger').Logger
 }
 
 export interface ProductDiscoveryResult {
@@ -72,6 +74,8 @@ export interface ProductSearchOptions {
   query: string
   maxResults?: number   // max products to return (default: 50)
   debug?: boolean       // keep browser visible (non-headless)
+  /** Job-scoped logger for event emission */
+  logger?: import('@/lib/logger').Logger
 }
 
 export interface ProductSearchResult {
@@ -100,6 +104,6 @@ export interface SourceDriver {
 
   scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
   ): Promise<ScrapedProductData | null>
 }

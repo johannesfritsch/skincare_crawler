@@ -22,7 +22,7 @@ export interface ProcessVideoResult {
 
 export function run(cmd: string, args: string[], timeoutMs = 600_000): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    log.debug(`$ ${cmd} ${args.join(' ')}`)
+    log.debug('Executing command', { cmd, args: args.join(' ') })
     execFile(
       cmd,
       args,
@@ -39,18 +39,16 @@ export function run(cmd: string, args: string[], timeoutMs = 600_000): Promise<{
 }
 
 export async function downloadVideo(url: string, outputPath: string): Promise<void> {
-  log.info('── Step: Download Video ──')
-  log.info(`URL: ${url}`)
-  log.info(`Output: ${outputPath}`)
+  log.info('Downloading video', { url, outputPath })
 
   await run('yt-dlp', ['--merge-output-format', 'mp4', '-o', outputPath, url], 600_000)
 
   const stats = fs.statSync(outputPath)
-  log.info(`Download complete: ${(stats.size / 1024 / 1024).toFixed(1)} MB`)
+  log.info('Download complete', { sizeMB: Number((stats.size / 1024 / 1024).toFixed(1)) })
 }
 
 export async function getVideoDuration(videoPath: string): Promise<number> {
-  log.info('── Step: Get Duration ──')
+  log.info('Getting video duration')
   const { stdout } = await run('ffprobe', [
     '-v', 'error',
     '-show_entries', 'format=duration',
@@ -60,13 +58,12 @@ export async function getVideoDuration(videoPath: string): Promise<number> {
 
   const result = JSON.parse(stdout) as { format?: { duration?: string } }
   const duration = parseFloat(result.format?.duration ?? '0')
-  log.info(`Duration: ${duration.toFixed(1)}s`)
+  log.info('Got video duration', { durationSec: Number(duration.toFixed(1)) })
   return duration
 }
 
 export async function detectSceneChanges(videoPath: string, threshold: number): Promise<SceneChange[]> {
-  log.info('── Step: Scene Detection ──')
-  log.info(`Threshold: ${threshold}`)
+  log.info('Detecting scene changes', { threshold })
 
   const { stdout } = await run('ffmpeg', [
     '-hide_banner', '-v', 'error',
@@ -99,9 +96,9 @@ export async function detectSceneChanges(videoPath: string, threshold: number): 
     scenes.push(current as SceneChange)
   }
 
-  log.info(`Found ${scenes.length} scene changes:`)
+  log.info('Scene detection complete', { sceneCount: scenes.length })
   for (const scene of scenes) {
-    log.debug(`  t=${scene.time.toFixed(2)}s  score=${scene.score.toFixed(3)}  frame=${scene.frame}`)
+    log.debug('Scene change', { time: Number(scene.time.toFixed(2)), score: Number(scene.score.toFixed(3)), frame: scene.frame })
   }
 
   return scenes
@@ -114,7 +111,7 @@ export async function extractScreenshots(
   startTime: number,
   duration: number,
 ): Promise<string[]> {
-  log.info(`  Extracting screenshots: start=${startTime.toFixed(1)}s duration=${duration.toFixed(1)}s`)
+  log.info('Extracting screenshots', { startTimeSec: Number(startTime.toFixed(1)), durationSec: Number(duration.toFixed(1)) })
 
   const outputPattern = path.join(outputDir, `${prefix}_%04d.jpg`)
 
@@ -133,12 +130,12 @@ export async function extractScreenshots(
     .sort()
     .map((f) => path.join(outputDir, f))
 
-  log.info(`  Extracted ${files.length} screenshots`)
+  log.info('Screenshots extracted', { count: files.length })
   return files
 }
 
 export async function scanBarcode(imagePath: string): Promise<string | null> {
-  log.debug(`    Scanning for barcode: ${path.basename(imagePath)}`)
+  log.debug('Scanning for barcode', { image: path.basename(imagePath) })
 
   return new Promise((resolve) => {
     execFile(
@@ -147,7 +144,7 @@ export async function scanBarcode(imagePath: string): Promise<string | null> {
       { timeout: 30_000 },
       (error, stdout) => {
         if (error || !stdout.trim()) {
-          log.debug('    No barcode found')
+          log.debug('No barcode found')
           resolve(null)
           return
         }
@@ -160,20 +157,20 @@ export async function scanBarcode(imagePath: string): Promise<string | null> {
 
           // Skip QR codes, only accept EAN-13, EAN-8, UPC-A
           if (type === 'QR-Code' || type === 'QR_Code') {
-            log.debug(`    Skipping QR code: ${data.substring(0, 40)}...`)
+            log.debug('Skipping QR code', { data: data.substring(0, 40) })
             continue
           }
 
           if (type === 'EAN-13' || type === 'EAN-8' || type === 'UPC-A') {
-            log.info(`    Found barcode: ${type}:${data}`)
+            log.info('Found barcode', { type, data })
             resolve(data)
             return
           }
 
-          log.debug(`    Skipping unsupported barcode type: ${type}:${data}`)
+          log.debug('Skipping unsupported barcode type', { type, data })
         }
 
-        log.debug('    No EAN-13/EAN-8 barcode in scan results')
+        log.debug('No EAN-13/EAN-8 barcode in scan results')
         resolve(null)
       },
     )

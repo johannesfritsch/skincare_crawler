@@ -1,7 +1,7 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
 import type { SourceSlug } from '@/lib/source-product-queries'
-import type { JobCollection } from '@/lib/logger'
+
 import { getSourceSlugFromUrl, countUncrawled } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
@@ -15,7 +15,7 @@ import {
   persistProductAggregationResult,
 } from './persist'
 
-const log = createLogger('WorkProtocol')
+const log = createLogger('Submit')
 
 interface ScrapedProductData {
   gtin?: string
@@ -280,7 +280,7 @@ export async function submitWork(
   _worker: AuthenticatedWorker,
   body: SubmitBody,
 ): Promise<Record<string, unknown>> {
-  log.info(`submit: type=${body.type}, job=#${body.jobId}`)
+  log.info('Submitting work', { type: body.type, jobId: body.jobId })
   switch (body.type) {
     case 'product-crawl':
       return submitProductCrawl(payload, body)
@@ -305,8 +305,8 @@ export async function submitWork(
 
 async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProductCrawlBody) {
   const { jobId, results, crawlVariants } = body
-  const jlog = log.forJob('product-crawls' as JobCollection, jobId)
-  log.info(`submitProductCrawl #${jobId}: ${results.length} results`)
+  const jlog = log.forJob('product-crawls', jobId)
+  log.info('Product crawl batch received', { jobId, results: results.length })
 
   const job = await payload.findByID({ collection: 'product-crawls', id: jobId }) as Record<string, unknown>
   let crawled = (job.crawled as number) ?? 0
@@ -325,14 +325,14 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
           crawlVariants,
         })
         crawled++
-        log.info(`submitProductCrawl #${jobId}: ok ${result.sourceUrl}`)
+        log.info('Product crawl persisted', { jobId, sourceUrl: result.sourceUrl })
       } catch (e) {
-        log.error(`submitProductCrawl #${jobId}: persist error for ${result.sourceUrl}: ${e instanceof Error ? e.message : e}`)
+        log.error('Product crawl persist error', { jobId, sourceUrl: result.sourceUrl, error: e instanceof Error ? e.message : String(e) })
         await persistCrawlFailure(payload, jobId, result.sourceProductId, `Persist error: ${e instanceof Error ? e.message : String(e)}`)
         errors++
       }
     } else {
-      log.info(`submitProductCrawl #${jobId}: failed ${result.sourceUrl} — ${result.error}`)
+      log.info('Product crawl failed', { jobId, sourceUrl: result.sourceUrl, error: result.error ?? 'Failed to scrape' })
       await persistCrawlFailure(payload, jobId, result.sourceProductId, result.error ?? 'Failed to scrape')
       errors++
     }
@@ -383,7 +383,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   }
 
   if (totalRemaining === 0) {
-    log.info(`submitProductCrawl #${jobId}: completing (${crawled} crawled, ${errors} errors)`)
+    log.info('Product crawl completing', { jobId, crawled, errors })
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
@@ -394,15 +394,15 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${crawled} crawled, ${errors} errors`, { event: 'success' })
+    jlog.info('Completed', { crawled, errors }, { event: 'success' })
   } else {
-    log.info(`submitProductCrawl #${jobId}: ${totalRemaining} remaining (${crawled} crawled, ${errors} errors)`)
+    log.info('Product crawl batch done', { jobId, remaining: totalRemaining, crawled, errors })
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
       data: { crawled, errors, claimedBy: null, claimedAt: null },
     })
-    jlog.info(`Batch done: ${crawled} crawled, ${errors} errors, ${totalRemaining} remaining`, { event: true })
+    jlog.info('Batch done', { crawled, errors, remaining: totalRemaining }, { event: true })
   }
 
   return { crawled, errors, remaining: totalRemaining }
@@ -410,8 +410,8 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
 
 async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitProductDiscoveryBody) {
   const { jobId, products, currentUrlIndex, driverProgress, done } = body
-  const jlog = log.forJob('product-discoveries' as JobCollection, jobId)
-  log.info(`submitProductDiscovery #${jobId}: ${products.length} products, done=${done}`)
+  const jlog = log.forJob('product-discoveries', jobId)
+  log.info('Product discovery batch received', { jobId, products: products.length, done })
 
   const job = await payload.findByID({ collection: 'product-discoveries', id: jobId }) as Record<string, unknown>
 
@@ -423,7 +423,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
     if (source) break
   }
   if (!source) {
-    log.error(`submitProductDiscovery #${jobId}: could not determine source from URLs, skipping`)
+    log.error('Could not determine source from URLs', { jobId })
     return { discovered: 0, created: 0, existing: 0, error: 'unknown source' }
   }
 
@@ -453,11 +453,11 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         existing++
       }
     } catch (e) {
-      log.error(`submitProductDiscovery #${jobId}: persist error for ${product.productUrl}: ${e instanceof Error ? e.message : e}`)
+      log.error('Product discovery persist error', { jobId, productUrl: product.productUrl, error: e instanceof Error ? e.message : String(e) })
     }
   }
 
-  log.info(`submitProductDiscovery #${jobId}: ${discovered} discovered, ${created} created, ${existing} existing, done=${done}`)
+  log.info('Product discovery progress', { jobId, discovered, created, existing, done })
 
   if (done) {
     await payload.update({
@@ -473,7 +473,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${discovered} discovered, ${created} created, ${existing} existing`, { event: 'success' })
+    jlog.info('Completed', { discovered, created, existing }, { event: 'success' })
   } else {
     await payload.update({
       collection: 'product-discoveries',
@@ -497,8 +497,8 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
 
 async function submitProductSearch(payload: PayloadRestClient, body: SubmitProductSearchBody) {
   const { jobId, products } = body
-  const jlog = log.forJob('product-searches' as JobCollection, jobId)
-  log.info(`submitProductSearch #${jobId}: ${products.length} products`)
+  const jlog = log.forJob('product-searches', jobId)
+  log.info('Product search batch received', { jobId, products: products.length })
 
   let created = 0
   let existing = 0
@@ -530,11 +530,11 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
         },
       })
     } catch (e) {
-      log.error(`submitProductSearch #${jobId}: persist error for ${product.productUrl}: ${e instanceof Error ? e.message : e}`)
+      log.error('Product search persist error', { jobId, productUrl: product.productUrl, error: e instanceof Error ? e.message : String(e) })
     }
   }
 
-  log.info(`submitProductSearch #${jobId}: ${discovered} discovered, ${created} created, ${existing} existing`)
+  log.info('Product search progress', { jobId, discovered, created, existing })
 
   await payload.update({
     collection: 'product-searches',
@@ -549,15 +549,15 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
       claimedAt: null,
     },
   })
-  jlog.info(`Completed: ${discovered} discovered, ${created} created, ${existing} existing`, { event: 'success' })
+  jlog.info('Completed', { discovered, created, existing }, { event: 'success' })
 
   return { discovered, created, existing }
 }
 
 async function submitIngredientsDiscovery(payload: PayloadRestClient, body: SubmitIngredientsDiscoveryBody) {
   const { jobId, ingredients, currentTerm, currentPage, totalPagesForTerm, termQueue, done } = body
-  const jlog = log.forJob('ingredients-discoveries' as JobCollection, jobId)
-  log.info(`submitIngredientsDiscovery #${jobId}: ${ingredients.length} ingredients, done=${done}`)
+  const jlog = log.forJob('ingredients-discoveries', jobId)
+  log.info('Ingredients discovery batch received', { jobId, ingredients: ingredients.length, done })
 
   const job = await payload.findByID({ collection: 'ingredients-discoveries', id: jobId }) as Record<string, unknown>
   let created = (job.created as number) ?? 0
@@ -575,12 +575,12 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
         existing++
       }
     } catch (e) {
-      log.error(`submitIngredientsDiscovery #${jobId}: persist error for ${ingredient.name}: ${e instanceof Error ? e.message : e}`)
+      log.error('Ingredient persist error', { jobId, ingredient: ingredient.name, error: e instanceof Error ? e.message : String(e) })
       errors++
     }
   }
 
-  log.info(`submitIngredientsDiscovery #${jobId}: ${created} created, ${existing} existing, ${errors} errors, done=${done}`)
+  log.info('Ingredients discovery progress', { jobId, created, existing, errors, done })
 
   if (done) {
     await payload.update({
@@ -599,7 +599,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${discovered} discovered, ${created} created, ${existing} existing, ${errors} errors`, { event: 'success' })
+    jlog.info('Completed', { discovered, created, existing, errors }, { event: 'success' })
   } else {
     await payload.update({
       collection: 'ingredients-discoveries',
@@ -626,8 +626,8 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
 
 async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVideoDiscoveryBody) {
   const { jobId, channelUrl, videos, reachedEnd, nextOffset, maxVideos } = body
-  const jlog = log.forJob('video-discoveries' as JobCollection, jobId)
-  log.info(`submitVideoDiscovery #${jobId}: ${videos.length} videos in batch, reachedEnd=${reachedEnd}, nextOffset=${nextOffset}`)
+  const jlog = log.forJob('video-discoveries', jobId)
+  log.info('Video discovery batch received', { jobId, videos: videos.length, reachedEnd, nextOffset })
 
   const job = await payload.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
 
@@ -642,7 +642,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
   const hitMaxVideos = maxVideos !== undefined && nextOffset >= maxVideos
   const allDone = reachedEnd || hitMaxVideos
 
-  log.info(`submitVideoDiscovery #${jobId}: batch ${result.created} created, ${result.existing} existing; total ${totalCreated}+${totalExisting}, discovered=${totalDiscovered}, done=${allDone}`)
+  log.info('Video discovery progress', { jobId, batchCreated: result.created, batchExisting: result.existing, totalCreated, totalExisting, totalDiscovered, done: allDone })
 
   if (allDone) {
     await payload.update({
@@ -657,7 +657,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${totalDiscovered} discovered, ${totalCreated} created, ${totalExisting} existing`, { event: 'success' })
+    jlog.info('Completed', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting }, { event: 'success' })
   } else {
     await payload.update({
       collection: 'video-discoveries',
@@ -678,8 +678,8 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
 
 async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVideoProcessingBody) {
   const { jobId, results } = body
-  const jlog = log.forJob('video-processings' as JobCollection, jobId)
-  log.info(`submitVideoProcessing #${jobId}: ${results.length} videos`)
+  const jlog = log.forJob('video-processings', jobId)
+  log.info('Video processing batch received', { jobId, videos: results.length })
 
   const job = await payload.findByID({ collection: 'video-processings', id: jobId }) as Record<string, unknown>
   let processed = (job.processed as number) ?? 0
@@ -709,24 +709,24 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
           result.snippetVideoQuotes,
         )
         processed++
-        log.info(`submitVideoProcessing #${jobId}: video #${result.videoId} ok (${result.segments.length} segments, ${result.tokensUsed ?? 0} tokens)`)
+        log.info('Video processing persisted', { jobId, videoId: result.videoId, segments: result.segments.length, tokens: result.tokensUsed ?? 0 })
       } catch (e) {
         errors++
         const msg = e instanceof Error ? e.message : String(e)
-        log.error(`submitVideoProcessing #${jobId}: video #${result.videoId} persist failed: ${msg}`)
-        jlog.error(`Video #${result.videoId}: persist failed: ${msg}`, { event: true })
+        log.error('Video processing persist failed', { jobId, videoId: result.videoId, error: msg })
+        jlog.error('Video persist failed', { videoId: result.videoId, error: msg }, { event: true })
       }
     } else {
       errors++
-      log.info(`submitVideoProcessing #${jobId}: video #${result.videoId} failed: ${result.error}`)
-      jlog.error(`Video #${result.videoId}: ${result.error}`, { event: true })
+      log.info('Video processing failed', { jobId, videoId: result.videoId, error: result.error })
+      jlog.error('Video processing error', { videoId: result.videoId, error: result.error }, { event: true })
     }
   }
 
   // Check if all done
   const total = (job.total as number) ?? 0
   const allDone = processed + errors >= total
-  log.info(`submitVideoProcessing #${jobId}: ${processed} processed, ${errors} errors, ${tokensUsed} tokens, done=${allDone} (${processed + errors}/${total})`)
+  log.info('Video processing progress', { jobId, processed, errors, tokensUsed, done: allDone, completed: processed + errors, total })
 
   if (allDone) {
     await payload.update({
@@ -743,7 +743,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${processed} processed, ${errors} errors, ${tokensUsed} tokens`, { event: 'success' })
+    jlog.info('Completed', { processed, errors, tokensUsed }, { event: 'success' })
   } else {
     await payload.update({
       collection: 'video-processings',
@@ -757,8 +757,8 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
 
 async function submitProductAggregation(payload: PayloadRestClient, body: SubmitProductAggregationBody) {
   const { jobId, lastCheckedSourceId, aggregationType, scope, results } = body
-  const jlog = log.forJob('product-aggregations' as JobCollection, jobId)
-  log.info(`submitProductAggregation #${jobId}: ${results.length} results (type=${aggregationType}, scope=${scope})`)
+  const jlog = log.forJob('product-aggregations', jobId)
+  log.info('Product aggregation batch received', { jobId, results: results.length, aggregationType, scope })
 
   const job = await payload.findByID({ collection: 'product-aggregations', id: jobId }) as Record<string, unknown>
   let aggregated = (job.aggregated as number) ?? 0
@@ -774,9 +774,9 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
   for (const result of results) {
     if (result.error || !result.aggregated) {
       errors++
-      log.info(`submitProductAggregation #${jobId}: GTIN ${result.gtin} error: ${result.error ?? 'no data'}`)
+      log.info('Product aggregation error', { jobId, gtin: result.gtin, error: result.error ?? 'no data' })
       if (result.error) {
-        jlog.error(`GTIN ${result.gtin}: ${result.error}`, { event: true })
+        jlog.error('Aggregation error', { gtin: result.gtin, error: result.error }, { event: true })
       }
       continue
     }
@@ -796,13 +796,13 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
 
       if (persistResult.error) {
         errors++
-        log.info(`submitProductAggregation #${jobId}: GTIN ${result.gtin} → product #${persistResult.productId} (error: ${persistResult.error.slice(0, 100)})`)
-        jlog.error(`GTIN ${result.gtin}: ${persistResult.error}`, { event: true })
+        log.info('Product aggregation persist error', { jobId, gtin: result.gtin, productId: persistResult.productId, error: persistResult.error.slice(0, 100) })
+        jlog.error('Aggregation persist error', { gtin: result.gtin, error: persistResult.error }, { event: true })
       } else {
         aggregated++
-        log.info(`submitProductAggregation #${jobId}: GTIN ${result.gtin} → product #${persistResult.productId} ok (${persistResult.tokensUsed} tokens${persistResult.warning ? ', with warnings' : ''})`)
+        log.info('Product aggregation persisted', { jobId, gtin: result.gtin, productId: persistResult.productId, tokens: persistResult.tokensUsed, hasWarning: !!persistResult.warning })
         if (persistResult.warning) {
-          jlog.warn(`GTIN ${result.gtin}: ${persistResult.warning}`, { event: true })
+          jlog.warn('Aggregation warning', { gtin: result.gtin, warning: persistResult.warning }, { event: true })
         }
       }
 
@@ -825,7 +825,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     } catch (e) {
       errors++
       const msg = e instanceof Error ? e.message : String(e)
-      jlog.error(`GTIN ${result.gtin}: persist failed: ${msg}`, { event: true })
+      jlog.error('Aggregation persist failed', { gtin: result.gtin, error: msg }, { event: true })
     }
   }
 
@@ -834,7 +834,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     aggregationType === 'selected_gtins' ||
     (aggregationType === 'all' && results.length === 0)
 
-  log.info(`submitProductAggregation #${jobId}: ${aggregated} aggregated, ${errors} errors, ${tokensUsed} tokens, done=${shouldComplete}`)
+  log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: shouldComplete })
 
   if (shouldComplete) {
     await payload.update({
@@ -848,7 +848,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${aggregated} aggregated, ${errors} errors, ${tokensUsed} tokens`, { event: 'success' })
+    jlog.info('Completed', { aggregated, errors, tokensUsed }, { event: 'success' })
   } else {
     await payload.update({
       collection: 'product-aggregations',
@@ -862,7 +862,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
       },
     })
-    jlog.info(`Batch done: ${aggregated} aggregated, ${errors} errors`, { event: true })
+    jlog.info('Batch done', { aggregated, errors }, { event: true })
   }
 
   return { aggregated, errors, tokensUsed, done: shouldComplete }
@@ -872,8 +872,8 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
 
 async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIngredientCrawlBody) {
   const { jobId, lastCheckedIngredientId, crawlType, results } = body
-  const jlog = log.forJob('ingredient-crawls' as JobCollection, jobId)
-  log.info(`submitIngredientCrawl #${jobId}: ${results.length} results (type=${crawlType})`)
+  const jlog = log.forJob('ingredient-crawls', jobId)
+  log.info('Ingredient crawl batch received', { jobId, results: results.length, crawlType })
 
   const job = await payload.findByID({ collection: 'ingredient-crawls', id: jobId }) as Record<string, unknown>
   let crawled = (job.crawled as number) ?? 0
@@ -889,7 +889,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
   for (const result of results) {
     if (result.error) {
       errors++
-      jlog.error(`Ingredient #${result.ingredientId} "${result.ingredientName}": ${result.error}`, { event: true })
+      jlog.error('Ingredient crawl error', { ingredientId: result.ingredientId, ingredient: result.ingredientName, error: result.error }, { event: true })
       continue
     }
 
@@ -908,11 +908,11 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
       tokensUsed += result.tokensUsed
       crawled++
       ingredientIds.add(result.ingredientId)
-      log.info(`submitIngredientCrawl #${jobId}: ingredient #${result.ingredientId} "${result.ingredientName}" ok`)
+      log.info('Ingredient crawl persisted', { jobId, ingredientId: result.ingredientId, ingredient: result.ingredientName })
     } catch (e) {
       errors++
       const msg = e instanceof Error ? e.message : String(e)
-      jlog.error(`Ingredient #${result.ingredientId} "${result.ingredientName}": persist failed: ${msg}`, { event: true })
+      jlog.error('Ingredient persist failed', { ingredientId: result.ingredientId, ingredient: result.ingredientName, error: msg }, { event: true })
     }
   }
 
@@ -934,7 +934,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${crawled} crawled, ${errors} errors, ${tokensUsed} tokens`, { event: 'success' })
+    jlog.info('Completed', { crawled, errors, tokensUsed }, { event: 'success' })
   } else {
     await payload.update({
       collection: 'ingredient-crawls',
@@ -949,7 +949,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         ...(crawlType === 'all_uncrawled' ? { lastCheckedIngredientId } : {}),
       },
     })
-    jlog.info(`Batch done: ${crawled} crawled, ${errors} errors`, { event: true })
+    jlog.info('Batch done', { crawled, errors }, { event: true })
   }
 
   return { crawled, errors, tokensUsed, done: shouldComplete }

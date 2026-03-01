@@ -31,7 +31,7 @@ async function fetchChannelAvatarUrl(channelUrl: string): Promise<string | undef
       ?? html.match(/<meta\s+content="([^"]+)"\s+property="og:image"/)
     return match?.[1] ?? undefined
   } catch (e) {
-    log.warn(`Failed to fetch channel avatar from ${channelUrl}: ${String(e)}`)
+    log.warn('Failed to fetch channel avatar', { channelUrl, error: String(e) })
     return undefined
   }
 }
@@ -101,7 +101,7 @@ function parseYtDlpOutput(stdout: string, channelAvatarUrl?: string): Discovered
         channelAvatarUrl,
       })
     } catch {
-      log.warn(`Failed to parse yt-dlp line: ${line.substring(0, 100)}`)
+      log.warn('Failed to parse yt-dlp line', { line: line.substring(0, 100) })
     }
   }
   return videos
@@ -124,18 +124,18 @@ export const youtubeDriver: VideoDiscoveryDriver = {
     const { startIndex, endIndex } = options
     const requestedCount = endIndex - startIndex + 1
 
-    log.info(`Running yt-dlp for ${channelUrl} [${startIndex}–${endIndex}]`)
+    log.info('Running yt-dlp', { channelUrl, startIndex, endIndex })
     const [stdout, channelAvatarUrl] = await Promise.all([
       runYtDlp(channelUrl, startIndex, endIndex),
       fetchChannelAvatarUrl(channelUrl),
     ])
 
     if (channelAvatarUrl) {
-      log.info(`Found channel avatar: ${channelAvatarUrl}`)
+      log.info('Found channel avatar', { channelAvatarUrl })
     }
 
     const videos = parseYtDlpOutput(stdout, channelAvatarUrl)
-    log.info(`yt-dlp returned ${videos.length} entries (requested ${requestedCount})`)
+    log.info('yt-dlp discovery complete', { returned: videos.length, requested: requestedCount })
 
     return {
       videos,

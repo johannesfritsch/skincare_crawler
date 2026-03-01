@@ -4,7 +4,6 @@ import { findUncrawledVariants, getSourceSlugFromUrl, countUncrawled, resetProdu
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
-import type { JobCollection } from '@/lib/logger'
 
 type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
@@ -38,14 +37,14 @@ const JOB_TYPE_TO_CAPABILITY = {
   'ingredient-crawl': 'ingredient-crawl',
 } as const
 
-const log = createLogger('WorkProtocol')
+const log = createLogger('Claim')
 
 export async function claimWork(
   payload: PayloadRestClient,
   worker: AuthenticatedWorker,
   jobTimeoutMinutes = 30,
 ): Promise<Record<string, unknown>> {
-  log.debug(`claim: worker "${worker.name}" capabilities=[${worker.capabilities.join(', ')}], timeout=${jobTimeoutMinutes}m`)
+  log.debug('Claim: searching for work', { worker: worker.name, capabilities: worker.capabilities.join(', '), timeoutMinutes: jobTimeoutMinutes })
 
   const staleThreshold = new Date(Date.now() - jobTimeoutMinutes * 60 * 1000).toISOString()
 
@@ -88,7 +87,7 @@ export async function claimWork(
         ])
 
         if (unclaimedInProgress.totalDocs > 0 || staleInProgress.totalDocs > 0 || pending.totalDocs > 0) {
-          log.debug(`claim: ${jobType}: ${unclaimedInProgress.totalDocs} unclaimed in_progress, ${staleInProgress.totalDocs} stale in_progress, ${pending.totalDocs} pending`)
+          log.debug('Claim: found claimable jobs', { jobType, unclaimed: unclaimedInProgress.totalDocs, stale: staleInProgress.totalDocs, pending: pending.totalDocs })
         }
 
         const seen = new Set<number>()
@@ -113,7 +112,7 @@ export async function claimWork(
   await Promise.all(queries)
 
   if (activeJobs.length === 0) {
-    log.debug('claim: no claimable jobs found')
+    log.debug('No claimable jobs found')
     return { type: 'none' }
   }
 
@@ -145,7 +144,7 @@ export async function claimWork(
         headers: claimHeaders,
       })
 
-      log.info(`claim: claimed ${candidate.type} #${candidate.id} (${candidate.status})`)
+      log.info('Claimed job', { jobType: candidate.type, jobId: candidate.id, status: candidate.status })
 
       // Build work unit based on job type
       switch (candidate.type) {
@@ -170,20 +169,20 @@ export async function claimWork(
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      log.debug(`claim: failed to claim ${candidate.type} #${candidate.id}: ${msg}`)
+      log.debug('Claim: failed to claim job', { jobType: candidate.type, jobId: candidate.id, error: msg })
       // Try next candidate
     }
   }
 
-  log.debug('claim: all candidates already claimed by other workers')
+  log.debug('All candidates already claimed by other workers')
   return { type: 'none' }
 }
 
 async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('product-crawls' as JobCollection, jobId)
-  jlog.info(`buildProductCrawlWork: job #${jobId}`)
+  const jlog = log.forJob('product-crawls', jobId)
+  jlog.info('Building product crawl work', { jobId })
   const job = await payload.findByID({ collection: 'product-crawls', id: jobId }) as Record<string, unknown>
-  jlog.info(`buildProductCrawlWork #${jobId}: type=${job.type}, source=${job.source}, status=${job.status}`)
+  jlog.info('Product crawl job loaded', { jobId, type: job.type as string, source: job.source as string, status: job.status as string })
 
   // Determine source drivers
   const sources: string[] = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
@@ -224,7 +223,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       const spRef = sv.sourceProduct as number | Record<string, unknown>
       return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
     }))]
-    jlog.info(`buildProductCrawlWork #${jobId}: crawlVariants=true, resolved ${sourceUrls.length} URLs to ${sourceProductIds.length} source-product IDs`)
+    jlog.info('Resolved URLs to source-product IDs for variant crawl', { jobId, urlCount: sourceUrls.length, sourceProductCount: sourceProductIds.length })
   }
 
   // Build query options: when crawlVariants=true with scoped URLs, use sourceProductIds (finds all variants);
@@ -235,7 +234,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
 
   // Initialize job if pending: create stubs, reset products, count total
   if (job.status === 'pending') {
-    jlog.info(`buildProductCrawlWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing product crawl job', { jobId })
 
     // Auto-create stubs for URLs that don't have source-variants yet
     if (sourceUrls) {
@@ -243,7 +242,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       for (const url of sourceUrls) {
         const slug = getSourceSlugFromUrl(url)
         if (!slug) {
-          jlog.info(`buildProductCrawlWork #${jobId}: skipping URL (no source slug): ${url}`)
+          jlog.info('Skipping URL with no source slug', { jobId, url })
           continue
         }
 
@@ -267,7 +266,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
           stubsCreated++
         }
       }
-      jlog.info(`buildProductCrawlWork #${jobId}: ${stubsCreated} stubs created from ${sourceUrls.length} URLs`)
+      jlog.info('Created stubs for uncrawled URLs', { jobId, stubsCreated, totalUrls: sourceUrls.length })
     }
 
     // Reset matching products so they're eligible for crawling.
@@ -282,7 +281,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
         crawledBefore = new Date(now - ms)
       }
 
-      jlog.info(`buildProductCrawlWork #${jobId}: resetting products (type=${job.type}, scope=${job.scope}, crawledBefore=${crawledBefore?.toISOString() ?? 'any'})`)
+      jlog.info('Resetting products for recrawl', { jobId, type: job.type as string, scope: job.scope as string, crawledBefore: crawledBefore?.toISOString() ?? 'any' })
       for (const source of sources) {
         await resetProducts(payload, source as SourceSlug, sourceUrls, crawledBefore)
       }
@@ -294,7 +293,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       total += await countUncrawled(payload, source as SourceSlug, sourceUrls ? { sourceUrls } : undefined)
     }
 
-    jlog.info(`buildProductCrawlWork #${jobId}: total uncrawled=${total}`)
+    jlog.info('Counted uncrawled products', { jobId, total })
 
     await payload.update({
       collection: 'product-crawls',
@@ -309,7 +308,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       },
     })
 
-    jlog.info(`Started product crawl: ${total} products to process`, { event: 'start' })
+    jlog.info('Started product crawl', { total }, { event: 'start' })
   }
 
   // Find uncrawled source-variants to process in this batch
@@ -321,7 +320,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       limit: itemsPerTick - workItems.length,
     })
 
-    jlog.info(`buildProductCrawlWork #${jobId}: source=${source}, ${variants.length} uncrawled variants found`)
+    jlog.info('Found uncrawled variants', { jobId, source, count: variants.length })
 
     for (const v of variants) {
       workItems.push({ sourceVariantId: v.sourceVariantId, sourceProductId: v.sourceProductId, sourceUrl: v.sourceUrl, source })
@@ -330,11 +329,11 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
     if (workItems.length >= itemsPerTick) break
   }
 
-  jlog.info(`buildProductCrawlWork #${jobId}: ${workItems.length} work items total`)
+  jlog.info('Prepared work items', { jobId, count: workItems.length })
 
   // No uncrawled products left for this job's scope — mark complete
   if (workItems.length === 0) {
-    jlog.info(`buildProductCrawlWork #${jobId}: no remaining work, completing job`)
+    jlog.info('No remaining work, completing job', { jobId })
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
@@ -343,7 +342,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info(`Completed: ${(job.crawled as number) ?? 0} crawled, ${(job.errors as number) ?? 0} errors`, { event: 'success' })
+      jlog.info('Product crawl completed', { crawled: (job.crawled as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
     return { type: 'none' }
   }
 
@@ -359,8 +358,8 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
 }
 
 async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('product-discoveries' as JobCollection, jobId)
-  jlog.info(`buildProductDiscoveryWork: job #${jobId}`)
+  const jlog = log.forJob('product-discoveries', jobId)
+  jlog.info('Building product discovery work', { jobId })
   const job = await payload.findByID({ collection: 'product-discoveries', id: jobId }) as Record<string, unknown>
 
   const sourceUrls = ((job.sourceUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
@@ -374,11 +373,11 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
   const maxPages = (job.itemsPerTick as number) ?? undefined
   const delay = (job.delay as number) ?? 2000
 
-  jlog.info(`buildProductDiscoveryWork #${jobId}: ${sourceUrls.length} URLs, urlIndex=${progress?.currentUrlIndex ?? 0}, maxPages=${maxPages ?? 'unlimited'}, delay=${delay}ms`)
+  jlog.info('Product discovery job loaded', { jobId, urlCount: sourceUrls.length, urlIndex: progress?.currentUrlIndex ?? 0, maxPages: maxPages ?? 'unlimited', delay })
 
   // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
-    jlog.info(`buildProductDiscoveryWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing product discovery job', { jobId })
     await payload.update({
       collection: 'product-discoveries',
       id: jobId,
@@ -392,7 +391,7 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
         progress: null,
       },
     })
-    jlog.info(`Started product discovery: ${sourceUrls.length} source URLs`, { event: 'start' })
+    jlog.info('Started product discovery', { urlCount: sourceUrls.length }, { event: 'start' })
   }
 
   return {
@@ -408,8 +407,8 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
 }
 
 async function buildProductSearchWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('product-searches' as JobCollection, jobId)
-  jlog.info(`buildProductSearchWork: job #${jobId}`)
+  const jlog = log.forJob('product-searches', jobId)
+  jlog.info('Building product search work', { jobId })
   const job = await payload.findByID({ collection: 'product-searches', id: jobId }) as Record<string, unknown>
 
   const query = (job.query as string) ?? ''
@@ -417,11 +416,11 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
   const maxResults = (job.maxResults as number) ?? 50
   const debug = (job.debug as boolean) ?? false
 
-  jlog.info(`buildProductSearchWork #${jobId}: query="${query}", sources=[${sources.join(', ')}], maxResults=${maxResults}`)
+  jlog.info('Product search job loaded', { jobId, query, sources: sources.join(', '), maxResults })
 
   // Initialize job if pending
   if (job.status === 'pending') {
-    jlog.info(`buildProductSearchWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing product search job', { jobId })
     await payload.update({
       collection: 'product-searches',
       id: jobId,
@@ -434,7 +433,7 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
         existing: 0,
       },
     })
-    jlog.info(`Started product search: "${query}" across [${sources.join(', ')}]`, { event: 'start' })
+    jlog.info('Started product search', { query, sources: sources.join(', ') }, { event: 'start' })
   }
 
   return {
@@ -448,16 +447,16 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
 }
 
 async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('ingredients-discoveries' as JobCollection, jobId)
-  jlog.info(`buildIngredientsDiscoveryWork: job #${jobId}`)
+  const jlog = log.forJob('ingredients-discoveries', jobId)
+  jlog.info('Building ingredients discovery work', { jobId })
   const job = await payload.findByID({ collection: 'ingredients-discoveries', id: jobId }) as Record<string, unknown>
 
   const termQueue = (job.termQueue as string[]) ?? []
-  jlog.info(`buildIngredientsDiscoveryWork #${jobId}: sourceUrl=${job.sourceUrl}, currentTerm=${job.currentTerm ?? 'none'}, termQueue=${termQueue.length} terms`)
+  jlog.info('Ingredients discovery job loaded', { jobId, sourceUrl: job.sourceUrl as string, currentTerm: (job.currentTerm as string) ?? 'none', termQueueSize: termQueue.length })
 
   // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
-    jlog.info(`buildIngredientsDiscoveryWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing ingredients discovery job', { jobId })
     await payload.update({
       collection: 'ingredients-discoveries',
       id: jobId,
@@ -471,7 +470,7 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
         errors: 0,
       },
     })
-    jlog.info(`Started ingredients discovery`, { event: 'start' })
+    jlog.info('Started ingredients discovery', { event: 'start' })
   }
 
   return {
@@ -487,8 +486,8 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
 }
 
 async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('video-discoveries' as JobCollection, jobId)
-  jlog.info(`buildVideoDiscoveryWork: job #${jobId}`)
+  const jlog = log.forJob('video-discoveries', jobId)
+  jlog.info('Building video discovery work', { jobId })
   const job = await payload.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
 
   const channelUrl = job.channelUrl as string
@@ -502,11 +501,11 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
   const batchSize = (job.itemsPerTick as number) || 50
   const maxVideos = (job.maxVideos as number) ?? undefined
 
-  jlog.info(`buildVideoDiscoveryWork #${jobId}: channel=${channelUrl}, offset=${currentOffset}, batchSize=${batchSize}, maxVideos=${maxVideos ?? 'unlimited'}`)
+  jlog.info('Video discovery job loaded', { jobId, channelUrl, offset: currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited' })
 
   // Initialize job if pending: set in_progress and reset counters
   if (job.status === 'pending') {
-    jlog.info(`buildVideoDiscoveryWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing video discovery job', { jobId })
     await payload.update({
       collection: 'video-discoveries',
       id: jobId,
@@ -520,7 +519,7 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
         progress: null,
       },
     })
-    jlog.info(`Started video discovery: ${channelUrl}`, { event: 'start' })
+    jlog.info('Started video discovery', { channelUrl }, { event: 'start' })
   }
 
   return {
@@ -534,13 +533,13 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
 }
 
 async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('video-processings' as JobCollection, jobId)
-  jlog.info(`buildVideoProcessingWork: job #${jobId}`)
+  const jlog = log.forJob('video-processings', jobId)
+  jlog.info('Building video processing work', { jobId })
   const job = await payload.findByID({ collection: 'video-processings', id: jobId }) as Record<string, unknown>
 
   // Initialize job if pending: count total videos and set in_progress
   if (job.status === 'pending') {
-    jlog.info(`buildVideoProcessingWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing video processing job', { jobId })
 
     let total = 0
     if (job.type === 'single_video' && job.video) {
@@ -578,7 +577,7 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
         tokensSentiment: 0,
       },
     })
-    jlog.info(`Started video processing: ${total} videos to process`, { event: 'start' })
+    jlog.info('Started video processing', { total }, { event: 'start' })
   }
 
   // Find videos to process
@@ -627,7 +626,7 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
     }
   }
 
-  jlog.info(`buildVideoProcessingWork #${jobId}: ${videos.length} videos selected${videos.length > 0 ? ` (first: "${videos[0].title}", ${videos[0].externalUrl})` : ''}`)
+  jlog.info('Selected videos for processing', { jobId, count: videos.length, ...(videos.length > 0 ? { firstTitle: videos[0].title, firstUrl: videos[0].externalUrl } : {}) })
 
   return {
     type: 'video-processing',
@@ -642,8 +641,8 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
 }
 
 async function buildProductAggregationWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('product-aggregations' as JobCollection, jobId)
-  jlog.info(`buildProductAggregationWork: job #${jobId}`)
+  const jlog = log.forJob('product-aggregations', jobId)
+  jlog.info('Building product aggregation work', { jobId })
   const job = await payload.findByID({ collection: 'product-aggregations', id: jobId }) as Record<string, unknown>
 
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
@@ -651,11 +650,11 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
   const scope = ((job.scope as string) || 'full') as 'full' | 'partial'
   const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
-  jlog.info(`buildProductAggregationWork #${jobId}: type=${aggregationType}, scope=${scope}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
+  jlog.info('Product aggregation job loaded', { jobId, type: aggregationType, scope, status: job.status as string, itemsPerTick })
 
   // Initialize if pending
   if (job.status === 'pending') {
-    jlog.info(`buildProductAggregationWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing product aggregation job', { jobId })
     let total: number | undefined
     if (aggregationType === 'all') {
       const totalCount = await payload.count({
@@ -683,7 +682,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       },
     })
 
-    jlog.info(`Started product aggregation (type=${aggregationType}, total=${total})`, { event: 'start' })
+    jlog.info('Started product aggregation', { type: aggregationType, total }, { event: 'start' })
   }
 
   interface WorkItem {
@@ -786,13 +785,13 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     })
 
     if (sourceProducts.docs.length === 0) {
-      jlog.info(`buildProductAggregationWork #${jobId}: no more source products after cursor ${lastCheckedSourceId}, completing`)
+      jlog.info('No more source products, completing aggregation', { jobId, lastCursor: lastCheckedSourceId })
       await payload.update({
         collection: 'product-aggregations',
         id: jobId,
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
-      jlog.info(`Completed: ${(job.aggregated as number) ?? 0} aggregated, ${(job.errors as number) ?? 0} errors`, { event: 'success' })
+      jlog.info('Product aggregation completed', { aggregated: (job.aggregated as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
       return { type: 'none' }
     }
 
@@ -833,8 +832,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       workItems.push({ gtin, sourceProducts: sourceDocs.map(toSourceProductData) })
     }
 
-    const gtinsList = workItems.map((w) => w.gtin).join(', ')
-    jlog.info(`buildProductAggregationWork #${jobId}: ${workItems.length} work items, GTINs=[${gtinsList}], cursor=${lastId}`)
+    jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, gtins: workItems.map((w) => w.gtin).join(', '), cursor: lastId })
 
     // Return lastId for cursor tracking
     return {
@@ -849,8 +847,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     }
   }
 
-  const gtinsList = workItems.map((w) => w.gtin).join(', ')
-  jlog.info(`buildProductAggregationWork #${jobId}: ${workItems.length} work items, GTINs=[${gtinsList}]`)
+  jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, gtins: workItems.map((w) => w.gtin).join(', ') })
 
   return {
     type: 'product-aggregation',
@@ -867,17 +864,17 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
 // ─── Ingredient Crawl ───
 
 async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: number) {
-  const jlog = log.forJob('ingredient-crawls' as JobCollection, jobId)
-  jlog.info(`buildIngredientCrawlWork: job #${jobId}`)
+  const jlog = log.forJob('ingredient-crawls', jobId)
+  jlog.info('Building ingredient crawl work', { jobId })
   const job = await payload.findByID({ collection: 'ingredient-crawls', id: jobId }) as Record<string, unknown>
 
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
   const crawlType = ((job.type as string) || 'all_uncrawled') as 'all_uncrawled' | 'selected'
-  jlog.info(`buildIngredientCrawlWork #${jobId}: type=${crawlType}, status=${job.status}, itemsPerTick=${itemsPerTick}`)
+  jlog.info('Ingredient crawl job loaded', { jobId, type: crawlType, status: job.status as string, itemsPerTick })
 
   // Initialize if pending
   if (job.status === 'pending') {
-    jlog.info(`buildIngredientCrawlWork #${jobId}: pending → in_progress`)
+    jlog.info('Initializing ingredient crawl job', { jobId })
     let total: number | undefined
     if (crawlType === 'all_uncrawled') {
       const count = await payload.count({
@@ -910,7 +907,7 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
       },
     })
 
-    jlog.info(`Started ingredient crawl (type=${crawlType}, total=${total})`, { event: 'start' })
+    jlog.info('Started ingredient crawl', { type: crawlType, total }, { event: 'start' })
   }
 
   interface WorkItem {
@@ -962,13 +959,13 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
     })
 
     if (ingredients.docs.length === 0) {
-      jlog.info(`buildIngredientCrawlWork #${jobId}: no more ingredients after cursor ${lastCheckedId}, completing`)
+      jlog.info('No more ingredients, completing crawl', { jobId, lastCursor: lastCheckedId })
       await payload.update({
         collection: 'ingredient-crawls',
         id: jobId,
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
-      jlog.info(`Completed: ${(job.crawled as number) ?? 0} crawled, ${(job.errors as number) ?? 0} errors`, { event: 'success' })
+    jlog.info('Ingredient crawl completed', { crawled: (job.crawled as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
       return { type: 'none' }
     }
 
@@ -983,7 +980,7 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
   }
 
   const lastId = workItems.length > 0 ? workItems[workItems.length - 1].ingredientId : 0
-  jlog.info(`buildIngredientCrawlWork #${jobId}: ${workItems.length} work items, cursor=${lastId}`)
+  jlog.info('Prepared ingredient crawl work items', { jobId, count: workItems.length, cursor: lastId })
 
   return {
     type: 'ingredient-crawl',

@@ -472,6 +472,18 @@ export interface Event {
       }[]
     | null;
   message: string;
+  /**
+   * Structured metadata from the log call (key-value pairs)
+   */
+  data?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   job?:
     | ({
         relationTo: 'product-discoveries';
@@ -2234,6 +2246,7 @@ export interface EventsSelect<T extends boolean = true> {
         id?: T;
       };
   message?: T;
+  data?: T;
   job?: T;
   updatedAt?: T;
   createdAt?: T;
