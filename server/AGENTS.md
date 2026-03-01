@@ -44,7 +44,9 @@ src/
 ├── components/                  # Shared React components
 │   ├── ui/                      # shadcn/ui primitives
 │   ├── JobButton.tsx            # Shared job button with state machine + polling (used by all SaveButton wrappers)
+│   ├── BulkJobBar.tsx           # Shared bulk action bar for list views (useSelection + polling, renders when items selected)
 │   ├── *SaveButton.tsx          # Per-collection SaveButton wrappers (SourceProduct, Product, Video, Channel, Ingredient)
+│   ├── bulk-actions/            # Per-collection beforeListTable wrappers for bulk job actions
 │   ├── anyskin-logo.tsx         # SVG wordmark
 │   ├── bottom-nav.tsx           # 5-tab bottom navigation
 │   ├── app-drawer.tsx           # Burger menu drawer
