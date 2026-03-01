@@ -14,7 +14,7 @@ export const Ingredients: CollectionConfig = {
       edit: {
         SaveButton: '@/components/IngredientSaveButton',
       },
-      beforeListTable: ['@/components/bulk-actions/IngredientBulkActions'],
+      listMenuItems: ['@/components/bulk-actions/IngredientBulkActions'],
     },
   },
   fields: [

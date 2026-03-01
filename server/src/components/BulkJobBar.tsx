@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Button, useSelection } from '@payloadcms/ui'
+import { useSelection } from '@payloadcms/ui'
 import { getJobStatus } from '@/actions/job-actions'
 
 type JobState = 'idle' | 'creating' | 'pending' | 'running' | 'completed' | 'failed'
@@ -72,7 +72,6 @@ export function BulkJobBar({ label, runningLabel, createJob, jobCollection }: Bu
   }, [jobId, state, stopPolling, jobCollection])
 
   const handleClick = async () => {
-    // Get selected IDs from the selection map
     const ids: number[] = []
     if (selected) {
       const map = selected instanceof Map ? selected : new Map(Object.entries(selected))
@@ -102,56 +101,62 @@ export function BulkJobBar({ label, runningLabel, createJob, jobCollection }: Bu
     }
   }
 
-  if (!count || count === 0) return null
-
   const isActive = state === 'creating' || state === 'pending' || state === 'running'
-  const buttonStyle = state === 'failed' ? ('error' as const) : ('secondary' as const)
+  const hasSelection = count && count > 0
+  const disabled = !hasSelection || isActive || state === 'completed'
 
-  let buttonText: string
+  let text: string
   switch (state) {
     case 'creating':
-      buttonText = 'Creating job...'
+      text = 'Creating job...'
       break
     case 'pending':
-      buttonText = 'Waiting for worker...'
+      text = 'Waiting for worker...'
       break
     case 'running':
-      buttonText = runningLabel
+      text = runningLabel
       break
     case 'completed':
-      buttonText = 'Done!'
+      text = 'Done!'
       break
     case 'failed':
-      buttonText = error ?? 'Failed'
+      text = error ?? 'Failed'
       break
     default:
-      buttonText = `${label} ${count} ${count === 1 ? 'item' : 'items'}`
+      text = hasSelection ? `${label} ${count} selected` : `${label} (select items)`
   }
 
   return (
-    <div style={{ marginBottom: '4px' }}>
-      <Button
-        buttonStyle={buttonStyle}
-        size="small"
-        type="button"
-        disabled={isActive || state === 'completed'}
-        onClick={handleClick}
-        tooltip={error ?? undefined}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-          {isActive && <Spinner />}
-          {buttonText}
-        </span>
-      </Button>
-    </div>
+    <button
+      type="button"
+      disabled={!!disabled}
+      onClick={handleClick}
+      className="popup-button-list__button"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        width: '100%',
+        whiteSpace: 'nowrap',
+        opacity: disabled && state === 'idle' ? 0.5 : 1,
+        color: state === 'failed'
+          ? 'var(--theme-error-500)'
+          : state === 'completed'
+            ? 'var(--theme-success-500)'
+            : undefined,
+      }}
+    >
+      {isActive && <Spinner />}
+      {text}
+    </button>
   )
 }
 
 function Spinner() {
   return (
     <svg
-      width="14"
-      height="14"
+      width="12"
+      height="12"
       viewBox="0 0 14 14"
       fill="none"
       style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
@@ -162,5 +167,3 @@ function Spinner() {
     </svg>
   )
 }
-
-

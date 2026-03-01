@@ -17,7 +17,7 @@ export const SourceProducts: CollectionConfig = {
       edit: {
         SaveButton: '@/components/SourceProductSaveButton',
       },
-      beforeListTable: ['@/components/bulk-actions/SourceProductBulkActions'],
+      listMenuItems: ['@/components/bulk-actions/SourceProductBulkActions'],
     },
   },
   hooks: {

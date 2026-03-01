@@ -15,7 +15,7 @@ export const Videos: CollectionConfig = {
       edit: {
         SaveButton: '@/components/VideoSaveButton',
       },
-      beforeListTable: ['@/components/bulk-actions/VideoBulkActions'],
+      listMenuItems: ['@/components/bulk-actions/VideoBulkActions'],
     },
   },
   fields: [
