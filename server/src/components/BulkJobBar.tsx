@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useSelection } from '@payloadcms/ui'
-import { getJobStatus } from '@/actions/job-actions'
+import { getJobStatus, getJobEvents } from '@/actions/job-actions'
+import type { JobEvent } from '@/actions/job-actions'
 
 // ---- Shared types ----
 
@@ -12,20 +13,26 @@ type JobCollection = Parameters<typeof getJobStatus>[0]
 
 const POLL_INTERVAL = 2000
 
-// ---- Module-level state shared between menu item and status bar ----
-// Both components are rendered in different parts of the tree (listMenuItems vs beforeListTable)
-// so React context won't work. Instead, we use a simple pub/sub per collection slug.
+// ---- Module-level pub/sub for cross-slot state sharing ----
 
 type Listener = () => void
 const listeners = new Map<string, Set<Listener>>()
-const jobStates = new Map<string, { state: JobState; error: string | null }>()
 
-function getState(key: string) {
-  return jobStates.get(key) ?? { state: 'idle' as JobState, error: null }
+interface SharedJobState {
+  state: JobState
+  error: string | null
+  events: JobEvent[]
 }
 
-function setJobState(key: string, state: JobState, error: string | null = null) {
-  jobStates.set(key, { state, error })
+const jobStates = new Map<string, SharedJobState>()
+
+function getState(key: string): SharedJobState {
+  return jobStates.get(key) ?? { state: 'idle', error: null, events: [] }
+}
+
+function setState(key: string, update: Partial<SharedJobState>) {
+  const prev = getState(key)
+  jobStates.set(key, { ...prev, ...update })
   listeners.get(key)?.forEach((l) => l())
 }
 
@@ -35,7 +42,7 @@ function subscribe(key: string, listener: Listener) {
   return () => { listeners.get(key)?.delete(listener) }
 }
 
-function useJobState(key: string) {
+function useJobState(key: string): SharedJobState {
   const [, forceUpdate] = useState(0)
   useEffect(() => subscribe(key, () => forceUpdate((n) => n + 1)), [key])
   return getState(key)
@@ -44,11 +51,8 @@ function useJobState(key: string) {
 // ---- Menu item: rendered inside listMenuItems (three-dot popup) ----
 
 interface BulkJobMenuItemProps {
-  /** Button label (e.g. "Crawl", "Aggregate") */
   label: string
-  /** Server action that creates the job from selected IDs */
   createJob: (ids: number[]) => Promise<JobResult>
-  /** Which job collection to poll status from */
   jobCollection: JobCollection
 }
 
@@ -57,6 +61,7 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
   const { state } = useJobState(jobCollection)
   const jobIdRef = useRef<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastEventDateRef = useRef<string | undefined>(undefined)
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -65,29 +70,50 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
     }
   }, [])
 
-  // Clean up polling on unmount
   useEffect(() => stopPolling, [stopPolling])
 
   const startPolling = useCallback(() => {
     stopPolling()
+    lastEventDateRef.current = undefined
+
     const poll = async () => {
       const id = jobIdRef.current
       if (!id) return
+
       try {
-        const result = await getJobStatus(jobCollection, id)
-        if (result.status === 'completed') {
-          setJobState(jobCollection, 'completed')
+        // Poll status and events in parallel
+        const [statusResult, newEvents] = await Promise.all([
+          getJobStatus(jobCollection, id),
+          getJobEvents(jobCollection, id, lastEventDateRef.current),
+        ])
+
+        // Append new events
+        if (newEvents.length > 0) {
+          const prev = getState(jobCollection)
+          lastEventDateRef.current = newEvents[newEvents.length - 1].createdAt
+          setState(jobCollection, {
+            events: [...prev.events, ...newEvents],
+          })
+        }
+
+        // Update status
+        if (statusResult.status === 'completed') {
+          setState(jobCollection, { state: 'completed' })
           stopPolling()
-        } else if (result.status === 'failed') {
-          setJobState(jobCollection, 'failed', `Failed (${result.errors ?? 0} errors)`)
+        } else if (statusResult.status === 'failed') {
+          setState(jobCollection, {
+            state: 'failed',
+            error: `Failed (${statusResult.errors ?? 0} errors)`,
+          })
           stopPolling()
-        } else if (result.status === 'in_progress') {
-          setJobState(jobCollection, 'running')
+        } else if (statusResult.status === 'in_progress') {
+          setState(jobCollection, { state: 'running' })
         }
       } catch {
-        // ignore
+        // ignore transient errors
       }
     }
+
     poll()
     pollRef.current = setInterval(poll, POLL_INTERVAL)
   }, [jobCollection, stopPolling])
@@ -102,20 +128,23 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
     }
     if (ids.length === 0) return
 
-    setJobState(jobCollection, 'creating')
+    setState(jobCollection, { state: 'creating', error: null, events: [] })
     jobIdRef.current = null
 
     try {
       const result = await createJob(ids)
       if (result.success && result.jobId) {
         jobIdRef.current = result.jobId
-        setJobState(jobCollection, 'pending')
+        setState(jobCollection, { state: 'pending' })
         startPolling()
       } else {
-        setJobState(jobCollection, 'failed', result.error || 'Failed to create job')
+        setState(jobCollection, { state: 'failed', error: result.error || 'Failed to create job' })
       }
     } catch (err) {
-      setJobState(jobCollection, 'failed', err instanceof Error ? err.message : 'Unknown error')
+      setState(jobCollection, {
+        state: 'failed',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      })
     }
   }
 
@@ -145,71 +174,142 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
   )
 }
 
-// ---- Status bar: rendered via beforeListTable (only visible when job is active/done) ----
+// ---- Status bar: rendered via beforeListTable ----
 
 interface BulkJobStatusBarProps {
-  /** Label while running (e.g. "Crawling...", "Aggregating...") */
   runningLabel: string
-  /** Which job collection to observe */
   jobCollection: JobCollection
 }
 
 export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusBarProps) {
-  const { state, error } = useJobState(jobCollection)
+  const { state, error, events } = useJobState(jobCollection)
+  const logRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom when new events arrive
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [events.length])
 
   if (state === 'idle') return null
 
   const isActive = state === 'creating' || state === 'pending' || state === 'running'
 
-  let text: string
+  let statusText: string
   switch (state) {
     case 'creating':
-      text = 'Creating job...'
+      statusText = 'Creating job...'
       break
     case 'pending':
-      text = 'Waiting for worker...'
+      statusText = 'Waiting for worker...'
       break
     case 'running':
-      text = runningLabel
+      statusText = runningLabel
       break
     case 'completed':
-      text = 'Done!'
+      statusText = 'Done!'
       break
     case 'failed':
-      text = error ?? 'Failed'
+      statusText = error ?? 'Failed'
       break
     default:
-      text = ''
+      statusText = ''
   }
+
+  const borderColor = state === 'failed'
+    ? 'var(--theme-error-200, #fecaca)'
+    : state === 'completed'
+      ? 'var(--theme-success-200, #bbf7d0)'
+      : 'var(--theme-elevation-200)'
 
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '8px 12px',
-        marginBottom: '4px',
+        marginBottom: '8px',
         borderRadius: 'var(--style-radius-s, 4px)',
+        border: `1px solid ${borderColor}`,
+        overflow: 'hidden',
         fontSize: '13px',
-        fontWeight: 500,
-        background: state === 'failed'
-          ? 'var(--theme-error-50, #fef2f2)'
-          : state === 'completed'
-            ? 'var(--theme-success-50, #f0fdf4)'
-            : 'var(--theme-elevation-100)',
-        color: state === 'failed'
-          ? 'var(--theme-error-500)'
-          : state === 'completed'
-            ? 'var(--theme-success-500)'
-            : 'var(--theme-text)',
-        border: '1px solid var(--theme-elevation-200)',
       }}
     >
-      {isActive && <Spinner />}
-      {text}
+      {/* Header row */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px 12px',
+          fontWeight: 500,
+          background: state === 'failed'
+            ? 'var(--theme-error-50, #fef2f2)'
+            : state === 'completed'
+              ? 'var(--theme-success-50, #f0fdf4)'
+              : 'var(--theme-elevation-100)',
+          color: state === 'failed'
+            ? 'var(--theme-error-500)'
+            : state === 'completed'
+              ? 'var(--theme-success-500)'
+              : 'var(--theme-text)',
+        }}
+      >
+        {isActive && <Spinner />}
+        {statusText}
+      </div>
+
+      {/* Event log */}
+      {events.length > 0 && (
+        <div
+          ref={logRef}
+          style={{
+            maxHeight: '160px',
+            overflowY: 'auto',
+            padding: '6px 12px',
+            background: 'var(--theme-elevation-0)',
+          }}
+        >
+          {events.map((event, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                gap: '8px',
+                padding: '2px 0',
+                lineHeight: '1.4',
+                color: event.type === 'error'
+                  ? 'var(--theme-error-500)'
+                  : event.type === 'warning'
+                    ? 'var(--theme-warning-500, #d97706)'
+                    : 'var(--theme-elevation-600)',
+              }}
+            >
+              <span style={{ flexShrink: 0, opacity: 0.5 }}>
+                {formatTime(event.createdAt)}
+              </span>
+              <span>{cleanMessage(event.message)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+// ---- Helpers ----
+
+/** Strip "[tag] " prefixes from worker log messages */
+function cleanMessage(msg: string): string {
+  return msg.replace(/^\[[^\]]+\]\s*/, '')
+}
+
+/** Format ISO date to HH:MM:SS */
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return ''
+  }
 }
 
 function Spinner() {

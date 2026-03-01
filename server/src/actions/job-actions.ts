@@ -2,6 +2,7 @@
 
 import config from '@payload-config'
 import { getPayload } from 'payload'
+import type { Where } from 'payload'
 
 type JobResult = { success: boolean; jobId?: number; error?: string }
 
@@ -33,6 +34,46 @@ export async function getJobStatus(
     status: job.status as string,
     errors: ('errors' in job ? (job.errors as number) : 0) ?? 0,
   }
+}
+
+// ---------- Job events poller ----------
+
+export type JobEvent = {
+  type: string
+  level: string
+  message: string
+  createdAt: string
+}
+
+export async function getJobEvents(
+  collection: JobCollection,
+  jobId: number,
+  afterDate?: string,
+): Promise<JobEvent[]> {
+  const payload = await getPayload({ config })
+
+  const where: Where = {
+    and: [
+      { 'job.relationTo': { equals: collection } },
+      { 'job.value': { equals: jobId } },
+      ...(afterDate ? [{ createdAt: { greater_than: afterDate } }] : []),
+    ],
+  }
+
+  const result = await payload.find({
+    collection: 'events',
+    where,
+    sort: 'createdAt',
+    limit: 50,
+    depth: 0,
+  })
+
+  return result.docs.map((e) => ({
+    type: e.type,
+    level: e.level as string,
+    message: e.message,
+    createdAt: e.createdAt,
+  }))
 }
 
 // ---------- Source Product → Crawl ----------
