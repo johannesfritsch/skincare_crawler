@@ -5,7 +5,7 @@ import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
 
-type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
+export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
 interface ActiveJob {
   type: JobType
@@ -15,7 +15,7 @@ interface ActiveJob {
   aggregationType?: string
 }
 
-const JOB_TYPE_TO_COLLECTION = {
+export const JOB_TYPE_TO_COLLECTION = {
   'product-crawl': 'product-crawls',
   'product-discovery': 'product-discoveries',
   'product-search': 'product-searches',

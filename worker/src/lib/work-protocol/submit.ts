@@ -14,6 +14,7 @@ import {
   persistVideoProcessingResult,
   persistProductAggregationResult,
 } from './persist'
+import { retryOrFail } from './job-failure'
 
 const log = createLogger('Submit')
 
@@ -382,7 +383,17 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     totalRemaining += await countUncrawled(payload, source as SourceSlug, countOpts)
   }
 
+  // Count how many items in this batch were errors
+  const batchErrors = results.filter((r) => !r.data || r.error).length
+
   if (totalRemaining === 0) {
+    // If the entire batch was errors, retry instead of completing
+    if (batchErrors === results.length && results.length > 0) {
+      log.warn('Product crawl batch was 100% errors, retrying or failing', { jobId, batchErrors })
+      await retryOrFail(payload, 'product-crawls', jobId, `Batch of ${batchErrors} items all failed`)
+      return { crawled, errors, remaining: totalRemaining }
+    }
+
     log.info('Product crawl completing', { jobId, crawled, errors })
     await payload.update({
       collection: 'product-crawls',
@@ -435,6 +446,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   const productUrls: string[] = ((job.productUrls as string) ?? '').split('\n').filter(Boolean)
   const seenProductUrls = new Set<string>(productUrls)
 
+  let batchPersisted = 0
   for (const product of products) {
     if (seenProductUrls.has(product.productUrl)) continue
     seenProductUrls.add(product.productUrl)
@@ -447,6 +459,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         product,
         source: source as SourceSlug,
       })
+      batchPersisted++
       if (result.isNew) {
         created++
       } else {
@@ -458,6 +471,12 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   }
 
   log.info('Product discovery progress', { jobId, discovered, created, existing, done })
+
+  if (done && batchPersisted === 0 && products.length > 0) {
+    log.warn('Product discovery batch had zero successful persists, retrying or failing', { jobId, products: products.length })
+    await retryOrFail(payload, 'product-discoveries', jobId, `Batch of ${products.length} items all failed to persist`)
+    return { discovered, created, existing, done }
+  }
 
   if (done) {
     await payload.update({
@@ -503,6 +522,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
   let created = 0
   let existing = 0
   let discovered = 0
+  let persisted = 0
 
   for (const { product, source } of products) {
     discovered++
@@ -514,6 +534,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
         product,
         source,
       })
+      persisted++
       if (result.isNew) {
         created++
       } else {
@@ -535,6 +556,13 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
   }
 
   log.info('Product search progress', { jobId, discovered, created, existing })
+
+  // One-shot job: if zero results persisted successfully, retry or fail
+  if (persisted === 0 && products.length > 0) {
+    log.warn('Product search had zero successful persists, retrying or failing', { jobId, products: products.length })
+    await retryOrFail(payload, 'product-searches', jobId, `All ${products.length} search results failed to persist`)
+    return { discovered, created, existing }
+  }
 
   await payload.update({
     collection: 'product-searches',
@@ -565,10 +593,12 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
   let discovered = (job.discovered as number) ?? 0
   let errors = (job.errors as number) ?? 0
 
+  let batchPersisted = 0
   for (const ingredient of ingredients) {
     discovered++
     try {
       const result = await persistIngredient(payload, ingredient)
+      batchPersisted++
       if (result.isNew) {
         created++
       } else {
@@ -581,6 +611,12 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
   }
 
   log.info('Ingredients discovery progress', { jobId, created, existing, errors, done })
+
+  if (done && batchPersisted === 0 && ingredients.length > 0) {
+    log.warn('Ingredients discovery batch had zero successful persists, retrying or failing', { jobId, ingredients: ingredients.length })
+    await retryOrFail(payload, 'ingredients-discoveries', jobId, `Batch of ${ingredients.length} ingredients all failed to persist`)
+    return { discovered, created, existing, errors, done }
+  }
 
   if (done) {
     await payload.update({
@@ -633,6 +669,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
 
   const result = await persistVideoDiscoveryResult(payload, jobId, channelUrl, videos)
 
+  const batchPersisted = result.created + result.existing
   const totalDiscovered = ((job.discovered as number) ?? 0) + videos.length
   const totalCreated = ((job.created as number) ?? 0) + result.created
   const totalExisting = ((job.existing as number) ?? 0) + result.existing
@@ -643,6 +680,12 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
   const allDone = reachedEnd || hitMaxVideos
 
   log.info('Video discovery progress', { jobId, batchCreated: result.created, batchExisting: result.existing, totalCreated, totalExisting, totalDiscovered, done: allDone })
+
+  if (allDone && batchPersisted === 0 && videos.length > 0) {
+    log.warn('Video discovery batch had zero successful persists, retrying or failing', { jobId, videos: videos.length })
+    await retryOrFail(payload, 'video-discoveries', jobId, `Batch of ${videos.length} videos all failed to persist`)
+    return { created: result.created, existing: result.existing, done: allDone }
+  }
 
   if (allDone) {
     await payload.update({
@@ -728,6 +771,12 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
   const allDone = processed + errors >= total
   log.info('Video processing progress', { jobId, processed, errors, tokensUsed, done: allDone, completed: processed + errors, total })
 
+  if (allDone && processed === 0) {
+    log.warn('Video processing completed with zero successes, retrying or failing', { jobId, errors, total })
+    await retryOrFail(payload, 'video-processings', jobId, `All ${errors} videos failed to process`)
+    return { processed, errors, tokensUsed, done: allDone }
+  }
+
   if (allDone) {
     await payload.update({
       collection: 'video-processings',
@@ -771,6 +820,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
   )
   const productIds = new Set<number>(existingProductIds)
 
+  let batchSuccesses = 0
   for (const result of results) {
     if (result.error || !result.aggregated) {
       errors++
@@ -800,6 +850,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         jlog.error('Aggregation persist error', { gtin: result.gtin, error: persistResult.error }, { event: true })
       } else {
         aggregated++
+        batchSuccesses++
         log.info('Product aggregation persisted', { jobId, gtin: result.gtin, productId: persistResult.productId, tokens: persistResult.tokensUsed, hasWarning: !!persistResult.warning })
         if (persistResult.warning) {
           jlog.warn('Aggregation warning', { gtin: result.gtin, warning: persistResult.warning }, { event: true })
@@ -835,6 +886,12 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     (aggregationType === 'all' && results.length === 0)
 
   log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: shouldComplete })
+
+  if (shouldComplete && batchSuccesses === 0 && results.length > 0) {
+    log.warn('Product aggregation batch was 100% errors, retrying or failing', { jobId, batchErrors: results.length })
+    await retryOrFail(payload, 'product-aggregations', jobId, `Batch of ${results.length} aggregations all failed`)
+    return { aggregated, errors, tokensUsed, done: shouldComplete }
+  }
 
   if (shouldComplete) {
     await payload.update({
@@ -886,6 +943,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
   )
   const ingredientIds = new Set<number>(existingIngredientIds)
 
+  let batchSuccesses = 0
   for (const result of results) {
     if (result.error) {
       errors++
@@ -907,6 +965,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
 
       tokensUsed += result.tokensUsed
       crawled++
+      batchSuccesses++
       ingredientIds.add(result.ingredientId)
       log.info('Ingredient crawl persisted', { jobId, ingredientId: result.ingredientId, ingredient: result.ingredientName })
     } catch (e) {
@@ -920,6 +979,12 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
   const shouldComplete =
     crawlType === 'selected' ||
     (crawlType === 'all_uncrawled' && results.length === 0)
+
+  if (shouldComplete && batchSuccesses === 0 && results.length > 0) {
+    log.warn('Ingredient crawl batch was 100% errors, retrying or failing', { jobId, batchErrors: results.length })
+    await retryOrFail(payload, 'ingredient-crawls', jobId, `Batch of ${results.length} ingredients all failed`)
+    return { crawled, errors, tokensUsed, done: shouldComplete }
+  }
 
   if (shouldComplete) {
     await payload.update({

@@ -17,9 +17,10 @@ worker/src/
     │
     ├── work-protocol/
     │   ├── types.ts                  # AuthenticatedWorker interface
-    │   ├── claim.ts                  # claimWork() — find & build work units
-    │   ├── submit.ts                 # submitWork() — persist results, update job status
-    │   └── persist.ts                # persist*() — DB write operations for each job type
+    │   ├── claim.ts                  # claimWork() — find & build work units (exports JOB_TYPE_TO_COLLECTION, JobType)
+    │   ├── submit.ts                 # submitWork() — persist results, update job status, retry/fail on 100% errors
+    │   ├── persist.ts                # persist*() — DB write operations for each job type
+    │   └── job-failure.ts            # failJob(), retryOrFail() — shared job failure/retry logic
     │
     ├── source-discovery/
     │   ├── types.ts                  # SourceDriver, ScrapedProductData, DiscoveredProduct
@@ -69,7 +70,9 @@ worker/src/
 3. Run handler           handleProductCrawl / handleProductDiscovery / etc.
 4. heartbeat()           Refreshes claimedAt + lastSeenAt during long operations
 5. submitWork(client)    Persist results → update job status/progress
-6. Sleep (POLL_INTERVAL) Repeat from step 2
+                         If 100% errors in batch → retryOrFail (increment retryCount, fail if > maxRetries)
+6. On handler throw      Main loop catches → retryOrFail (increment retryCount, fail if > maxRetries)
+7. Sleep (POLL_INTERVAL) Repeat from step 2
 ```
 
 ### Env vars
@@ -131,9 +134,24 @@ Dispatches to per-type submit handlers. Each handler:
 1. Calls the appropriate `persist*()` function for each result item
 2. Updates job progress counters (crawled, errors, discovered, created, etc.)
 3. Checks completion condition:
-   - **Done**: marks job `completed` with `completedAt` timestamp
+   - **Done with successes**: marks job `completed` with `completedAt` timestamp
+   - **Done with 100% errors**: calls `retryOrFail()` — increments `retryCount`, fails the job if `maxRetries` exceeded, otherwise releases claim for retry
    - **Not done**: releases the claim by setting `claimedBy: null, claimedAt: null` — this makes the job immediately available for any worker to pick up on the next poll cycle
 4. Emits events via the logger
+
+### Job Failure (`work-protocol/job-failure.ts`)
+
+Shared utilities for marking jobs as failed and implementing retry logic:
+
+- **`failJob(payload, collection, jobId, reason)`** — immediately marks a job as `failed` with `failedAt` + `failureReason`. Used for permanent errors (e.g. no driver for URL).
+- **`retryOrFail(payload, collection, jobId, reason)`** — increments `retryCount`, checks against `maxRetries` (default 3). If exceeded, fails the job. Otherwise releases the claim for retry. Returns `true` if the job was failed. Used for transient errors (100% batch failures, handler exceptions).
+
+Jobs fail in three scenarios:
+1. **Handler throws** — the main loop catches it and calls `retryOrFail`. After `maxRetries` attempts, the job is marked `failed`.
+2. **100% error batch** — `submitWork` detects that all items in a batch errored and calls `retryOrFail` instead of marking `completed`.
+3. **Permanent error** — handler detects an unrecoverable condition (e.g. no driver for URL) and calls `failJob` immediately.
+
+All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and `failureReason` fields via `jobClaimFields`.
 
 ### persist (`work-protocol/persist.ts`)
 
@@ -437,6 +455,7 @@ Each module creates a logger with a PascalCase tag. Tags are distinct per module
 | `Claim` | `work-protocol/claim.ts` |
 | `Submit` | `work-protocol/submit.ts` |
 | `Persist` | `work-protocol/persist.ts` |
+| `JobFailure` | `work-protocol/job-failure.ts` |
 | `DM`, `Mueller`, `Rossmann`, `PurishDriver` | Source drivers |
 | `YouTube` | Video discovery driver |
 | `CosIng` | Ingredients discovery driver |

@@ -399,6 +399,22 @@ export interface IngredientsDiscovery {
    */
   claimedBy?: (number | null) | Worker;
   /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
+  /**
    * Max pages per batch. Empty = unlimited.
    */
   pagesPerTick?: number | null;
@@ -539,6 +555,22 @@ export interface ProductDiscovery {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
   /**
    * Max pages per batch. Empty = unlimited.
    */
@@ -778,6 +810,22 @@ export interface ProductCrawl {
    */
   claimedBy?: (number | null) | Worker;
   /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
+  /**
    * Products to crawl per batch.
    */
   itemsPerTick?: number | null;
@@ -873,6 +921,22 @@ export interface ProductSearch {
    */
   claimedBy?: (number | null) | Worker;
   /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
+  /**
    * Keep browser visible (non-headless).
    */
   debug?: boolean | null;
@@ -933,6 +997,22 @@ export interface ProductAggregation {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
   /**
    * Full: runs LLM classification (description, product type, attributes, claims), brand matching, ingredient matching, and image selection. Partial: only updates score history and basic product data (name, sources) — no LLM calls, no image downloads.
    */
@@ -1409,6 +1489,22 @@ export interface VideoDiscovery {
    */
   claimedBy?: (number | null) | Worker;
   /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
+  /**
    * Videos fetched per claim cycle. Default: 50. Empty = 50.
    */
   itemsPerTick?: number | null;
@@ -1465,6 +1561,22 @@ export interface VideoProcessing {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
   /**
    * Videos to process per batch.
    */
@@ -1551,6 +1663,22 @@ export interface IngredientCrawl {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
   /**
    * Ingredients to process per batch.
    */
@@ -1907,6 +2035,10 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   pagesPerTick?: T;
   discovered?: T;
   created?: T;
@@ -1930,6 +2062,10 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   itemsPerTick?: T;
   type?: T;
   ingredientIds?: T;
@@ -2106,6 +2242,10 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   itemsPerTick?: T;
   delay?: T;
   debug?: T;
@@ -2132,6 +2272,10 @@ export interface ProductSearchesSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   debug?: T;
   discovered?: T;
   created?: T;
@@ -2151,6 +2295,10 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   itemsPerTick?: T;
   crawlVariants?: T;
   debug?: T;
@@ -2180,6 +2328,10 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   scope?: T;
   itemsPerTick?: T;
   type?: T;
@@ -2357,6 +2509,10 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   itemsPerTick?: T;
   maxVideos?: T;
   discovered?: T;
@@ -2377,6 +2533,10 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  failedAt?: T;
+  failureReason?: T;
   itemsPerTick?: T;
   startedAt?: T;
   completedAt?: T;

@@ -19,8 +19,9 @@ import path from 'path'
 import os from 'os'
 import { PayloadRestClient } from '@/lib/payload-client'
 import { initLogger, createLogger } from '@/lib/logger'
-import { claimWork } from '@/lib/work-protocol/claim'
+import { claimWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
+import { failJob, retryOrFail } from '@/lib/work-protocol/job-failure'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
 import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
@@ -72,23 +73,13 @@ initLogger(client)
 const log = createLogger('Worker')
 let worker: AuthenticatedWorker
 
-// ─── Heartbeat & Collection Map ───
-
-const COLLECTION_MAP: Record<string, string> = {
-  'product-crawl': 'product-crawls',
-  'product-discovery': 'product-discoveries',
-  'ingredients-discovery': 'ingredients-discoveries',
-  'video-discovery': 'video-discoveries',
-  'video-processing': 'video-processings',
-  'product-aggregation': 'product-aggregations',
-  'ingredient-crawl': 'ingredient-crawls',
-}
+// ─── Heartbeat & Helpers ───
 
 async function heartbeat(jobId: number, type: string, progress?: unknown): Promise<void> {
   try {
     const now = new Date().toISOString()
     await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: now } })
-    const collection = COLLECTION_MAP[type]
+    const collection = JOB_TYPE_TO_COLLECTION[type as JobType]
     if (collection) {
       const jobData: Record<string, unknown> = { claimedAt: now }
       if (progress !== undefined) jobData.progress = progress
@@ -153,7 +144,8 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   log.info('Product crawl job', { jobId, items: workItems.length })
 
   if (workItems.length === 0) {
-    log.warn('No work items, skipping submit', { jobId })
+    log.warn('No work items, releasing claim', { jobId })
+    await client.update({ collection: 'product-crawls', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
     return
   }
 
@@ -328,7 +320,7 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
 
   const driver = getIngredientsDriver(sourceUrl)
   if (!driver) {
-    log.error('No ingredients driver for URL', { sourceUrl })
+    await failJob(client, 'ingredients-discoveries', jobId, `No ingredients driver for URL: ${sourceUrl}`)
     return
   }
 
@@ -403,7 +395,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
 
   const driver = getVideoDriver(channelUrl)
   if (!driver) {
-    log.error('No video driver for URL', { channelUrl })
+    await failJob(client, 'video-discoveries', jobId, `No video driver for URL: ${channelUrl}`)
     return
   }
 
@@ -1023,7 +1015,8 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   log.info('Product aggregation job', { jobId, items: workItems.length, type: aggregationType, scope })
 
   if (workItems.length === 0) {
-    log.warn('No work items for aggregation job, skipping submit', { jobId })
+    log.warn('No work items for aggregation job, releasing claim', { jobId })
+    await client.update({ collection: 'product-aggregations', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
     return
   }
 
@@ -1146,7 +1139,8 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
   log.info('Ingredient crawl job', { jobId, items: workItems.length, type: crawlType })
 
   if (workItems.length === 0) {
-    log.warn('No work items for ingredient crawl, skipping submit', { jobId })
+    log.warn('No work items for ingredient crawl, releasing claim', { jobId })
+    await client.update({ collection: 'ingredient-crawls', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
     return
   }
 
@@ -1439,7 +1433,15 @@ async function main(): Promise<void> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log.error('Error in main loop', { jobType: currentJobType ?? null, jobId: (currentJobId as number) ?? null, error: msg })
-      // Wait before retrying after errors
+
+      // If we know which job failed, increment its retry count (or fail it)
+      if (currentJobType && currentJobId) {
+        const collection = JOB_TYPE_TO_COLLECTION[currentJobType as JobType]
+        if (collection) {
+          await retryOrFail(client, collection, currentJobId as number, msg)
+        }
+      }
+
       await sleep(DEFAULT_POLL_INTERVAL)
     }
   }
