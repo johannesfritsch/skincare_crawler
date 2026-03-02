@@ -471,6 +471,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   }
 
   log.info('Product discovery progress', { jobId, discovered, created, existing, done })
+  jlog.info('Batch persisted', { discovered, created, existing, batchSize: products.length }, { event: true })
 
   if (done && batchPersisted === 0 && products.length > 0) {
     log.warn('Product discovery batch had zero successful persists, retrying or failing', { jobId, products: products.length })
@@ -556,6 +557,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
   }
 
   log.info('Product search progress', { jobId, discovered, created, existing })
+  jlog.info('Search results persisted', { discovered, created, existing }, { event: true })
 
   // One-shot job: if zero results persisted successfully, retry or fail
   if (persisted === 0 && products.length > 0) {
@@ -611,6 +613,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
   }
 
   log.info('Ingredients discovery progress', { jobId, created, existing, errors, done })
+  jlog.info('Batch persisted', { discovered, created, existing, errors, batchSize: ingredients.length }, { event: true })
 
   if (done && batchPersisted === 0 && ingredients.length > 0) {
     log.warn('Ingredients discovery batch had zero successful persists, retrying or failing', { jobId, ingredients: ingredients.length })
@@ -680,6 +683,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
   const allDone = reachedEnd || hitMaxVideos
 
   log.info('Video discovery progress', { jobId, batchCreated: result.created, batchExisting: result.existing, totalCreated, totalExisting, totalDiscovered, done: allDone })
+  jlog.info('Batch persisted', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting, batchSize: videos.length }, { event: true })
 
   if (allDone && batchPersisted === 0 && videos.length > 0) {
     log.warn('Video discovery batch had zero successful persists, retrying or failing', { jobId, videos: videos.length })

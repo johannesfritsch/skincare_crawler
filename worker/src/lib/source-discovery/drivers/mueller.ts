@@ -69,7 +69,7 @@ export const muellerDriver: SourceDriver = {
   async discoverProducts(
     options: ProductDiscoveryOptions,
   ): Promise<ProductDiscoveryResult> {
-    const { url, onProduct, onError, onProgress, delay = 2000, maxPages, debug = false } = options
+    const { url, onProduct, onError, onProgress, delay = 2000, maxPages, debug = false, logger } = options
     const savedProgress = options.progress as MuellerProductDiscoveryProgress | undefined
 
     log.info('Starting browser-based discovery', { url, delay, maxPages: maxPages ?? 'unlimited', debug })
@@ -176,6 +176,7 @@ export const muellerDriver: SourceDriver = {
             const products = await scrapeProductTiles()
             await emitProducts(products, category, categoryUrl)
             log.info('Scraped page', { pageNum, products: products.length })
+            logger?.info('Discovery page scraped', { source: 'mueller', page: pageNum, products: products.length }, { event: true, labels: ['discovery'] })
           } catch (e) {
             log.warn('Error on page', { url: pagedUrl, error: String(e) })
             onError?.(pagedUrl)
@@ -234,6 +235,7 @@ export const muellerDriver: SourceDriver = {
             const products = await scrapeProductTiles()
             await emitProducts(products, category, canonicalUrl)
             log.info('Scraped page', { pageNum: 1, products: products.length })
+            logger?.info('Discovery page scraped', { source: 'mueller', page: 1, products: products.length }, { event: true, labels: ['discovery'] })
 
             await saveProgress()
 
@@ -258,6 +260,7 @@ export const muellerDriver: SourceDriver = {
                 const pageProducts = await scrapeProductTiles()
                 await emitProducts(pageProducts, category, canonicalUrl)
                 log.info('Scraped page', { pageNum, products: pageProducts.length })
+                logger?.info('Discovery page scraped', { source: 'mueller', page: pageNum, products: pageProducts.length }, { event: true, labels: ['discovery'] })
               } catch (e) {
                 log.warn('Error on page', { url: pagedUrl, error: String(e) })
                 onError?.(pagedUrl)
@@ -311,7 +314,7 @@ export const muellerDriver: SourceDriver = {
   async searchProducts(
     options: ProductSearchOptions,
   ): Promise<ProductSearchResult> {
-    const { query, maxResults = 50, debug = false } = options
+    const { query, maxResults = 50, debug = false, logger } = options
     const products: import('../types').DiscoveredProduct[] = []
 
     log.info('Searching Mueller', { query, maxResults })
@@ -423,15 +426,18 @@ export const muellerDriver: SourceDriver = {
     }
 
     log.info('Mueller search complete', { query, found: products.length })
+    logger?.info('Search complete', { source: 'mueller', query, results: products.length }, { event: true, labels: ['search'] })
     return { products }
   },
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
   ): Promise<ScrapedProductData | null> {
+    const logger = options?.logger
     try {
       log.info('Scraping product', { url: sourceUrl })
+      logger?.info('Scraping product', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping'] })
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
@@ -735,6 +741,7 @@ export const muellerDriver: SourceDriver = {
 
         if (!scraped.name) {
           log.info('No product name found on page', { url: sourceUrl })
+          logger?.warn('Scrape failed: no product name', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping'] })
           return null
         }
 
@@ -767,6 +774,8 @@ export const muellerDriver: SourceDriver = {
 
         log.debug('Category info', { url: sourceUrl, breadcrumbs: scraped.categoryBreadcrumbs ? scraped.categoryBreadcrumbs.join(' -> ') : '(none)', categoryUrl: scraped.categoryUrl ?? '(none)' })
 
+        logger?.info('Product scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.length }, { event: true, labels: ['scraping'] })
+
         return {
           gtin: scraped.gtin ?? undefined,
           name: scraped.name,
@@ -794,6 +803,7 @@ export const muellerDriver: SourceDriver = {
       }
     } catch (error) {
       log.error('Error scraping product', { url: sourceUrl, error: String(error) })
+      logger?.error('Scrape failed: exception', { url: sourceUrl, source: 'mueller', error: String(error) }, { event: true, labels: ['scraping'] })
       return null
     }
   },

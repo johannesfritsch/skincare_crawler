@@ -186,10 +186,14 @@ export async function persistCrawlResult(
 
   // Create source-variants for sibling variants found in scraped data.
   // Each driver provides the full variant URL as option.value — persist just stores it.
+  let newVariants = 0
+  let existingVariants = 0
+  let totalVariants = 0
   for (const variantGroup of data.variants) {
     for (const option of variantGroup.options) {
       if (option.isSelected) continue // This is the variant we already have
       if (!option.value) continue // No URL available — can't create a variant without one
+      totalVariants++
 
       const siblingUrl = normalizeVariantUrl(option.value)
 
@@ -212,13 +216,20 @@ export async function persistCrawlResult(
               variantDimension: variantGroup.dimension || undefined,
             },
           })
+          newVariants++
           log.debug('persistCrawlResult: created sibling variant', { url: siblingUrl, gtin: option.gtin ?? 'none', label: option.label })
         } catch (e) {
           // Unique constraint race — safe to ignore
+          existingVariants++
           log.debug('persistCrawlResult: skipped sibling variant', { url: siblingUrl, error: e instanceof Error ? e.message : String(e) })
         }
+      } else {
+        existingVariants++
       }
     }
+  }
+  if (totalVariants > 0) {
+    jlog.info('Variants processed', { url: variantUrl, newVariants, existingVariants, totalVariants }, { event: true, labels: ['scraping', 'variants'] })
   }
 
   // For Mueller: if the crawled variant is the base URL (no ?itemId=) and ?itemId= sibling

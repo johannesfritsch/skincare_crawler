@@ -312,7 +312,7 @@ export const purishDriver: SourceDriver = {
   },
 
   async discoverProducts(options: ProductDiscoveryOptions): Promise<ProductDiscoveryResult> {
-    const { url, onProduct, onProgress, delay = 2000 } = options
+    const { url, onProduct, onProgress, delay = 2000, logger } = options
     const maxPages = options.maxPages ?? 100
     let pagesUsed = 0
 
@@ -342,6 +342,7 @@ export const purishDriver: SourceDriver = {
 
       const data = await res.json() as { products: ShopifyProduct[] }
       pagesUsed++
+      logger?.info('Discovery page scraped', { source: 'purish', page: progress.currentPage, products: data.products?.length ?? 0 }, { event: true, labels: ['discovery'] })
 
       if (!data.products || data.products.length === 0) {
         // Done with this collection
@@ -385,7 +386,7 @@ export const purishDriver: SourceDriver = {
   },
 
   async searchProducts(options: ProductSearchOptions): Promise<ProductSearchResult> {
-    const { query, maxResults = 50 } = options
+    const { query, maxResults = 50, logger } = options
     const products: DiscoveredProduct[] = []
 
     // Use the full search page instead of the suggest API — the suggest API
@@ -427,10 +428,17 @@ export const purishDriver: SourceDriver = {
       await jitteredDelay(1000)
     }
 
+    logger?.info('Search complete', { source: 'purish', query, results: products.length }, { event: true, labels: ['search'] })
     return { products }
   },
 
-  async scrapeProduct(sourceUrl: string): Promise<ScrapedProductData | null> {
+  async scrapeProduct(
+    sourceUrl: string,
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
+  ): Promise<ScrapedProductData | null> {
+    const logger = options?.logger
+    logger?.info('Scraping product', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
+
     // Extract handle from URL
     const parsed = new URL(sourceUrl)
     const pathParts = parsed.pathname.split('/').filter(Boolean)
@@ -444,6 +452,7 @@ export const purishDriver: SourceDriver = {
     }
     if (!handle) {
       log.warn('Could not extract handle from URL', { url: sourceUrl })
+      logger?.warn('Scrape failed: no handle in URL', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
       return null
     }
 
@@ -453,6 +462,7 @@ export const purishDriver: SourceDriver = {
     const res = await stealthFetch(apiUrl)
     if (!res.ok) {
       log.warn('Failed to fetch product', { url: apiUrl, status: res.status })
+      logger?.warn('Scrape failed: API error', { url: sourceUrl, source: 'purish', status: res.status }, { event: true, labels: ['scraping'] })
       return null
     }
 
@@ -460,6 +470,7 @@ export const purishDriver: SourceDriver = {
     const product = data.product
     if (!product) {
       log.warn('No product in response', { handle })
+      logger?.warn('Scrape failed: no product in response', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
       return null
     }
 
@@ -537,6 +548,8 @@ export const purishDriver: SourceDriver = {
     const categoryBreadcrumbs = product.product_type ? [product.product_type] : undefined
 
     const canonicalUrl = productUrl(handle)
+
+    logger?.info('Product scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length }, { event: true, labels: ['scraping'] })
 
     return {
       gtin,
