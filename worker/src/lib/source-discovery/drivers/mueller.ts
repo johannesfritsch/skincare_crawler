@@ -1,10 +1,52 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../types'
+import type { Page } from 'playwright-core'
 import { launchBrowser } from '@/lib/browser'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
-import { createLogger } from '@/lib/logger'
+import { createLogger, type Logger } from '@/lib/logger'
 
 const log = createLogger('Mueller')
+
+/** Max time (ms) to wait for bot verification to clear */
+const BOT_CHECK_TIMEOUT = 30_000
+/** How often (ms) to poll the page during bot check */
+const BOT_CHECK_POLL_INTERVAL = 1_000
+
+/**
+ * Wait for Mueller's bot verification screen ("Verifying that you're not a bot...")
+ * to clear. Polls the page body text until the message disappears or the timeout
+ * is reached. Emits events when a bot check is detected and when it resolves.
+ *
+ * @returns true if the page is ready, false if the bot check timed out
+ */
+async function waitForBotCheck(page: Page, logger?: Logger): Promise<boolean> {
+  const isBotCheck = async () => {
+    const text = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')
+    return text.includes('Verifying that you') || text.includes('not a bot')
+  }
+
+  if (!await isBotCheck()) return true
+
+  const url = page.url()
+  log.warn('Bot check detected, waiting for verification', { url })
+  logger?.warn('Bot check detected', { url, source: 'mueller', timeoutMs: BOT_CHECK_TIMEOUT }, { event: true, labels: ['scraping', 'bot-check'] })
+
+  const start = Date.now()
+  while (Date.now() - start < BOT_CHECK_TIMEOUT) {
+    await sleep(BOT_CHECK_POLL_INTERVAL)
+    if (!await isBotCheck()) {
+      const elapsedMs = Date.now() - start
+      log.info('Bot check cleared', { url, elapsedMs })
+      logger?.info('Bot check cleared', { url, source: 'mueller', elapsedMs }, { event: true, labels: ['scraping', 'bot-check'] })
+      return true
+    }
+  }
+
+  const elapsedMs = Date.now() - start
+  log.error('Bot check timed out', { url, elapsedMs })
+  logger?.error('Bot check timed out', { url, source: 'mueller', elapsedMs }, { event: true, labels: ['scraping', 'bot-check'] })
+  return false
+}
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -171,6 +213,13 @@ export const muellerDriver: SourceDriver = {
             await page.goto(pagedUrl, { waitUntil: 'domcontentloaded' })
             await page.waitForSelector('[class*="product-tile"], [class*="category-navigation"]', { timeout: 15000 }).catch(() => {})
             await sleep(jitteredDelay(delay))
+            if (!await waitForBotCheck(page, logger)) {
+              log.warn('Bot check timeout on page, skipping', { url: pagedUrl })
+              onError?.(pagedUrl)
+              pagesUsed++
+              await saveProgress()
+              continue
+            }
             pagesUsed++
 
             const products = await scrapeProductTiles()
@@ -206,6 +255,13 @@ export const muellerDriver: SourceDriver = {
           await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
           await page.waitForSelector('[class*="product-tile"], [class*="category-navigation"]', { timeout: 15000 }).catch(() => {})
           await sleep(jitteredDelay(delay))
+          if (!await waitForBotCheck(page, logger)) {
+            log.warn('Bot check timeout on category page, skipping', { url: canonicalUrl })
+            onError?.(canonicalUrl)
+            pagesUsed++
+            await saveProgress()
+            continue
+          }
           pagesUsed++
 
           const isLeaf = await page.$('[class*="category-navigation__option--selected"]') !== null
@@ -255,6 +311,13 @@ export const muellerDriver: SourceDriver = {
                 await page.goto(pagedUrl, { waitUntil: 'domcontentloaded' })
                 await page.waitForSelector('[class*="product-tile"]', { timeout: 15000 }).catch(() => {})
                 await sleep(jitteredDelay(delay))
+                if (!await waitForBotCheck(page, logger)) {
+                  log.warn('Bot check timeout on page, skipping', { url: pagedUrl })
+                  onError?.(pagedUrl)
+                  pagesUsed++
+                  await saveProgress()
+                  continue
+                }
                 pagesUsed++
 
                 const pageProducts = await scrapeProductTiles()
@@ -328,6 +391,11 @@ export const muellerDriver: SourceDriver = {
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded' })
       await page.waitForSelector('a[data-track-id="product"], [class*="search-no-results"]', { timeout: 15000 }).catch(() => {})
       await sleep(randomDelay(1000, 2000))
+      if (!await waitForBotCheck(page, logger)) {
+        log.error('Bot check timeout on search page', { query })
+        logger?.error('Bot check timed out on search', { source: 'mueller', query }, { event: true, labels: ['search', 'bot-check'] })
+        return { products: [] }
+      }
 
       // Get the last page number from pagination links (1-based)
       function getLastPage() {
@@ -415,6 +483,10 @@ export const muellerDriver: SourceDriver = {
         await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('a[data-track-id="product"]', { timeout: 15000 }).catch(() => {})
         await sleep(randomDelay(1000, 2000))
+        if (!await waitForBotCheck(page, logger)) {
+          log.warn('Bot check timeout on search page, stopping', { page: currentPage })
+          break
+        }
       }
 
       if (debug) {
@@ -446,6 +518,10 @@ export const muellerDriver: SourceDriver = {
         await page.goto(sourceUrl, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('h1, [class*="product-info"]', { timeout: 15000 }).catch(() => {})
         await sleep(randomDelay(1000, 2000))
+        if (!await waitForBotCheck(page, logger)) {
+          logger?.error('Scrape failed: bot check timed out', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping', 'bot-check'] })
+          return null
+        }
 
         if (debug) {
           log.info('Debug mode: browser kept open. Press Ctrl+C to continue.', { url: sourceUrl })
