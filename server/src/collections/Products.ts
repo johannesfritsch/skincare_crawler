@@ -21,6 +21,47 @@ export const Products: CollectionConfig = {
   },
   fields: [
     {
+      name: 'publishedAt',
+      type: 'date',
+      label: 'Published At',
+      admin: {
+        position: 'sidebar',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
+      name: 'lastAggregatedAt',
+      type: 'date',
+      label: 'Last Aggregated At',
+      admin: {
+        position: 'sidebar',
+        description: 'When data sources were last aggregated into name, brand, and description',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
+      name: 'brand',
+      type: 'relationship',
+      relationTo: 'brands',
+      label: 'Brand',
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'productType',
+      type: 'relationship',
+      relationTo: 'product-types',
+      label: 'Product Type',
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
       name: 'aggregateStatus',
       type: 'ui',
       admin: {
@@ -52,34 +93,12 @@ export const Products: CollectionConfig = {
               label: 'Description',
             },
             {
-              name: 'brand',
-              type: 'relationship',
-              relationTo: 'brands',
-              label: 'Brand',
-            },
-            {
-              name: 'productType',
-              type: 'relationship',
-              relationTo: 'product-types',
-              label: 'Product Type',
-            },
-            {
               name: 'image',
               type: 'upload',
               relationTo: 'media',
               label: 'Product Image',
               admin: {
                 description: 'Primary product image (aggregated from source products)',
-              },
-            },
-            {
-              name: 'publishedAt',
-              type: 'date',
-              label: 'Published At',
-              admin: {
-                date: {
-                  pickerAppearance: 'dayAndTime',
-                },
               },
             },
           ],
@@ -465,17 +484,6 @@ export const Products: CollectionConfig = {
         {
           label: 'Sources',
           fields: [
-            {
-              name: 'lastAggregatedAt',
-              type: 'date',
-              label: 'Last Aggregated At',
-              admin: {
-                description: 'When data sources were last aggregated into name, brand, and description',
-                date: {
-                  pickerAppearance: 'dayAndTime',
-                },
-              },
-            },
             {
               name: 'sourceProducts',
               type: 'relationship',
