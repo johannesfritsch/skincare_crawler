@@ -10,10 +10,13 @@ type JobResult = { success: boolean; jobId?: number; error?: string }
 
 const JOB_COLLECTIONS = [
   'product-crawls',
+  'product-discoveries',
+  'product-searches',
   'product-aggregations',
   'video-discoveries',
   'video-processings',
   'ingredient-crawls',
+  'ingredients-discoveries',
 ] as const
 
 type JobCollection = (typeof JOB_COLLECTIONS)[number]
@@ -43,6 +46,7 @@ export type JobEvent = {
   level: string
   message: string
   createdAt: string
+  data?: Record<string, string | number | boolean> | null
 }
 
 export async function getJobEvents(
@@ -73,6 +77,7 @@ export async function getJobEvents(
     level: e.level as string,
     message: e.message,
     createdAt: e.createdAt,
+    data: (e.data as Record<string, string | number | boolean> | null) ?? null,
   }))
 }
 

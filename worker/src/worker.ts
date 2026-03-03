@@ -143,6 +143,10 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
 
   log.info('Product crawl job', { jobId, items: workItems.length })
 
+  // Determine source slug from first work item
+  const crawlSource = workItems.length > 0 ? workItems[0].source : 'unknown'
+  jlog.info('Job started', { source: crawlSource, items: workItems.length, crawlVariants }, { event: 'start', labels: ['scraping'] })
+
   if (workItems.length === 0) {
     log.warn('No work items, releasing claim', { jobId })
     await client.update({ collection: 'product-crawls', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
@@ -199,6 +203,7 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
   const debug = work.debug as boolean
 
   log.info('Product discovery job', { jobId, urlCount: sourceUrls.length, currentUrlIndex })
+  jlog.info('Job started', { urlCount: sourceUrls.length, currentUrlIndex, maxPages: maxPages ?? 0 }, { event: 'start', labels: ['discovery'] })
 
   const discoveredProducts: DiscoveredProduct[] = []
   let totalPagesUsed = 0
@@ -274,6 +279,7 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
   const debug = (work.debug as boolean) ?? false
 
   log.info('Product search job', { jobId, query, sources: sources.join(', '), maxResults })
+  jlog.info('Job started', { query, sources: sources.join(','), maxResults }, { event: 'start', labels: ['search'] })
 
   const allProducts: Array<{ product: DiscoveredProduct; source: string }> = []
 
@@ -317,6 +323,8 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
   const pagesPerTick = work.pagesPerTick as number | undefined
 
   log.info('Ingredients discovery job', { jobId })
+  const jlog = log.forJob('ingredients-discoveries', jobId)
+  jlog.info('Job started', { currentTerm: currentTerm ?? 'none', queueLength: termQueue.length }, { event: 'start', labels: ['discovery'] })
 
   const driver = getIngredientsDriver(sourceUrl)
   if (!driver) {
@@ -392,6 +400,8 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const maxVideos = work.maxVideos as number | undefined
 
   log.info('Video discovery job', { jobId, channelUrl, currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited' })
+  const jlog = log.forJob('video-discoveries', jobId)
+  jlog.info('Job started', { currentOffset, batchSize, maxVideos: maxVideos ?? 0 }, { event: 'start', labels: ['discovery'] })
 
   const driver = getVideoDriver(channelUrl)
   if (!driver) {
@@ -456,6 +466,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
   const transcriptionModel = (work.transcriptionModel as string) ?? 'nova-3'
 
   log.info('Video processing job', { jobId, videos: videos.length, transcription: transcriptionEnabled ? `${transcriptionLanguage}/${transcriptionModel}` : 'disabled' })
+  jlog.info('Job started', { videos: videos.length, transcriptionEnabled, transcriptionLanguage, transcriptionModel }, { event: 'start', labels: ['video'] })
 
   const results: Array<Record<string, unknown>> = []
 
@@ -1013,6 +1024,8 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   }>
 
   log.info('Product aggregation job', { jobId, items: workItems.length, type: aggregationType, scope })
+  const jlog = log.forJob('product-aggregations', jobId)
+  jlog.info('Job started', { items: workItems.length, type: aggregationType, scope, language }, { event: 'start', labels: ['aggregation'] })
 
   if (workItems.length === 0) {
     log.warn('No work items for aggregation job, releasing claim', { jobId })
@@ -1137,6 +1150,8 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
   }>
 
   log.info('Ingredient crawl job', { jobId, items: workItems.length, type: crawlType })
+  const jlog = log.forJob('ingredient-crawls', jobId)
+  jlog.info('Job started', { items: workItems.length, type: crawlType }, { event: 'start', labels: ['ingredients'] })
 
   if (workItems.length === 0) {
     log.warn('No work items for ingredient crawl, releasing claim', { jobId })

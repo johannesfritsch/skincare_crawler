@@ -157,7 +157,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann); for Mueller, deletes the base-URL variant (no `?itemId=`) when `?itemId=` variants are discovered (avoids duplicate entries); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record |
+| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann); for Mueller, deletes the base-URL variant (no `?itemId=`) when `?itemId=` variants are discovered (avoids duplicate entries); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, and variant processing. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
 | `persistDiscoveredProduct()` | Dedup by source-variant URL; creates `source-products` + source-variant together when new; updates existing parent source-product when variant URL already exists; creates `discovery-results` join record |
 
@@ -478,6 +478,55 @@ The `JobCollection` type covers all 8 job collections: `product-discoveries`, `p
 **Levels**: `debug` < `info` < `warn` < `error`.
 
 **Event types**: `start`, `success`, `info`, `warning`, `error`. Auto-derived from log level, or set explicitly.
+
+### Event coverage — product crawl/discovery/search
+
+All events below are emitted to the server's `events` collection (visible in admin UI).
+
+**Job lifecycle events** (from `worker.ts` handlers):
+
+| Event | When | Key data fields | Labels |
+|-------|------|----------------|--------|
+| `Job started` | Handler begins processing | `source`, `items`, `crawlVariants` (crawl); `urlCount`, `currentUrlIndex`, `maxPages` (discovery); `query`, `sources`, `maxResults` (search) | `scraping` / `discovery` / `search` |
+
+**Per-product driver events** (from source drivers):
+
+| Event | When | Key data fields | Labels |
+|-------|------|----------------|--------|
+| `Scraping product` | Before each scrape | `url`, `source` | `scraping` |
+| `Product scraped` | Successful scrape | `url`, `source`, `name`, `variants`, `durationMs`, `images`, `hasIngredients` | `scraping` |
+| `Scrape failed: *` | Various failures | `url`, `source`, `status`/`error` | `scraping` |
+| `Discovery page scraped` | Per pagination page | `source`, `page`, `products` | `discovery` |
+| `Search complete` | After search finishes | `source`, `query`, `results` | `search` |
+| `Bot check detected/cleared/timed out` | Mueller anti-bot | `url`, `source`, `elapsedMs`/`timeoutMs` | `scraping`, `bot-check` |
+
+**Persist-level events** (from `persist.ts`):
+
+| Event | When | Key data fields | Labels |
+|-------|------|----------------|--------|
+| `Variants processed` | Product has sibling variants | `url`, `newVariants`, `existingVariants`, `totalVariants` | `scraping`, `variants` |
+| `Price change detected` | Price drop or increase (≥5%) | `url`, `source`, `change` (drop/increase), `previousCents`, `currentCents` | `scraping`, `price` |
+| `Ingredients found` | Product has ingredients text | `url`, `source`, `chars` | `scraping`, `ingredients` |
+| Product warnings | Per warning from scraped data | warning text (no structured data) | — |
+
+**Batch/completion events** (from `submit.ts`):
+
+| Event | When | Key data fields | Labels |
+|-------|------|----------------|--------|
+| `Batch done` (crawl) | After each crawl batch | `source`, `crawled`, `errors`, `remaining`, `batchSize`, `batchSuccesses`, `batchErrors`, `errorRate`, `batchDurationMs`, `newVariants`, `existingVariants`, `withIngredients`, `priceChanges` | `scraping` |
+| `Completed` (crawl) | Crawl job done | `source`, `crawled`, `errors`, `durationMs` | `scraping` |
+| `Batch persisted` (discovery) | After each discovery batch | `source`, `discovered`, `created`, `existing`, `batchSize`, `batchPersisted`, `batchErrors`, `batchDurationMs`, `pagesUsed` | `discovery` |
+| `Completed` (discovery) | Discovery job done | `source`, `discovered`, `created`, `existing`, `durationMs` | `discovery` |
+| `Search results persisted` | After search batch | `sources`, `discovered`, `created`, `existing`, `persisted`, `batchDurationMs` | `search` |
+| `Completed` (search) | Search job done | `sources`, `discovered`, `created`, `existing`, `durationMs` | `search` |
+
+**Job failure/retry events** (from `job-failure.ts`):
+
+| Event | When | Key data fields | Labels |
+|-------|------|----------------|--------|
+| `Job error, will retry` | Transient failure, retrying | `retryCount`, `maxRetries`, `reason` | `job-retry` |
+| `Job failed` | Permanent failure | `reason` | `job-failure` |
+| `Job failed: max retries exceeded` | Retries exhausted | `retryCount`, `maxRetries`, `reason` | `job-failure`, `max-retries` |
 
 ## Key Patterns
 

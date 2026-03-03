@@ -103,7 +103,7 @@ export interface PersistCrawlResultInput {
 export async function persistCrawlResult(
   payload: PayloadRestClient,
   input: PersistCrawlResultInput,
-): Promise<{ productId: number; warnings: string[] }> {
+): Promise<{ productId: number; warnings: string[]; newVariants: number; existingVariants: number; hasIngredients: boolean; priceChange: string | null }> {
   const { crawlId, sourceVariantId, sourceProductId, source, data, crawlVariants } = input
   const variantUrl = normalizeVariantUrl(input.sourceUrl)
   const jlog = log.forJob('product-crawls', crawlId)
@@ -290,6 +290,28 @@ export async function persistCrawlResult(
     data: { crawl: crawlId, sourceProduct: sourceProductId },
   })
 
+  // Emit price change event
+  if (priceChange && priceChange !== 'stable') {
+    const prevAmount = existingHistory[0]?.amount ?? null
+    jlog.info('Price change detected', {
+      url: variantUrl,
+      source,
+      change: priceChange,
+      previousCents: prevAmount ?? 0,
+      currentCents: newAmount ?? 0,
+    }, { event: true, labels: ['scraping', 'price'] })
+  }
+
+  // Emit ingredient extraction signal
+  const hasIngredients = !!data.ingredientsText && data.ingredientsText.trim().length > 0
+  if (hasIngredients) {
+    jlog.info('Ingredients found', {
+      url: variantUrl,
+      source,
+      chars: data.ingredientsText!.trim().length,
+    }, { event: true, labels: ['scraping', 'ingredients'] })
+  }
+
   // Log warnings
   if (warnings.length > 0) {
     log.info('persistCrawlResult: source-product has warnings', { sourceProductId, warningCount: warnings.length })
@@ -298,7 +320,7 @@ export async function persistCrawlResult(
     jlog.warn(warning, { event: true })
   }
 
-  return { productId: sourceProductId, warnings }
+  return { productId: sourceProductId, warnings, newVariants, existingVariants, hasIngredients, priceChange }
 }
 
 export async function persistCrawlFailure(

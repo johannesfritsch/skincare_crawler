@@ -475,6 +475,7 @@ export const rossmannDriver: SourceDriver = {
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
+      const scrapeStartMs = Date.now()
       log.info('Scraping product', { url: sourceUrl })
       logger?.info('Scraping product', { url: sourceUrl, source: 'rossmann' }, { event: true, labels: ['scraping'] })
 
@@ -694,7 +695,8 @@ export const rossmannDriver: SourceDriver = {
 
         const warnings: string[] = []
 
-        logger?.info('Product scraped', { url: sourceUrl, source: 'rossmann', name: scraped.name, variants: scraped.variants.length }, { event: true, labels: ['scraping'] })
+        const scrapeDurationMs = Date.now() - scrapeStartMs
+        logger?.info('Product scraped', { url: sourceUrl, source: 'rossmann', name: scraped.name, variants: scraped.variants.length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
 
         return {
           gtin: gtin ?? undefined,

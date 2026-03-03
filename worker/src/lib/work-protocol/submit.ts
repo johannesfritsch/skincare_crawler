@@ -307,16 +307,26 @@ export async function submitWork(
 async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProductCrawlBody) {
   const { jobId, results, crawlVariants } = body
   const jlog = log.forJob('product-crawls', jobId)
+  const batchStartMs = Date.now()
   log.info('Product crawl batch received', { jobId, results: results.length })
 
   const job = await payload.findByID({ collection: 'product-crawls', id: jobId }) as Record<string, unknown>
   let crawled = (job.crawled as number) ?? 0
   let errors = (job.errors as number) ?? 0
 
+  // Determine source slug from job or first result
+  const source = job.source === 'all' ? (results[0]?.source ?? 'unknown') : (job.source as string)
+
+  // Track batch-level variant & data quality counters
+  let batchNewVariants = 0
+  let batchExistingVariants = 0
+  let batchWithIngredients = 0
+  let batchPriceChanges = 0
+
   for (const result of results) {
     if (result.data) {
       try {
-        await persistCrawlResult(payload, {
+        const persistResult = await persistCrawlResult(payload, {
           crawlId: jobId,
           sourceVariantId: result.sourceVariantId,
           sourceProductId: result.sourceProductId,
@@ -326,6 +336,10 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
           crawlVariants,
         })
         crawled++
+        batchNewVariants += persistResult.newVariants
+        batchExistingVariants += persistResult.existingVariants
+        if (persistResult.hasIngredients) batchWithIngredients++
+        if (persistResult.priceChange && persistResult.priceChange !== 'stable') batchPriceChanges++
         log.info('Product crawl persisted', { jobId, sourceUrl: result.sourceUrl })
       } catch (e) {
         log.error('Product crawl persist error', { jobId, sourceUrl: result.sourceUrl, error: e instanceof Error ? e.message : String(e) })
@@ -386,6 +400,11 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   // Count how many items in this batch were errors
   const batchErrors = results.filter((r) => !r.data || r.error).length
 
+  const batchDurationMs = Date.now() - batchStartMs
+  const batchSize = results.length
+  const batchSuccesses = batchSize - batchErrors
+  const errorRate = batchSize > 0 ? Math.round((batchErrors / batchSize) * 100) : 0
+
   if (totalRemaining === 0) {
     // If the entire batch was errors, retry instead of completing
     if (batchErrors === results.length && results.length > 0) {
@@ -393,6 +412,10 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       await retryOrFail(payload, 'product-crawls', jobId, `Batch of ${batchErrors} items all failed`)
       return { crawled, errors, remaining: totalRemaining }
     }
+
+    // Compute job duration from startedAt or claimedAt
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
 
     log.info('Product crawl completing', { jobId, crawled, errors })
     await payload.update({
@@ -405,7 +428,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { crawled, errors }, { event: 'success' })
+    jlog.info('Completed', { source, crawled, errors, durationMs: jobDurationMs }, { event: 'success', labels: ['scraping'] })
   } else {
     log.info('Product crawl batch done', { jobId, remaining: totalRemaining, crawled, errors })
     await payload.update({
@@ -413,7 +436,21 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       id: jobId,
       data: { crawled, errors, claimedBy: null, claimedAt: null },
     })
-    jlog.info('Batch done', { crawled, errors, remaining: totalRemaining }, { event: true })
+    jlog.info('Batch done', {
+      source,
+      crawled,
+      errors,
+      remaining: totalRemaining,
+      batchSize,
+      batchSuccesses,
+      batchErrors,
+      errorRate,
+      batchDurationMs,
+      newVariants: batchNewVariants,
+      existingVariants: batchExistingVariants,
+      withIngredients: batchWithIngredients,
+      priceChanges: batchPriceChanges,
+    }, { event: true, labels: ['scraping'] })
   }
 
   return { crawled, errors, remaining: totalRemaining }
@@ -422,6 +459,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
 async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitProductDiscoveryBody) {
   const { jobId, products, currentUrlIndex, driverProgress, done } = body
   const jlog = log.forJob('product-discoveries', jobId)
+  const batchStartMs = Date.now()
   log.info('Product discovery batch received', { jobId, products: products.length, done })
 
   const job = await payload.findByID({ collection: 'product-discoveries', id: jobId }) as Record<string, unknown>
@@ -470,8 +508,20 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
     }
   }
 
+  const batchDurationMs = Date.now() - batchStartMs
+  const batchErrors = products.length - batchPersisted
   log.info('Product discovery progress', { jobId, discovered, created, existing, done })
-  jlog.info('Batch persisted', { discovered, created, existing, batchSize: products.length }, { event: true })
+  jlog.info('Batch persisted', {
+    source: source ?? 'unknown',
+    discovered,
+    created,
+    existing,
+    batchSize: products.length,
+    batchPersisted,
+    batchErrors,
+    batchDurationMs,
+    pagesUsed: body.pagesUsed,
+  }, { event: true, labels: ['discovery'] })
 
   if (done && batchPersisted === 0 && products.length > 0) {
     log.warn('Product discovery batch had zero successful persists, retrying or failing', { jobId, products: products.length })
@@ -480,6 +530,9 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   }
 
   if (done) {
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+
     await payload.update({
       collection: 'product-discoveries',
       id: jobId,
@@ -493,7 +546,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { discovered, created, existing }, { event: 'success' })
+    jlog.info('Completed', { source: source ?? 'unknown', discovered, created, existing, durationMs: jobDurationMs }, { event: 'success', labels: ['discovery'] })
   } else {
     await payload.update({
       collection: 'product-discoveries',
@@ -518,6 +571,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
 async function submitProductSearch(payload: PayloadRestClient, body: SubmitProductSearchBody) {
   const { jobId, products } = body
   const jlog = log.forJob('product-searches', jobId)
+  const batchStartMs = Date.now()
   log.info('Product search batch received', { jobId, products: products.length })
 
   let created = 0
@@ -556,8 +610,10 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
     }
   }
 
+  const batchDurationMs = Date.now() - batchStartMs
+  const sources = [...new Set(products.map(p => p.source))].join(',')
   log.info('Product search progress', { jobId, discovered, created, existing })
-  jlog.info('Search results persisted', { discovered, created, existing }, { event: true })
+  jlog.info('Search results persisted', { sources, discovered, created, existing, persisted, batchDurationMs }, { event: true, labels: ['search'] })
 
   // One-shot job: if zero results persisted successfully, retry or fail
   if (persisted === 0 && products.length > 0) {
@@ -579,7 +635,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
       claimedAt: null,
     },
   })
-  jlog.info('Completed', { discovered, created, existing }, { event: 'success' })
+  jlog.info('Completed', { sources, discovered, created, existing, durationMs: batchDurationMs }, { event: 'success', labels: ['search'] })
 
   return { discovered, created, existing }
 }
@@ -587,6 +643,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
 async function submitIngredientsDiscovery(payload: PayloadRestClient, body: SubmitIngredientsDiscoveryBody) {
   const { jobId, ingredients, currentTerm, currentPage, totalPagesForTerm, termQueue, done } = body
   const jlog = log.forJob('ingredients-discoveries', jobId)
+  const batchStartMs = Date.now()
   log.info('Ingredients discovery batch received', { jobId, ingredients: ingredients.length, done })
 
   const job = await payload.findByID({ collection: 'ingredients-discoveries', id: jobId }) as Record<string, unknown>
@@ -612,8 +669,9 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
     }
   }
 
+  const batchDurationMs = Date.now() - batchStartMs
   log.info('Ingredients discovery progress', { jobId, created, existing, errors, done })
-  jlog.info('Batch persisted', { discovered, created, existing, errors, batchSize: ingredients.length }, { event: true })
+  jlog.info('Batch persisted', { discovered, created, existing, errors, batchSize: ingredients.length, batchDurationMs }, { event: true, labels: ['discovery'] })
 
   if (done && batchPersisted === 0 && ingredients.length > 0) {
     log.warn('Ingredients discovery batch had zero successful persists, retrying or failing', { jobId, ingredients: ingredients.length })
@@ -638,7 +696,9 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { discovered, created, existing, errors }, { event: 'success' })
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+    jlog.info('Completed', { discovered, created, existing, errors, durationMs: jobDurationMs }, { event: 'success', labels: ['discovery'] })
   } else {
     await payload.update({
       collection: 'ingredients-discoveries',
@@ -666,6 +726,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
 async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVideoDiscoveryBody) {
   const { jobId, channelUrl, videos, reachedEnd, nextOffset, maxVideos } = body
   const jlog = log.forJob('video-discoveries', jobId)
+  const batchStartMs = Date.now()
   log.info('Video discovery batch received', { jobId, videos: videos.length, reachedEnd, nextOffset })
 
   const job = await payload.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
@@ -682,8 +743,9 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
   const hitMaxVideos = maxVideos !== undefined && nextOffset >= maxVideos
   const allDone = reachedEnd || hitMaxVideos
 
+  const batchDurationMs = Date.now() - batchStartMs
   log.info('Video discovery progress', { jobId, batchCreated: result.created, batchExisting: result.existing, totalCreated, totalExisting, totalDiscovered, done: allDone })
-  jlog.info('Batch persisted', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting, batchSize: videos.length }, { event: true })
+  jlog.info('Batch persisted', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting, batchSize: videos.length, batchDurationMs }, { event: true, labels: ['discovery'] })
 
   if (allDone && batchPersisted === 0 && videos.length > 0) {
     log.warn('Video discovery batch had zero successful persists, retrying or failing', { jobId, videos: videos.length })
@@ -704,7 +766,9 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting }, { event: 'success' })
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+    jlog.info('Completed', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting, durationMs: jobDurationMs }, { event: 'success', labels: ['discovery'] })
   } else {
     await payload.update({
       collection: 'video-discoveries',
@@ -726,6 +790,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
 async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVideoProcessingBody) {
   const { jobId, results } = body
   const jlog = log.forJob('video-processings', jobId)
+  const batchStartMs = Date.now()
   log.info('Video processing batch received', { jobId, videos: results.length })
 
   const job = await payload.findByID({ collection: 'video-processings', id: jobId }) as Record<string, unknown>
@@ -773,6 +838,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
   // Check if all done
   const total = (job.total as number) ?? 0
   const allDone = processed + errors >= total
+  const batchDurationMs = Date.now() - batchStartMs
   log.info('Video processing progress', { jobId, processed, errors, tokensUsed, done: allDone, completed: processed + errors, total })
 
   if (allDone && processed === 0) {
@@ -796,13 +862,16 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { processed, errors, tokensUsed }, { event: 'success' })
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+    jlog.info('Completed', { processed, errors, tokensUsed, durationMs: jobDurationMs }, { event: 'success', labels: ['video'] })
   } else {
     await payload.update({
       collection: 'video-processings',
       id: jobId,
       data: { processed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment, claimedBy: null, claimedAt: null },
     })
+    jlog.info('Batch done', { processed, errors, batchSize: results.length, batchDurationMs }, { event: true, labels: ['video'] })
   }
 
   return { processed, errors, tokensUsed, done: allDone }
@@ -811,6 +880,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
 async function submitProductAggregation(payload: PayloadRestClient, body: SubmitProductAggregationBody) {
   const { jobId, lastCheckedSourceId, aggregationType, scope, results } = body
   const jlog = log.forJob('product-aggregations', jobId)
+  const batchStartMs = Date.now()
   log.info('Product aggregation batch received', { jobId, results: results.length, aggregationType, scope })
 
   const job = await payload.findByID({ collection: 'product-aggregations', id: jobId }) as Record<string, unknown>
@@ -889,6 +959,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     aggregationType === 'selected_gtins' ||
     (aggregationType === 'all' && results.length === 0)
 
+  const batchDurationMs = Date.now() - batchStartMs
   log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: shouldComplete })
 
   if (shouldComplete && batchSuccesses === 0 && results.length > 0) {
@@ -909,7 +980,9 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { aggregated, errors, tokensUsed }, { event: 'success' })
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+    jlog.info('Completed', { aggregated, errors, tokensUsed, durationMs: jobDurationMs }, { event: 'success', labels: ['aggregation'] })
   } else {
     await payload.update({
       collection: 'product-aggregations',
@@ -923,7 +996,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
       },
     })
-    jlog.info('Batch done', { aggregated, errors }, { event: true })
+    jlog.info('Batch done', { aggregated, errors, batchSize: results.length, batchDurationMs }, { event: true, labels: ['aggregation'] })
   }
 
   return { aggregated, errors, tokensUsed, done: shouldComplete }
@@ -934,6 +1007,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
 async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIngredientCrawlBody) {
   const { jobId, lastCheckedIngredientId, crawlType, results } = body
   const jlog = log.forJob('ingredient-crawls', jobId)
+  const batchStartMs = Date.now()
   log.info('Ingredient crawl batch received', { jobId, results: results.length, crawlType })
 
   const job = await payload.findByID({ collection: 'ingredient-crawls', id: jobId }) as Record<string, unknown>
@@ -1003,8 +1077,11 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Completed', { crawled, errors, tokensUsed }, { event: 'success' })
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+    jlog.info('Completed', { crawled, errors, tokensUsed, durationMs: jobDurationMs }, { event: 'success', labels: ['ingredients'] })
   } else {
+    const batchDurationMs = Date.now() - batchStartMs
     await payload.update({
       collection: 'ingredient-crawls',
       id: jobId,
@@ -1018,7 +1095,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         ...(crawlType === 'all_uncrawled' ? { lastCheckedIngredientId } : {}),
       },
     })
-    jlog.info('Batch done', { crawled, errors }, { event: true })
+    jlog.info('Batch done', { crawled, errors, batchSize: results.length, batchDurationMs }, { event: true, labels: ['ingredients'] })
   }
 
   return { crawled, errors, tokensUsed, done: shouldComplete }

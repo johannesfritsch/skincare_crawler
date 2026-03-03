@@ -437,6 +437,7 @@ export const purishDriver: SourceDriver = {
     options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
+    const scrapeStartMs = Date.now()
     logger?.info('Scraping product', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
 
     // Extract handle from URL
@@ -549,7 +550,8 @@ export const purishDriver: SourceDriver = {
 
     const canonicalUrl = productUrl(handle)
 
-    logger?.info('Product scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length }, { event: true, labels: ['scraping'] })
+    const scrapeDurationMs = Date.now() - scrapeStartMs
+    logger?.info('Product scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
 
     return {
       gtin,

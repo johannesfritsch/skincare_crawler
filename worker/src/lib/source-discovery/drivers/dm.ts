@@ -545,6 +545,7 @@ export const dmDriver: SourceDriver = {
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
+      const scrapeStartMs = Date.now()
       const warnings: string[] = []
       logger?.info('Scraping product', { url: sourceUrl, source: 'dm' }, { event: true, labels: ['scraping'] })
 
@@ -632,7 +633,8 @@ export const dmDriver: SourceDriver = {
         ? data.breadcrumbs
         : undefined
 
-      logger?.info('Product scraped', { url: sourceUrl, source: 'dm', name, variants: variants.length }, { event: true, labels: ['scraping'] })
+      const scrapeDurationMs = Date.now() - scrapeStartMs
+      logger?.info('Product scraped', { url: sourceUrl, source: 'dm', name, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
 
       return {
         gtin: String(data.gtin),

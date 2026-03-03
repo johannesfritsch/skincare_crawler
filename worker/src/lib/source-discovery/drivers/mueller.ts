@@ -508,6 +508,7 @@ export const muellerDriver: SourceDriver = {
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
+      const scrapeStartMs = Date.now()
       log.info('Scraping product', { url: sourceUrl })
       logger?.info('Scraping product', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping'] })
 
@@ -850,7 +851,8 @@ export const muellerDriver: SourceDriver = {
 
         log.debug('Category info', { url: sourceUrl, breadcrumbs: scraped.categoryBreadcrumbs ? scraped.categoryBreadcrumbs.join(' -> ') : '(none)', categoryUrl: scraped.categoryUrl ?? '(none)' })
 
-        logger?.info('Product scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.length }, { event: true, labels: ['scraping'] })
+        const scrapeDurationMs = Date.now() - scrapeStartMs
+        logger?.info('Product scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
 
         return {
           gtin: scraped.gtin ?? undefined,
