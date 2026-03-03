@@ -1,5 +1,11 @@
 # AnySkin Crawler — Architecture Guide
 
+## Git Policy
+
+**Do not commit or push changes unless explicitly asked.** Never run `git commit`, `git push`, or any destructive git commands on your own. Wait for the user to request commits and pushes.
+
+---
+
 Monorepo for crawling, processing, and aggregating beauty/skincare product data from retailers and video content from social platforms.
 
 **Currently supported stores**: DM, Rossmann, Mueller (3 German drugstores), PURISH (online beauty retailer). The architecture is designed to scale to **10-15 stores** total — new stores are added by implementing a new source driver in `worker/src/lib/source-discovery/drivers/`. When adding a store, keep this in mind: all store-specific logic must live in the driver; shared code (persist, aggregation, matching) must remain store-agnostic. Avoid hardcoding store slugs in shared paths — use the driver registry pattern (`getSourceDriver`/`getSourceDriverBySlug`) and the `source` field on source-products. The `source` select field on collections and the `SourceSlug` type will need new options for each store.
