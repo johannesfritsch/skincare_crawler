@@ -149,6 +149,41 @@ async function fetchCategoryId(link: string): Promise<string | null> {
   }
 }
 
+// DM availability API response shape
+// GET https://products.dm.de/availability/api/v1/tiles/DE/{dan1},{dan2},...
+// Returns an object keyed by DAN string
+interface DmAvailabilityEntry {
+  isPurchasable: boolean
+  rows?: Array<{ icon: string; text: string }>
+}
+
+type DmAvailabilityResponse = Record<string, DmAvailabilityEntry>
+
+const DM_AVAILABILITY_API = 'https://products.dm.de/availability/api/v1/tiles/DE'
+
+// Fetch availability for a batch of DANs. Returns a map from DAN → 'available' | 'unavailable'.
+// On failure, returns an empty map (availability stays 'unknown').
+async function fetchAvailability(dans: string[]): Promise<Map<string, 'available' | 'unavailable'>> {
+  const result = new Map<string, 'available' | 'unavailable'>()
+  if (dans.length === 0) return result
+
+  try {
+    const url = `${DM_AVAILABILITY_API}/${dans.join(',')}`
+    const res = await stealthFetch(url, { headers: DM_HEADERS })
+    if (!res.ok) {
+      log.info('Availability API returned error', { status: res.status, dans: dans.length })
+      return result
+    }
+    const data: DmAvailabilityResponse = await res.json()
+    for (const [dan, entry] of Object.entries(data)) {
+      result.set(dan, entry.isPurchasable ? 'available' : 'unavailable')
+    }
+  } catch (error) {
+    log.error('Error fetching availability', { dans: dans.length, error: String(error) })
+  }
+  return result
+}
+
 // DM-specific progress type for resumable discovery
 interface DmProductDiscoveryProgress {
   categoryLeaves: Array<{
@@ -613,18 +648,50 @@ export const dmDriver: SourceDriver = {
             alt: img.alt ?? undefined,
           })) ?? []
 
+      // Build variants and collect DANs for availability lookup
+      // danToVariantPath maps DAN → index path into variants array for later availability assignment
       const variants: ScrapedProductData['variants'] = []
+      const danToVariantPath: Array<{ dan: string; groupIdx: number; optIdx: number }> = []
+
       if (data.variants?.colors) {
         for (const group of data.variants.colors) {
-          const options = (group.options ?? []).map((opt) => ({
-            label: opt.label ?? opt.colorLabel ?? '',
-            value: opt.href ? normalizeProductUrl(`https://www.dm.de${opt.href}`) : null,
-            gtin: opt.gtin != null ? String(opt.gtin) : null,
-            isSelected: opt.isSelected ?? false,
-          }))
+          const groupIdx = variants.length
+          const options = (group.options ?? []).map((opt, optIdx) => {
+            if (opt.dan != null) {
+              danToVariantPath.push({ dan: String(opt.dan), groupIdx, optIdx })
+            }
+            return {
+              label: opt.label ?? opt.colorLabel ?? '',
+              value: opt.href ? normalizeProductUrl(`https://www.dm.de${opt.href}`) : null,
+              gtin: opt.gtin != null ? String(opt.gtin) : null,
+              isSelected: opt.isSelected ?? false,
+            }
+          })
           if (options.length > 0) {
             variants.push({ dimension: group.heading ?? 'Color', options })
           }
+        }
+      }
+
+      // Fetch availability for the product and all its variants
+      const allDans: string[] = []
+      const productDan = data.dan != null ? String(data.dan) : null
+      if (productDan) allDans.push(productDan)
+      for (const entry of danToVariantPath) {
+        if (!allDans.includes(entry.dan)) allDans.push(entry.dan)
+      }
+
+      const availabilityMap = await fetchAvailability(allDans)
+      log.info('Fetched availability', { dans: allDans.length, available: [...availabilityMap.values()].filter((v) => v === 'available').length })
+
+      // Set availability on the top-level product
+      const productAvailability = productDan ? (availabilityMap.get(productDan) ?? undefined) : undefined
+
+      // Set availability on each variant option
+      for (const entry of danToVariantPath) {
+        const avail = availabilityMap.get(entry.dan)
+        if (avail && variants[entry.groupIdx]?.options[entry.optIdx]) {
+          variants[entry.groupIdx].options[entry.optIdx].availability = avail
         }
       }
 
@@ -658,6 +725,7 @@ export const dmDriver: SourceDriver = {
         perUnitAmount: perUnit?.amount ?? undefined,
         perUnitQuantity: perUnit?.quantity ?? undefined,
         perUnitUnit: perUnit?.unit ?? undefined,
+        availability: productAvailability,
         warnings,
       }
     } catch (error) {
