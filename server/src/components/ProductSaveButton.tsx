@@ -20,6 +20,7 @@ export default function ProductSaveButton(props: SaveButtonClientProps) {
           runningLabel="Aggregating..."
           createJob={() => aggregateProduct(Number(id))}
           getStatus={(jobId) => getJobStatus('product-aggregations', jobId)}
+          jobCollection="product-aggregations"
           onCompleted={() => router.refresh()}
         />
       )}

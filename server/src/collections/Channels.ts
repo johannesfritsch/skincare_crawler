@@ -18,6 +18,15 @@ export const Channels: CollectionConfig = {
   },
   fields: [
     {
+      name: 'discoverStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/ChannelJobStatus',
+        },
+      },
+    },
+    {
       name: 'creator',
       type: 'relationship',
       relationTo: 'creators',

@@ -27,12 +27,12 @@ interface SharedJobState {
 
 const jobStates = new Map<string, SharedJobState>()
 
-function getState(key: string): SharedJobState {
+export function getJobState(key: string): SharedJobState {
   return jobStates.get(key) ?? { state: 'idle', error: null, events: [] }
 }
 
-function setState(key: string, update: Partial<SharedJobState>) {
-  const prev = getState(key)
+export function setJobState(key: string, update: Partial<SharedJobState>) {
+  const prev = getJobState(key)
   jobStates.set(key, { ...prev, ...update })
   listeners.get(key)?.forEach((l) => l())
 }
@@ -46,7 +46,7 @@ function subscribe(key: string, listener: Listener) {
 function useJobState(key: string): SharedJobState {
   const [, forceUpdate] = useState(0)
   useEffect(() => subscribe(key, () => forceUpdate((n) => n + 1)), [key])
-  return getState(key)
+  return getJobState(key)
 }
 
 // ---- Menu item: rendered inside listMenuItems (three-dot popup) ----
@@ -88,22 +88,22 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
         ])
 
         if (newEvents.length > 0) {
-          const prev = getState(jobCollection)
+          const prev = getJobState(jobCollection)
           lastEventDateRef.current = newEvents[newEvents.length - 1].createdAt
-          setState(jobCollection, { events: [...prev.events, ...newEvents] })
+          setJobState(jobCollection, { events: [...prev.events, ...newEvents] })
         }
 
         if (statusResult.status === 'completed') {
-          setState(jobCollection, { state: 'completed' })
+          setJobState(jobCollection, { state: 'completed' })
           stopPolling()
         } else if (statusResult.status === 'failed') {
-          setState(jobCollection, {
+          setJobState(jobCollection, {
             state: 'failed',
             error: `Failed (${statusResult.errors ?? 0} errors)`,
           })
           stopPolling()
         } else if (statusResult.status === 'in_progress') {
-          setState(jobCollection, { state: 'running' })
+          setJobState(jobCollection, { state: 'running' })
         }
       } catch {
         // ignore transient errors
@@ -124,20 +124,20 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
     }
     if (ids.length === 0) return
 
-    setState(jobCollection, { state: 'creating', error: null, events: [] })
+    setJobState(jobCollection, { state: 'creating', error: null, events: [] })
     jobIdRef.current = null
 
     try {
       const result = await createJob(ids)
       if (result.success && result.jobId) {
         jobIdRef.current = result.jobId
-        setState(jobCollection, { state: 'pending' })
+        setJobState(jobCollection, { state: 'pending' })
         startPolling()
       } else {
-        setState(jobCollection, { state: 'failed', error: result.error || 'Failed to create job' })
+        setJobState(jobCollection, { state: 'failed', error: result.error || 'Failed to create job' })
       }
     } catch (err) {
-      setState(jobCollection, {
+      setJobState(jobCollection, {
         state: 'failed',
         error: err instanceof Error ? err.message : 'Unknown error',
       })
@@ -170,16 +170,17 @@ export function BulkJobMenuItem({ label, createJob, jobCollection }: BulkJobMenu
   )
 }
 
-// ---- Status bar: rendered via beforeListTable ----
+// ---- JobStatusBar: shared display component for both list and detail views ----
 
-interface BulkJobStatusBarProps {
+interface JobStatusBarProps {
   runningLabel: string
   jobCollection: JobCollection
+  /** Additional action called on dismiss, before the default router.refresh() */
+  onDismiss?: () => void
 }
 
-export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusBarProps) {
+export function JobStatusBar({ runningLabel, jobCollection, onDismiss }: JobStatusBarProps) {
   const { state, error, events } = useJobState(jobCollection)
-  const { selectAll, toggleAll } = useSelection()
   const logRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
@@ -197,9 +198,9 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
   const isFailed = state === 'failed'
 
   const handleDismiss = () => {
-    if (selectAll !== 'none') toggleAll()
-    setState(jobCollection, { state: 'idle', error: null, events: [] })
-    if (isDone) router.refresh()
+    setJobState(jobCollection, { state: 'idle', error: null, events: [] })
+    onDismiss?.()
+    router.refresh()
   }
 
   // Completed and failed: log above + footer bar with action
@@ -261,7 +262,7 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
             type="button"
             onClick={handleDismiss}
           >
-            {isDone ? 'Reload list' : 'Dismiss'}
+            {isDone ? 'Reload' : 'Dismiss'}
           </Button>
         </div>
       </div>
@@ -320,6 +321,29 @@ export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusB
         </div>
       )}
     </div>
+  )
+}
+
+// ---- Status bar: rendered via beforeListTable (list view) ----
+
+interface BulkJobStatusBarProps {
+  runningLabel: string
+  jobCollection: JobCollection
+}
+
+export function BulkJobStatusBar({ runningLabel, jobCollection }: BulkJobStatusBarProps) {
+  const { selectAll, toggleAll } = useSelection()
+
+  const handleDismiss = useCallback(() => {
+    if (selectAll !== 'none') toggleAll()
+  }, [selectAll, toggleAll])
+
+  return (
+    <JobStatusBar
+      runningLabel={runningLabel}
+      jobCollection={jobCollection}
+      onDismiss={handleDismiss}  // clears selection; JobStatusBar also calls router.refresh()
+    />
   )
 }
 

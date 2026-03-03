@@ -30,6 +30,15 @@ export const Videos: CollectionConfig = {
       },
     },
     {
+      name: 'processStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/VideoJobStatus',
+        },
+      },
+    },
+    {
       name: 'channel',
       type: 'relationship',
       relationTo: 'channels',

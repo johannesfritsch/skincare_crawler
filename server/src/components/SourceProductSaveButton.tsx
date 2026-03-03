@@ -20,6 +20,7 @@ export default function SourceProductSaveButton(props: SaveButtonClientProps) {
           runningLabel="Crawling..."
           createJob={() => crawlSourceProduct(Number(id))}
           getStatus={(jobId) => getJobStatus('product-crawls', jobId)}
+          jobCollection="product-crawls"
           onCompleted={() => router.refresh()}
         />
       )}

@@ -20,6 +20,7 @@ export default function VideoSaveButton(props: SaveButtonClientProps) {
           runningLabel="Processing..."
           createJob={() => processVideo(Number(id))}
           getStatus={(jobId) => getJobStatus('video-processings', jobId)}
+          jobCollection="video-processings"
           onCompleted={() => router.refresh()}
         />
       )}

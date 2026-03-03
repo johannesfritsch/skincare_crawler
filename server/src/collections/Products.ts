@@ -21,6 +21,15 @@ export const Products: CollectionConfig = {
   },
   fields: [
     {
+      name: 'aggregateStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/ProductJobStatus',
+        },
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {

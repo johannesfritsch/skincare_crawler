@@ -20,6 +20,7 @@ export default function IngredientSaveButton(props: SaveButtonClientProps) {
           runningLabel="Crawling..."
           createJob={() => crawlIngredient(Number(id))}
           getStatus={(jobId) => getJobStatus('ingredient-crawls', jobId)}
+          jobCollection="ingredient-crawls"
           onCompleted={() => router.refresh()}
         />
       )}

@@ -20,6 +20,15 @@ export const Ingredients: CollectionConfig = {
   },
   fields: [
     {
+      name: 'crawlStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/IngredientJobStatus',
+        },
+      },
+    },
+    {
       name: 'name',
       type: 'text',
       label: 'Ingredient Name',

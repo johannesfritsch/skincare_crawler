@@ -69,6 +69,15 @@ export const SourceProducts: CollectionConfig = {
       },
     },
     {
+      name: 'crawlStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/SourceProductJobStatus',
+        },
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {

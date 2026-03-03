@@ -20,6 +20,7 @@ export default function ChannelSaveButton(props: SaveButtonClientProps) {
           runningLabel="Discovering..."
           createJob={() => discoverChannelVideos(Number(id))}
           getStatus={(jobId) => getJobStatus('video-discoveries', jobId)}
+          jobCollection="video-discoveries"
           onCompleted={() => router.refresh()}
         />
       )}
