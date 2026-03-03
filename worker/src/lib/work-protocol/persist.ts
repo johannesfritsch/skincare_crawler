@@ -181,7 +181,7 @@ export async function persistCrawlResult(
     id: sourceVariantId,
     data: {
       ...(data.gtin ? { gtin: data.gtin } : {}),
-      ...(data.availability ? { availability: data.availability } : {}),
+      availability: data.availability ?? 'available',
       ...(canonicalVariantUrl !== variantUrl ? { sourceUrl: canonicalVariantUrl } : {}),
       crawledAt: now,
     },
@@ -217,7 +217,7 @@ export async function persistCrawlResult(
               gtin: option.gtin || undefined,
               variantLabel: option.label || undefined,
               variantDimension: variantGroup.dimension || undefined,
-              availability: option.availability || undefined,
+              availability: option.availability ?? 'available',
             },
           })
           newVariants++
@@ -228,10 +228,10 @@ export async function persistCrawlResult(
           log.debug('persistCrawlResult: skipped sibling variant', { url: siblingUrl, error: e instanceof Error ? e.message : String(e) })
         }
       } else {
-        // Update availability and GTIN on existing sibling if we have fresh data
+        // Update availability and GTIN on existing sibling — if the driver returned it, it's available
         const sv = existingVariant.docs[0] as Record<string, unknown>
         const updates: Record<string, unknown> = {}
-        if (option.availability) updates.availability = option.availability
+        updates.availability = option.availability ?? 'available'
         if (option.gtin && !sv.gtin) updates.gtin = option.gtin
         if (Object.keys(updates).length > 0) {
           try {
@@ -248,6 +248,51 @@ export async function persistCrawlResult(
   }
   if (totalVariants > 0) {
     jlog.info('Variants processed', { url: variantUrl, newVariants, existingVariants, totalVariants }, { event: true, labels: ['scraping', 'variants'] })
+  }
+
+  // Mark disappeared variants as unavailable.
+  // If the driver returned variant data, any existing DB variant whose URL is NOT in the
+  // scraped set has disappeared from the product page and should be marked unavailable.
+  // Guard: only run when the driver actually returned variant options (to avoid false
+  // negatives from scraping failures where the page didn't render variants).
+  const hasScrapedVariants = data.variants.some((vg) => vg.options.length > 0)
+  if (hasScrapedVariants) {
+    // Build set of all variant URLs the driver returned (including the crawled variant itself)
+    const scrapedUrls = new Set<string>()
+    scrapedUrls.add(canonicalVariantUrl)
+    for (const variantGroup of data.variants) {
+      for (const option of variantGroup.options) {
+        if (option.value) {
+          scrapedUrls.add(normalizeVariantUrl(option.value))
+        }
+      }
+    }
+
+    // Fetch all existing sibling variants for this source-product
+    const allSiblings = await payload.find({
+      collection: 'source-variants',
+      where: { sourceProduct: { equals: sourceProductId } },
+      limit: 1000,
+    })
+
+    let markedUnavailable = 0
+    for (const doc of allSiblings.docs) {
+      const sv = doc as Record<string, unknown>
+      const svUrl = sv.sourceUrl as string
+      if (!scrapedUrls.has(svUrl) && sv.availability !== 'unavailable') {
+        try {
+          await payload.update({
+            collection: 'source-variants',
+            id: sv.id as number,
+            data: { availability: 'unavailable' },
+          })
+          markedUnavailable++
+        } catch { /* best-effort update */ }
+      }
+    }
+    if (markedUnavailable > 0) {
+      jlog.info('Disappeared variants marked unavailable', { url: variantUrl, markedUnavailable }, { event: true, labels: ['scraping', 'variants'] })
+    }
   }
 
   // For Mueller: if the crawled variant is the base URL (no ?itemId=) and ?itemId= sibling
