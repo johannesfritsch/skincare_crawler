@@ -162,7 +162,18 @@ export const muellerDriver: SourceDriver = {
                   })
                   rating = filled || null
                 }
-                return { href, name, priceCents, rating }
+                // Extract GTIN from product image URLs (pattern: Markant_<GTIN>_)
+                let gtin: string | null = null
+                const imgs = tile.querySelectorAll('img[src], img[srcset]')
+                for (const img of imgs) {
+                  const src = (img.getAttribute('srcset') || img.getAttribute('src') || '')
+                  const gtinMatch = src.match(/Markant_(\d{8,14})_/)
+                  if (gtinMatch) {
+                    gtin = gtinMatch[1]
+                    break
+                  }
+                }
+                return { href, name, priceCents, rating, gtin }
               }),
         )
       }
@@ -177,6 +188,7 @@ export const muellerDriver: SourceDriver = {
           seenProductUrls.add(productUrl)
           await onProduct({
             productUrl,
+            gtin: p.gtin ?? undefined,
             name: p.name || undefined,
             price: p.priceCents ?? undefined,
             currency: 'EUR',
@@ -446,7 +458,18 @@ export const muellerDriver: SourceDriver = {
                 })
                 rating = filled || null
               }
-              return { href, name, priceCents, rating }
+              // Extract GTIN from product image URLs (pattern: Markant_<GTIN>_)
+              let gtin: string | null = null
+              const imgs = link.querySelectorAll('img[src], img[srcset]')
+              for (const img of imgs) {
+                const src = (img.getAttribute('srcset') || img.getAttribute('src') || '')
+                const gtinMatch = src.match(/Markant_(\d{8,14})_/)
+                if (gtinMatch) {
+                  gtin = gtinMatch[1]
+                  break
+                }
+              }
+              return { href, name, priceCents, rating, gtin }
             }),
         )
       }
@@ -466,6 +489,7 @@ export const muellerDriver: SourceDriver = {
           if (!productUrl) continue
           products.push({
             productUrl,
+            gtin: t.gtin ?? undefined,
             name: t.name || undefined,
             price: t.priceCents ?? undefined,
             currency: 'EUR',
@@ -530,6 +554,114 @@ export const muellerDriver: SourceDriver = {
         }
 
         const scraped = await page.evaluate(() => {
+          // --- RSC JSON extraction ---
+          // Mueller uses Next.js RSC (React Server Components). The product data is embedded
+          // in <script> tags as self.__next_f.push([1, "..."]) calls. We extract the product
+          // JSON from these payloads — it contains structured data including all siblings
+          // (variants), EAN, price, brand, images, and more.
+          type RscSibling = {
+            code?: string
+            path?: string
+            manufacturerColor?: string
+            manufacturerColorNumber?: string
+            clothingSize?: string | null
+            sizeRange?: string | null
+            stockLevel?: number
+            colorTile?: { source?: string } | null
+            capacityUnitCode?: string
+            capacityValue?: string
+          }
+          type RscProduct = {
+            name?: string
+            ean?: string
+            code?: string
+            brand?: { name?: string }
+            currentPrice?: { valueWithTax?: number; currencyIso?: string }
+            capacityValue?: string
+            capacityUnitCode?: string
+            images?: Array<{ url?: string }>
+            categoryWithParents?: Array<{ name?: string; path?: string }>
+            siblings?: RscSibling[]
+            stockLevel?: number
+            manufacturerColor?: string
+            manufacturerColorNumber?: string
+            colorTile?: { source?: string } | null
+          }
+
+          let rscProduct: RscProduct | null = null
+          try {
+            // Collect all RSC payload strings
+            const scripts = document.querySelectorAll('script')
+            const chunks: string[] = []
+            for (const script of scripts) {
+              const text = script.textContent || ''
+              if (!text.includes('self.__next_f.push')) continue
+              // Extract the string payload from push([1, "..."])
+              const pushMatch = text.match(/self\.__next_f\.push\(\[1,\s*"((?:[^"\\]|\\.)*)"\]\)/)
+              if (pushMatch) {
+                // Unescape the JSON string (it's a JS string literal inside the push call)
+                try {
+                  chunks.push(JSON.parse('"' + pushMatch[1] + '"'))
+                } catch {
+                  chunks.push(pushMatch[1])
+                }
+              }
+            }
+            const rscPayload = chunks.join('')
+
+            // Find the product-info component data — look for the "product" object
+            // that contains "ean" and "siblings" fields. The pattern is:
+            // ..."product":{...,"ean":"...","siblings":[...],...}...
+            // We find its enclosing object by searching for "product":{ and tracking braces.
+            const productKeyIdx = rscPayload.indexOf('"product":{')
+            if (productKeyIdx >= 0) {
+              // Walk backwards to find the opening { of the parent object
+              let parentStart = -1
+              let depth = 0
+              for (let i = productKeyIdx - 1; i >= 0; i--) {
+                const ch = rscPayload[i]
+                if (ch === '}') depth++
+                else if (ch === '{') {
+                  if (depth === 0) { parentStart = i; break }
+                  depth--
+                }
+              }
+              if (parentStart >= 0) {
+                // Walk forwards from parentStart to find the matching closing }
+                let parentEnd = -1
+                depth = 0
+                for (let i = parentStart; i < rscPayload.length; i++) {
+                  const ch = rscPayload[i]
+                  if (ch === '{') depth++
+                  else if (ch === '}') {
+                    depth--
+                    if (depth === 0) { parentEnd = i; break }
+                  }
+                }
+                if (parentEnd >= 0) {
+                  const jsonStr = rscPayload.substring(parentStart, parentEnd + 1)
+                  try {
+                    const parsed = JSON.parse(jsonStr) as { product?: RscProduct }
+                    if (parsed.product?.ean || parsed.product?.siblings) {
+                      rscProduct = parsed.product
+                    }
+                  } catch { /* JSON parse failed, fall back to DOM */ }
+                }
+              }
+            }
+          } catch { /* RSC extraction failed entirely, fall back to DOM/JSON-LD */ }
+
+          // --- Capacity unit code → abbreviation ---
+          const capacityUnitMap: Record<string, string> = {
+            MILLILITER: 'ml', GRAM: 'g', LITER: 'l', KILOGRAM: 'kg',
+            PIECE: 'Stk', MILLIMETER: 'mm', CENTIMETER: 'cm',
+          }
+
+          // --- Extract GTIN from image URL ---
+          // Matches /products/<GTIN>/, _default_upload_bucket/<GTIN>, or Markant_<GTIN>_
+          const gtinFromUrlRe = /\/products\/(\d{8,14})\/|_default_upload_bucket\/(\d{8,14})|Markant_(\d{8,14})_/
+
+          // --- JSON-LD fallback ---
           let jsonLd: Record<string, unknown> | null = null
           const ldScripts = document.querySelectorAll('script[type="application/ld+json"]')
           for (const script of ldScripts) {
@@ -542,26 +674,33 @@ export const muellerDriver: SourceDriver = {
             } catch { /* ignore */ }
           }
 
+          // --- Name: h1 primary, RSC fallback, JSON-LD fallback ---
           const h1 = document.querySelector('h1')
-          const name = h1?.textContent?.trim() || (jsonLd?.name as string) || null
+          const name = h1?.textContent?.trim() || rscProduct?.name || (jsonLd?.name as string) || null
 
-          let brandName: string | null = null
-          const brandImg = document.querySelector('a[class*="product-info"][class*="brand"] img')
-          if (brandImg) {
-            const alt = brandImg.getAttribute('alt') || ''
-            brandName = alt.replace(/^Markenbild von\s*/i, '').trim() || null
+          // --- Brand: RSC primary, DOM fallback, JSON-LD fallback ---
+          let brandName: string | null = rscProduct?.brand?.name || null
+          if (!brandName) {
+            const brandImg = document.querySelector('a[class*="product-info"][class*="brand"] img')
+            if (brandImg) {
+              const alt = brandImg.getAttribute('alt') || ''
+              brandName = alt.replace(/^Markenbild von\s*/i, '').trim() || null
+            }
           }
           if (!brandName && jsonLd) {
             const brand = jsonLd.brand as Record<string, unknown> | undefined
             brandName = (brand?.name as string) || null
           }
 
-          let sourceArticleNumber: string | null = null
-          const articleNrEl = document.querySelector('[class*="product-info__article-nr"]')
-          if (articleNrEl) {
-            const text = articleNrEl.textContent?.trim() || ''
-            const match = text.match(/(\d+)/)
-            sourceArticleNumber = match ? match[1] : null
+          // --- Article number: RSC primary, DOM fallback, JSON-LD fallback ---
+          let sourceArticleNumber: string | null = rscProduct?.code || null
+          if (!sourceArticleNumber) {
+            const articleNrEl = document.querySelector('[class*="product-info__article-nr"]')
+            if (articleNrEl) {
+              const text = articleNrEl.textContent?.trim() || ''
+              const match = text.match(/(\d+)/)
+              sourceArticleNumber = match ? match[1] : null
+            }
           }
           if (!sourceArticleNumber) {
             const btn = document.querySelector('button[data-product-id]')
@@ -571,44 +710,57 @@ export const muellerDriver: SourceDriver = {
             sourceArticleNumber = (jsonLd.sku as string) || null
           }
 
-          let gtin: string | null = (jsonLd?.gtin as string) || null
+          // --- GTIN: RSC primary, JSON-LD fallback, image URL fallback ---
+          let gtin: string | null = rscProduct?.ean || (jsonLd?.gtin as string) || null
           if (!gtin) {
             const allImgs = document.querySelectorAll('img[src], img[srcset]')
             for (const img of allImgs) {
               const src = img.getAttribute('src') || img.getAttribute('srcset') || ''
-              const decoded = decodeURIComponent(src)
-              const gtinMatch = decoded.match(/\/products\/(\d{8,14})\//)
-              if (gtinMatch) {
-                gtin = gtinMatch[1]
-                break
-              }
+              const m = decodeURIComponent(src).match(gtinFromUrlRe)
+              const found = m && (m[1] || m[2] || m[3])
+              if (found) { gtin = found; break }
             }
           }
 
+          // --- Category: RSC primary, JSON-LD BreadcrumbList fallback ---
           let categoryUrl: string | null = null
           let categoryBreadcrumbs: string[] | null = null
-          for (const script of ldScripts) {
-            try {
-              const parsed = JSON.parse(script.textContent || '')
-              if (parsed['@type'] === 'BreadcrumbList' && Array.isArray(parsed.itemListElement)) {
-                const items = parsed.itemListElement as Array<{ item?: string; name?: string }>
-                // Skip first (Home) and last (product itself)
-                const categoryItems = items.slice(1, -1)
-                const names = categoryItems.map((el) => el.name).filter((n): n is string => !!n)
-                if (names.length > 0) {
-                  categoryBreadcrumbs = names
+          if (rscProduct?.categoryWithParents && rscProduct.categoryWithParents.length > 0) {
+            categoryBreadcrumbs = rscProduct.categoryWithParents
+              .map((c) => c.name)
+              .filter((n): n is string => !!n)
+            if (categoryBreadcrumbs.length === 0) categoryBreadcrumbs = null
+            const lastWithPath = [...rscProduct.categoryWithParents].reverse().find((c) => c.path)
+            if (lastWithPath?.path) {
+              categoryUrl = lastWithPath.path.startsWith('http')
+                ? lastWithPath.path
+                : `https://www.mueller.de${lastWithPath.path}`
+            }
+          }
+          if (!categoryBreadcrumbs) {
+            for (const script of ldScripts) {
+              try {
+                const parsed = JSON.parse(script.textContent || '')
+                if (parsed['@type'] === 'BreadcrumbList' && Array.isArray(parsed.itemListElement)) {
+                  const items = parsed.itemListElement as Array<{ item?: string; name?: string }>
+                  const categoryItems = items.slice(1, -1)
+                  const names = categoryItems.map((el) => el.name).filter((n): n is string => !!n)
+                  if (names.length > 0) categoryBreadcrumbs = names
+                  const urlItems = categoryItems.filter((el) => el.item)
+                  if (urlItems.length > 0) categoryUrl = urlItems[urlItems.length - 1].item ?? null
                 }
-                const urlItems = categoryItems.filter((el) => el.item)
-                if (urlItems.length > 0) {
-                  categoryUrl = urlItems[urlItems.length - 1].item ?? null
-                }
-              }
-            } catch { /* ignore */ }
+              } catch { /* ignore */ }
+            }
           }
 
+          // --- Price: RSC primary, JSON-LD fallback, DOM fallback ---
           let priceCents: number | null = null
           let currency = 'EUR'
-          if (jsonLd?.offers) {
+          if (rscProduct?.currentPrice?.valueWithTax != null) {
+            priceCents = Math.round(rscProduct.currentPrice.valueWithTax * 100)
+            currency = rscProduct.currentPrice.currencyIso || 'EUR'
+          }
+          if (priceCents === null && jsonLd?.offers) {
             const offers = jsonLd.offers as Array<Record<string, unknown>> | Record<string, unknown>
             const offer = Array.isArray(offers) ? offers[0] : offers
             if (offer?.price != null) {
@@ -627,6 +779,7 @@ export const muellerDriver: SourceDriver = {
             }
           }
 
+          // --- Per-unit price: DOM only ---
           let perUnitAmount: number | null = null
           let perUnitQuantity: number | null = null
           let perUnitUnit: string | null = null
@@ -641,12 +794,20 @@ export const muellerDriver: SourceDriver = {
             }
           }
 
+          // --- Amount/unit: RSC primary, specs table fallback ---
           const mutable = {
             amount: null as number | null,
             amountUnit: null as string | null,
             ingredientsRaw: null as string | null,
           }
+          if (rscProduct?.capacityValue) {
+            mutable.amount = parseFloat(rscProduct.capacityValue)
+            mutable.amountUnit = rscProduct.capacityUnitCode
+              ? (capacityUnitMap[rscProduct.capacityUnitCode] || rscProduct.capacityUnitCode.toLowerCase())
+              : null
+          }
 
+          // --- Rating: DOM only ---
           let rating: number | null = null
           const ratingNum: number | null = null
           const ratingContainer = document.querySelector('[class*="product-rating"]')
@@ -663,13 +824,17 @@ export const muellerDriver: SourceDriver = {
             rating = filled || null
           }
 
+          // --- Images: RSC primary, JSON-LD fallback, carousel DOM fallback ---
           const images: Array<{ url: string; alt: string | null }> = []
-          if (jsonLd?.image) {
+          if (rscProduct?.images && rscProduct.images.length > 0) {
+            for (const img of rscProduct.images) {
+              if (img.url) images.push({ url: img.url, alt: null })
+            }
+          }
+          if (images.length === 0 && jsonLd?.image) {
             const ldImages = jsonLd.image as string[]
             if (Array.isArray(ldImages)) {
-              ldImages.forEach((url) => {
-                images.push({ url, alt: null })
-              })
+              ldImages.forEach((url) => images.push({ url, alt: null }))
             }
           }
           if (images.length === 0) {
@@ -689,6 +854,7 @@ export const muellerDriver: SourceDriver = {
             })
           }
 
+          // --- Description & ingredients: DOM accordion sections ---
           const descriptionSections: string[] = []
           const accordionEntries = document.querySelectorAll('section[class*="accordion_component_accordion-entry"]')
           accordionEntries.forEach((section) => {
@@ -737,61 +903,111 @@ export const muellerDriver: SourceDriver = {
             ? descriptionSections.join('\n\n')
             : null
 
+          // --- Variants: RSC siblings primary, DOM tile fallback ---
           const variants: Array<{
             dimension: string
-            options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean }>
+            options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null }>
           }> = []
-          const attrWrappers = document.querySelectorAll('[class*="product-attribute-list__attribute-wrapper"]')
-          attrWrappers.forEach((wrapper) => {
-            const dimEl = wrapper.querySelector('div.text-lg') as HTMLElement | null
-            if (!dimEl) return
-            const dimText = dimEl.textContent?.trim() || ''
-            const colonIdx = dimText.indexOf(':')
-            const dimension = colonIdx > 0 ? dimText.substring(0, colonIdx).trim() : dimText
-            if (!dimension) return
 
-            const tileList = wrapper.querySelector('[class*="product-attribute-tile-list"]')
-            if (!tileList) return
+          if (rscProduct?.siblings && rscProduct.siblings.length > 0) {
+            // Infer dimension from available fields
+            const hasColor = rscProduct.siblings.some((s) => s.manufacturerColor)
+            const hasSize = rscProduct.siblings.some((s) => s.clothingSize || s.sizeRange)
+            const dimension = hasColor ? 'Farbe' : hasSize ? 'Größe' : 'Variante'
 
-            const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean }> = []
-            const tiles = tileList.querySelectorAll(':scope > div')
-            tiles.forEach((tile) => {
-              const img = tile.querySelector('img[alt]')
-              const label = img?.getAttribute('alt') || ''
-              if (!label) return
-
-              let tileGtin: string | null = null
-              const imgSrc = img?.getAttribute('src') || img?.getAttribute('srcset') || ''
-              const decoded = decodeURIComponent(imgSrc)
-              const gtinMatch = decoded.match(/_default_upload_bucket\/(\d{8,14})_/)
-              if (gtinMatch) tileGtin = gtinMatch[1]
-
-              const contentEl = tile.querySelector('[class*="product-attribute-tile__content"]')
-              const isSelected = contentEl?.className?.includes('--selected') ?? false
-
-              // Build the full variant URL from the link href
-              let value: string | null = null
-              const link = tile.querySelector('a[href]')
-              if (link) {
-                const href = link.getAttribute('href') || ''
-                if (href) {
-                  try {
-                    // Resolve relative hrefs against the current page URL
-                    const fullUrl = new URL(href, window.location.href)
-                    value = fullUrl.href
-                  } catch {
-                    value = null
-                  }
-                }
+            const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null }> = []
+            for (const sibling of rscProduct.siblings) {
+              // Build label from color number + color name
+              let label = ''
+              if (sibling.manufacturerColorNumber && sibling.manufacturerColor) {
+                label = `${sibling.manufacturerColorNumber} ${sibling.manufacturerColor}`
+              } else if (sibling.manufacturerColor) {
+                label = sibling.manufacturerColor
+              } else if (sibling.clothingSize) {
+                label = sibling.clothingSize
+              } else {
+                label = sibling.code || ''
               }
 
-              options.push({ label, value, gtin: tileGtin, isSelected })
-            })
+              // Build full variant URL from path
+              const value = sibling.path
+                ? `https://www.mueller.de${sibling.path}`
+                : null
+
+              // Extract GTIN from colorTile image URL
+              let siblingGtin: string | null = null
+              if (sibling.colorTile?.source) {
+                const gm = sibling.colorTile.source.match(gtinFromUrlRe)
+                siblingGtin = gm ? (gm[1] || gm[2] || gm[3]) : null
+              }
+
+              const isSelected = sibling.code === rscProduct.code
+              const availability = sibling.stockLevel != null
+                ? (sibling.stockLevel > 0 ? 'available' : 'unavailable')
+                : null
+
+              options.push({ label, value, gtin: siblingGtin, isSelected, availability })
+            }
 
             if (options.length > 0) {
               variants.push({ dimension, options })
             }
-          })
+          } else {
+            // Fallback: DOM tile extraction (for pages without RSC siblings data)
+            const attrWrappers = document.querySelectorAll('[class*="product-attribute-list__attribute-wrapper"]')
+            attrWrappers.forEach((wrapper) => {
+              const dimEl = wrapper.querySelector('div.text-lg') as HTMLElement | null
+              if (!dimEl) return
+              const dimText = dimEl.textContent?.trim() || ''
+              const colonIdx = dimText.indexOf(':')
+              const dimension = colonIdx > 0 ? dimText.substring(0, colonIdx).trim() : dimText
+              if (!dimension) return
+
+              const tileList = wrapper.querySelector('[class*="product-attribute-tile-list"]')
+              if (!tileList) return
+
+              const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null }> = []
+              const tiles = tileList.querySelectorAll(':scope > div')
+              tiles.forEach((tile) => {
+                const img = tile.querySelector('img[alt]')
+                const label = img?.getAttribute('alt') || ''
+                if (!label) return
+
+                let tileGtin: string | null = null
+                const imgSrc = img?.getAttribute('src') || img?.getAttribute('srcset') || ''
+                const decoded = decodeURIComponent(imgSrc)
+                const gm = decoded.match(gtinFromUrlRe)
+                tileGtin = gm ? (gm[1] || gm[2] || gm[3]) : null
+
+                const contentEl = tile.querySelector('[class*="product-attribute-tile__content"]')
+                const isSelected = contentEl?.className?.includes('--selected') ?? false
+
+                let value: string | null = null
+                const link = tile.querySelector('a[href]')
+                if (link) {
+                  const href = link.getAttribute('href') || ''
+                  if (href) {
+                    try {
+                      const fullUrl = new URL(href, window.location.href)
+                      value = fullUrl.href
+                    } catch { value = null }
+                  }
+                }
+
+                options.push({ label, value, gtin: tileGtin, isSelected, availability: null })
+              })
+
+              if (options.length > 0) {
+                variants.push({ dimension, options })
+              }
+            })
+          }
+
+          // --- Availability: RSC primary (for the current variant) ---
+          let availability: string | null = null
+          if (rscProduct?.stockLevel != null) {
+            availability = rscProduct.stockLevel > 0 ? 'available' : 'unavailable'
+          }
 
           return {
             name,
@@ -813,6 +1029,8 @@ export const muellerDriver: SourceDriver = {
             variants,
             rating,
             ratingNum,
+            availability,
+            hasRscData: rscProduct !== null,
           }
         })
 
@@ -820,6 +1038,10 @@ export const muellerDriver: SourceDriver = {
           log.info('No product name found on page', { url: sourceUrl })
           logger?.warn('Scrape failed: no product name', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping'] })
           return null
+        }
+
+        if (scraped.hasRscData) {
+          log.info('Extracted RSC product data', { url: sourceUrl, variants: scraped.variants.flatMap((v) => v.options).length })
         }
 
         // Raw ingredients text (stored as-is, parsed during aggregation)
@@ -852,7 +1074,7 @@ export const muellerDriver: SourceDriver = {
         log.debug('Category info', { url: sourceUrl, breadcrumbs: scraped.categoryBreadcrumbs ? scraped.categoryBreadcrumbs.join(' -> ') : '(none)', categoryUrl: scraped.categoryUrl ?? '(none)' })
 
         const scrapeDurationMs = Date.now() - scrapeStartMs
-        logger?.info('Product scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
+        logger?.info('Product scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.flatMap((v) => v.options).length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
 
         return {
           gtin: scraped.gtin ?? undefined,
@@ -865,7 +1087,13 @@ export const muellerDriver: SourceDriver = {
           amount: scraped.amount ?? undefined,
           amountUnit: scraped.amountUnit ?? undefined,
           images: scraped.images,
-          variants: scraped.variants,
+          variants: scraped.variants.map((vg) => ({
+            dimension: vg.dimension,
+            options: vg.options.map((opt) => ({
+              ...opt,
+              availability: (opt.availability as 'available' | 'unavailable' | 'unknown') ?? undefined,
+            })),
+          })),
           rating: scraped.rating ?? undefined,
           ratingNum: scraped.ratingNum ?? undefined,
           sourceArticleNumber: scraped.sourceArticleNumber ?? undefined,
@@ -874,6 +1102,7 @@ export const muellerDriver: SourceDriver = {
           perUnitAmount,
           perUnitQuantity,
           perUnitUnit,
+          availability: (scraped.availability as 'available' | 'unavailable') ?? undefined,
           warnings: [],
         }
       } finally {

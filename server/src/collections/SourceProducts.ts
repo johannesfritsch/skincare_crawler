@@ -223,7 +223,7 @@ export const SourceProducts: CollectionConfig = {
               collection: 'source-variants',
               on: 'sourceProduct',
               admin: {
-                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel'],
+                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel', 'availability'],
               },
             },
             {

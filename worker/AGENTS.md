@@ -157,7 +157,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann); for Mueller, deletes the base-URL variant (no `?itemId=`) when `?itemId=` variants are discovered (avoids duplicate entries); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, and variant processing. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
+| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, availability, canonical URL, and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann) with availability and GTIN when available; updates availability and GTIN on existing sibling variants; for Mueller, deletes the base-URL variant (no `?itemId=`) when `?itemId=` variants are discovered (avoids duplicate entries); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, and variant processing. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
 | `persistDiscoveredProduct()` | Dedup by source-variant URL; creates `source-products` + source-variant together when new; updates existing parent source-product when variant URL already exists; creates `discovery-results` join record |
 
@@ -359,7 +359,7 @@ interface ScrapedProductData {
   amount?: number
   amountUnit?: string
   images: Array<{ url: string; alt?: string | null }>
-  variants: Array<{ dimension: string; options: Array<{ label, value (full variant URL), gtin, isSelected }> }>
+  variants: Array<{ dimension: string; options: Array<{ label, value (full variant URL), gtin, isSelected, availability? }> }>
   labels?: string[]
   rating?: number
   ratingNum?: number
@@ -370,6 +370,7 @@ interface ScrapedProductData {
   perUnitAmount?: number
   perUnitQuantity?: number
   perUnitUnit?: string
+  availability?: 'available' | 'unavailable' | 'unknown'
   warnings: string[]
 }
 ```
@@ -544,7 +545,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **URL normalization**: Two normalization functions exist in `source-product-queries.ts`:
   - `normalizeProductUrl()` — strips all query parameters, trailing slashes, hash fragments, and lowercases. Used for base product URLs on source-products (applied in source drivers, persist.ts, claim.ts).
   - `normalizeVariantUrl()` — same as above but preserves `?itemId=` for Mueller URLs. Used for source-variant URLs where Mueller variants need the itemId param to distinguish variants sharing the same base URL. Applied to all variant URLs from all drivers in persist.ts.
-- **Variant URLs**: Drivers are the source of truth for variant URL construction. Each driver extracts the full variant URL from the page (DM: from API `href` field; Mueller: from tile link `href`; Rossmann: from variant list link `href`). `persistCrawlResult` stores whatever the driver provides — no URL inference or construction outside the driver.
+- **Variant URLs**: Drivers are the source of truth for variant URL construction. Each driver extracts the full variant URL from the page (DM: from API `href` field; Mueller: from RSC JSON `siblings[].path`; Rossmann: from variant list link `href`). `persistCrawlResult` stores whatever the driver provides — no URL inference or construction outside the driver. Mueller's driver uses a hybrid RSC JSON + DOM scraping approach: structured data (GTIN, price, brand, images, variants with availability) comes from the Next.js RSC payload embedded in `self.__next_f.push()` script tags, while ingredients, rating, and accordion description are scraped from the rendered DOM.
 - **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. This is raw metadata from retailers; it is not mapped to any collection during aggregation.
 - **Deduplication**: Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicates. Source-products no longer have a `sourceUrl` field — dedup happens at the variant level.
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products

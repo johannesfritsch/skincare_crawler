@@ -59,6 +59,20 @@ export const SourceVariants: CollectionConfig = {
       },
     },
     {
+      name: 'availability',
+      type: 'select',
+      label: 'Availability',
+      defaultValue: 'unknown',
+      options: [
+        { label: 'Available', value: 'available' },
+        { label: 'Unavailable', value: 'unavailable' },
+        { label: 'Unknown', value: 'unknown' },
+      ],
+      admin: {
+        description: 'Whether this variant is currently available for purchase at the retailer',
+      },
+    },
+    {
       name: 'crawledAt',
       type: 'date',
       label: 'Crawled At',

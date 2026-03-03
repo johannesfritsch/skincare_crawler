@@ -773,6 +773,10 @@ export interface SourceVariant {
    */
   variantDimension?: string | null;
   /**
+   * Whether this variant is currently available for purchase at the retailer
+   */
+  availability?: ('available' | 'unavailable' | 'unknown') | null;
+  /**
    * When this specific variant was last crawled
    */
   crawledAt?: string | null;
@@ -2232,6 +2236,7 @@ export interface SourceVariantsSelect<T extends boolean = true> {
   gtin?: T;
   variantLabel?: T;
   variantDimension?: T;
+  availability?: T;
   crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;

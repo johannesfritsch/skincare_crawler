@@ -55,6 +55,7 @@ export interface ScrapedProductData {
       value: string | null
       gtin: string | null
       isSelected: boolean
+      availability?: 'available' | 'unavailable' | 'unknown'
     }>
   }>
   labels?: string[]
@@ -67,6 +68,7 @@ export interface ScrapedProductData {
   perUnitAmount?: number
   perUnitQuantity?: number
   perUnitUnit?: string
+  availability?: 'available' | 'unavailable' | 'unknown'
   warnings: string[]
 }
 

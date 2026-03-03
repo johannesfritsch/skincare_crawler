@@ -29,6 +29,7 @@ interface ScrapedProductData {
       value: string | null
       gtin: string | null
       isSelected: boolean
+      availability?: 'available' | 'unavailable' | 'unknown'
     }>
   }>
   labels?: string[]
@@ -41,6 +42,7 @@ interface ScrapedProductData {
   perUnitAmount?: number
   perUnitQuantity?: number
   perUnitUnit?: string
+  availability?: 'available' | 'unavailable' | 'unknown'
   warnings: string[]
 }
 
@@ -172,13 +174,14 @@ export async function persistCrawlResult(
     data: productPayload,
   })
 
-  // Update the crawled source-variant with GTIN, canonical URL, and crawledAt timestamp
+  // Update the crawled source-variant with GTIN, canonical URL, availability, and crawledAt timestamp
   const canonicalVariantUrl = data.canonicalUrl ? normalizeVariantUrl(data.canonicalUrl) : variantUrl
   await payload.update({
     collection: 'source-variants',
     id: sourceVariantId,
     data: {
       ...(data.gtin ? { gtin: data.gtin } : {}),
+      ...(data.availability ? { availability: data.availability } : {}),
       ...(canonicalVariantUrl !== variantUrl ? { sourceUrl: canonicalVariantUrl } : {}),
       crawledAt: now,
     },
@@ -214,6 +217,7 @@ export async function persistCrawlResult(
               gtin: option.gtin || undefined,
               variantLabel: option.label || undefined,
               variantDimension: variantGroup.dimension || undefined,
+              availability: option.availability || undefined,
             },
           })
           newVariants++
@@ -224,6 +228,20 @@ export async function persistCrawlResult(
           log.debug('persistCrawlResult: skipped sibling variant', { url: siblingUrl, error: e instanceof Error ? e.message : String(e) })
         }
       } else {
+        // Update availability and GTIN on existing sibling if we have fresh data
+        const sv = existingVariant.docs[0] as Record<string, unknown>
+        const updates: Record<string, unknown> = {}
+        if (option.availability) updates.availability = option.availability
+        if (option.gtin && !sv.gtin) updates.gtin = option.gtin
+        if (Object.keys(updates).length > 0) {
+          try {
+            await payload.update({
+              collection: 'source-variants',
+              id: sv.id as number,
+              data: updates,
+            })
+          } catch { /* best-effort update */ }
+        }
         existingVariants++
       }
     }
