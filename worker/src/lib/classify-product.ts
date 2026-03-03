@@ -65,7 +65,7 @@ Then identify which product attributes and claims apply, providing evidence for 
 CRITICAL: "Free from X" / "Frei von X" / "ohne X" / "X-frei" means the product does NOT contain X. That is the OPPOSITE — it is a CLAIM (e.g. pegFree, mineralOilFree), NOT an attribute. Never set a "contains" attribute based on "free from" language. For example, "Frei von PEGs" → pegFree claim, NOT containsPegs attribute.
 
 **Product Claims** (true if the product makes or supports this claim):
-- vegan: marketed as vegan or no animal-derived ingredients
+- vegan: explicitly marketed as vegan (label, description, or brand claim) — do NOT infer from ingredient analysis alone
 - crueltyFree: marketed as cruelty-free / not tested on animals
 - unsafeForPregnancy: contains ingredients unsafe during pregnancy (retinoids, high-concentration salicylic acid)
 - pregnancySafe: explicitly marketed as pregnancy-safe

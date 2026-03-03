@@ -719,6 +719,194 @@ export const Posts: CollectionConfig = {
 }
 ```
 
+### List Menu Items (batch / utility actions)
+
+`listMenuItems` injects entries into the "..." kebab menu on the collection list view. Use this for batch operations (applied to selected rows) and for utility actions that don't fit the bulk-action bar.
+
+**Two patterns are used in this codebase:**
+
+#### 1. Batch job actions (selection-dependent) — `BulkJobMenuItem`
+
+For operations that run a background job against the currently selected rows. Use `BulkJobMenuItem` from `BulkJobBar.tsx`:
+
+```tsx
+// components/bulk-actions/ProductBulkActions.tsx
+'use client'
+
+import { BulkJobMenuItem } from '@/components/BulkJobBar'
+import { bulkAggregateProducts } from '@/actions/job-actions'
+
+export default function ProductBulkMenuItem() {
+  return (
+    <BulkJobMenuItem
+      label="Aggregate"
+      createJob={bulkAggregateProducts}
+      jobCollection="product-aggregations"
+    />
+  )
+}
+```
+
+```typescript
+// In the collection config:
+admin: {
+  components: {
+    listMenuItems: ['@/components/bulk-actions/ProductBulkActions'],
+    beforeListTable: ['@/components/bulk-actions/ProductBulkStatus'], // job status bar
+  },
+}
+```
+
+`BulkJobMenuItem` automatically reads the current selection via `useSelection()`, disables itself when nothing is selected, and shows live job state via the shared pub/sub store. The companion `beforeListTable` component (`*BulkStatus.tsx`) renders the status bar above the table.
+
+#### 2. Simple utility actions (no selection needed) — plain `<button>`
+
+For actions that don't operate on a selection (e.g. seeding defaults, triggering a global refresh). Use a plain `<button>` with `className="popup-button-list__button"` — this is the Payload CSS class that makes the item look native inside the menu:
+
+```tsx
+// components/SeedProductTypesButton.tsx
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+
+export default function SeedProductTypesButton() {
+  const router = useRouter()
+  const [loading, setLoading] = useState(false)
+
+  const handleClick = async () => {
+    setLoading(true)
+    try {
+      await myAction()
+      router.refresh()
+    } catch (err) {
+      console.error('Action failed', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={handleClick}
+      className="popup-button-list__button"
+      style={{ whiteSpace: 'nowrap', opacity: loading ? 0.5 : 1 }}
+    >
+      {loading ? 'Loading...' : 'My Action'}
+    </button>
+  )
+}
+```
+
+```typescript
+// In the collection config:
+admin: {
+  components: {
+    listMenuItems: ['/components/SeedProductTypesButton'],
+  },
+}
+```
+
+**Rules:**
+- Always use `className="popup-button-list__button"` — never Payload's `<Button>` component or raw styled `<button>` elements in this slot; they will look out of place.
+- Do NOT use `beforeList` for actions — use `listMenuItems` so the action lives in the menu where Payload intends it.
+- Feedback: utility actions should call `router.refresh()` on success and log errors to `console.error`. There is no persistent space for inline feedback inside a menu item.
+
+### Job Status on Detail Pages
+
+Each collection that has a per-document job action (Crawl, Aggregate, etc.) shows a live job status bar on the edit view. This is wired up with two pieces:
+
+#### 1. `SaveButton` replacement — `*SaveButton.tsx`
+
+Replace the standard save button via `admin.components.edit.SaveButton`. The custom component renders the native `<SaveButton />` next to a `<JobButton>` that creates the job and publishes state into the shared pub/sub store:
+
+```tsx
+// components/SourceProductSaveButton.tsx
+'use client'
+
+import { SaveButton, useDocumentInfo } from '@payloadcms/ui'
+import type { SaveButtonClientProps } from 'payload'
+import { JobButton } from '@/components/JobButton'
+import { crawlSourceProduct, getJobStatus } from '@/actions/job-actions'
+
+export default function SourceProductSaveButton(props: SaveButtonClientProps) {
+  const { id } = useDocumentInfo()
+  const router = useRouter()
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <SaveButton />
+      {id && (
+        <JobButton
+          label="Crawl"
+          runningLabel="Crawling..."
+          createJob={() => crawlSourceProduct(Number(id))}
+          getStatus={(jobId) => getJobStatus('product-crawls', jobId)}
+          jobCollection="product-crawls"
+          onCompleted={() => router.refresh()}
+        />
+      )}
+    </div>
+  )
+}
+```
+
+`JobButton` props:
+- `label` / `runningLabel` — button text in idle vs active state
+- `createJob` — server action that creates the job, returns `{ success, jobId?, error? }`
+- `getStatus` — server action that polls the job, returns `{ status, errors? }`
+- `jobCollection` — the job collection slug; used to publish state into the shared pub/sub store so the co-located `JobStatusBar` can render the live event log
+- `onCompleted` — callback on success (typically `router.refresh()`)
+
+#### 2. Status bar `ui` field — `*JobStatus.tsx`
+
+A `type: 'ui'` field placed **before the tabs block** in the collection config renders the live event log below the header. The component is a thin wrapper around `JobStatusBar` from `BulkJobBar.tsx`:
+
+```tsx
+// components/SourceProductJobStatus.tsx
+'use client'
+
+import { JobStatusBar } from '@/components/BulkJobBar'
+
+export default function SourceProductJobStatus() {
+  return <JobStatusBar runningLabel="Crawling..." jobCollection="product-crawls" />
+}
+```
+
+```typescript
+// In the collection config — place the ui field BEFORE the tabs field:
+fields: [
+  // ... sidebar fields (status, source, etc.) ...
+  {
+    name: 'crawlStatus',   // arbitrary name, not stored
+    type: 'ui',
+    admin: {
+      components: {
+        Field: '@/components/SourceProductJobStatus',
+      },
+    },
+  },
+  {
+    type: 'tabs',
+    tabs: [ /* ... */ ],
+  },
+]
+```
+
+**How the pub/sub works:** `JobButton` and `BulkJobMenuItem` both write into a module-level store (exported as `getJobState`/`setJobState` from `BulkJobBar.tsx`), keyed by `jobCollection`. `JobStatusBar` subscribes to that store and renders the event log. Because both components reference the same `jobCollection` key, the status bar automatically reflects whatever the button last triggered — no prop threading required.
+
+**Per-collection wiring summary:**
+
+| Collection | SaveButton | JobStatus component | `jobCollection` |
+|---|---|---|---|
+| `source-products` | `SourceProductSaveButton` | `SourceProductJobStatus` | `product-crawls` |
+| `products` | `ProductSaveButton` | `ProductJobStatus` | `product-aggregations` |
+| `videos` | `VideoSaveButton` | `VideoJobStatus` | `video-processings` |
+| `channels` | `ChannelSaveButton` | `ChannelJobStatus` | `video-discoveries` |
+| `ingredients` | `IngredientSaveButton` | `IngredientJobStatus` | `ingredient-crawls` |
+
 ### Field Components
 
 ```typescript

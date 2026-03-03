@@ -11,7 +11,7 @@ export const ProductTypes: CollectionConfig = {
     defaultColumns: ['name', 'nameDE', 'slug'],
     group: 'Products',
     components: {
-      beforeList: ['/components/SeedProductTypesButton'],
+      listMenuItems: ['/components/SeedProductTypesButton'],
     },
   },
   fields: [

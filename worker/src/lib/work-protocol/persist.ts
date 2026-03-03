@@ -1020,7 +1020,6 @@ export async function persistProductAggregationResult(
   const allIds = [...new Set([...existingSourceIds, ...sourceProductIds.map(Number)])]
 
   const updateData: Record<string, unknown> = {
-    lastAggregatedAt: new Date().toISOString(),
     sourceProducts: allIds,
   }
 
@@ -1096,7 +1095,7 @@ export async function persistProductAggregationResult(
             file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
           })
           const mediaId = (mediaDoc as { id: number }).id
-          updateData.image = mediaId
+          updateData.images = [{ image: mediaId }]
           log.info('persistProductAggregationResult: uploaded image', { mediaId })
           jlog.info('Image uploaded', { mediaId }, { event: true, labels: ['image', 'persistence'] })
         }

@@ -21,29 +21,6 @@ export const Products: CollectionConfig = {
   },
   fields: [
     {
-      name: 'publishedAt',
-      type: 'date',
-      label: 'Published At',
-      admin: {
-        position: 'sidebar',
-        date: {
-          pickerAppearance: 'dayAndTime',
-        },
-      },
-    },
-    {
-      name: 'lastAggregatedAt',
-      type: 'date',
-      label: 'Last Aggregated At',
-      admin: {
-        position: 'sidebar',
-        description: 'When data sources were last aggregated into name, brand, and description',
-        date: {
-          pickerAppearance: 'dayAndTime',
-        },
-      },
-    },
-    {
       name: 'brand',
       type: 'relationship',
       relationTo: 'brands',
@@ -80,12 +57,6 @@ export const Products: CollectionConfig = {
               name: 'name',
               type: 'text',
               label: 'Product Name',
-              validate: (value: string | null | undefined, { siblingData }: { siblingData: Record<string, unknown> }) => {
-                if (siblingData?.publishedAt && !value) {
-                  return 'Name is required for published products'
-                }
-                return true
-              },
             },
             {
               name: 'description',
@@ -93,13 +64,21 @@ export const Products: CollectionConfig = {
               label: 'Description',
             },
             {
-              name: 'image',
-              type: 'upload',
-              relationTo: 'media',
-              label: 'Product Image',
+              name: 'images',
+              type: 'array',
+              label: 'Product Images',
               admin: {
-                description: 'Primary product image (aggregated from source products)',
+                description: 'Product images (first entry is the primary display image, aggregated from source products)',
               },
+              fields: [
+                {
+                  name: 'image',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Image',
+                  required: true,
+                },
+              ],
             },
           ],
         },

@@ -1079,15 +1079,19 @@ export interface ProductAggregation {
  */
 export interface Product {
   id: number;
-  name?: string | null;
-  description?: string | null;
   brand?: (number | null) | Brand;
   productType?: (number | null) | ProductType;
+  name?: string | null;
+  description?: string | null;
   /**
-   * Primary product image (aggregated from source products)
+   * Product images (first entry is the primary display image, aggregated from source products)
    */
-  image?: (number | null) | Media;
-  publishedAt?: string | null;
+  images?:
+    | {
+        image: number | Media;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * Product variants, each with their own GTIN and retailer source links
    */
@@ -1238,10 +1242,6 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  /**
-   * When data sources were last aggregated into name, brand, and description
-   */
-  lastAggregatedAt?: string | null;
   /**
    * Links to crawled source product data
    */
@@ -2086,12 +2086,16 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
  * via the `definition` "products_select".
  */
 export interface ProductsSelect<T extends boolean = true> {
-  name?: T;
-  description?: T;
   brand?: T;
   productType?: T;
-  image?: T;
-  publishedAt?: T;
+  name?: T;
+  description?: T;
+  images?:
+    | T
+    | {
+        image?: T;
+        id?: T;
+      };
   variants?: T;
   warnings?: T;
   skinApplicability?: T;
@@ -2152,7 +2156,6 @@ export interface ProductsSelect<T extends boolean = true> {
         id?: T;
       };
   aggregations?: T;
-  lastAggregatedAt?: T;
   sourceProducts?: T;
   updatedAt?: T;
   createdAt?: T;

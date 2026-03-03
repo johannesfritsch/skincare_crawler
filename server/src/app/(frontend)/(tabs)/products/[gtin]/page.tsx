@@ -53,8 +53,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       description: t.products.description,
       brandName: t.brands.name,
       productTypeName: t.product_types.name,
-      publishedAt: t.products.publishedAt,
-      lastAggregatedAt: t.products.lastAggregatedAt,
       createdAt: t.products.createdAt,
       updatedAt: t.products.updatedAt,
       imageUrl: sql<string | null>`coalesce(${t.media}.sizes_detail_url, ${t.media}.url)`,
@@ -65,7 +63,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     .from(t.products)
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
-    .leftJoin(t.media, eq(t.products.image, t.media.id))
+    .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
+    .leftJoin(t.media, eq(t.products_images.image, t.media.id))
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
     .where(eq(t.product_variants.gtin, gtin))
     .limit(1)
