@@ -30,6 +30,7 @@ interface ScrapedProductData {
       gtin: string | null
       isSelected: boolean
       availability?: 'available' | 'unavailable' | 'unknown'
+      sourceArticleNumber?: string | null
     }>
   }>
   labels?: string[]
@@ -153,7 +154,6 @@ export async function persistCrawlResult(
   const productPayload: Record<string, unknown> = {
     status: 'crawled' as const,
     source,
-    sourceArticleNumber: data.sourceArticleNumber ?? null,
     brandName: data.brandName ?? null,
     name: data.name,
     ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
@@ -178,19 +178,24 @@ export async function persistCrawlResult(
   // Determine the canonical URL for the crawled variant
   const canonicalVariantUrl = data.canonicalUrl ? normalizeVariantUrl(data.canonicalUrl) : variantUrl
 
-  // Find the selected variant's label and dimension from the scraped data
+  // Find the selected variant's label, dimension, and article number from the scraped data
   let crawledVariantLabel: string | undefined
   let crawledVariantDimension: string | undefined
+  let crawledVariantArticleNumber: string | undefined
   for (const variantGroup of data.variants) {
     for (const option of variantGroup.options) {
       if (option.isSelected) {
         crawledVariantLabel = option.label || undefined
         crawledVariantDimension = variantGroup.dimension || undefined
+        crawledVariantArticleNumber = option.sourceArticleNumber || undefined
         break
       }
     }
     if (crawledVariantLabel) break
   }
+  // Use the selected variant option's article number if available, otherwise fall back to top-level
+  // (top-level is set by Rossmann which only has one DAN per page, and by all drivers as a convenience)
+  const effectiveArticleNumber = crawledVariantArticleNumber ?? data.sourceArticleNumber ?? undefined
 
   if (sourceVariantId) {
     // Existing variant (re-crawl or variant crawl) — update it
@@ -203,6 +208,7 @@ export async function persistCrawlResult(
         ...(canonicalVariantUrl !== variantUrl ? { sourceUrl: canonicalVariantUrl } : {}),
         ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
         ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
+        ...(effectiveArticleNumber ? { sourceArticleNumber: effectiveArticleNumber } : {}),
         crawledAt: now,
       },
     })
@@ -218,6 +224,7 @@ export async function persistCrawlResult(
           availability: data.availability ?? 'available',
           variantLabel: crawledVariantLabel,
           variantDimension: crawledVariantDimension,
+          sourceArticleNumber: effectiveArticleNumber,
           crawledAt: now,
         },
       }) as { id: number }
@@ -240,6 +247,7 @@ export async function persistCrawlResult(
             availability: data.availability ?? 'available',
             ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
             ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
+            ...(effectiveArticleNumber ? { sourceArticleNumber: effectiveArticleNumber } : {}),
             crawledAt: now,
           },
         })
@@ -280,6 +288,7 @@ export async function persistCrawlResult(
               variantLabel: option.label || undefined,
               variantDimension: variantGroup.dimension || undefined,
               availability: option.availability ?? 'available',
+              sourceArticleNumber: option.sourceArticleNumber || undefined,
             },
           })
           newVariants++
@@ -295,6 +304,7 @@ export async function persistCrawlResult(
         const updates: Record<string, unknown> = {}
         updates.availability = option.availability ?? 'available'
         if (option.gtin && !sv.gtin) updates.gtin = option.gtin
+        if (option.sourceArticleNumber && !sv.sourceArticleNumber) updates.sourceArticleNumber = option.sourceArticleNumber
         if (Object.keys(updates).length > 0) {
           try {
             await payload.update({

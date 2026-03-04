@@ -665,6 +665,7 @@ export const dmDriver: SourceDriver = {
               value: opt.href ? normalizeProductUrl(`https://www.dm.de${opt.href}`) : null,
               gtin: opt.gtin != null ? String(opt.gtin) : null,
               isSelected: opt.isSelected ?? false,
+              sourceArticleNumber: opt.dan != null ? String(opt.dan) : null,
             }
           })
           if (options.length > 0) {

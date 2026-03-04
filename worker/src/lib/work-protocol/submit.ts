@@ -37,6 +37,8 @@ interface ScrapedProductData {
       value: string | null
       gtin: string | null
       isSelected: boolean
+      availability?: 'available' | 'unavailable' | 'unknown'
+      sourceArticleNumber?: string | null
     }>
   }>
   labels?: string[]

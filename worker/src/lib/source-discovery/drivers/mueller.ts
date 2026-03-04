@@ -915,7 +915,7 @@ export const muellerDriver: SourceDriver = {
             const hasSize = rscProduct.siblings.some((s) => s.clothingSize || s.sizeRange)
             const dimension = hasColor ? 'Farbe' : hasSize ? 'Größe' : 'Variante'
 
-            const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null }> = []
+            const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null; sourceArticleNumber: string | null }> = []
             for (const sibling of rscProduct.siblings) {
               // Build label from color number + color name
               let label = ''
@@ -946,7 +946,7 @@ export const muellerDriver: SourceDriver = {
                 ? (sibling.stockLevel > 0 ? 'available' : 'unavailable')
                 : null
 
-              options.push({ label, value, gtin: siblingGtin, isSelected, availability })
+              options.push({ label, value, gtin: siblingGtin, isSelected, availability, sourceArticleNumber: sibling.code || null })
             }
 
             if (options.length > 0) {
@@ -966,7 +966,7 @@ export const muellerDriver: SourceDriver = {
               const tileList = wrapper.querySelector('[class*="product-attribute-tile-list"]')
               if (!tileList) return
 
-              const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null }> = []
+              const options: Array<{ label: string; value: string | null; gtin: string | null; isSelected: boolean; availability: string | null; sourceArticleNumber: string | null }> = []
               const tiles = tileList.querySelectorAll(':scope > div')
               tiles.forEach((tile) => {
                 const img = tile.querySelector('img[alt]')
@@ -994,7 +994,7 @@ export const muellerDriver: SourceDriver = {
                   }
                 }
 
-                options.push({ label, value, gtin: tileGtin, isSelected, availability: null })
+                options.push({ label, value, gtin: tileGtin, isSelected, availability: null, sourceArticleNumber: null })
               })
 
               if (options.length > 0) {

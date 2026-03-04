@@ -56,6 +56,7 @@ export interface ScrapedProductData {
       gtin: string | null
       isSelected: boolean
       availability?: 'available' | 'unavailable' | 'unknown'
+      sourceArticleNumber?: string | null
     }>
   }>
   labels?: string[]

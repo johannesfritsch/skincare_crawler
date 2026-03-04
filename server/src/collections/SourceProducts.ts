@@ -100,14 +100,6 @@ export const SourceProducts: CollectionConfig = {
           label: 'Product',
           fields: [
             {
-              name: 'sourceArticleNumber',
-              type: 'text',
-              label: 'Article Number',
-              admin: {
-                description: 'Source-specific article number (e.g., DM Artikelnummer)',
-              },
-            },
-            {
               name: 'brandName',
               type: 'text',
               label: 'Brand',
@@ -239,7 +231,7 @@ export const SourceProducts: CollectionConfig = {
               collection: 'source-variants',
               on: 'sourceProduct',
               admin: {
-                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel', 'availability'],
+                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel', 'sourceArticleNumber', 'availability'],
               },
             },
             {

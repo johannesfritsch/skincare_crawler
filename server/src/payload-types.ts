@@ -653,10 +653,6 @@ export interface SourceProduct {
    */
   sourceUrl?: string | null;
   /**
-   * Source-specific article number (e.g., DM Artikelnummer)
-   */
-  sourceArticleNumber?: string | null;
-  /**
    * Product brand name
    */
   brandName?: string | null;
@@ -776,6 +772,10 @@ export interface SourceVariant {
    * The dimension this variant represents (e.g. "Color", "Size")
    */
   variantDimension?: string | null;
+  /**
+   * Store-specific article number / SKU for this variant (e.g., DM DAN, Mueller code, Shopify SKU)
+   */
+  sourceArticleNumber?: string | null;
   /**
    * Whether this variant is currently available for purchase at the retailer
    */
@@ -2189,7 +2189,6 @@ export interface SourceProductsSelect<T extends boolean = true> {
   status?: T;
   source?: T;
   sourceUrl?: T;
-  sourceArticleNumber?: T;
   brandName?: T;
   name?: T;
   categoryBreadcrumb?: T;
@@ -2241,6 +2240,7 @@ export interface SourceVariantsSelect<T extends boolean = true> {
   gtin?: T;
   variantLabel?: T;
   variantDimension?: T;
+  sourceArticleNumber?: T;
   availability?: T;
   crawledAt?: T;
   updatedAt?: T;

@@ -59,6 +59,14 @@ export const SourceVariants: CollectionConfig = {
       },
     },
     {
+      name: 'sourceArticleNumber',
+      type: 'text',
+      label: 'Article Number',
+      admin: {
+        description: 'Store-specific article number / SKU for this variant (e.g., DM DAN, Mueller code, Shopify SKU)',
+      },
+    },
+    {
       name: 'availability',
       type: 'select',
       label: 'Availability',

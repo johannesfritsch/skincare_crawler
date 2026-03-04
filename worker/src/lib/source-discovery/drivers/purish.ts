@@ -168,6 +168,7 @@ interface PageJsonVariant {
   option2: string | null
   option3: string | null
   barcode: string | null
+  sku: string | null
   available: boolean
 }
 
@@ -190,7 +191,7 @@ function parseProductJson(html: string): {
   available?: boolean
   variants?: Array<{
     id: number; title?: string; option1?: string | null; option2?: string | null; option3?: string | null;
-    barcode?: string | null; available: boolean
+    barcode?: string | null; sku?: string | null; available: boolean
   }>
 } | null {
   const marker = 'var productJson = '
@@ -277,6 +278,7 @@ async function fetchProductPageData(handle: string): Promise<ProductPageData> {
               option2: v.option2 ?? null,
               option3: v.option3 ?? null,
               barcode: v.barcode ?? null,
+              sku: v.sku ?? null,
               available: v.available,
             })
           }
@@ -603,14 +605,20 @@ export const purishDriver: SourceDriver = {
     // Variants: Use productJson from page HTML as primary source — it includes ALL variants
     // (available + unavailable), while the .json API may only return available ones.
     // Fall back to .json API variants if productJson didn't yield any.
+    // Build SKU map from .json API variants (always have sku) for backfill
+    const skuById = new Map(product.variants.map((v) => [v.id, v.sku || null]))
+
     const variantSource: Array<{
       id: number; title: string; option1: string | null; option2: string | null; option3: string | null;
-      barcode: string | null; available?: boolean
+      barcode: string | null; sku: string | null; available?: boolean
     }> = pageData.allVariants.length > 0
-      ? pageData.allVariants
+      ? pageData.allVariants.map((v) => ({
+          ...v,
+          sku: v.sku ?? skuById.get(v.id) ?? null, // productJson sku first, then .json API fallback
+        }))
       : product.variants.map((v) => ({
           id: v.id, title: v.title, option1: v.option1, option2: v.option2, option3: v.option3,
-          barcode: v.barcode, available: undefined,
+          barcode: v.barcode, sku: v.sku || null, available: undefined,
         }))
 
     const variants: ScrapedProductData['variants'] = []
@@ -628,6 +636,7 @@ export const purishDriver: SourceDriver = {
             gtin: v.barcode || null,
             isSelected: v.id === selectedVariant?.id,
             availability: v.available != null ? (v.available ? 'available' as const : 'unavailable' as const) : undefined,
+            sourceArticleNumber: v.sku,
           }
         })
         // Deduplicate by label

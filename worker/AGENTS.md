@@ -366,11 +366,11 @@ interface ScrapedProductData {
   amount?: number
   amountUnit?: string
   images: Array<{ url: string; alt?: string | null }>
-  variants: Array<{ dimension: string; options: Array<{ label, value (full variant URL), gtin, isSelected, availability? }> }>
+  variants: Array<{ dimension: string; options: Array<{ label, value (full variant URL), gtin, isSelected, availability?, sourceArticleNumber? }> }>
   labels?: string[]
   rating?: number
   ratingNum?: number
-  sourceArticleNumber?: string
+  sourceArticleNumber?: string  // top-level: article number for the crawled variant (used by Rossmann which has one DAN per page; other drivers also set it for the selected variant)
   categoryBreadcrumbs?: string[]
   categoryUrl?: string
   canonicalUrl?: string
