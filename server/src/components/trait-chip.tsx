@@ -67,7 +67,7 @@ const ICON_MAP: Record<TraitIcon, LucideIcon> = {
 /* ── Evidence types ── */
 
 export interface TraitEvidence {
-  /** Store slug: 'dm' | 'rossmann' | 'mueller' */
+  /** Source store slug (e.g. 'dm', 'rossmann') */
   sourceName: string | null
   evidenceType: string | null
   /** For descriptionSnippet: the verbatim snippet */

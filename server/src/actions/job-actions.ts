@@ -3,6 +3,7 @@
 import config from '@payload-config'
 import { getPayload } from 'payload'
 import type { Where } from 'payload'
+import type { ProductCrawl } from '@/payload-types'
 
 type JobResult = { success: boolean; jobId?: number; error?: string }
 
@@ -260,7 +261,7 @@ export async function bulkCrawlSourceProducts(ids: number[]): Promise<JobResult>
     const job = await payload.create({
       collection: 'product-crawls',
       data: {
-        source: source as 'dm' | 'rossmann' | 'mueller',
+        source: source as ProductCrawl['source'],
         type: 'selected_urls',
         urls: urls.join('\n'),
         scope: 'recrawl',
