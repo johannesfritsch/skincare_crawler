@@ -157,9 +157,9 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); updates the crawled `source-variant`'s GTIN, availability (defaults to `available` if driver didn't specify), canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources — DM, Mueller, Rossmann, PURISH) with availability (defaults to `available`) and GTIN; updates availability and GTIN on existing sibling variants; **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and marks any whose URL is NOT in the scraped set as `availability: 'unavailable'` (store-agnostic — works for all drivers); for Mueller, deletes the base-URL variant (no `?itemId=`) when `?itemId=` variants are discovered (avoids duplicate entries); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
+| `persistCrawlResult()` | Updates parent `source-products` with scraped data (name, brand, images, price history, ingredients, rating, etc.); on **first crawl** (no `sourceVariantId`), creates a source-variant for the crawled URL (for all stores — DM/Rossmann get a variant matching the product URL, Mueller/PURISH get their query-param variants); on **re-crawl** (existing `sourceVariantId`), updates the variant's GTIN, availability (defaults to `available` if driver didn't specify), canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), and `crawledAt`; creates sibling `source-variants` from variant URLs provided by the driver (all sources) with availability (defaults to `available`) and GTIN; updates availability and GTIN on existing sibling variants; **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and marks any whose URL is NOT in the scraped set as `availability: 'unavailable'` (store-agnostic — works for all drivers); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
-| `persistDiscoveredProduct()` | Dedup by source-variant URL; creates `source-products` + source-variant together when new; updates existing parent source-product when variant URL already exists; creates `discovery-results` join record |
+| `persistDiscoveredProduct()` | Dedup by `source-products.sourceUrl`; creates `source-products` (no variant — variants are only created during crawl) when new; updates existing source-product when URL already exists; creates `discovery-results` join record |
 
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
@@ -171,12 +171,16 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 ### 1. product-crawl
 
 **Handler**: `handleProductCrawl()`
-**Flow**: For each work item (with `sourceVariantId`, `sourceProductId`, `sourceUrl`, `source`) → `getSourceDriverBySlug(source)` → `driver.scrapeProduct(url)` → collect results → `submitWork()`
+**Flow**: For each work item (with `sourceProductId`, `sourceUrl`, `source`, and optionally `sourceVariantId`) → `getSourceDriverBySlug(source)` → `driver.scrapeProduct(url)` → collect results → `submitWork()`
+
+Work items come in two forms:
+- **First crawl** (no `sourceVariantId`): The URL comes from `source-products.sourceUrl`. On persist, creates a source-variant for the crawled URL (DM/Rossmann: the product URL itself becomes a variant; Mueller/PURISH: only `?itemId=`/`?variant=` URLs become variants).
+- **Variant crawl** (with `sourceVariantId`): The URL comes from an existing source-variant. On persist, updates that variant's data.
 
 **Crawl types**:
-- `all` — all uncrawled source-variants (whose parent source-product has `status=uncrawled`) for given source(s)
+- `all` — two-phase: first uncrawled source-products (no variants yet, via `findUncrawledProducts()`), then uncrawled source-variants (via `findUncrawledVariants()`) for given source(s)
 - `selected_urls` — specific URLs from the job's `urls` field (normalized via `normalizeVariantUrl` which preserves all query params)
-- `selected_gtins` — look up source-variants by GTIN, crawl their URLs
+- `selected_gtins` — look up source-products via source-variants by GTIN, crawl their URLs
 - `from_discovery` — crawl URLs from a linked product-discovery job
 
 **Scope**: `recrawl` resets matching source-products back to `uncrawled` and clears `crawledAt` on their variants (optionally filtered by `minCrawlAge`)
@@ -185,7 +189,10 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 **Variant tracking**: Each source-variant has a `crawledAt` timestamp set when it is individually crawled. `findUncrawledVariants()` skips variants where `crawledAt` is already set. When `crawlVariants=true` for scoped jobs (selected_urls, selected_gtins, from_discovery), the system resolves the original URLs to source-product IDs and finds ALL their uncrawled variants (including sibling variants with different URLs).
 
-**Resumption**: Source-variants whose parent has `status=uncrawled` and whose own `crawledAt` is null are the implicit work queue (via `findUncrawledVariants()`). Each batch fetches `itemsPerTick` (default 10) uncrawled items.
+**Resumption**: Two-phase work queue via `buildProductCrawlWork()`:
+1. **Uncrawled products** (via `findUncrawledProducts()`): source-products with `status=uncrawled` that have zero source-variants — these need their first crawl. Work items have no `sourceVariantId`; the URL is `source-products.sourceUrl`.
+2. **Uncrawled variants** (via `findUncrawledVariants()`): source-variants where `crawledAt` is null — these were created as siblings during a previous crawl and need their own crawl. Work items have a `sourceVariantId`.
+Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 ### 2. product-discovery
 
@@ -548,7 +555,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **Variant URLs**: Drivers are the source of truth for variant URL construction. Each driver extracts the full variant URL from the page (DM: from API `href` field; Mueller: from RSC JSON `siblings[].path`; Rossmann: from variant list link `href`; PURISH: `?variant={id}` from Shopify variant ID). `persistCrawlResult` stores whatever the driver provides — no URL inference or construction outside the driver. `normalizeVariantUrl()` preserves all query params — drivers produce clean URLs with only meaningful params. Mueller's driver uses a hybrid RSC JSON + DOM scraping approach: structured data (GTIN, price, brand, images, variants with availability) comes from the Next.js RSC payload embedded in `self.__next_f.push()` script tags, while ingredients, rating, and accordion description are scraped from the rendered DOM. PURISH's driver uses a hybrid approach: the Shopify `.json` API for product data (name, brand, description, images, options) and the embedded `productJson` from the page HTML for per-variant availability + the complete variant list (API may omit unavailable variants). When crawling a specific variant URL (`?variant=ID`), the driver selects the matching variant for GTIN/price/canonicalUrl.
 - **Variant availability**: All four drivers provide per-variant availability. DM uses its availability API (keyed by DAN). Mueller uses RSC JSON `stockLevel`. Rossmann only shows available variants on the page (persist layer marks disappeared ones as unavailable). PURISH uses the `productJson` variable embedded in the product page HTML as the **primary variant source** — it includes ALL variants (available + unavailable) with `available` booleans, while the Shopify `.json` API may omit unavailable variants. The persist layer defaults variants to `available` if the driver doesn't explicitly set availability, and reconciles disappeared variants as `unavailable`.
 - **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. This is raw metadata from retailers; it is not mapped to any collection during aggregation.
-- **Deduplication**: Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicates. Source-products no longer have a `sourceUrl` field — dedup happens at the variant level.
+- **Deduplication**: Source-products are matched by `sourceUrl` (unique, indexed field on `source-products`) to prevent duplicates during discovery and search. Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicate variants during crawl.
 - **Price history**: Each crawl/discovery appends to the `priceHistory` array on source-products
 - **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).

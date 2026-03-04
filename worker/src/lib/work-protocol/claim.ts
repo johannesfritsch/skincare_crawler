@@ -1,6 +1,6 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
-import { findUncrawledVariants, getSourceSlugFromUrl, countUncrawled, resetProducts, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
+import { findUncrawledProducts, findUncrawledVariants, getSourceSlugFromUrl, countUncrawled, resetProducts, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
@@ -187,23 +187,38 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
   // Determine source drivers
   const sources: string[] = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
 
-  // Build URL list based on type — URLs are now source-variant URLs (preserving itemId for Mueller)
+  // Build URL list based on type — these are now product-level URLs (on source-products.sourceUrl)
   let sourceUrls: string[] | undefined
   if (job.type === 'selected_urls') {
-    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeVariantUrl(u.trim())).filter(Boolean)
+    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeProductUrl(u.trim())).filter(Boolean)
   } else if (job.type === 'from_discovery' && job.discovery) {
     const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
     const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
-    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeVariantUrl)
+    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
   } else if (job.type === 'selected_gtins') {
-    // GTINs now live on source-variants, not source-products
+    // GTINs live on source-variants — resolve to parent source-product URLs
     const gtins = ((job.gtins as string) ?? '').split('\n').map((g: string) => g.trim()).filter(Boolean)
     const variants = await payload.find({
       collection: 'source-variants',
       where: { gtin: { in: gtins.join(',') } },
       limit: 10000,
     })
-    sourceUrls = variants.docs.map((v) => (v as Record<string, unknown>).sourceUrl).filter(Boolean) as string[]
+    // Get parent source-product IDs, then their sourceUrls
+    const spIds = [...new Set(variants.docs.map((v) => {
+      const sv = v as Record<string, unknown>
+      const spRef = sv.sourceProduct as number | Record<string, unknown>
+      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+    }))]
+    if (spIds.length > 0) {
+      const spResult = await payload.find({
+        collection: 'source-products',
+        where: { id: { in: spIds.join(',') } },
+        limit: 10000,
+      })
+      sourceUrls = spResult.docs
+        .map((sp) => (sp as Record<string, unknown>).sourceUrl as string)
+        .filter(Boolean)
+    }
   }
 
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
@@ -213,30 +228,20 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
   // This ensures sibling variants (with different URLs) are also found and crawled.
   let sourceProductIds: number[] | undefined
   if (crawlVariants && sourceUrls && sourceUrls.length > 0) {
-    const svResult = await payload.find({
-      collection: 'source-variants',
+    const spResult = await payload.find({
+      collection: 'source-products',
       where: { sourceUrl: { in: sourceUrls.join(',') } },
       limit: 100000,
     })
-    sourceProductIds = [...new Set(svResult.docs.map((doc) => {
-      const sv = doc as Record<string, unknown>
-      const spRef = sv.sourceProduct as number | Record<string, unknown>
-      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
-    }))]
+    sourceProductIds = spResult.docs.map((doc) => (doc as Record<string, unknown>).id as number)
     jlog.info('Resolved URLs to source-product IDs for variant crawl', { jobId, urlCount: sourceUrls.length, sourceProductCount: sourceProductIds.length })
   }
-
-  // Build query options: when crawlVariants=true with scoped URLs, use sourceProductIds (finds all variants);
-  // otherwise use sourceUrls (finds only the specific variant URLs)
-  const queryOpts = sourceProductIds
-    ? { sourceProductIds }
-    : sourceUrls ? { sourceUrls } : undefined
 
   // Initialize job if pending: create stubs, reset products, count total
   if (job.status === 'pending') {
     jlog.info('Initializing product crawl job', { jobId })
 
-    // Auto-create stubs for URLs that don't have source-variants yet
+    // Auto-create stubs for URLs that don't have source-products yet
     if (sourceUrls) {
       let stubsCreated = 0
       for (const url of sourceUrls) {
@@ -246,22 +251,18 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
           continue
         }
 
-        // Check if a source-variant with this URL already exists
-        const existingVariant = await payload.find({
-          collection: 'source-variants',
+        // Check if a source-product with this URL already exists
+        const existingProduct = await payload.find({
+          collection: 'source-products',
           where: { sourceUrl: { equals: url } },
           limit: 1,
         })
 
-        if (existingVariant.docs.length === 0) {
-          // Create a stub source-product + default source-variant
-          const stubProduct = await payload.create({
-            collection: 'source-products',
-            data: { source: slug, status: 'uncrawled' },
-          }) as { id: number }
+        if (existingProduct.docs.length === 0) {
+          // Create a stub source-product (no variant — variants are created during crawl)
           await payload.create({
-            collection: 'source-variants',
-            data: { sourceProduct: stubProduct.id, sourceUrl: url },
+            collection: 'source-products',
+            data: { source: slug, sourceUrl: url, status: 'uncrawled' },
           })
           stubsCreated++
         }
@@ -287,7 +288,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       }
     }
 
-    // Count total (note: initial count uses sourceUrls since siblings don't exist yet at this point)
+    // Count total uncrawled source-products
     let total = 0
     for (const source of sources) {
       total += await countUncrawled(payload, source as SourceSlug, sourceUrls ? { sourceUrls } : undefined)
@@ -311,22 +312,42 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
     jlog.info('Started product crawl', { total }, { event: 'start' })
   }
 
-  // Find uncrawled source-variants to process in this batch
-  const workItems: Array<{ sourceVariantId: number; sourceProductId: number; sourceUrl: string; source: string }> = []
+  // Build query options for finding work
+  const queryOpts = sourceProductIds
+    ? { sourceProductIds }
+    : sourceUrls ? { sourceUrls } : undefined
+
+  // Find work items: first try uncrawled products (no variants yet), then uncrawled variants
+  const workItems: Array<{ sourceVariantId?: number; sourceProductId: number; sourceUrl: string; source: string }> = []
 
   for (const source of sources) {
-    const variants = await findUncrawledVariants(payload, source as SourceSlug, {
+    const remaining = itemsPerTick - workItems.length
+    if (remaining <= 0) break
+
+    // Phase 1: Find uncrawled source-products with no variants (first crawl)
+    const products = await findUncrawledProducts(payload, source as SourceSlug, {
       ...(queryOpts ?? {}),
-      limit: itemsPerTick - workItems.length,
+      limit: remaining,
     })
 
-    jlog.info('Found uncrawled variants', { jobId, source, count: variants.length })
-
-    for (const v of variants) {
-      workItems.push({ sourceVariantId: v.sourceVariantId, sourceProductId: v.sourceProductId, sourceUrl: v.sourceUrl, source })
+    for (const p of products) {
+      workItems.push({ sourceProductId: p.sourceProductId, sourceUrl: p.sourceUrl, source })
     }
 
-    if (workItems.length >= itemsPerTick) break
+    // Phase 2: Find uncrawled variants (subsequent crawls, when crawlVariants=true)
+    if (crawlVariants && workItems.length < itemsPerTick) {
+      const variantRemaining = itemsPerTick - workItems.length
+      const variants = await findUncrawledVariants(payload, source as SourceSlug, {
+        ...(queryOpts?.sourceProductIds ? { sourceProductIds: queryOpts.sourceProductIds } : {}),
+        limit: variantRemaining,
+      })
+
+      for (const v of variants) {
+        workItems.push({ sourceVariantId: v.sourceVariantId, sourceProductId: v.sourceProductId, sourceUrl: v.sourceUrl, source })
+      }
+    }
+
+    jlog.info('Found work items', { jobId, source, products: products.length, variants: workItems.length - products.length })
   }
 
   jlog.info('Prepared work items', { jobId, count: workItems.length })
@@ -342,7 +363,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
         completedAt: new Date().toISOString(),
       },
     })
-      jlog.info('Product crawl completed', { crawled: (job.crawled as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
+    jlog.info('Product crawl completed', { crawled: (job.crawled as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
     return { type: 'none' }
   }
 

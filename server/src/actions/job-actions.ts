@@ -96,16 +96,8 @@ export async function crawlSourceProduct(sourceProductId: number): Promise<JobRe
     return { success: false, error: 'Source product has no source' }
   }
 
-  const variants = await payload.find({
-    collection: 'source-variants',
-    where: { sourceProduct: { equals: sourceProductId } },
-    limit: 1,
-    depth: 0,
-  })
-
-  const firstVariant = variants.docs[0]
-  if (!firstVariant?.sourceUrl) {
-    return { success: false, error: 'Source product has no variant with a URL' }
+  if (!sourceProduct.sourceUrl) {
+    return { success: false, error: 'Source product has no source URL' }
   }
 
   const crawl = await payload.create({
@@ -113,7 +105,7 @@ export async function crawlSourceProduct(sourceProductId: number): Promise<JobRe
     data: {
       source: sourceProduct.source,
       type: 'selected_urls',
-      urls: firstVariant.sourceUrl,
+      urls: sourceProduct.sourceUrl,
       scope: 'recrawl',
       status: 'pending',
     },
@@ -227,27 +219,12 @@ export async function bulkCrawlSourceProducts(ids: number[]): Promise<JobResult>
     depth: 0,
   })
 
-  // Get variant URLs for all selected source products (one per product)
-  const variants = await payload.find({
-    collection: 'source-variants',
-    where: { sourceProduct: { in: ids } },
-    limit: ids.length * 10,
-    depth: 0,
-  })
-
-  // Build a map: sourceProductId → sourceUrl
-  const urlMap = new Map(variants.docs.map((v) => [
-    typeof v.sourceProduct === 'number' ? v.sourceProduct : v.sourceProduct,
-    v.sourceUrl,
-  ]))
-
   // Group URLs by source store (one crawl job per store)
   const bySource = new Map<string, string[]>()
   for (const sp of sourceProducts.docs) {
-    const url = urlMap.get(sp.id)
-    if (!sp.source || !url) continue
+    if (!sp.source || !sp.sourceUrl) continue
     const list = bySource.get(sp.source) ?? []
-    list.push(url)
+    list.push(sp.sourceUrl)
     bySource.set(sp.source, list)
   }
 

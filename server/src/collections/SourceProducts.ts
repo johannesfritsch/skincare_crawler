@@ -74,6 +74,17 @@ export const SourceProducts: CollectionConfig = {
       },
     },
     {
+      name: 'sourceUrl',
+      type: 'text',
+      label: 'Source URL',
+      unique: true,
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description: 'Product page URL at the source store (dedup key)',
+      },
+    },
+    {
       name: 'crawlStatus',
       type: 'ui',
       admin: {

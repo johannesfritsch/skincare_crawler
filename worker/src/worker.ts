@@ -133,7 +133,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   const jobId = work.jobId as number
   const jlog = log.forJob('product-crawls', jobId)
   const workItems = work.workItems as Array<{
-    sourceVariantId: number
+    sourceVariantId?: number
     sourceProductId: number
     sourceUrl: string
     source: string
@@ -154,7 +154,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   }
 
   const results: Array<{
-    sourceVariantId: number
+    sourceVariantId?: number
     sourceProductId: number
     sourceUrl: string
     source: string

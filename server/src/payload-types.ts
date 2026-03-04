@@ -649,6 +649,10 @@ export interface SourceProduct {
   status?: ('uncrawled' | 'crawled') | null;
   source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
   /**
+   * Product page URL at the source store (dedup key)
+   */
+  sourceUrl?: string | null;
+  /**
    * Source-specific article number (e.g., DM Artikelnummer)
    */
   sourceArticleNumber?: string | null;
@@ -2184,6 +2188,7 @@ export interface ProductVariantsSelect<T extends boolean = true> {
 export interface SourceProductsSelect<T extends boolean = true> {
   status?: T;
   source?: T;
+  sourceUrl?: T;
   sourceArticleNumber?: T;
   brandName?: T;
   name?: T;
