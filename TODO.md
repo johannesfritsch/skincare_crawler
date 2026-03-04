@@ -6,4 +6,10 @@
 - ✅ Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers
 - ✅ Rename ProductQuotes to VideoMentions
 - ✅ Make sure that no 0 is in rating of no ratings are there for a SourceProduct
-- Fix mueller.de bot detection (maybe just wait a second?)
+- ✅ Fix mueller.de bot detection (maybe just wait a second?)
+- ✅ Implement availability for mueller
+- ✅ Implement availability for dm
+- ✅ Implement availability for rossmann
+- Implement availability for purish
+- Move articleNumber, images, priceInformation to variants and adapt all drivers (=> make sure priceInformation contain the availability)
+- We need to have a step where we also visit all previous variants to see if they have been discontinued
