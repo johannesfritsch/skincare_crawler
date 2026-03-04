@@ -174,8 +174,23 @@ export async function persistCrawlResult(
     data: productPayload,
   })
 
-  // Update the crawled source-variant with GTIN, canonical URL, availability, and crawledAt timestamp
+  // Update the crawled source-variant with GTIN, canonical URL, availability, label, dimension, and crawledAt
   const canonicalVariantUrl = data.canonicalUrl ? normalizeVariantUrl(data.canonicalUrl) : variantUrl
+
+  // Find the selected variant's label and dimension from the scraped data to backfill on the crawled variant
+  let crawledVariantLabel: string | undefined
+  let crawledVariantDimension: string | undefined
+  for (const variantGroup of data.variants) {
+    for (const option of variantGroup.options) {
+      if (option.isSelected) {
+        crawledVariantLabel = option.label || undefined
+        crawledVariantDimension = variantGroup.dimension || undefined
+        break
+      }
+    }
+    if (crawledVariantLabel) break
+  }
+
   await payload.update({
     collection: 'source-variants',
     id: sourceVariantId,
@@ -183,6 +198,8 @@ export async function persistCrawlResult(
       ...(data.gtin ? { gtin: data.gtin } : {}),
       availability: data.availability ?? 'available',
       ...(canonicalVariantUrl !== variantUrl ? { sourceUrl: canonicalVariantUrl } : {}),
+      ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
+      ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
       crawledAt: now,
     },
   })

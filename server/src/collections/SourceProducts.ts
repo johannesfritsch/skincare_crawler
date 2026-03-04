@@ -40,6 +40,11 @@ export const SourceProducts: CollectionConfig = {
           where: { sourceProduct: { equals: id } },
           req,
         })
+        await req.payload.delete({
+          collection: 'search-results',
+          where: { sourceProduct: { equals: id } },
+          req,
+        })
       },
     ],
   },

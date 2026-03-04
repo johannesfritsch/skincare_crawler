@@ -28,19 +28,15 @@ export function normalizeProductUrl(url: string): string {
 }
 
 /**
- * Normalize a variant URL — preserves the `itemId` query parameter for Mueller
- * (which uses it to distinguish variants), strips all other query params and fragments.
- * For DM/Rossmann where each variant has its own path, this behaves like normalizeProductUrl.
+ * Normalize a variant URL — preserves all query parameters (drivers include only
+ * meaningful params when constructing variant URLs), strips hash fragments and
+ * trailing slashes. Drivers are the source of truth for which query params matter:
+ * Mueller uses `?itemId=`, PURISH uses `?variant=`, DM/Rossmann use path-based URLs.
  */
 export function normalizeVariantUrl(url: string): string {
   try {
     const parsed = new URL(url)
-    const itemId = parsed.searchParams.get('itemId')
-    parsed.search = ''
     parsed.hash = ''
-    if (itemId) {
-      parsed.searchParams.set('itemId', itemId)
-    }
     return parsed.href.replace(/\/+$/, '')
   } catch {
     return url.split('#')[0].replace(/\/+$/, '')

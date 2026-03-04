@@ -160,19 +160,83 @@ function bodyHtmlToMarkdown(html: string): string {
   return text
 }
 
+/** Variant data from the embedded productJson (includes unavailable variants that .json API omits) */
+interface PageJsonVariant {
+  id: number
+  title: string
+  option1: string | null
+  option2: string | null
+  option3: string | null
+  barcode: string | null
+  available: boolean
+}
+
+/** Data extracted from the product page HTML (single fetch for multiple extractions) */
+interface ProductPageData {
+  ingredientsText: string | null
+  /** Per-variant availability from the embedded productJson */
+  variantAvailability: Map<number, boolean>
+  /** Product-level availability from the embedded productJson */
+  productAvailable: boolean | null
+  /** Full variant list from productJson — includes ALL variants (available + unavailable) */
+  allVariants: PageJsonVariant[]
+}
+
 /**
- * Extract ingredients text from Shopify body_html.
+ * Parse the `var productJson = {...};` embedded in the product page HTML.
+ * This contains per-variant `available` booleans that the .json API omits.
+ */
+function parseProductJson(html: string): {
+  available?: boolean
+  variants?: Array<{
+    id: number; title?: string; option1?: string | null; option2?: string | null; option3?: string | null;
+    barcode?: string | null; available: boolean
+  }>
+} | null {
+  const marker = 'var productJson = '
+  const idx = html.indexOf(marker)
+  if (idx === -1) return null
+
+  const start = idx + marker.length
+  if (html[start] !== '{') return null
+
+  // Bracket-match to find the end of the JSON object
+  let depth = 0
+  let end = start
+  for (let i = start; i < html.length; i++) {
+    if (html[i] === '{') depth++
+    else if (html[i] === '}') depth--
+    if (depth === 0) {
+      end = i
+      break
+    }
+  }
+
+  try {
+    return JSON.parse(html.slice(start, end + 1))
+  } catch (e) {
+    log.warn('Failed to parse productJson', { error: String(e) })
+    return null
+  }
+}
+
+/**
+ * Fetch the product page HTML and extract ingredients + variant availability.
  * Purish products don't have a dedicated ingredients field in the JSON API,
  * but many product pages include an "Inhaltsstoffe" or "INCI" section in the
- * metafields or page HTML. We try the product page for metafield data.
+ * metafields or page HTML. The page also embeds `productJson` with per-variant
+ * `available` booleans.
  */
-async function fetchIngredientsFromPage(handle: string): Promise<string | null> {
+async function fetchProductPageData(handle: string): Promise<ProductPageData> {
+  const empty: ProductPageData = { ingredientsText: null, variantAvailability: new Map(), productAvailable: null, allVariants: [] }
   try {
     const url = `${BASE_URL}/products/${handle}`
     const res = await stealthFetch(url)
-    if (!res.ok) return null
+    if (!res.ok) return empty
     const html = await res.text()
 
+    // Extract ingredients
+    let ingredientsText: string | null = null
     // Look for INCI / Inhaltsstoffe in the page. Purish typically stores it
     // in a metafield that gets rendered as a tab/accordion on the product page.
     // Common patterns: "Inhaltsstoffe" or "INCI" section
@@ -182,20 +246,48 @@ async function fetchIngredientsFromPage(handle: string): Promise<string | null> 
       // Match a block of comma-separated INCI names (typical ingredient list)
       /((?:aqua|water)\s*(?:\/\s*eau)?,\s*(?:[a-z][a-z0-9\s\-\/()]*,\s*){5,}[a-z][a-z0-9\s\-\/()]*\.?)/i,
     ]
-
     for (const pattern of patterns) {
       const match = html.match(pattern)
       if (match) {
         const text = stripHtml(match[1] || match[0])
-        // Sanity check: should look like an ingredient list (comma-separated chemical names)
         if (text.includes(',') && text.length > 30) {
-          return text
+          ingredientsText = text
+          break
         }
       }
     }
-    return null
+
+    // Extract variant availability and full variant list from productJson
+    const variantAvailability = new Map<number, boolean>()
+    const allVariants: PageJsonVariant[] = []
+    let productAvailable: boolean | null = null
+    const productJson = parseProductJson(html)
+    if (productJson) {
+      if (typeof productJson.available === 'boolean') {
+        productAvailable = productJson.available
+      }
+      if (Array.isArray(productJson.variants)) {
+        for (const v of productJson.variants) {
+          if (typeof v.id === 'number' && typeof v.available === 'boolean') {
+            variantAvailability.set(v.id, v.available)
+            allVariants.push({
+              id: v.id,
+              title: v.title ?? '',
+              option1: v.option1 ?? null,
+              option2: v.option2 ?? null,
+              option3: v.option3 ?? null,
+              barcode: v.barcode ?? null,
+              available: v.available,
+            })
+          }
+        }
+      }
+      log.info('Parsed productJson', { variants: allVariants.length, productAvailable })
+    }
+
+    return { ingredientsText, variantAvailability, productAvailable, allVariants }
   } catch {
-    return null
+    return empty
   }
 }
 
@@ -440,7 +532,7 @@ export const purishDriver: SourceDriver = {
     const scrapeStartMs = Date.now()
     logger?.info('Scraping product', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
 
-    // Extract handle from URL
+    // Extract handle and optional variant ID from URL
     const parsed = new URL(sourceUrl)
     const pathParts = parsed.pathname.split('/').filter(Boolean)
     // Handle /products/foo or /en/products/foo
@@ -456,6 +548,7 @@ export const purishDriver: SourceDriver = {
       logger?.warn('Scrape failed: no handle in URL', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
       return null
     }
+    const requestedVariantId = parsed.searchParams.get('variant')
 
     const apiUrl = `${BASE_URL}/products/${handle}.json`
     log.info('Fetching product', { url: apiUrl })
@@ -475,18 +568,21 @@ export const purishDriver: SourceDriver = {
       return null
     }
 
-    const defaultVariant = product.variants[0]
-    const gtin = defaultVariant?.barcode || undefined
-    const priceCents = priceToCents(defaultVariant?.price)
-    const amountInfo = defaultVariant ? parseAmountFromVariant(defaultVariant) : null
+    // Find the selected variant: match by ?variant= param from URL, fall back to first
+    const selectedVariant = (requestedVariantId
+      ? product.variants.find((v) => String(v.id) === requestedVariantId)
+      : null) ?? product.variants[0]
+    const gtin = selectedVariant?.barcode || undefined
+    const priceCents = priceToCents(selectedVariant?.price)
+    const amountInfo = selectedVariant ? parseAmountFromVariant(selectedVariant) : null
 
     // Per-unit price from Shopify's unit_price_measurement
     let perUnitAmount: number | undefined
     let perUnitQuantity: number | undefined
     let perUnitUnit: string | undefined
-    if (defaultVariant?.unit_price_measurement) {
-      const upm = defaultVariant.unit_price_measurement
-      perUnitAmount = priceToCents(defaultVariant.unit_price)
+    if (selectedVariant?.unit_price_measurement) {
+      const upm = selectedVariant.unit_price_measurement
+      perUnitAmount = priceToCents(selectedVariant.unit_price)
       perUnitQuantity = upm.reference_value
       perUnitUnit = upm.reference_unit
     }
@@ -494,8 +590,9 @@ export const purishDriver: SourceDriver = {
     // Description
     const description = bodyHtmlToMarkdown(product.body_html || '')
 
-    // Ingredients: try to extract from the product page HTML
-    const ingredientsText = await fetchIngredientsFromPage(handle)
+    // Fetch product page HTML for ingredients + variant availability
+    const pageData = await fetchProductPageData(handle)
+    const ingredientsText = pageData.ingredientsText
 
     // Images
     const images = product.images.map((img) => ({
@@ -503,21 +600,34 @@ export const purishDriver: SourceDriver = {
       alt: img.alt,
     }))
 
-    // Variants: Shopify stores variants as option combinations
+    // Variants: Use productJson from page HTML as primary source — it includes ALL variants
+    // (available + unavailable), while the .json API may only return available ones.
+    // Fall back to .json API variants if productJson didn't yield any.
+    const variantSource: Array<{
+      id: number; title: string; option1: string | null; option2: string | null; option3: string | null;
+      barcode: string | null; available?: boolean
+    }> = pageData.allVariants.length > 0
+      ? pageData.allVariants
+      : product.variants.map((v) => ({
+          id: v.id, title: v.title, option1: v.option1, option2: v.option2, option3: v.option3,
+          barcode: v.barcode, available: undefined,
+        }))
+
     const variants: ScrapedProductData['variants'] = []
-    if (product.options.length > 0 && product.variants.length > 1) {
+    if (product.options.length > 0 && variantSource.length > 1) {
       for (const option of product.options) {
         if (option.name === 'Title' && option.values.length === 1 && option.values[0] === 'Default Title') {
           continue // Skip the "Default Title" pseudo-option
         }
         const optionIndex = option.position // 1-based
-        const optionValues = product.variants.map((v) => {
+        const optionValues = variantSource.map((v) => {
           const optVal = optionIndex === 1 ? v.option1 : optionIndex === 2 ? v.option2 : v.option3
           return {
             label: optVal || v.title,
             value: normalizeVariantUrl(`${BASE_URL}/products/${handle}?variant=${v.id}`),
             gtin: v.barcode || null,
-            isSelected: v.id === defaultVariant?.id,
+            isSelected: v.id === selectedVariant?.id,
+            availability: v.available != null ? (v.available ? 'available' as const : 'unavailable' as const) : undefined,
           }
         })
         // Deduplicate by label
@@ -548,7 +658,19 @@ export const purishDriver: SourceDriver = {
     // Category breadcrumbs from product_type
     const categoryBreadcrumbs = product.product_type ? [product.product_type] : undefined
 
-    const canonicalUrl = productUrl(handle)
+    // Canonical URL includes ?variant= so the crawled source-variant gets a unique URL
+    const canonicalUrl = selectedVariant
+      ? `${productUrl(handle)}?variant=${selectedVariant.id}`
+      : productUrl(handle)
+
+    // Product-level availability: use the selected variant's availability from productJson
+    const selectedAvail = selectedVariant ? pageData.variantAvailability.get(selectedVariant.id) : null
+    const productAvailability: 'available' | 'unavailable' | undefined =
+      selectedAvail != null
+        ? (selectedAvail ? 'available' : 'unavailable')
+        : (pageData.productAvailable != null
+            ? (pageData.productAvailable ? 'available' : 'unavailable')
+            : undefined)
 
     const scrapeDurationMs = Date.now() - scrapeStartMs
     logger?.info('Product scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
@@ -566,12 +688,13 @@ export const purishDriver: SourceDriver = {
       images,
       variants,
       labels: labels.length > 0 ? labels : undefined,
-      sourceArticleNumber: defaultVariant?.sku || undefined,
+      sourceArticleNumber: selectedVariant?.sku || undefined,
       categoryBreadcrumbs,
       canonicalUrl,
       perUnitAmount,
       perUnitQuantity,
       perUnitUnit,
+      availability: productAvailability,
       warnings: [],
     }
   },
