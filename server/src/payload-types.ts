@@ -703,34 +703,6 @@ export interface SourceProduct {
     totalDocs?: number;
   };
   /**
-   * Timestamped price entries from each crawl
-   */
-  priceHistory?:
-    | {
-        recordedAt: string;
-        /**
-         * Price in cents
-         */
-        amount?: number | null;
-        currency?: string | null;
-        perUnitAmount?: number | null;
-        perUnitCurrency?: string | null;
-        /**
-         * Reference quantity (e.g., 100 for "per 100 ml")
-         */
-        perUnitQuantity?: number | null;
-        /**
-         * Unit of measurement (e.g., ml, g, l, kg)
-         */
-        unit?: string | null;
-        /**
-         * Price movement vs previous record
-         */
-        change?: ('drop' | 'stable' | 'increase') | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
    * Raw ingredients text as crawled from source, including footnotes and annotations. Parsed into individual ingredients during product aggregation.
    */
   ingredientsText?: string | null;
@@ -780,6 +752,34 @@ export interface SourceVariant {
    * Whether this variant is currently available for purchase at the retailer
    */
   availability?: ('available' | 'unavailable' | 'unknown') | null;
+  /**
+   * Timestamped price entries from each crawl of this variant
+   */
+  priceHistory?:
+    | {
+        recordedAt: string;
+        /**
+         * Price in cents
+         */
+        amount?: number | null;
+        currency?: string | null;
+        perUnitAmount?: number | null;
+        perUnitCurrency?: string | null;
+        /**
+         * Reference quantity (e.g., 100 for "per 100 ml")
+         */
+        perUnitQuantity?: number | null;
+        /**
+         * Unit of measurement (e.g., ml, g, l, kg)
+         */
+        unit?: string | null;
+        /**
+         * Price movement vs previous record
+         */
+        change?: ('drop' | 'stable' | 'increase') | null;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * When this specific variant was last crawled
    */
@@ -2211,19 +2211,6 @@ export interface SourceProductsSelect<T extends boolean = true> {
         id?: T;
       };
   sourceVariants?: T;
-  priceHistory?:
-    | T
-    | {
-        recordedAt?: T;
-        amount?: T;
-        currency?: T;
-        perUnitAmount?: T;
-        perUnitCurrency?: T;
-        perUnitQuantity?: T;
-        unit?: T;
-        change?: T;
-        id?: T;
-      };
   ingredientsText?: T;
   discoveries?: T;
   crawls?: T;
@@ -2242,6 +2229,19 @@ export interface SourceVariantsSelect<T extends boolean = true> {
   variantDimension?: T;
   sourceArticleNumber?: T;
   availability?: T;
+  priceHistory?:
+    | T
+    | {
+        recordedAt?: T;
+        amount?: T;
+        currency?: T;
+        perUnitAmount?: T;
+        perUnitCurrency?: T;
+        perUnitQuantity?: T;
+        unit?: T;
+        change?: T;
+        id?: T;
+      };
   crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;

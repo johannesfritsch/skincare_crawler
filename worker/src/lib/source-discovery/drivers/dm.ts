@@ -480,7 +480,6 @@ export const dmDriver: SourceDriver = {
         const productUrl = tileData?.self ? normalizeProductUrl(`https://www.dm.de${tileData.self}`) : (gtin ? normalizeProductUrl(`https://www.dm.de/p${gtin}.html`) : null)
         if (!productUrl) continue
 
-        const trackingData = tileData?.trackingData as Record<string, unknown> | undefined
         const ratingData = tileData?.rating as Record<string, unknown> | undefined
 
         await onProduct({
@@ -488,10 +487,6 @@ export const dmDriver: SourceDriver = {
           productUrl,
           brandName: (product as Record<string, unknown>).brandName as string | undefined,
           name: (product as Record<string, unknown>).title as string | undefined,
-          price: trackingData?.price != null
-            ? Math.round(Number(trackingData.price) * 100)
-            : undefined,
-          currency: trackingData?.currency as string | undefined,
           rating: (ratingData?.ratingValue as number | undefined) || undefined,
           ratingCount: (ratingData?.ratingCount as number | undefined) || undefined,
           category: leaf.breadcrumb,
@@ -548,7 +543,6 @@ export const dmDriver: SourceDriver = {
         const productUrl = tileData?.self ? normalizeProductUrl(`https://www.dm.de${tileData.self}`) : (gtin ? normalizeProductUrl(`https://www.dm.de/p${gtin}.html`) : null)
         if (!productUrl) continue
 
-        const trackingData = tileData?.trackingData as Record<string, unknown> | undefined
         const ratingData = tileData?.rating as Record<string, unknown> | undefined
 
         products.push({
@@ -556,10 +550,6 @@ export const dmDriver: SourceDriver = {
           productUrl,
           brandName: (product as Record<string, unknown>).brandName as string | undefined,
           name: (product as Record<string, unknown>).title as string | undefined,
-          price: trackingData?.price != null
-            ? Math.round(Number(trackingData.price) * 100)
-            : undefined,
-          currency: trackingData?.currency as string | undefined,
           rating: (ratingData?.ratingValue as number | undefined) || undefined,
           ratingCount: (ratingData?.ratingCount as number | undefined) || undefined,
         })

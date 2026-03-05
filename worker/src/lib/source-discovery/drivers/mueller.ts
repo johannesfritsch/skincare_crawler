@@ -142,13 +142,6 @@ export const muellerDriver: SourceDriver = {
                 const href = link?.getAttribute('href') || ''
                 const nameEl = tile.querySelector('[class*="product-tile__product-name"]')
                 const name = nameEl?.textContent?.trim() || ''
-                const priceEl = tile.querySelector('[class*="product-price__main-price-accent"]')
-                const priceText = priceEl?.textContent?.trim() || ''
-                const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
-                let priceCents: number | null = null
-                if (priceMatch) {
-                  priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
-                }
                 const starImages = tile.querySelectorAll('[class*="star-rating"] img, [class*="star-rating"] svg')
                 let rating: number | null = null
                 if (starImages.length > 0) {
@@ -173,7 +166,7 @@ export const muellerDriver: SourceDriver = {
                     break
                   }
                 }
-                return { href, name, priceCents, rating, gtin }
+                return { href, name, rating, gtin }
               }),
         )
       }
@@ -190,8 +183,6 @@ export const muellerDriver: SourceDriver = {
             productUrl,
             gtin: p.gtin ?? undefined,
             name: p.name || undefined,
-            price: p.priceCents ?? undefined,
-            currency: 'EUR',
             rating: p.rating ?? undefined,
             category,
             categoryUrl,
@@ -436,13 +427,6 @@ export const muellerDriver: SourceDriver = {
             links.map((link) => {
               const href = link.getAttribute('href') || ''
               const name = link.getAttribute('aria-label') || ''
-              const priceEl = link.querySelector('span[data-track-id="priceContainer"]')
-              const priceText = priceEl?.textContent?.trim() || ''
-              const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
-              let priceCents: number | null = null
-              if (priceMatch) {
-                priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
-              }
               // Rating: count filled star images (not empty ones)
               const starImages = link.querySelectorAll('[class*="star-rating"] img, [class*="star-rating"] svg')
               let rating: number | null = null
@@ -469,7 +453,7 @@ export const muellerDriver: SourceDriver = {
                   break
                 }
               }
-              return { href, name, priceCents, rating, gtin }
+              return { href, name, rating, gtin }
             }),
         )
       }
@@ -491,8 +475,6 @@ export const muellerDriver: SourceDriver = {
             productUrl,
             gtin: t.gtin ?? undefined,
             name: t.name || undefined,
-            price: t.priceCents ?? undefined,
-            currency: 'EUR',
             rating: t.rating ?? undefined,
           })
         }

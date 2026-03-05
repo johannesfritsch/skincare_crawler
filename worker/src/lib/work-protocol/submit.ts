@@ -59,8 +59,6 @@ interface DiscoveredProduct {
   productUrl: string
   brandName?: string
   name?: string
-  price?: number
-  currency?: string
   rating?: number
   ratingCount?: number
   category?: string

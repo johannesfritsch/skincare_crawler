@@ -124,6 +124,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       source: t.source_products.source,
       name: t.source_products.name,
       sourceUrl: t.source_variants.sourceUrl,
+      sourceVariantId: t.source_variants.id,
       rating: t.source_products.rating,
       ratingNum: t.source_products.ratingNum,
     }).from(t.source_variants)
@@ -243,27 +244,28 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     })
   }
 
-  /* ── Price history per source ── */
-  const priceHistoryRows = sourceProducts.length > 0
+  /* ── Price history per source variant ── */
+  const variantIds = sourceProducts.map(sp => sp.sourceVariantId as number)
+  const priceHistoryRows = variantIds.length > 0
     ? await db.select({
-        parentId: t.source_products_price_history._parentID,
-        recordedAt: t.source_products_price_history.recordedAt,
-        amount: t.source_products_price_history.amount,
-        currency: t.source_products_price_history.currency,
-        perUnitAmount: t.source_products_price_history.perUnitAmount,
-        perUnitQuantity: t.source_products_price_history.perUnitQuantity,
-        unit: t.source_products_price_history.unit,
-      }).from(t.source_products_price_history)
-        .where(sql`${t.source_products_price_history._parentID} IN (${sql.join(sourceProducts.map(sp => sql`${sp.id}`), sql`, `)})`)
-        .orderBy(desc(t.source_products_price_history.recordedAt))
+        parentId: t.source_variants_price_history._parentID,
+        recordedAt: t.source_variants_price_history.recordedAt,
+        amount: t.source_variants_price_history.amount,
+        currency: t.source_variants_price_history.currency,
+        perUnitAmount: t.source_variants_price_history.perUnitAmount,
+        perUnitQuantity: t.source_variants_price_history.perUnitQuantity,
+        unit: t.source_variants_price_history.unit,
+      }).from(t.source_variants_price_history)
+        .where(sql`${t.source_variants_price_history._parentID} IN (${sql.join(variantIds.map(id => sql`${id}`), sql`, `)})`)
+        .orderBy(desc(t.source_variants_price_history.recordedAt))
     : []
 
-  // Group price history by source product
-  const pricesBySourceProduct = new Map<number, typeof priceHistoryRows>()
+  // Group price history by source variant (keyed by variant ID, used via source product rows)
+  const pricesByVariant = new Map<number, typeof priceHistoryRows>()
   for (const row of priceHistoryRows) {
-    const pid = row.parentId as number
-    if (!pricesBySourceProduct.has(pid)) pricesBySourceProduct.set(pid, [])
-    pricesBySourceProduct.get(pid)!.push(row)
+    const vid = row.parentId as number
+    if (!pricesByVariant.has(vid)) pricesByVariant.set(vid, [])
+    pricesByVariant.get(vid)!.push(row)
   }
 
   /* ── Aggregate store ratings ── */
@@ -300,8 +302,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const oneYearAgo = new Date()
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
 
-  function getSparklineData(sourceProductId: number): number[] {
-    const prices = pricesBySourceProduct.get(sourceProductId) ?? []
+  function getSparklineData(variantId: number): number[] {
+    const prices = pricesByVariant.get(variantId) ?? []
     // Filter to last 12 months, then reverse to chronological (oldest first)
     return prices
       .filter(p => p.recordedAt && new Date(p.recordedAt as string) >= oneYearAgo)
@@ -526,16 +528,17 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               source: string | null
               name: string | null
               sourceUrl: string | null
+              sourceVariantId: number
               rating: number | null
               ratingNum: number | null
             }>).map((sp) => {
-              const prices = pricesBySourceProduct.get(sp.id) ?? []
+              const prices = pricesByVariant.get(sp.sourceVariantId) ?? []
               const latestPrice = prices[0]
               const previousPrice = prices.length > 1 ? prices[1] : null
               const priceChange = latestPrice && previousPrice
                 ? (latestPrice.amount as number) - (previousPrice.amount as number)
                 : null
-              const sparklineData = getSparklineData(sp.id)
+              const sparklineData = getSparklineData(sp.sourceVariantId)
               const hasRating = sp.rating != null && sp.ratingNum != null && (sp.ratingNum as number) > 0
               const score10 = hasRating ? starsToScore10(Number(sp.rating)) : null
               const Row = sp.sourceUrl ? 'a' : 'div'

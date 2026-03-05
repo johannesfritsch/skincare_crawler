@@ -97,13 +97,6 @@ export const rossmannDriver: SourceDriver = {
               const brand = card.getAttribute('data-item-brand') || ''
               const imageLink = card.querySelector('figure[data-testid="product-image"] a[href]')
               const href = imageLink?.getAttribute('href') || ''
-              const priceEl = card.querySelector('[data-testid="product-price"] .sr-only')
-              const priceText = priceEl?.textContent || ''
-              const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
-              let priceCents: number | null = null
-              if (priceMatch) {
-                priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
-              }
               const ratingsContainer = card.querySelector('[data-testid="product-ratings"]')
               let rating: number | null = null
               let ratingCount: number | null = null
@@ -128,7 +121,7 @@ export const rossmannDriver: SourceDriver = {
                   }
                 }
               }
-              return { gtin, name, brand, href, priceCents, rating, ratingCount }
+              return { gtin, name, brand, href, rating, ratingCount }
             }),
         )
       }
@@ -143,8 +136,6 @@ export const rossmannDriver: SourceDriver = {
             productUrl,
             brandName: p.brand || undefined,
             name: p.name || undefined,
-            price: p.priceCents ?? undefined,
-            currency: 'EUR',
             rating: p.rating ?? undefined,
             ratingCount: p.ratingCount ?? undefined,
             category,
@@ -386,13 +377,6 @@ export const rossmannDriver: SourceDriver = {
               const brand = card.getAttribute('data-item-brand') || ''
               const imageLink = card.querySelector('figure[data-testid="product-image"] a[href]')
               const href = imageLink?.getAttribute('href') || ''
-              const priceEl = card.querySelector('[data-testid="product-price"] .sr-only')
-              const priceText = priceEl?.textContent || ''
-              const priceMatch = priceText.match(/([\d]+[,.][\d]+)\s*€/)
-              let priceCents: number | null = null
-              if (priceMatch) {
-                priceCents = Math.round(parseFloat(priceMatch[1].replace(',', '.')) * 100)
-              }
               const ratingsContainer = card.querySelector('[data-testid="product-ratings"]')
               let rating: number | null = null
               let ratingCount: number | null = null
@@ -417,7 +401,7 @@ export const rossmannDriver: SourceDriver = {
                   }
                 }
               }
-              return { gtin, name, brand, href, priceCents, rating, ratingCount }
+              return { gtin, name, brand, href, rating, ratingCount }
             }),
         )
       }
@@ -437,8 +421,6 @@ export const rossmannDriver: SourceDriver = {
             productUrl,
             brandName: p.brand || undefined,
             name: p.name || undefined,
-            price: p.priceCents ?? undefined,
-            currency: 'EUR',
             rating: p.rating ?? undefined,
             ratingCount: p.ratingCount ?? undefined,
           })

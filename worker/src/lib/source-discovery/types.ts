@@ -9,8 +9,6 @@ export interface DiscoveredProduct {
   productUrl: string
   brandName?: string
   name?: string
-  price?: number       // cents
-  currency?: string
   rating?: number
   ratingCount?: number
   category?: string    // "Make-up -> Augen -> Lidschatten Primer & Base"

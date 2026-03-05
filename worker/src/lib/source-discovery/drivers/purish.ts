@@ -450,14 +450,11 @@ export const purishDriver: SourceDriver = {
       // Process products
       for (const product of data.products) {
         const defaultVariant = product.variants[0]
-        const price = priceToCents(defaultVariant?.price)
         const discovered: DiscoveredProduct = {
           productUrl: normalizeProductUrl(productUrl(product.handle)),
           gtin: defaultVariant?.barcode || undefined,
           brandName: product.vendor || undefined,
           name: product.title,
-          price,
-          currency: 'EUR',
           category: product.product_type || undefined,
         }
         await onProduct(discovered)
@@ -510,8 +507,6 @@ export const purishDriver: SourceDriver = {
           gtin: defaultVariant?.barcode || undefined,
           brandName: p.vendor || undefined,
           name: p.title,
-          price: p.price, // already in cents
-          currency: 'EUR',
           category: p.type || undefined,
         })
       }

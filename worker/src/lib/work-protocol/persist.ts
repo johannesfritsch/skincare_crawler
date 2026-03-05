@@ -52,8 +52,6 @@ interface DiscoveredProduct {
   productUrl: string
   brandName?: string
   name?: string
-  price?: number
-  currency?: string
   rating?: number
   ratingCount?: number
   category?: string
@@ -121,24 +119,9 @@ export async function persistCrawlResult(
 
   const now = new Date().toISOString()
 
-  // Fetch existing source-product for price history
-  const existingProduct = await payload.findByID({ collection: 'source-products', id: sourceProductId }) as Record<string, unknown>
-  const existingHistory = (existingProduct.priceHistory as Array<{ amount?: number | null; change?: string | null }>) ?? []
-
-  // Compute price change vs previous entry (requires >= 5% move to count as drop/increase)
+  // Build price entry for the crawled variant (written to source-variant, not source-product)
   const newAmount = data.priceCents ?? null
-  let priceChange: string | null = null
-  if (newAmount != null && existingHistory.length > 0) {
-    const prevAmount = existingHistory[0]?.amount
-    if (prevAmount != null && prevAmount > 0) {
-      const pctChange = (newAmount - prevAmount) / prevAmount
-      if (pctChange <= -0.05) priceChange = 'drop'
-      else if (pctChange >= 0.05) priceChange = 'increase'
-      else priceChange = 'stable'
-    }
-  }
-
-  const priceEntry = {
+  const priceEntry = newAmount != null ? {
     recordedAt: now,
     amount: newAmount,
     currency: data.currency ?? 'EUR',
@@ -146,10 +129,30 @@ export async function persistCrawlResult(
     perUnitCurrency: data.perUnitAmount ? (data.currency ?? 'EUR') : null,
     perUnitQuantity: data.perUnitQuantity ?? null,
     unit: data.perUnitUnit ?? null,
-    change: priceChange,
+    change: null as string | null, // computed below after fetching variant's existing history
+  } : null
+
+  // If the variant already exists, fetch its price history for change computation
+  let existingVariantHistory: Array<{ amount?: number | null }> = []
+  if (sourceVariantId && priceEntry) {
+    const existingVariant = await payload.findByID({ collection: 'source-variants', id: sourceVariantId }) as Record<string, unknown>
+    existingVariantHistory = (existingVariant.priceHistory as Array<{ amount?: number | null }>) ?? []
   }
 
-  // Update source-product with scraped data
+  // Compute price change vs previous entry on this variant (requires >= 5% move)
+  let priceChange: string | null = null
+  if (priceEntry && existingVariantHistory.length > 0) {
+    const prevAmount = existingVariantHistory[0]?.amount
+    if (prevAmount != null && prevAmount > 0) {
+      const pctChange = (newAmount! - prevAmount) / prevAmount
+      if (pctChange <= -0.05) priceChange = 'drop'
+      else if (pctChange >= 0.05) priceChange = 'increase'
+      else priceChange = 'stable'
+    }
+  }
+  if (priceEntry) priceEntry.change = priceChange
+
+  // Update source-product with scraped data (price history is on source-variants, not here)
   // Status is set to 'crawled' initially; may be deferred below if crawlVariants is true and siblings need crawling
   const productPayload: Record<string, unknown> = {
     status: 'crawled' as const,
@@ -162,7 +165,6 @@ export async function persistCrawlResult(
     amountUnit: data.amountUnit ?? null,
     labels: data.labels?.map((l) => ({ label: l })) ?? [],
     images: data.images,
-    priceHistory: [priceEntry, ...existingHistory],
     rating: data.rating || null,
     ratingNum: data.ratingNum || null,
     ingredientsText: data.ingredientsText ?? null,
@@ -209,6 +211,7 @@ export async function persistCrawlResult(
         ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
         ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
         ...(effectiveArticleNumber ? { sourceArticleNumber: effectiveArticleNumber } : {}),
+        ...(priceEntry ? { priceHistory: [priceEntry, ...existingVariantHistory] } : {}),
         crawledAt: now,
       },
     })
@@ -225,13 +228,14 @@ export async function persistCrawlResult(
           variantLabel: crawledVariantLabel,
           variantDimension: crawledVariantDimension,
           sourceArticleNumber: effectiveArticleNumber,
+          priceHistory: priceEntry ? [priceEntry] : [],
           crawledAt: now,
         },
       }) as { id: number }
       sourceVariantId = createdVariant.id
       log.info('persistCrawlResult: created variant for crawled URL', { sourceVariantId, url: canonicalVariantUrl })
     } catch (e) {
-      // Unique constraint race — variant already exists (e.g. from a concurrent crawl)
+      // Unique constraint — variant already exists (e.g. created as a sibling during another product's crawl)
       const existing = await payload.find({
         collection: 'source-variants',
         where: { sourceUrl: { equals: canonicalVariantUrl } },
@@ -239,15 +243,24 @@ export async function persistCrawlResult(
       })
       if (existing.docs.length > 0) {
         sourceVariantId = (existing.docs[0] as Record<string, unknown>).id as number
+        const existingSpId = (() => {
+          const ref = (existing.docs[0] as Record<string, unknown>).sourceProduct
+          return typeof ref === 'number' ? ref : (ref as Record<string, unknown>)?.id as number | undefined
+        })()
+        if (existingSpId !== sourceProductId) {
+          log.info('persistCrawlResult: re-linking variant to correct source-product', { sourceVariantId, oldSourceProduct: existingSpId, newSourceProduct: sourceProductId, url: canonicalVariantUrl })
+        }
         await payload.update({
           collection: 'source-variants',
           id: sourceVariantId,
           data: {
+            sourceProduct: sourceProductId, // Always re-link to the source-product being crawled
             ...(data.gtin ? { gtin: data.gtin } : {}),
             availability: data.availability ?? 'available',
             ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
             ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
             ...(effectiveArticleNumber ? { sourceArticleNumber: effectiveArticleNumber } : {}),
+            ...(priceEntry ? { priceHistory: [priceEntry] } : {}),
             crawledAt: now,
           },
         })
@@ -259,6 +272,9 @@ export async function persistCrawlResult(
 
   // Create source-variants for sibling variants found in scraped data.
   // Each driver provides the full variant URL as option.value — persist just stores it.
+  // Siblings may belong to the current source-product OR to a different source-product
+  // (e.g. DM color variants are separate products with different GTINs/pages).
+  // We check if a source-product exists for the sibling's URL and link to it if so.
   let newVariants = 0
   let existingVariants = 0
   let totalVariants = 0
@@ -269,6 +285,23 @@ export async function persistCrawlResult(
       totalVariants++
 
       const siblingUrl = normalizeVariantUrl(option.value)
+
+      // Determine which source-product this sibling variant should belong to.
+      // If a source-product exists whose sourceUrl matches the sibling's normalized product URL,
+      // link the variant to that source-product (it's a separate product, e.g. a different color).
+      // Otherwise link to the current source-product.
+      const siblingProductUrl = normalizeProductUrl(option.value)
+      let siblingSourceProductId = sourceProductId
+      if (siblingProductUrl !== normalizeProductUrl(input.sourceUrl)) {
+        const siblingProduct = await payload.find({
+          collection: 'source-products',
+          where: { sourceUrl: { equals: siblingProductUrl } },
+          limit: 1,
+        })
+        if (siblingProduct.docs.length > 0) {
+          siblingSourceProductId = (siblingProduct.docs[0] as Record<string, unknown>).id as number
+        }
+      }
 
       // Check if this variant URL already exists
       const existingVariant = await payload.find({
@@ -282,7 +315,7 @@ export async function persistCrawlResult(
           await payload.create({
             collection: 'source-variants',
             data: {
-              sourceProduct: sourceProductId,
+              sourceProduct: siblingSourceProductId,
               sourceUrl: siblingUrl,
               gtin: option.gtin || undefined,
               variantLabel: option.label || undefined,
@@ -292,7 +325,7 @@ export async function persistCrawlResult(
             },
           })
           newVariants++
-          log.debug('persistCrawlResult: created sibling variant', { url: siblingUrl, gtin: option.gtin ?? 'none', label: option.label })
+          log.debug('persistCrawlResult: created sibling variant', { url: siblingUrl, gtin: option.gtin ?? 'none', label: option.label, sourceProduct: siblingSourceProductId })
         } catch (e) {
           // Unique constraint race — safe to ignore
           existingVariants++
@@ -305,6 +338,15 @@ export async function persistCrawlResult(
         updates.availability = option.availability ?? 'available'
         if (option.gtin && !sv.gtin) updates.gtin = option.gtin
         if (option.sourceArticleNumber && !sv.sourceArticleNumber) updates.sourceArticleNumber = option.sourceArticleNumber
+        // Re-link to correct source-product if needed
+        const existingSpId = (() => {
+          const ref = sv.sourceProduct
+          return typeof ref === 'number' ? ref : (ref as Record<string, unknown>)?.id as number | undefined
+        })()
+        if (existingSpId !== siblingSourceProductId) {
+          updates.sourceProduct = siblingSourceProductId
+          log.debug('persistCrawlResult: re-linking sibling variant', { url: siblingUrl, oldSourceProduct: existingSpId, newSourceProduct: siblingSourceProductId })
+        }
         if (Object.keys(updates).length > 0) {
           try {
             await payload.update({
@@ -397,7 +439,7 @@ export async function persistCrawlResult(
 
   // Emit price change event
   if (priceChange && priceChange !== 'stable') {
-    const prevAmount = existingHistory[0]?.amount ?? null
+    const prevAmount = existingVariantHistory[0]?.amount ?? null
     jlog.info('Price change detected', {
       url: variantUrl,
       source,
@@ -465,8 +507,6 @@ export async function persistDiscoveredProduct(
     limit: 1,
   })
 
-  const now = new Date().toISOString()
-
   const discoveryData: Record<string, unknown> = {
     brandName: product.brandName,
     name: product.name,
@@ -481,13 +521,6 @@ export async function persistDiscoveredProduct(
   if (existingProduct.docs.length === 0) {
     // New: no source-product with this URL exists → create source-product (no variant yet)
 
-    const priceEntry = product.price != null ? {
-      recordedAt: now,
-      amount: product.price,
-      currency: product.currency ?? 'EUR',
-      change: null,
-    } : null
-
     const newProduct = await payload.create({
       collection: 'source-products',
       data: {
@@ -495,7 +528,6 @@ export async function persistDiscoveredProduct(
         sourceUrl: productUrl,
         status: 'uncrawled',
         ...discoveryData,
-        priceHistory: priceEntry ? [priceEntry] : [],
       },
     }) as { id: number }
     sourceProductId = newProduct.id
@@ -507,30 +539,12 @@ export async function persistDiscoveredProduct(
     const sp = existingProduct.docs[0] as Record<string, unknown>
     sourceProductId = sp.id as number
 
-    const existingHistory = (sp.priceHistory as Array<{ amount?: number | null }>) ?? []
-
-    let priceEntry: { recordedAt: string; amount: number; currency: string; change: string | null } | null = null
-    if (product.price != null) {
-      let change: string | null = null
-      if (existingHistory.length > 0) {
-        const prevAmount = existingHistory[existingHistory.length - 1]?.amount
-        if (prevAmount != null && prevAmount > 0) {
-          const pctChange = (product.price - prevAmount) / prevAmount
-          if (pctChange <= -0.05) change = 'drop'
-          else if (pctChange >= 0.05) change = 'increase'
-          else change = 'stable'
-        }
-      }
-      priceEntry = { recordedAt: now, amount: product.price, currency: product.currency ?? 'EUR', change }
-    }
-
     await payload.update({
       collection: 'source-products',
       id: sourceProductId,
       data: {
         source: effectiveSource,
         ...discoveryData,
-        ...(priceEntry ? { priceHistory: [...existingHistory, priceEntry] } : {}),
       },
     })
 
