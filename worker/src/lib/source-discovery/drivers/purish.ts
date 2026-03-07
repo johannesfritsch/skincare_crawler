@@ -314,25 +314,21 @@ async function fetchProductPageData(handle: string): Promise<ProductPageData> {
     if (!res.ok) return empty
     const html = await res.text()
 
-    // Extract ingredients
+    // Extract ingredients from the "Ingredients" tab.
+    // PURISH's Shopify theme renders metafields in tab-items. The ingredients tab
+    // contains a <span class="metafield-multi_line_text_field"> with the INCI list.
+    // We extract all metafield spans and pick the one that looks like an INCI list
+    // (comma-separated, 30+ chars, multiple items).
     let ingredientsText: string | null = null
-    // Look for INCI / Inhaltsstoffe in the page. Purish typically stores it
-    // in a metafield that gets rendered as a tab/accordion on the product page.
-    // Common patterns: "Inhaltsstoffe" or "INCI" section
-    const patterns = [
-      // Match "Inhaltsstoffe" tab content (Shopify theme renders metafields in tabs)
-      /(?:inhaltsstoffe|inci|ingredients)[^<]*<\/(?:h[1-6]|strong|b|div|span|p)>\s*(?:<[^>]*>)*\s*((?:aqua|water|glycerin|niacinamide|cetearyl|dimethicone|phenoxyethanol|sodium|butylene|caprylic|isopropyl)[^<]{20,})/i,
-      // Match a block of comma-separated INCI names (typical ingredient list)
-      /((?:aqua|water)\s*(?:\/\s*eau)?,\s*(?:[a-z][a-z0-9\s\-\/()]*,\s*){5,}[a-z][a-z0-9\s\-\/()]*\.?)/i,
-    ]
-    for (const pattern of patterns) {
-      const match = html.match(pattern)
-      if (match) {
-        const text = stripHtml(match[1] || match[0])
-        if (text.includes(',') && text.length > 30) {
-          ingredientsText = text
-          break
-        }
+    const metafieldPattern = /<span\s+class="metafield-multi_line_text_field">([\s\S]*?)<\/span>/gi
+    let metaMatch: RegExpExecArray | null
+    while ((metaMatch = metafieldPattern.exec(html)) !== null) {
+      const text = stripHtml(metaMatch[1]).trim()
+      // INCI lists are comma-separated with many items (typically 5+)
+      const commaCount = (text.match(/,/g) || []).length
+      if (commaCount >= 4 && text.length > 30) {
+        ingredientsText = text
+        break
       }
     }
 
