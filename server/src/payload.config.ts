@@ -71,6 +71,12 @@ export default buildConfig({
     importMap: {
       baseDir: path.resolve(dirname),
     },
+    components: {
+      graphics: {
+        Icon: '/components/graphics/Icon',
+        Logo: '/components/graphics/Logo',
+      },
+    },
   },
   collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, ProductVariants, SourceProducts, SourceVariants, ProductDiscoveries, ProductSearches, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, SearchResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [],

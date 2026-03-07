@@ -22,6 +22,8 @@ import { default as default_efddd0db6825b46b8974231a9cc8f159 } from '@/component
 import { default as default_d36a95c7b667f33a72dc38ff7d7f7916 } from '@/components/bulk-actions/VideoBulkStatus'
 import { default as default_8da85ba43770e514d85a6fec69d919f4 } from '@/components/VideoSaveButton'
 import { default as default_5c9675293c0510e33f09c7bb908e986e } from '../../../components/EmbeddedSnippetPlayer'
+import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
+import { default as default_e577ad08317d2e8977edf3e679038fc8 } from '../../../components/graphics/Logo'
 import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } from '@payloadcms/ui/rsc'
 
 export const importMap = {
@@ -49,5 +51,7 @@ export const importMap = {
   "@/components/bulk-actions/VideoBulkStatus#default": default_d36a95c7b667f33a72dc38ff7d7f7916,
   "@/components/VideoSaveButton#default": default_8da85ba43770e514d85a6fec69d919f4,
   "/components/EmbeddedSnippetPlayer#default": default_5c9675293c0510e33f09c7bb908e986e,
+  "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,
+  "/components/graphics/Logo#default": default_e577ad08317d2e8977edf3e679038fc8,
   "@payloadcms/ui/rsc#CollectionCards": CollectionCards_ab83ff7e88da8d3530831f296ec4756a
 }
