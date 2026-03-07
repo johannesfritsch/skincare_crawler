@@ -670,14 +670,6 @@ export interface SourceProduct {
    */
   ratingNum?: number | null;
   /**
-   * Product amount (e.g., 3, 100, 250)
-   */
-  amount?: number | null;
-  /**
-   * Unit of measurement (e.g., ml, g, Stück)
-   */
-  amountUnit?: string | null;
-  /**
    * Product labels (e.g., Neu, Limitiert, dm-Marke)
    */
   labels?:
@@ -686,26 +678,11 @@ export interface SourceProduct {
         id?: string | null;
       }[]
     | null;
-  /**
-   * Full product description extracted from source page (markdown)
-   */
-  description?: string | null;
-  images?:
-    | {
-        url: string;
-        alt?: string | null;
-        id?: string | null;
-      }[]
-    | null;
   sourceVariants?: {
     docs?: (number | SourceVariant)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  /**
-   * Raw ingredients text as crawled from source, including footnotes and annotations. Parsed into individual ingredients during product aggregation.
-   */
-  ingredientsText?: string | null;
   discoveries?: {
     docs?: (number | DiscoveryResult)[];
     hasNextPage?: boolean;
@@ -737,6 +714,14 @@ export interface SourceVariant {
    */
   gtin?: string | null;
   /**
+   * Store-specific article number / SKU (e.g., DM DAN, Mueller code, Shopify SKU)
+   */
+  sourceArticleNumber?: string | null;
+  /**
+   * When this specific variant was last crawled
+   */
+  crawledAt?: string | null;
+  /**
    * Human-readable label (e.g. "Shade 420 - Nude Rose", "50ml")
    */
   variantLabel?: string | null;
@@ -745,15 +730,30 @@ export interface SourceVariant {
    */
   variantDimension?: string | null;
   /**
-   * Store-specific article number / SKU for this variant (e.g., DM DAN, Mueller code, Shopify SKU)
+   * Product amount (e.g., 3, 100, 250)
    */
-  sourceArticleNumber?: string | null;
+  amount?: number | null;
   /**
-   * Whether this variant is currently available for purchase at the retailer
+   * Unit of measurement (e.g., ml, g, Stück)
    */
-  availability?: ('available' | 'unavailable' | 'unknown') | null;
+  amountUnit?: string | null;
   /**
-   * Timestamped price entries from each crawl of this variant
+   * Full product description extracted from the variant page (markdown)
+   */
+  description?: string | null;
+  images?:
+    | {
+        url: string;
+        alt?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Raw INCI ingredients text as crawled from the variant page
+   */
+  ingredientsText?: string | null;
+  /**
+   * Timestamped price & availability entries from each crawl of this variant
    */
   priceHistory?:
     | {
@@ -774,16 +774,16 @@ export interface SourceVariant {
          */
         unit?: string | null;
         /**
+         * Whether this variant was available at crawl time
+         */
+        availability?: ('available' | 'unavailable' | 'unknown') | null;
+        /**
          * Price movement vs previous record
          */
         change?: ('drop' | 'stable' | 'increase') | null;
         id?: string | null;
       }[]
     | null;
-  /**
-   * When this specific variant was last crawled
-   */
-  crawledAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2194,24 +2194,13 @@ export interface SourceProductsSelect<T extends boolean = true> {
   categoryBreadcrumb?: T;
   rating?: T;
   ratingNum?: T;
-  amount?: T;
-  amountUnit?: T;
   labels?:
     | T
     | {
         label?: T;
         id?: T;
       };
-  description?: T;
-  images?:
-    | T
-    | {
-        url?: T;
-        alt?: T;
-        id?: T;
-      };
   sourceVariants?: T;
-  ingredientsText?: T;
   discoveries?: T;
   crawls?: T;
   updatedAt?: T;
@@ -2225,10 +2214,21 @@ export interface SourceVariantsSelect<T extends boolean = true> {
   sourceProduct?: T;
   sourceUrl?: T;
   gtin?: T;
+  sourceArticleNumber?: T;
+  crawledAt?: T;
   variantLabel?: T;
   variantDimension?: T;
-  sourceArticleNumber?: T;
-  availability?: T;
+  amount?: T;
+  amountUnit?: T;
+  description?: T;
+  images?:
+    | T
+    | {
+        url?: T;
+        alt?: T;
+        id?: T;
+      };
+  ingredientsText?: T;
   priceHistory?:
     | T
     | {
@@ -2239,10 +2239,10 @@ export interface SourceVariantsSelect<T extends boolean = true> {
         perUnitCurrency?: T;
         perUnitQuantity?: T;
         unit?: T;
+        availability?: T;
         change?: T;
         id?: T;
       };
-  crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

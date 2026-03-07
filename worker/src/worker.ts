@@ -43,7 +43,7 @@ import { extractAudio, transcribeAudio, type TranscriptWord } from '@/lib/video-
 import { correctTranscript } from '@/lib/video-processing/correct-transcript'
 import { splitTranscriptForSnippet } from '@/lib/video-processing/split-transcript'
 import { analyzeSentiment, type ProductQuoteResult } from '@/lib/video-processing/analyze-sentiment'
-import { aggregateFromSources } from '@/lib/aggregate-product'
+import { aggregateFromSources, deduplicateDescriptions, deduplicateIngredients } from '@/lib/aggregate-product'
 import { classifyProduct } from '@/lib/classify-product'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
 
@@ -1012,8 +1012,9 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
   const workItems = work.workItems as Array<{
     gtin: string
-    sourceProducts: Array<{
-      id: number
+    sources: Array<{
+      sourceProductId: number
+      sourceVariantId: number
       name: string | null
       brandName: string | null
       source: string | null
@@ -1036,18 +1037,20 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   const results: Array<Record<string, unknown>> = []
 
   for (const item of workItems) {
-    log.info('Aggregating GTIN', { gtin: item.gtin, sources: item.sourceProducts.length })
+    log.info('Aggregating GTIN', { gtin: item.gtin, sources: item.sources.length })
 
     try {
       // Step 1: Aggregate from sources (pure)
       const aggregated = aggregateFromSources(
-        item.sourceProducts.map((sp) => ({
-          id: sp.id,
-          name: sp.name ?? undefined,
-          brandName: sp.brandName ?? undefined,
-          source: sp.source ?? undefined,
-          ingredientsText: sp.ingredientsText ?? undefined,
-          images: sp.images ?? undefined,
+        item.sources.map((s) => ({
+          sourceProductId: s.sourceProductId,
+          sourceVariantId: s.sourceVariantId,
+          name: s.name ?? undefined,
+          brandName: s.brandName ?? undefined,
+          source: s.source ?? undefined,
+          ingredientsText: s.ingredientsText ?? undefined,
+          description: s.description ?? undefined,
+          images: s.images ?? undefined,
         })),
         { imageSourcePriority },
       )
@@ -1058,16 +1061,30 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       let tokensUsed = 0
 
       if (scope === 'full') {
-        const classifySources: { id: number; description?: string; ingredientsText?: string }[] = []
-        for (const sp of item.sourceProducts) {
-          if (sp.description || sp.ingredientsText) {
-            classifySources.push({
-              id: sp.id,
-              description: sp.description || undefined,
-              ingredientsText: sp.ingredientsText || undefined,
-            })
-          }
+        // Deduplicate descriptions and ingredients across sources to avoid
+        // sending identical content to LLMs multiple times
+        const uniqueDescs = deduplicateDescriptions(item.sources.map((s) => ({
+          sourceProductId: s.sourceProductId,
+          sourceVariantId: s.sourceVariantId,
+          description: s.description,
+        })))
+        const uniqueIngr = deduplicateIngredients(item.sources.map((s) => ({
+          sourceProductId: s.sourceProductId,
+          sourceVariantId: s.sourceVariantId,
+          ingredientsText: s.ingredientsText,
+        })))
+
+        // Build classify sources from unique descriptions + ingredients
+        const classifyMap = new Map<number, { id: number; description?: string; ingredientsText?: string }>()
+        for (const d of uniqueDescs) {
+          if (!classifyMap.has(d.sourceProductId)) classifyMap.set(d.sourceProductId, { id: d.sourceProductId })
+          classifyMap.get(d.sourceProductId)!.description = d.description
         }
+        for (const i of uniqueIngr) {
+          if (!classifyMap.has(i.sourceProductId)) classifyMap.set(i.sourceProductId, { id: i.sourceProductId })
+          classifyMap.get(i.sourceProductId)!.ingredientsText = i.ingredientsText
+        }
+        const classifySources = [...classifyMap.values()]
 
         if (classifySources.length > 0) {
           try {
@@ -1105,7 +1122,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
 
       results.push({
         gtin: item.gtin,
-        sourceProductIds: item.sourceProducts.map((sp) => sp.id),
+        sourceProductIds: item.sources.map((s) => s.sourceProductId),
         aggregated,
         classification,
         classifySourceProductIds,
@@ -1116,7 +1133,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       log.error('Error aggregating GTIN', { gtin: item.gtin, error })
       results.push({
         gtin: item.gtin,
-        sourceProductIds: item.sourceProducts.map((sp) => sp.id),
+        sourceProductIds: item.sources.map((s) => s.sourceProductId),
         aggregated: null,
         tokensUsed: 0,
         error,

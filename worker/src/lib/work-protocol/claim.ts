@@ -706,40 +706,30 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     jlog.info('Started product aggregation', { type: aggregationType, total }, { event: 'start' })
   }
 
+  // Each source in a work item carries product-level data (from source-products)
+  // plus variant-level data (from the source-variant matching the GTIN being aggregated).
+  interface AggregationSource {
+    sourceProductId: number
+    sourceVariantId: number
+    // Product-level (from source-products)
+    name: string | null
+    brandName: string | null
+    source: string | null
+    // Variant-level (from source-variants)
+    ingredientsText: string | null
+    description: string | null
+    images: Array<{ url: string; alt: string | null }> | null
+  }
+
   interface WorkItem {
     gtin: string
-    sourceProducts: Array<{
-      id: number
-      name: string | null
-      brandName: string | null
-      source: string | null
-      ingredientsText: string | null
-      description: string | null
-      images: Array<{ url: string; alt: string | null }> | null
-    }>
+    sources: AggregationSource[]
   }
 
   const workItems: WorkItem[] = []
 
-  // Helper: convert source product doc to serializable work item shape
-  function toSourceProductData(sp: Record<string, unknown>) {
-    return {
-      id: sp.id as number,
-      name: (sp.name as string) ?? null,
-      brandName: (sp.brandName as string) ?? null,
-      source: (sp.source as string) ?? null,
-      ingredientsText: (sp.ingredientsText as string) ?? null,
-      description: (sp.description as string) ?? null,
-      images: sp.images
-        ? (sp.images as Array<{ url?: string; alt?: string | null }>)
-            .filter((img) => !!img.url)
-            .map((img) => ({ url: img.url!, alt: img.alt ?? null }))
-        : null,
-    }
-  }
-
-  // Helper: find all crawled source-products that have a source-variant with the given GTIN
-  async function findSourceProductsByGtin(gtin: string): Promise<Record<string, unknown>[]> {
+  // Helper: find all crawled source-products + their matching source-variants for a GTIN
+  async function findSourcesByGtin(gtin: string): Promise<AggregationSource[]> {
     // Find source-variants with this GTIN
     const variants = await payload.find({
       collection: 'source-variants',
@@ -748,14 +738,17 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     })
     if (variants.docs.length === 0) return []
 
-    // Get unique parent source-product IDs
-    const spIds = [...new Set(variants.docs.map((v) => {
+    // Group variants by parent source-product ID
+    const variantsBySpId = new Map<number, Record<string, unknown>>()
+    for (const v of variants.docs) {
       const sv = v as Record<string, unknown>
       const spRef = sv.sourceProduct as number | Record<string, unknown>
-      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
-    }))]
+      const spId = typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+      variantsBySpId.set(spId, sv) // One variant per source-product for this GTIN
+    }
 
     // Fetch only crawled source-products
+    const spIds = [...variantsBySpId.keys()]
     const result = await payload.find({
       collection: 'source-products',
       where: {
@@ -767,7 +760,25 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       limit: 100,
     })
 
-    return result.docs as Record<string, unknown>[]
+    return (result.docs as Record<string, unknown>[]).map((sp) => {
+      const sv = variantsBySpId.get(sp.id as number)!
+      return {
+        sourceProductId: sp.id as number,
+        sourceVariantId: sv.id as number,
+        // Product-level
+        name: (sp.name as string) ?? null,
+        brandName: (sp.brandName as string) ?? null,
+        source: (sp.source as string) ?? null,
+        // Variant-level
+        ingredientsText: (sv.ingredientsText as string) ?? null,
+        description: (sv.description as string) ?? null,
+        images: sv.images
+          ? (sv.images as Array<{ url?: string; alt?: string | null }>)
+              .filter((img) => !!img.url)
+              .map((img) => ({ url: img.url!, alt: img.alt ?? null }))
+          : null,
+      }
+    })
   }
 
   if (aggregationType === 'selected_gtins') {
@@ -784,10 +795,10 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     }
 
     for (const gtin of gtinList) {
-      const sourceDocs = await findSourceProductsByGtin(gtin)
-      if (sourceDocs.length === 0) continue
+      const sources = await findSourcesByGtin(gtin)
+      if (sources.length === 0) continue
 
-      workItems.push({ gtin, sourceProducts: sourceDocs.map(toSourceProductData) })
+      workItems.push({ gtin, sources })
     }
   } else {
     // 'all' type — cursor-based: iterate crawled source-products, look up GTINs from their variants
@@ -845,12 +856,12 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       }
     }
 
-    // For each unique GTIN, fetch all crawled source-products that share it
+    // For each unique GTIN, fetch all crawled source-products + variants that share it
     for (const gtin of seenGtins) {
-      const sourceDocs = await findSourceProductsByGtin(gtin)
-      if (sourceDocs.length === 0) continue
+      const sources = await findSourcesByGtin(gtin)
+      if (sources.length === 0) continue
 
-      workItems.push({ gtin, sourceProducts: sourceDocs.map(toSourceProductData) })
+      workItems.push({ gtin, sources })
     }
 
     jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, gtins: workItems.map((w) => w.gtin).join(', '), cursor: lastId })

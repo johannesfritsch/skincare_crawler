@@ -146,29 +146,11 @@ export const SourceProducts: CollectionConfig = {
                 },
               ],
             },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'amount',
-                  type: 'number',
-                  label: 'Amount',
-                  admin: {
-                    description: 'Product amount (e.g., 3, 100, 250)',
-                    width: '50%',
-                  },
-                },
-                {
-                  name: 'amountUnit',
-                  type: 'text',
-                  label: 'Unit',
-                  admin: {
-                    description: 'Unit of measurement (e.g., ml, g, Stück)',
-                    width: '50%',
-                  },
-                },
-              ],
-            },
+          ],
+        },
+        {
+          label: 'Labels',
+          fields: [
             {
               name: 'labels',
               type: 'array',
@@ -187,42 +169,6 @@ export const SourceProducts: CollectionConfig = {
           ],
         },
         {
-          label: 'Description',
-          fields: [
-            {
-              name: 'description',
-              type: 'textarea',
-              label: 'Description',
-              admin: {
-                description: 'Full product description extracted from source page (markdown)',
-              },
-            },
-          ],
-        },
-        {
-          label: 'Images',
-          fields: [
-            {
-              name: 'images',
-              type: 'array',
-              label: 'Images',
-              fields: [
-                {
-                  name: 'url',
-                  type: 'text',
-                  label: 'URL',
-                  required: true,
-                },
-                {
-                  name: 'alt',
-                  type: 'text',
-                  label: 'Alt Text',
-                },
-              ],
-            },
-          ],
-        },
-        {
           label: 'Variants',
           fields: [
             {
@@ -231,7 +177,7 @@ export const SourceProducts: CollectionConfig = {
               collection: 'source-variants',
               on: 'sourceProduct',
               admin: {
-                defaultColumns: ['sourceUrl', 'gtin', 'variantLabel', 'sourceArticleNumber', 'availability'],
+                defaultColumns: ['variantLabel', 'variantDimension', 'gtin', 'sourceArticleNumber'],
               },
             },
             {
@@ -246,19 +192,7 @@ export const SourceProducts: CollectionConfig = {
           ],
         },
 
-        {
-          label: 'Ingredients',
-          fields: [
-            {
-              name: 'ingredientsText',
-              type: 'textarea',
-              label: 'Ingredients Text',
-              admin: {
-                description: 'Raw ingredients text as crawled from source, including footnotes and annotations. Parsed into individual ingredients during product aggregation.',
-              },
-            },
-          ],
-        },
+        
         {
           label: 'History',
           fields: [

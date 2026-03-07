@@ -10,6 +10,7 @@
 - ✅ Implement availability for mueller
 - ✅ Implement availability for dm
 - ✅ Implement availability for rossmann
-- Implement availability for purish
-- Move articleNumber, images, priceInformation to variants and adapt all drivers (=> make sure priceInformation contain the availability)
+- ✅ Implement availability for purish
+- ✅ Move articleNumber, images, priceInformation to variants and adapt all drivers (=> make sure priceInformation contain the availability)
 - We need to have a step where we also visit all previous variants to see if they have been discontinued
+- Bug where mueller has the same GTIN in a variant twice: Once available, once unavailable (http://localhost:3000/admin/collections/source-products/157)

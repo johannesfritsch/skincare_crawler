@@ -47,6 +47,8 @@ interface ScrapedProductData {
   warnings: string[]
 }
 
+type Availability = 'available' | 'unavailable' | 'unknown'
+
 interface DiscoveredProduct {
   gtin?: string
   productUrl: string
@@ -120,23 +122,26 @@ export async function persistCrawlResult(
   const now = new Date().toISOString()
 
   // Build price entry for the crawled variant (written to source-variant, not source-product)
+  // A price entry is always created when we have either price OR availability info.
   const newAmount = data.priceCents ?? null
-  const priceEntry = newAmount != null ? {
+  const effectiveAvailability: Availability = data.availability ?? 'available'
+  const priceEntry = (newAmount != null || effectiveAvailability) ? {
     recordedAt: now,
     amount: newAmount,
-    currency: data.currency ?? 'EUR',
+    currency: newAmount != null ? (data.currency ?? 'EUR') : null,
     perUnitAmount: data.perUnitAmount ?? null,
     perUnitCurrency: data.perUnitAmount ? (data.currency ?? 'EUR') : null,
     perUnitQuantity: data.perUnitQuantity ?? null,
     unit: data.perUnitUnit ?? null,
+    availability: effectiveAvailability,
     change: null as string | null, // computed below after fetching variant's existing history
   } : null
 
   // If the variant already exists, fetch its price history for change computation
-  let existingVariantHistory: Array<{ amount?: number | null }> = []
+  let existingVariantHistory: Array<{ amount?: number | null; availability?: Availability | null }> = []
   if (sourceVariantId && priceEntry) {
     const existingVariant = await payload.findByID({ collection: 'source-variants', id: sourceVariantId }) as Record<string, unknown>
-    existingVariantHistory = (existingVariant.priceHistory as Array<{ amount?: number | null }>) ?? []
+    existingVariantHistory = (existingVariant.priceHistory as Array<{ amount?: number | null; availability?: Availability | null }>) ?? []
   }
 
   // Compute price change vs previous entry on this variant (requires >= 5% move)
@@ -152,7 +157,8 @@ export async function persistCrawlResult(
   }
   if (priceEntry) priceEntry.change = priceChange
 
-  // Update source-product with scraped data (price history is on source-variants, not here)
+  // Update source-product with product-level data only.
+  // Variant-specific data (description, images, ingredientsText, amount, amountUnit) goes on source-variants.
   // Status is set to 'crawled' initially; may be deferred below if crawlVariants is true and siblings need crawling
   const productPayload: Record<string, unknown> = {
     status: 'crawled' as const,
@@ -160,14 +166,9 @@ export async function persistCrawlResult(
     brandName: data.brandName ?? null,
     name: data.name,
     ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
-    description: data.description ?? null,
-    amount: data.amount ?? null,
-    amountUnit: data.amountUnit ?? null,
     labels: data.labels?.map((l) => ({ label: l })) ?? [],
-    images: data.images,
     rating: data.rating || null,
     ratingNum: data.ratingNum || null,
-    ingredientsText: data.ingredientsText ?? null,
   }
 
   log.info('persistCrawlResult: updating source-product', { sourceProductId })
@@ -199,6 +200,15 @@ export async function persistCrawlResult(
   // (top-level is set by Rossmann which only has one DAN per page, and by all drivers as a convenience)
   const effectiveArticleNumber = crawledVariantArticleNumber ?? data.sourceArticleNumber ?? undefined
 
+  // Variant-specific data payload (description, images, ingredientsText, amount, amountUnit)
+  const variantContentPayload: Record<string, unknown> = {
+    description: data.description ?? null,
+    images: data.images,
+    ingredientsText: data.ingredientsText ?? null,
+    amount: data.amount ?? null,
+    amountUnit: data.amountUnit ?? null,
+  }
+
   if (sourceVariantId) {
     // Existing variant (re-crawl or variant crawl) — update it
     await payload.update({
@@ -206,12 +216,12 @@ export async function persistCrawlResult(
       id: sourceVariantId,
       data: {
         ...(data.gtin ? { gtin: data.gtin } : {}),
-        availability: data.availability ?? 'available',
         ...(canonicalVariantUrl !== variantUrl ? { sourceUrl: canonicalVariantUrl } : {}),
         ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
         ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
         ...(effectiveArticleNumber ? { sourceArticleNumber: effectiveArticleNumber } : {}),
         ...(priceEntry ? { priceHistory: [priceEntry, ...existingVariantHistory] } : {}),
+        ...variantContentPayload,
         crawledAt: now,
       },
     })
@@ -224,11 +234,11 @@ export async function persistCrawlResult(
           sourceProduct: sourceProductId,
           sourceUrl: canonicalVariantUrl,
           gtin: data.gtin || undefined,
-          availability: data.availability ?? 'available',
           variantLabel: crawledVariantLabel,
           variantDimension: crawledVariantDimension,
           sourceArticleNumber: effectiveArticleNumber,
           priceHistory: priceEntry ? [priceEntry] : [],
+          ...variantContentPayload,
           crawledAt: now,
         },
       }) as { id: number }
@@ -256,11 +266,11 @@ export async function persistCrawlResult(
           data: {
             sourceProduct: sourceProductId, // Always re-link to the source-product being crawled
             ...(data.gtin ? { gtin: data.gtin } : {}),
-            availability: data.availability ?? 'available',
             ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
             ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
             ...(effectiveArticleNumber ? { sourceArticleNumber: effectiveArticleNumber } : {}),
             ...(priceEntry ? { priceHistory: [priceEntry] } : {}),
+            ...variantContentPayload,
             crawledAt: now,
           },
         })
@@ -311,6 +321,10 @@ export async function persistCrawlResult(
       })
 
       if (existingVariant.docs.length === 0) {
+        // Create new sibling variant — no price history entry here. The variant will get
+        // its real price+availability entry when it is crawled directly. Seeding with an
+        // availability-only entry would cause a duplicate when the variant is later crawled
+        // (the direct crawl prepends to existing history, resulting in 2 entries).
         try {
           await payload.create({
             collection: 'source-variants',
@@ -320,7 +334,6 @@ export async function persistCrawlResult(
               gtin: option.gtin || undefined,
               variantLabel: option.label || undefined,
               variantDimension: variantGroup.dimension || undefined,
-              availability: option.availability ?? 'available',
               sourceArticleNumber: option.sourceArticleNumber || undefined,
             },
           })
@@ -332,10 +345,13 @@ export async function persistCrawlResult(
           log.debug('persistCrawlResult: skipped sibling variant', { url: siblingUrl, error: e instanceof Error ? e.message : String(e) })
         }
       } else {
-        // Update availability and GTIN on existing sibling — if the driver returned it, it's available
+        // Update metadata on existing sibling (GTIN, article number, sourceProduct re-linking).
+        // Do NOT append availability-only price entries here — that would create N entries per
+        // variant per crawl session (one from each sibling's crawl). Availability is tracked:
+        // (1) on creation (above), (2) on direct crawl (self-variant logic), (3) on disappearance
+        // (disappeared-variant logic below).
         const sv = existingVariant.docs[0] as Record<string, unknown>
         const updates: Record<string, unknown> = {}
-        updates.availability = option.availability ?? 'available'
         if (option.gtin && !sv.gtin) updates.gtin = option.gtin
         if (option.sourceArticleNumber && !sv.sourceArticleNumber) updates.sourceArticleNumber = option.sourceArticleNumber
         // Re-link to correct source-product if needed
@@ -347,6 +363,7 @@ export async function persistCrawlResult(
           updates.sourceProduct = siblingSourceProductId
           log.debug('persistCrawlResult: re-linking sibling variant', { url: siblingUrl, oldSourceProduct: existingSpId, newSourceProduct: siblingSourceProductId })
         }
+
         if (Object.keys(updates).length > 0) {
           try {
             await payload.update({
@@ -393,12 +410,33 @@ export async function persistCrawlResult(
     for (const doc of allSiblings.docs) {
       const sv = doc as Record<string, unknown>
       const svUrl = sv.sourceUrl as string
-      if (!scrapedUrls.has(svUrl) && sv.availability !== 'unavailable') {
+      if (!scrapedUrls.has(svUrl)) {
+        // Check if the most recent price entry already marks it unavailable — skip if so
+        const svHistory = (sv.priceHistory as Array<{ availability?: Availability | null }>) ?? []
+        const latestAvailability = svHistory[0]?.availability
+        if (latestAvailability === 'unavailable') continue
+
+        // Append an unavailable price entry (no price data — just availability status)
         try {
           await payload.update({
             collection: 'source-variants',
             id: sv.id as number,
-            data: { availability: 'unavailable' },
+            data: {
+              priceHistory: [
+                {
+                  recordedAt: now,
+                  amount: null,
+                  currency: null,
+                  perUnitAmount: null,
+                  perUnitCurrency: null,
+                  perUnitQuantity: null,
+                  unit: null,
+                  availability: 'unavailable' as const,
+                  change: null,
+                },
+                ...svHistory,
+              ],
+            },
           })
           markedUnavailable++
         } catch { /* best-effort update */ }

@@ -44,6 +44,7 @@ interface ShopifyVariant {
 
 interface ShopifyImage {
   id: number
+  position: number
   src: string
   alt: string | null
   variant_ids: number[]
@@ -158,6 +159,83 @@ function bodyHtmlToMarkdown(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   return text
+}
+
+/**
+ * Get the images for a specific variant using position-based block grouping.
+ *
+ * Shopify images are ordered by position. Each variant typically has one "tagged"
+ * image (where variant_ids contains the variant's ID) that acts as the hero/start
+ * of a contiguous block. Untagged images immediately following belong to the same
+ * variant. Images after the last variant's block are shared product-level images
+ * appended to every variant's gallery.
+ *
+ * Falls back to all images when no variant tagging exists or the selected variant
+ * has no tagged image.
+ */
+function getVariantImages(
+  allImages: ShopifyImage[],
+  selectedVariantId: number | null,
+): Array<{ url: string; alt: string | null }> {
+  // Sort by position to ensure correct ordering
+  const sorted = [...allImages].sort((a, b) => a.position - b.position)
+
+  // Find all "block start" indices — images that are tagged to any variant
+  const blockStarts: Array<{ index: number; variantIds: number[] }> = []
+  for (let i = 0; i < sorted.length; i++) {
+    if (sorted[i].variant_ids.length > 0) {
+      blockStarts.push({ index: i, variantIds: sorted[i].variant_ids })
+    }
+  }
+
+  // If no variant tagging at all, or no selected variant, return all images
+  if (blockStarts.length === 0 || selectedVariantId == null) {
+    return sorted.map((img) => ({ url: img.src, alt: img.alt }))
+  }
+
+  // Find the block start for the selected variant
+  const myBlockIdx = blockStarts.findIndex((b) => b.variantIds.includes(selectedVariantId))
+  if (myBlockIdx === -1) {
+    // Selected variant has no tagged image — fall back to all images
+    return sorted.map((img) => ({ url: img.src, alt: img.alt }))
+  }
+
+  // The variant's block runs from its tagged image to the next tagged image (exclusive)
+  const blockStart = blockStarts[myBlockIdx].index
+  const blockEnd = myBlockIdx + 1 < blockStarts.length
+    ? blockStarts[myBlockIdx + 1].index
+    : sorted.length // last block extends to the end (includes shared images)
+
+  // Shared images: everything after the last variant block
+  const lastBlockStart = blockStarts[blockStarts.length - 1].index
+  // The last variant's block ends where shared images begin. We need to figure out
+  // the boundary. Shared images are untagged images that come after all variant blocks.
+  // Since we don't know exactly where the last variant's images end and shared ones begin,
+  // we use a heuristic: if the selected variant IS the last block, its block already
+  // extends to the end (includes shared). If not, append the shared tail.
+  const result = sorted.slice(blockStart, blockEnd)
+
+  if (myBlockIdx + 1 < blockStarts.length) {
+    // Not the last block — append shared images from after the last block.
+    // The last block's variant-specific images end at the last tagged image's block,
+    // but we need the shared tail. We estimate the shared images as untagged images
+    // after the last variant block. The last variant block has the same size pattern
+    // as other blocks, so shared images start where its block would end.
+    //
+    // Heuristic: compute the typical block size from earlier blocks. If there are
+    // at least 2 blocks, use the gap between the first two tagged images. Otherwise
+    // just use everything after the last tagged image.
+    const typicalBlockSize = blockStarts.length >= 2
+      ? blockStarts[1].index - blockStarts[0].index
+      : sorted.length - lastBlockStart
+
+    const sharedStart = lastBlockStart + typicalBlockSize
+    if (sharedStart < sorted.length) {
+      result.push(...sorted.slice(sharedStart))
+    }
+  }
+
+  return result.map((img) => ({ url: img.src, alt: img.alt }))
 }
 
 /** Variant data from the embedded productJson (includes unavailable variants that .json API omits) */
@@ -591,11 +669,21 @@ export const purishDriver: SourceDriver = {
     const pageData = await fetchProductPageData(handle)
     const ingredientsText = pageData.ingredientsText
 
-    // Images
-    const images = product.images.map((img) => ({
-      url: img.src,
-      alt: img.alt,
-    }))
+    // Images: group by variant using position-based block detection.
+    //
+    // Shopify stores images sorted by position. Each variant has exactly one "tagged"
+    // image (variant_ids contains the variant ID) — this is the hero image that starts
+    // a contiguous block. Untagged images (variant_ids=[]) immediately after a tagged
+    // image belong to that same variant's block. Images after the last variant block
+    // are shared/product-level images shown for all variants.
+    //
+    // Example with 6 variants and 38 images:
+    //   pos 1 [tagged V1], pos 2-6 [untagged] → V1's block (6 images)
+    //   pos 7 [tagged V2], pos 8-12 [untagged] → V2's block (6 images)
+    //   ...
+    //   pos 37-38 [untagged, no more tagged after] → shared images (2 images)
+    //   Variant V6 gets: 6 own + 2 shared = 8 images (matches storefront)
+    const images = getVariantImages(product.images, selectedVariant?.id ?? null)
 
     // Variants: Use productJson from page HTML as primary source — it includes ALL variants
     // (available + unavailable), while the .json API may only return available ones.
