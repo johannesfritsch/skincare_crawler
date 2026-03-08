@@ -646,12 +646,12 @@ export interface DiscoveryResult {
  */
 export interface SourceProduct {
   id: number;
-  status?: ('uncrawled' | 'crawled') | null;
-  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
   /**
    * Product page URL at the source store (dedup key)
    */
   sourceUrl?: string | null;
+  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  status?: ('uncrawled' | 'crawled') | null;
   /**
    * Product brand name
    */
@@ -695,11 +695,11 @@ export interface SourceProduct {
  */
 export interface SourceVariant {
   id: number;
-  sourceProduct: number | SourceProduct;
   /**
    * Variant-specific URL. For DM/Rossmann: the GTIN-based product URL. For Mueller: base URL with ?itemId= parameter.
    */
   sourceUrl?: string | null;
+  sourceProduct: number | SourceProduct;
   /**
    * Global Trade Item Number for this specific variant
    */
@@ -2186,9 +2186,9 @@ export interface ProductVariantsSelect<T extends boolean = true> {
  * via the `definition` "source-products_select".
  */
 export interface SourceProductsSelect<T extends boolean = true> {
-  status?: T;
-  source?: T;
   sourceUrl?: T;
+  source?: T;
+  status?: T;
   brandName?: T;
   categoryBreadcrumb?: T;
   rating?: T;
@@ -2205,8 +2205,8 @@ export interface SourceProductsSelect<T extends boolean = true> {
  * via the `definition` "source-variants_select".
  */
 export interface SourceVariantsSelect<T extends boolean = true> {
-  sourceProduct?: T;
   sourceUrl?: T;
+  sourceProduct?: T;
   gtin?: T;
   sourceArticleNumber?: T;
   crawledAt?: T;

@@ -16,17 +16,6 @@ export const SourceVariants: CollectionConfig = {
   fields: [
     // ── Sidebar ──
     {
-      name: 'sourceProduct',
-      type: 'relationship',
-      relationTo: 'source-products',
-      label: 'Source Product',
-      required: true,
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
       name: 'sourceUrl',
       type: 'text',
       label: 'Source URL',
@@ -36,6 +25,21 @@ export const SourceVariants: CollectionConfig = {
         position: 'sidebar',
         description:
           'Variant-specific URL. For DM/Rossmann: the GTIN-based product URL. For Mueller: base URL with ?itemId= parameter.',
+        components: {
+          Field: '@/components/SourceUrlField',
+          Cell: '@/components/SourceUrlCell',
+        },
+      },
+    },
+    {
+      name: 'sourceProduct',
+      type: 'relationship',
+      relationTo: 'source-products',
+      label: 'Source Product',
+      required: true,
+      index: true,
+      admin: {
+        position: 'sidebar',
       },
     },
     {

@@ -7,6 +7,8 @@ import { default as default_1f4dba48f2aca046e64b7054820da12b } from '@/component
 import { default as default_819ef9d66822c27ca92a2904c893997c } from '@/components/bulk-actions/ProductBulkActions'
 import { default as default_56ebde3b2eb1d9ad5a98aac7de4b659e } from '@/components/bulk-actions/ProductBulkStatus'
 import { default as default_26307cb162b7a1272a178557593e5200 } from '@/components/ProductSaveButton'
+import { default as default_686a117a4dcd919fff6e2a415607708c } from '@/components/SourceUrlField'
+import { default as default_8ea2983115c53793cebb12efdd9bda3d } from '@/components/SourceUrlCell'
 import { default as default_88882724a5e05c59b3f46a4ad6375e07 } from '@/components/SourceProductJobStatus'
 import { default as default_6d188f2165f33ed6302ee67af654e893 } from '@/components/DownloadVariantGtinsButton'
 import { default as default_c1d837b9afc45ac9c38a0f36ac4123ad } from '@/components/bulk-actions/SourceProductBulkActions'
@@ -36,6 +38,8 @@ export const importMap = {
   "@/components/bulk-actions/ProductBulkActions#default": default_819ef9d66822c27ca92a2904c893997c,
   "@/components/bulk-actions/ProductBulkStatus#default": default_56ebde3b2eb1d9ad5a98aac7de4b659e,
   "@/components/ProductSaveButton#default": default_26307cb162b7a1272a178557593e5200,
+  "@/components/SourceUrlField#default": default_686a117a4dcd919fff6e2a415607708c,
+  "@/components/SourceUrlCell#default": default_8ea2983115c53793cebb12efdd9bda3d,
   "@/components/SourceProductJobStatus#default": default_88882724a5e05c59b3f46a4ad6375e07,
   "@/components/DownloadVariantGtinsButton#default": default_6d188f2165f33ed6302ee67af654e893,
   "@/components/bulk-actions/SourceProductBulkActions#default": default_c1d837b9afc45ac9c38a0f36ac4123ad,

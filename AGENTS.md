@@ -171,7 +171,7 @@ Store slugs are centralized in **two registry files** (one per process):
 | Registry | Process | Exports | Consumers |
 |----------|---------|---------|-----------|
 | `worker/src/lib/source-discovery/driver.ts` | Worker | `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `getAllSourceDrivers()` | claim.ts, submit.ts, worker.ts, aggregate-product.ts, source-product-queries.ts |
-| `server/src/collections/shared/store-fields.ts` | Server | `SOURCE_OPTIONS`, `SOURCE_OPTIONS_WITH_ALL`, `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `STORE_LABELS` | Collection configs (SourceProducts, ProductCrawls, ProductSearches, SearchResults, ProductAggregations), score-utils.tsx |
+| `server/src/collections/shared/store-fields.ts` | Server | `STORES` (primary registry with slug, label, hosts), `SOURCE_OPTIONS`, `SOURCE_OPTIONS_WITH_ALL`, `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `STORE_LABELS`, `detectStoreFromUrl()`, `shortenUrl()` | Collection configs, score-utils.tsx, SourceUrlField.tsx, SourceUrlCell.tsx |
 
 The worker registry derives its lists from the `drivers[]` array (each driver declares its own `slug`, `label`, `hosts`). Source filters and URL matchers in `source-product-queries.ts` are also derived from the driver registry automatically.
 
@@ -192,8 +192,8 @@ The server registry is a simple static list (server and worker are separate proc
    - Add the new slug to the `SourceSlug` union type (e.g. `'dm' | 'mueller' | 'rossmann' | 'newstore'`)
 
 4. **Update server store registry** — `server/src/collections/shared/store-fields.ts`
-   - Add `{ label: 'Store Name', value: 'newslug' }` to `SOURCE_OPTIONS`
-   - All collection configs that use `SOURCE_OPTIONS` / `SOURCE_OPTIONS_WITH_ALL` / `ALL_SOURCE_SLUGS` / `DEFAULT_IMAGE_SOURCE_PRIORITY` update automatically
+   - Add `{ value: 'newslug', label: 'Store Name', hosts: ['www.newstore.com', 'newstore.com'] }` to `STORES`
+   - All derived constants (`SOURCE_OPTIONS`, `ALL_SOURCE_SLUGS`, `STORE_LABELS`, `detectStoreFromUrl`, etc.) update automatically
 
 5. **Add the store logo** — `server/src/components/store-logos.tsx`
    - Create a new logo component function (inline SVG)

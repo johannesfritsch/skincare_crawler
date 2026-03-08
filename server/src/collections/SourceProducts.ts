@@ -51,6 +51,33 @@ export const SourceProducts: CollectionConfig = {
   fields: [
     // ── Sidebar ──
     {
+      name: 'sourceUrl',
+      type: 'text',
+      label: 'Source URL',
+      unique: true,
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description: 'Product page URL at the source store (dedup key)',
+        components: {
+          Field: '@/components/SourceUrlField',
+        },
+      },
+    },
+    {
+      name: 'source',
+      type: 'select',
+      label: 'Source',
+      index: true,
+      options: [...SOURCE_OPTIONS],
+      admin: {
+        position: 'sidebar',
+        components: {
+          Cell: '@/components/SourceUrlCell',
+        },
+      },
+    },
+    {
       name: 'status',
       type: 'select',
       label: 'Status',
@@ -62,27 +89,6 @@ export const SourceProducts: CollectionConfig = {
       index: true,
       admin: {
         position: 'sidebar',
-      },
-    },
-    {
-      name: 'source',
-      type: 'select',
-      label: 'Source',
-      index: true,
-      options: [...SOURCE_OPTIONS],
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
-      name: 'sourceUrl',
-      type: 'text',
-      label: 'Source URL',
-      unique: true,
-      index: true,
-      admin: {
-        position: 'sidebar',
-        description: 'Product page URL at the source store (dedup key)',
       },
     },
     {

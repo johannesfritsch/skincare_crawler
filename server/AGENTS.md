@@ -46,6 +46,8 @@ src/
 │   ├── JobButton.tsx            # Shared job button with state machine + polling (used by all SaveButton wrappers)
 │   ├── BulkJobBar.tsx           # Shared bulk action bar for list views (useSelection + polling, renders when items selected)
 │   ├── *SaveButton.tsx          # Per-collection SaveButton wrappers (SourceProduct, Product, Video, Channel, Ingredient)
+│   ├── SourceUrlField.tsx       # Custom Field for sourceUrl edit view (store logo + link + copy + edit)
+│   ├── SourceUrlCell.tsx        # Custom Cell for source/sourceUrl list view (logo + store name + external link)
 │   ├── bulk-actions/            # Per-collection beforeListTable wrappers for bulk job actions
 │   ├── anyskin-logo.tsx         # SVG wordmark
 │   ├── bottom-nav.tsx           # 5-tab bottom navigation
@@ -944,6 +946,14 @@ fields: [
   },
 }
 ```
+
+**Custom Field on Data-Storing Fields** — `SourceUrlField`:
+
+The `sourceUrl` field on `source-products` and `source-variants` uses custom `Field` and `Cell` components that share utilities from `store-fields.ts` (`detectStoreFromUrl`, `shortenUrl`, `STORE_LABELS`) and `store-logos.tsx` (`StoreLogo`). Icons come from `lucide-react`.
+
+- **`SourceUrlField`** (edit view) — replaces the default text input with a visual widget: store logo (auto-detected from URL hostname via `detectStoreFromUrl`, or from sibling `source` field via `useFormFields`), truncated URL text, clickable external link, copy-to-clipboard button, and an edit button to reveal the raw text input. Uses `useField` for data binding. This is the first instance of a custom `Field` component on a real data field (as opposed to `type: 'ui'`).
+
+- **`SourceUrlCell`** (list view) — renders a store logo + store name as a clickable external link to the product page. Applied to the `source` field on `source-products` and the `sourceUrl` field on `source-variants`. Works on both: when on a select field it reads `sourceUrl` from `rowData`; when on a text field it detects the store from the hostname. Uses `e.stopPropagation()` so clicks open the external URL without navigating to the Payload edit view.
 
 ### Performance Best Practices
 
