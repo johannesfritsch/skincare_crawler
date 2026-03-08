@@ -49,6 +49,7 @@ export const SourceProducts: CollectionConfig = {
     ],
   },
   fields: [
+    // ── Sidebar ──
     {
       name: 'status',
       type: 'select',
@@ -85,6 +86,47 @@ export const SourceProducts: CollectionConfig = {
       },
     },
     {
+      name: 'brandName',
+      type: 'text',
+      label: 'Brand',
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description: 'Product brand name',
+      },
+    },
+    {
+      name: 'categoryBreadcrumb',
+      type: 'text',
+      label: 'Category',
+      admin: {
+        position: 'sidebar',
+        description: 'Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"',
+      },
+    },
+    {
+      name: 'rating',
+      type: 'number',
+      label: 'Rating',
+      min: 0,
+      max: 5,
+      admin: {
+        position: 'sidebar',
+        description: 'Average rating (0-5)',
+      },
+    },
+    {
+      name: 'ratingNum',
+      type: 'number',
+      label: 'Reviews',
+      admin: {
+        position: 'sidebar',
+        description: 'Total number of reviews',
+      },
+    },
+
+    // ── Main area ──
+    {
       name: 'crawlStatus',
       type: 'ui',
       admin: {
@@ -100,77 +142,10 @@ export const SourceProducts: CollectionConfig = {
           label: 'Product',
           fields: [
             {
-              name: 'brandName',
-              type: 'text',
-              label: 'Brand',
-              admin: {
-                description: 'Product brand name',
-              },
-              index: true,
-            },
-            {
               name: 'name',
               type: 'text',
               label: 'Product Name',
             },
-            {
-              name: 'categoryBreadcrumb',
-              type: 'text',
-              label: 'Category',
-              admin: {
-                description: 'Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"',
-              },
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'rating',
-                  type: 'number',
-                  label: 'Rating',
-                  min: 0,
-                  max: 5,
-                  admin: {
-                    description: 'Average rating (0-5)',
-                    width: '50%',
-                  },
-                },
-                {
-                  name: 'ratingNum',
-                  type: 'number',
-                  label: 'Number of Reviews',
-                  admin: {
-                    description: 'Total number of reviews',
-                    width: '50%',
-                  },
-                },
-              ],
-            },
-          ],
-        },
-        {
-          label: 'Labels',
-          fields: [
-            {
-              name: 'labels',
-              type: 'array',
-              label: 'Labels',
-              admin: {
-                description: 'Product labels (e.g., Neu, Limitiert, dm-Marke)',
-              },
-              fields: [
-                {
-                  name: 'label',
-                  type: 'text',
-                  required: true,
-                },
-              ],
-            },
-          ],
-        },
-        {
-          label: 'Variants',
-          fields: [
             {
               name: 'sourceVariants',
               type: 'join',
@@ -191,8 +166,6 @@ export const SourceProducts: CollectionConfig = {
             },
           ],
         },
-
-        
         {
           label: 'History',
           fields: [

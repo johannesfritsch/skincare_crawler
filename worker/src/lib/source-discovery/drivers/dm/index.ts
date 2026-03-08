@@ -1,4 +1,4 @@
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
@@ -524,7 +524,7 @@ export const dmDriver: SourceDriver = {
     options: ProductSearchOptions,
   ): Promise<ProductSearchResult> {
     const { query, maxResults = 50, logger } = options
-    const products: import('../types').DiscoveredProduct[] = []
+    const products: import('../../types').DiscoveredProduct[] = []
     const pageSize = 60
     let currentPage = 0
     const maxPages = Math.ceil(maxResults / pageSize)

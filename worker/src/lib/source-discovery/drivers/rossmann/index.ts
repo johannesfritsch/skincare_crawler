@@ -1,4 +1,4 @@
-import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../types'
+import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../../types'
 import { launchBrowser } from '@/lib/browser'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
@@ -333,7 +333,7 @@ export const rossmannDriver: SourceDriver = {
     options: ProductSearchOptions,
   ): Promise<ProductSearchResult> {
     const { query, maxResults = 50, debug = false, logger } = options
-    const products: import('../types').DiscoveredProduct[] = []
+    const products: import('../../types').DiscoveredProduct[] = []
 
     log.info('Searching Rossmann', { query, maxResults })
 

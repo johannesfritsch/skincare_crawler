@@ -656,7 +656,6 @@ export interface SourceProduct {
    * Product brand name
    */
   brandName?: string | null;
-  name?: string | null;
   /**
    * Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"
    */
@@ -669,15 +668,7 @@ export interface SourceProduct {
    * Total number of reviews
    */
   ratingNum?: number | null;
-  /**
-   * Product labels (e.g., Neu, Limitiert, dm-Marke)
-   */
-  labels?:
-    | {
-        label: string;
-        id?: string | null;
-      }[]
-    | null;
+  name?: string | null;
   sourceVariants?: {
     docs?: (number | SourceVariant)[];
     hasNextPage?: boolean;
@@ -752,6 +743,15 @@ export interface SourceVariant {
    * Raw INCI ingredients text as crawled from the variant page
    */
   ingredientsText?: string | null;
+  /**
+   * Product labels (e.g., Neu, Limitiert, dm-Marke)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * Timestamped price & availability entries from each crawl of this variant
    */
@@ -2190,16 +2190,10 @@ export interface SourceProductsSelect<T extends boolean = true> {
   source?: T;
   sourceUrl?: T;
   brandName?: T;
-  name?: T;
   categoryBreadcrumb?: T;
   rating?: T;
   ratingNum?: T;
-  labels?:
-    | T
-    | {
-        label?: T;
-        id?: T;
-      };
+  name?: T;
   sourceVariants?: T;
   discoveries?: T;
   crawls?: T;
@@ -2229,6 +2223,12 @@ export interface SourceVariantsSelect<T extends boolean = true> {
         id?: T;
       };
   ingredientsText?: T;
+  labels?:
+    | T
+    | {
+        label?: T;
+        id?: T;
+      };
   priceHistory?:
     | T
     | {

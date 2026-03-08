@@ -167,6 +167,26 @@ export const SourceVariants: CollectionConfig = {
           ],
         },
         {
+          label: 'Labels',
+          fields: [
+            {
+              name: 'labels',
+              type: 'array',
+              label: 'Labels',
+              admin: {
+                description: 'Product labels (e.g., Neu, Limitiert, dm-Marke)',
+              },
+              fields: [
+                {
+                  name: 'label',
+                  type: 'text',
+                  required: true,
+                },
+              ],
+            },
+          ],
+        },
+        {
           label: 'Price History',
           fields: [
             {

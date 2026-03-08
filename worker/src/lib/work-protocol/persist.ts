@@ -166,7 +166,6 @@ export async function persistCrawlResult(
     brandName: data.brandName ?? null,
     name: data.name,
     ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
-    labels: data.labels?.map((l) => ({ label: l })) ?? [],
     rating: data.rating || null,
     ratingNum: data.ratingNum || null,
   }
@@ -200,13 +199,14 @@ export async function persistCrawlResult(
   // (top-level is set by Rossmann which only has one DAN per page, and by all drivers as a convenience)
   const effectiveArticleNumber = crawledVariantArticleNumber ?? data.sourceArticleNumber ?? undefined
 
-  // Variant-specific data payload (description, images, ingredientsText, amount, amountUnit)
+  // Variant-specific data payload (description, images, ingredientsText, amount, amountUnit, labels)
   const variantContentPayload: Record<string, unknown> = {
     description: data.description ?? null,
     images: data.images,
     ingredientsText: data.ingredientsText ?? null,
     amount: data.amount ?? null,
     amountUnit: data.amountUnit ?? null,
+    labels: data.labels?.map((l) => ({ label: l })) ?? [],
   }
 
   if (sourceVariantId) {

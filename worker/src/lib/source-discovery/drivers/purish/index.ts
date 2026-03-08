@@ -9,7 +9,7 @@ import type {
   ProductSearchResult,
   ScrapedProductData,
   DiscoveredProduct,
-} from '../types'
+} from '../../types'
 
 const log = createLogger('PurishDriver')
 
@@ -162,6 +162,42 @@ function bodyHtmlToMarkdown(html: string): string {
 }
 
 /**
+ * Convert PURISH tab content HTML to plain text.
+ *
+ * Tab items on PURISH contain nested wrapper divs (tab-text, tab-text-beschreibung)
+ * with metafield spans and rich-text content inside. This function is specific to
+ * PURISH's Shopify theme — other drivers have their own description extraction.
+ */
+function tabContentToText(html: string): string {
+  if (!html) return ''
+  let text = html
+    // Convert headings (h4 used for sub-sections like "Die Vorteile auf einen Blick")
+    .replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, '\n### $1\n')
+    // Convert list items
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n')
+    // Convert paragraphs
+    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n')
+    // Convert line breaks
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Convert bold
+    .replace(/<(strong|b)[^>]*>(.*?)<\/(strong|b)>/gi, '**$2**')
+    // Strip remaining HTML (meta tags, spans, divs, etc.)
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    // Decode entities
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    // Clean up whitespace
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return text
+}
+
+/**
  * Get the images for a specific variant using position-based block grouping.
  *
  * Shopify images are ordered by position. Each variant typically has one "tagged"
@@ -259,6 +295,10 @@ interface ProductPageData {
   productAvailable: boolean | null
   /** Full variant list from productJson — includes ALL variants (available + unavailable) */
   allVariants: PageJsonVariant[]
+  /** Labels extracted from <span class="product-tag"> elements (e.g. "Cruelty-free", "Paraben-free") */
+  pageLabels: string[]
+  /** Description merged from <tabs-desktop> tab structure (tab titles as ## headlines + content) */
+  tabDescription: string | null
 }
 
 /**
@@ -307,7 +347,7 @@ function parseProductJson(html: string): {
  * `available` booleans.
  */
 async function fetchProductPageData(handle: string): Promise<ProductPageData> {
-  const empty: ProductPageData = { ingredientsText: null, variantAvailability: new Map(), productAvailable: null, allVariants: [] }
+  const empty: ProductPageData = { ingredientsText: null, variantAvailability: new Map(), productAvailable: null, allVariants: [], pageLabels: [], tabDescription: null }
   try {
     const url = `${BASE_URL}/products/${handle}`
     const res = await stealthFetch(url)
@@ -329,6 +369,78 @@ async function fetchProductPageData(handle: string): Promise<ProductPageData> {
       if (commaCount >= 4 && text.length > 30) {
         ingredientsText = text
         break
+      }
+    }
+
+    // Extract labels from two HTML sources on the product page:
+    // 1. <span class="product-tag"> inside .porduct-tags-wrap — "free-from" claims
+    //    (e.g. "Paraben-free", "Cruelty-free", "Made in the USA")
+    // 2. <span> inside .product-badge-custom divs — store badges
+    //    (e.g. "Bestseller", "Last Chance", "Kostenloser Versand")
+    const pageLabels: string[] = []
+    const seen = new Set<string>()
+
+    // Source 1: product-tag spans
+    const productTagPattern = /<span\s+class="product-tag">\s*(.*?)\s*<\/span>/gi
+    let tagMatch: RegExpExecArray | null
+    while ((tagMatch = productTagPattern.exec(html)) !== null) {
+      const label = stripHtml(tagMatch[1]).trim()
+      if (label.length > 0 && !seen.has(label)) {
+        seen.add(label)
+        pageLabels.push(label)
+      }
+    }
+
+    // Source 2: product-badge-custom divs — extract the <span> text inside each
+    const badgePattern = /<div\s+class="product-badge-custom[^"]*"[^>]*>[\s\S]*?<span>(.*?)<\/span>[\s\S]*?<\/div>/gi
+    let badgeMatch: RegExpExecArray | null
+    while ((badgeMatch = badgePattern.exec(html)) !== null) {
+      const label = stripHtml(badgeMatch[1]).trim()
+      if (label.length > 0 && !seen.has(label)) {
+        seen.add(label)
+        pageLabels.push(label)
+      }
+    }
+
+    // Extract description from <tabs-desktop> tab structure.
+    // Each tab has a title (from <button class="tab-navigate">) and content
+    // (from the matching <div class="tab-item">). We merge them into a single
+    // text with tab titles as ## headlines.
+    let tabDescription: string | null = null
+    const tabsMatch = html.match(/<tabs-desktop[^>]*>([\s\S]*?)<\/tabs-desktop>/i)
+    if (tabsMatch) {
+      const tabsHtml = tabsMatch[1]
+
+      // Extract tab titles from <button class="tab-navigate"> elements
+      const titles: string[] = []
+      const titlePattern = /<button[^>]*class="tab-navigate"[^>]*>\s*([\s\S]*?)\s*<\/button>/gi
+      let titleMatch: RegExpExecArray | null
+      while ((titleMatch = titlePattern.exec(tabsHtml)) !== null) {
+        titles.push(stripHtml(titleMatch[1]).trim())
+      }
+
+      // Extract tab content: split by <div ... class="tab-item" ...> markers,
+      // then convert each chunk via PURISH-specific tabContentToText().
+      const contents: string[] = []
+      const parts = tabsHtml.split(/<div[^>]*class="tab-item"[^>]*>/i)
+      // parts[0] is the navbar section (before first tab-item), skip it
+      for (let i = 1; i < parts.length; i++) {
+        contents.push(tabContentToText(parts[i]))
+      }
+
+      // Merge: ## Title\n\nContent for each tab
+      if (titles.length > 0 && contents.length > 0) {
+        const sections: string[] = []
+        for (let i = 0; i < titles.length; i++) {
+          const title = titles[i]
+          const content = (contents[i] || '').trim()
+          if (title && content) {
+            sections.push(`## ${title}\n\n${content}`)
+          }
+        }
+        if (sections.length > 0) {
+          tabDescription = sections.join('\n\n')
+        }
       }
     }
 
@@ -361,7 +473,7 @@ async function fetchProductPageData(handle: string): Promise<ProductPageData> {
       log.info('Parsed productJson', { variants: allVariants.length, productAvailable })
     }
 
-    return { ingredientsText, variantAvailability, productAvailable, allVariants }
+    return { ingredientsText, variantAvailability, productAvailable, allVariants, pageLabels, tabDescription }
   } catch {
     return empty
   }
@@ -376,6 +488,18 @@ function productUrl(handle: string): string {
 function parseAmountFromVariant(variant: ShopifyVariant): { amount: number; amountUnit: string } | null {
   const text = variant.option1 ?? variant.title ?? ''
   const match = text.match(/(\d+(?:[.,]\d+)?)\s*(ml|g|kg|l|oz|stk|stück|pcs)/i)
+  if (match) {
+    const amount = parseFloat(match[1].replace(',', '.'))
+    const unit = match[2].toLowerCase()
+    return { amount, amountUnit: unit }
+  }
+  return null
+}
+
+/** Parse amount and unit from product body_html (e.g. "Size: 0.22 g" or "Größe: 100 ml") */
+function parseAmountFromDescription(bodyHtml: string): { amount: number; amountUnit: string } | null {
+  const text = stripHtml(bodyHtml)
+  const match = text.match(/(?:size|größe)\s*:\s*(\d+(?:[.,]\d+)?)\s*(ml|g|kg|l|oz|stk|stück|pcs)/i)
   if (match) {
     const amount = parseFloat(match[1].replace(',', '.'))
     const unit = match[2].toLowerCase()
@@ -645,9 +769,10 @@ export const purishDriver: SourceDriver = {
       : null) ?? product.variants[0]
     const gtin = selectedVariant?.barcode || undefined
     const priceCents = priceToCents(selectedVariant?.price)
-    const amountInfo = selectedVariant ? parseAmountFromVariant(selectedVariant) : null
+    const amountInfo = (selectedVariant ? parseAmountFromVariant(selectedVariant) : null)
+      ?? parseAmountFromDescription(product.body_html || '')
 
-    // Per-unit price from Shopify's unit_price_measurement
+    // Per-unit price: try Shopify's unit_price_measurement first, then compute from price + amount
     let perUnitAmount: number | undefined
     let perUnitQuantity: number | undefined
     let perUnitUnit: string | undefined
@@ -656,13 +781,30 @@ export const purishDriver: SourceDriver = {
       perUnitAmount = priceToCents(selectedVariant.unit_price)
       perUnitQuantity = upm.reference_value
       perUnitUnit = upm.reference_unit
+    } else if (priceCents && amountInfo) {
+      // Compute per-unit price from item price and amount (same logic as Rossmann/Mueller)
+      const u = amountInfo.amountUnit.toLowerCase()
+      if (u === 'ml' || u === 'g') {
+        perUnitAmount = Math.round(priceCents / amountInfo.amount * 100)
+        perUnitQuantity = 100
+        perUnitUnit = u
+      } else if (u === 'l' || u === 'kg') {
+        perUnitAmount = Math.round(priceCents / amountInfo.amount)
+        perUnitQuantity = 1
+        perUnitUnit = u
+      } else {
+        perUnitAmount = Math.round(priceCents / amountInfo.amount)
+        perUnitQuantity = 1
+        perUnitUnit = amountInfo.amountUnit
+      }
     }
 
-    // Description
-    const description = bodyHtmlToMarkdown(product.body_html || '')
-
-    // Fetch product page HTML for ingredients + variant availability
+    // Fetch product page HTML for ingredients, variant availability, labels, and tab description
     const pageData = await fetchProductPageData(handle)
+
+    // Description: prefer tab-structured description from page HTML (contains all
+    // product tabs as ## headlines with content), fall back to body_html from JSON API
+    const description = pageData.tabDescription || bodyHtmlToMarkdown(product.body_html || '')
     const ingredientsText = pageData.ingredientsText
 
     // Images: group by variant using position-based block detection.
@@ -731,17 +873,9 @@ export const purishDriver: SourceDriver = {
       }
     }
 
-    // Labels from tags
-    const labels = product.tags
-      ? product.tags.split(',').map((t) => t.trim()).filter((t) => {
-          // Only include user-facing labels, skip internal tags
-          const lower = t.toLowerCase()
-          return !lower.startsWith('dp-') && !lower.startsWith('nirang_') && !lower.startsWith('dynamic_')
-            && !lower.includes('off') && !lower.includes('gwp') && !lower.includes('lp')
-            && !lower.startsWith('bw') && !lower.startsWith('bemine')
-            && t.length > 1 && t.length < 30
-        })
-      : []
+    // Labels: scraped directly from the product page HTML (product-tag spans + badge divs).
+    // Taken as-is — no filtering, no normalization.
+    const labels = pageData.pageLabels
 
     // Category breadcrumbs from product_type
     const categoryBreadcrumbs = product.product_type ? [product.product_type] : undefined
