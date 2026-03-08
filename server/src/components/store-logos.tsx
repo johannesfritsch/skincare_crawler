@@ -43,8 +43,9 @@ function MuellerLogo({ className }: StoreLogoProps) {
 /** PURISH — text wordmark */
 function PurishLogo({ className }: StoreLogoProps) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 28" className={cn('h-5 w-auto', className)}>
-      <text x="0" y="23" fontFamily="Arial,Helvetica,sans-serif" fontWeight="700" fontSize="26" fill="#000">PURISH</text>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" className={cn('h-5 w-auto', className)}>
+      <rect width="120" height="120" rx="16" ry="16" fill="#fff" />
+      <text x="60" y="66" textAnchor="middle" fontFamily="Arial,Helvetica,sans-serif" fontWeight="700" fontSize="26" fill="#000">PURISH</text>
     </svg>
   )
 }
