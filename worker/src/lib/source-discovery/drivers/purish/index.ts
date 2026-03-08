@@ -772,7 +772,8 @@ export const purishDriver: SourceDriver = {
     const amountInfo = (selectedVariant ? parseAmountFromVariant(selectedVariant) : null)
       ?? parseAmountFromDescription(product.body_html || '')
 
-    // Per-unit price: try Shopify's unit_price_measurement first, then compute from price + amount
+    // Per-unit price: try Shopify's unit_price_measurement (rarely populated on PURISH).
+    // The persist layer computes a fallback from price + amount when missing.
     let perUnitAmount: number | undefined
     let perUnitQuantity: number | undefined
     let perUnitUnit: string | undefined
@@ -781,22 +782,6 @@ export const purishDriver: SourceDriver = {
       perUnitAmount = priceToCents(selectedVariant.unit_price)
       perUnitQuantity = upm.reference_value
       perUnitUnit = upm.reference_unit
-    } else if (priceCents && amountInfo) {
-      // Compute per-unit price from item price and amount (same logic as Rossmann/Mueller)
-      const u = amountInfo.amountUnit.toLowerCase()
-      if (u === 'ml' || u === 'g') {
-        perUnitAmount = Math.round(priceCents / amountInfo.amount * 100)
-        perUnitQuantity = 100
-        perUnitUnit = u
-      } else if (u === 'l' || u === 'kg') {
-        perUnitAmount = Math.round(priceCents / amountInfo.amount)
-        perUnitQuantity = 1
-        perUnitUnit = u
-      } else {
-        perUnitAmount = Math.round(priceCents / amountInfo.amount)
-        perUnitQuantity = 1
-        perUnitUnit = amountInfo.amountUnit
-      }
     }
 
     // Fetch product page HTML for ingredients, variant availability, labels, and tab description

@@ -62,6 +62,8 @@ Parsed from `data.price.infos[]` via `parsePerUnitPrice()`. Entries look like:
 - `"0,3 l (2,17 € je 1 l)"`
 - Regex extracts: amount in €, quantity, unit
 
+When the API string doesn't match the regex (returns `null`), the persist layer's `computePerUnitPrice()` computes a fallback from `price + amount`.
+
 ### Amount / Unit
 
 Parsed from `data.price.infos[]` via `parseProductAmount()`. Entries look like:

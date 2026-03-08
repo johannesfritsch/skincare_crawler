@@ -20,7 +20,7 @@ The page HTML fetch is handled by `fetchProductPageData(handle)`, which extracts
 2. Fetch /products/{handle}.json → ShopifyProduct (name, brand, variants, images, options, body_html)
 3. Select variant: match by ?variant= param or fall back to first variant
 4. Parse amount/unit from variant title, then from body_html as fallback
-5. Compute per-unit price (Shopify unit_price_measurement → computed fallback)
+5. Extract per-unit price from Shopify unit_price_measurement (if available)
 6. fetchProductPageData(handle) → ingredients, labels, availability, tab description
 7. Build description from tab structure (fallback: body_html → markdown)
 8. Group images by variant (position-based block grouping)
@@ -93,9 +93,8 @@ From the selected Shopify variant:
 
 ### Per-Unit Price
 
-Two-tier fallback:
-1. Shopify's `unit_price_measurement` (rarely populated on PURISH) — contains reference_value, reference_unit
-2. Computed from price ÷ amount: `ml`/`g` → per 100, `l`/`kg` → per 1 (same logic as Rossmann/Mueller)
+From Shopify's `unit_price_measurement` on the selected variant (rarely populated on PURISH) — contains `reference_value`, `reference_unit`.
+When not available, the persist layer's `computePerUnitPrice()` computes a fallback from `price + amount`.
 
 ### Amount / Unit
 

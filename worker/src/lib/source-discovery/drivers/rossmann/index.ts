@@ -654,26 +654,8 @@ export const rossmannDriver: SourceDriver = {
           log.info('Found ingredients text', { chars: ingredientsText.length })
         }
 
-        // Calculate per-unit price from amount
-        let perUnitAmount: number | undefined
-        let perUnitQuantity: number | undefined
-        let perUnitUnit: string | undefined
-        if (scraped.priceCents && scraped.amount && scraped.amountUnit) {
-          const u = scraped.amountUnit.toLowerCase()
-          if (u === 'ml' || u === 'g') {
-            perUnitAmount = Math.round(scraped.priceCents / scraped.amount * 100)
-            perUnitQuantity = 100
-            perUnitUnit = u
-          } else if (u === 'l' || u === 'kg') {
-            perUnitAmount = Math.round(scraped.priceCents / scraped.amount)
-            perUnitQuantity = 1
-            perUnitUnit = u
-          } else {
-            perUnitAmount = Math.round(scraped.priceCents / scraped.amount)
-            perUnitQuantity = 1
-            perUnitUnit = scraped.amountUnit
-          }
-        }
+        // Per-unit price: Rossmann has no per-unit price element on the page.
+        // The persist layer computes it from price + amount as a fallback.
 
         const warnings: string[] = []
 
@@ -696,9 +678,6 @@ export const rossmannDriver: SourceDriver = {
           ratingNum: scraped.ratingNum ?? undefined,
           sourceArticleNumber: scraped.sourceArticleNumber ?? undefined,
           categoryBreadcrumbs: scraped.categoryPath ?? undefined,
-          perUnitAmount,
-          perUnitQuantity,
-          perUnitUnit,
           warnings,
         }
       } finally {

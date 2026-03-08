@@ -25,7 +25,7 @@ The driver always tries RSC JSON first, then JSON-LD, then DOM — for each fiel
    b. Find "product" object with "ean" and "siblings" via bracket-matching
    c. Parse JSON-LD Product schema as fallback
    d. Extract all fields with RSC → JSON-LD → DOM priority chain
-5. Post-process outside browser: ingredients, per-unit price computation
+5. Post-process outside browser: ingredients
 6. Close browser, return ScrapedProductData
 ```
 
@@ -78,7 +78,7 @@ Currency: RSC `currentPrice.currencyIso` → JSON-LD `offers[0].priceCurrency` �
 ### Per-Unit Price
 
 From DOM: `[class*="product-price__base-price"] span` text. Regex matches `X,XX € / N unit` pattern.
-Falls back to computation from price ÷ amount (same ml/g → per 100, l/kg → per 1 logic as other drivers).
+When DOM extraction finds nothing, the persist layer's `computePerUnitPrice()` computes a fallback from `price + amount`.
 
 ### Amount / Unit
 

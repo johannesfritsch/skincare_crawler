@@ -21,7 +21,7 @@ Each `scrapeProduct()` call uses **one browser page load**. Data is extracted fr
 2. Navigate to product URL, wait for .rm-product__title
 3. Wait for BazaarVoice rating widget to load (async, up to 15s)
 4. Single page.evaluate() call that extracts everything from the DOM
-5. Post-process outside browser: GTIN fallback from URL, ingredients, per-unit price computation
+5. Post-process outside browser: GTIN fallback from URL, ingredients
 6. Close browser, return ScrapedProductData
 ```
 
@@ -57,12 +57,7 @@ Currency from `meta[itemprop="priceCurrency"]` content attribute (default "EUR")
 
 ### Per-Unit Price
 
-Computed from price ÷ amount:
-- `ml`/`g` → per 100 units
-- `l`/`kg` → per 1 unit
-- Other units → per 1 unit
-
-No dedicated per-unit price element on the page.
+No dedicated per-unit price element on the page. The persist layer's `computePerUnitPrice()` computes it from `price + amount` as a fallback.
 
 ### Amount / Unit
 
@@ -167,5 +162,5 @@ Playwright-based browser scraping:
 - **Only available variants shown** — Rossmann pages only list variants that are currently available. The persist layer detects disappeared variants by comparing the scraped set against existing DB records and marks missing ones as unavailable
 - **GTIN in URL** — Rossmann embeds the GTIN directly in the product URL path (`/p/{GTIN}`), making it extractable even when `data-item-ean` is missing
 - **Partial star ratings** — Discovery cards support fractional ratings via CSS `width` percentage on the last star container (e.g. `width: 50%` = half star)
-- **No labels, no per-unit price element** — Rossmann doesn't provide these in an easily extractable format. Per-unit price is computed from price ÷ amount
+- **No labels, no per-unit price element** — Rossmann doesn't provide these in an easily extractable format. Per-unit price is computed by the persist layer from price + amount
 - **Random delays** between page navigations: `randomDelay(1000, 2000)` ms for search, `jitteredDelay(baseMs)` for discovery

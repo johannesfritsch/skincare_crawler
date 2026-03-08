@@ -10,6 +10,41 @@ import { createLogger } from '@/lib/logger'
 
 const log = createLogger('Persist')
 
+/**
+ * Compute per-unit price from total price and product amount.
+ * Used as a fallback when the driver doesn't provide per-unit pricing.
+ *
+ * - ml/g → price per 100 units
+ * - l/kg → price per 1 unit
+ * - anything else → price per 1 unit (preserves original unit casing)
+ */
+function computePerUnitPrice(
+  priceCents: number,
+  amount: number,
+  amountUnit: string,
+): { perUnitAmount: number; perUnitQuantity: number; perUnitUnit: string } {
+  const u = amountUnit.toLowerCase()
+  if (u === 'ml' || u === 'g') {
+    return {
+      perUnitAmount: Math.round(priceCents / amount * 100),
+      perUnitQuantity: 100,
+      perUnitUnit: u,
+    }
+  } else if (u === 'l' || u === 'kg') {
+    return {
+      perUnitAmount: Math.round(priceCents / amount),
+      perUnitQuantity: 1,
+      perUnitUnit: u,
+    }
+  } else {
+    return {
+      perUnitAmount: Math.round(priceCents / amount),
+      perUnitQuantity: 1,
+      perUnitUnit: amountUnit,
+    }
+  }
+}
+
 interface ScrapedProductData {
   gtin?: string
   name: string
@@ -125,14 +160,26 @@ export async function persistCrawlResult(
   // A price entry is always created when we have either price OR availability info.
   const newAmount = data.priceCents ?? null
   const effectiveAvailability: Availability = data.availability ?? 'available'
+
+  // Per-unit price: use driver-provided values, fall back to computation from price + amount
+  let perUnitAmount = data.perUnitAmount ?? null
+  let perUnitQuantity = data.perUnitQuantity ?? null
+  let perUnitUnit = data.perUnitUnit ?? null
+  if (perUnitAmount == null && data.priceCents && data.amount && data.amountUnit) {
+    const computed = computePerUnitPrice(data.priceCents, data.amount, data.amountUnit)
+    perUnitAmount = computed.perUnitAmount
+    perUnitQuantity = computed.perUnitQuantity
+    perUnitUnit = computed.perUnitUnit
+  }
+
   const priceEntry = (newAmount != null || effectiveAvailability) ? {
     recordedAt: now,
     amount: newAmount,
     currency: newAmount != null ? (data.currency ?? 'EUR') : null,
-    perUnitAmount: data.perUnitAmount ?? null,
-    perUnitCurrency: data.perUnitAmount ? (data.currency ?? 'EUR') : null,
-    perUnitQuantity: data.perUnitQuantity ?? null,
-    unit: data.perUnitUnit ?? null,
+    perUnitAmount,
+    perUnitCurrency: perUnitAmount ? (data.currency ?? 'EUR') : null,
+    perUnitQuantity,
+    unit: perUnitUnit,
     availability: effectiveAvailability,
     change: null as string | null, // computed below after fetching variant's existing history
   } : null

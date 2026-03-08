@@ -1032,26 +1032,8 @@ export const muellerDriver: SourceDriver = {
           log.info('Found ingredients text', { chars: ingredientsText.length })
         }
 
-        // Calculate per-unit price if not found in DOM
-        let perUnitAmount = scraped.perUnitAmount ?? undefined
-        let perUnitQuantity = scraped.perUnitQuantity ?? undefined
-        let perUnitUnit = scraped.perUnitUnit ?? undefined
-        if (!perUnitAmount && scraped.priceCents && scraped.amount && scraped.amountUnit) {
-          const u = scraped.amountUnit.toLowerCase()
-          if (u === 'ml' || u === 'g') {
-            perUnitAmount = Math.round(scraped.priceCents / scraped.amount * 100)
-            perUnitQuantity = 100
-            perUnitUnit = u
-          } else if (u === 'l' || u === 'kg') {
-            perUnitAmount = Math.round(scraped.priceCents / scraped.amount)
-            perUnitQuantity = 1
-            perUnitUnit = u
-          } else {
-            perUnitAmount = Math.round(scraped.priceCents / scraped.amount)
-            perUnitQuantity = 1
-            perUnitUnit = scraped.amountUnit
-          }
-        }
+        // Per-unit price: DOM extraction provides values when available.
+        // The persist layer computes a fallback from price + amount when missing.
 
         log.debug('Category info', { url: sourceUrl, breadcrumbs: scraped.categoryBreadcrumbs ? scraped.categoryBreadcrumbs.join(' -> ') : '(none)', categoryUrl: scraped.categoryUrl ?? '(none)' })
 
@@ -1081,9 +1063,9 @@ export const muellerDriver: SourceDriver = {
           sourceArticleNumber: scraped.sourceArticleNumber ?? undefined,
           categoryBreadcrumbs: scraped.categoryBreadcrumbs ?? undefined,
           categoryUrl: scraped.categoryUrl ?? undefined,
-          perUnitAmount,
-          perUnitQuantity,
-          perUnitUnit,
+          perUnitAmount: scraped.perUnitAmount ?? undefined,
+          perUnitQuantity: scraped.perUnitQuantity ?? undefined,
+          perUnitUnit: scraped.perUnitUnit ?? undefined,
           availability: (scraped.availability as 'available' | 'unavailable') ?? undefined,
           warnings: [],
         }
