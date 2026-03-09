@@ -11,6 +11,22 @@ import { createLogger } from '@/lib/logger'
 const log = createLogger('Persist')
 
 /**
+ * Extract amount and unit from a free-text string (e.g. "100 ml", "1,5l", "Tagescreme 50 ml").
+ * Supports German (comma) and international (dot) decimals with up to 2 decimal places.
+ * Units: mg, g, kg, ml, l (case-insensitive). The unit must be followed by a word boundary
+ * (whitespace, comma, period, dash, parenthesis, end of string, etc.) to avoid false positives
+ * like "global" or "light".
+ */
+function parseAmountFromText(text: string): { amount: number; amountUnit: string } | null {
+  // Match: number (with optional comma/dot decimal up to 2 places) + optional space + unit + word boundary
+  const match = text.match(/(\d+(?:[.,]\d{1,2})?)\s*(mg|kg|ml|g|l)(?=[\s,.);\-\/\]!?]|$)/i)
+  if (!match) return null
+  const amount = parseFloat(match[1].replace(',', '.'))
+  if (isNaN(amount) || amount <= 0) return null
+  return { amount, amountUnit: match[2].toLowerCase() }
+}
+
+/**
  * Compute per-unit price from total price and product amount.
  * Used as a fallback when the driver doesn't provide per-unit pricing.
  *
@@ -156,6 +172,34 @@ export async function persistCrawlResult(
 
   const now = new Date().toISOString()
 
+  // Find the selected variant's label (needed early for amount fallback extraction)
+  let crawledVariantLabel: string | undefined
+  let crawledVariantDimension: string | undefined
+  let crawledVariantArticleNumber: string | undefined
+  for (const variantGroup of data.variants) {
+    for (const option of variantGroup.options) {
+      if (option.isSelected) {
+        crawledVariantLabel = option.label || undefined
+        crawledVariantDimension = variantGroup.dimension || undefined
+        crawledVariantArticleNumber = option.sourceArticleNumber || undefined
+        break
+      }
+    }
+    if (crawledVariantLabel) break
+  }
+
+  // Amount/unit: use driver-provided values, fall back to parsing from variant label or product name
+  let effectiveAmount = data.amount ?? null
+  let effectiveAmountUnit = data.amountUnit ?? null
+  if (effectiveAmount == null || effectiveAmountUnit == null) {
+    const parsed = (crawledVariantLabel ? parseAmountFromText(crawledVariantLabel) : null)
+      ?? parseAmountFromText(data.name)
+    if (parsed) {
+      effectiveAmount = parsed.amount
+      effectiveAmountUnit = parsed.amountUnit
+    }
+  }
+
   // Build price entry for the crawled variant (written to source-variant, not source-product)
   // A price entry is always created when we have either price OR availability info.
   const newAmount = data.priceCents ?? null
@@ -165,8 +209,8 @@ export async function persistCrawlResult(
   let perUnitAmount = data.perUnitAmount ?? null
   let perUnitQuantity = data.perUnitQuantity ?? null
   let perUnitUnit = data.perUnitUnit ?? null
-  if (perUnitAmount == null && data.priceCents && data.amount && data.amountUnit) {
-    const computed = computePerUnitPrice(data.priceCents, data.amount, data.amountUnit)
+  if (perUnitAmount == null && data.priceCents && effectiveAmount && effectiveAmountUnit) {
+    const computed = computePerUnitPrice(data.priceCents, effectiveAmount, effectiveAmountUnit)
     perUnitAmount = computed.perUnitAmount
     perUnitQuantity = computed.perUnitQuantity
     perUnitUnit = computed.perUnitUnit
@@ -227,32 +271,18 @@ export async function persistCrawlResult(
   // Determine the canonical URL for the crawled variant
   const canonicalVariantUrl = data.canonicalUrl ? normalizeVariantUrl(data.canonicalUrl) : variantUrl
 
-  // Find the selected variant's label, dimension, and article number from the scraped data
-  let crawledVariantLabel: string | undefined
-  let crawledVariantDimension: string | undefined
-  let crawledVariantArticleNumber: string | undefined
-  for (const variantGroup of data.variants) {
-    for (const option of variantGroup.options) {
-      if (option.isSelected) {
-        crawledVariantLabel = option.label || undefined
-        crawledVariantDimension = variantGroup.dimension || undefined
-        crawledVariantArticleNumber = option.sourceArticleNumber || undefined
-        break
-      }
-    }
-    if (crawledVariantLabel) break
-  }
   // Use the selected variant option's article number if available, otherwise fall back to top-level
   // (top-level is set by Rossmann which only has one DAN per page, and by all drivers as a convenience)
   const effectiveArticleNumber = crawledVariantArticleNumber ?? data.sourceArticleNumber ?? undefined
 
   // Variant-specific data payload (description, images, ingredientsText, amount, amountUnit, labels)
+  // Uses effectiveAmount/effectiveAmountUnit which may have been parsed from variant label or product name
   const variantContentPayload: Record<string, unknown> = {
     description: data.description ?? null,
     images: data.images,
     ingredientsText: data.ingredientsText ?? null,
-    amount: data.amount ?? null,
-    amountUnit: data.amountUnit ?? null,
+    amount: effectiveAmount ?? null,
+    amountUnit: effectiveAmountUnit ?? null,
     labels: data.labels?.map((l) => ({ label: l })) ?? [],
   }
 
@@ -674,17 +704,14 @@ export async function persistIngredient(
           itemType: data.itemType,
           restrictions: data.restrictions ?? null,
           sourceUrl: data.sourceUrl ?? null,
-          status: 'pending',
+          status: 'uncrawled',
         },
       })
       return { isNew: true }
     } catch (createError: unknown) {
       const errorMessage = createError instanceof Error ? createError.message : String(createError)
-      if (
-        errorMessage.includes('name') ||
-        errorMessage.includes('unique') ||
-        errorMessage.includes('duplicate')
-      ) {
+      // Only swallow unique constraint violations (race condition with another worker)
+      if (errorMessage.includes('unique') || errorMessage.includes('duplicate')) {
         return { isNew: false }
       }
       throw createError

@@ -163,6 +163,8 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 ### persist (`work-protocol/persist.ts`)
 
+**`parseAmountFromText(text)`** — extracts amount and unit from free-text strings (e.g. "100 ml", "1,5l", "Tagescreme 50 ml"). Supports German (comma) and international (dot) decimals with up to 2 decimal places. Units: `mg`, `g`, `kg`, `ml`, `l` (case-insensitive). The unit must be followed by a word boundary to avoid false positives. Used as a fallback in `persistCrawlResult()` when the driver doesn't provide `amount`/`amountUnit` — tries the selected variant label first, then the product name.
+
 **`computePerUnitPrice(priceCents, amount, amountUnit)`** — centralized per-unit price computation used as a fallback when the driver doesn't provide per-unit pricing. Formula: `ml`/`g` → price per 100 units, `l`/`kg` → price per 1 unit, anything else → price per 1 unit (preserves original unit casing). Drivers that extract per-unit data from their source (DM from API `price.infos`, Mueller from DOM, PURISH from Shopify `unit_price_measurement`) take priority — persist only fills gaps.
 
 | Function | What it writes |
@@ -231,7 +233,9 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 **Handler**: `handleIngredientsDiscovery()`
 **Flow**: `getIngredientsDriver(url)` → crawls CosIng → yields `ScrapedIngredientData[]` → submit
 
-**Resumption**: Stores `currentTerm`, `currentPage`, `totalPagesForTerm`, `termQueue` (list of search terms to process)
+**Initialization**: On first claim (job is `pending`), `buildIngredientsDiscoveryWork()` calls `driver.getInitialTermQueue()` to seed the `termQueue` (e.g. `["*"]` for CosIng). The seeded queue is persisted to the job immediately. The admin only needs to set `sourceUrl` — the driver determines the initial search terms.
+
+**Resumption**: Stores `currentTerm`, `currentPage`, `totalPagesForTerm`, `termQueue` (list of search terms to process). Terms that exceed `MAX_PAGES` (50 pages × 200 results = 10,000 results) are split into sub-terms by appending each letter A–Z (e.g. `*` → `*A`, `*B`, ..., `*Z`).
 
 ### 5. video-discovery
 

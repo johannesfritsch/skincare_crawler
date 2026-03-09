@@ -3,6 +3,7 @@ import type { AuthenticatedWorker } from './types'
 import { findUncrawledProducts, findUncrawledVariants, getSourceSlugFromUrl, countUncrawled, resetProducts, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
+import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { createLogger } from '@/lib/logger'
 
 export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
@@ -472,12 +473,12 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
   jlog.info('Building ingredients discovery work', { jobId })
   const job = await payload.findByID({ collection: 'ingredients-discoveries', id: jobId }) as Record<string, unknown>
 
-  const termQueue = (job.termQueue as string[]) ?? []
-  jlog.info('Ingredients discovery job loaded', { jobId, sourceUrl: job.sourceUrl as string, currentTerm: (job.currentTerm as string) ?? 'none', termQueueSize: termQueue.length })
-
-  // Initialize job if pending: set in_progress and reset counters
+  // Initialize termQueue: on first run (pending), seed from the driver; otherwise read from job
+  let termQueue: string[]
   if (job.status === 'pending') {
-    jlog.info('Initializing ingredients discovery job', { jobId })
+    const driver = getIngredientsDriver(job.sourceUrl as string)
+    termQueue = driver?.getInitialTermQueue() ?? ['*']
+    jlog.info('Initializing ingredients discovery job', { jobId, initialTerms: termQueue.length })
     await payload.update({
       collection: 'ingredients-discoveries',
       id: jobId,
@@ -489,10 +490,15 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
         created: 0,
         existing: 0,
         errors: 0,
+        termQueue,
       },
     })
     jlog.info('Started ingredients discovery', { event: 'start' })
+  } else {
+    termQueue = (job.termQueue as string[]) ?? []
   }
+
+  jlog.info('Ingredients discovery job loaded', { jobId, sourceUrl: job.sourceUrl as string, currentTerm: (job.currentTerm as string) ?? 'none', termQueueSize: termQueue.length })
 
   return {
     type: 'ingredients-discovery',
@@ -502,7 +508,7 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
     currentPage: (job.currentPage as number) ?? 1,
     totalPagesForTerm: (job.totalPagesForTerm as number) ?? 0,
     termQueue,
-    pagesPerTick: (job.pagesPerTick as number) ?? undefined,
+    pagesPerTick: (job.pagesPerTick as number) ?? 10,
   }
 }
 

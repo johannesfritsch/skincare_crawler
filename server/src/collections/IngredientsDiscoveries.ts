@@ -51,7 +51,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
       min: 1,
       admin: {
         position: 'sidebar',
-        description: 'Max pages per batch. Empty = unlimited.',
+        description: 'Max pages per batch (default: 10).',
       },
     },
     // Everything below only shows after creation

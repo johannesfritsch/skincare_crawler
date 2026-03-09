@@ -415,7 +415,7 @@ export interface IngredientsDiscovery {
    */
   failureReason?: string | null;
   /**
-   * Max pages per batch. Empty = unlimited.
+   * Max pages per batch (default: 10).
    */
   pagesPerTick?: number | null;
   discovered?: number | null;

@@ -1040,7 +1040,10 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
     }
 
     try {
-      const updateData: Record<string, unknown> = {}
+      const updateData: Record<string, unknown> = {
+        status: 'crawled',
+        crawledAt: new Date().toISOString(),
+      }
       if (result.longDescription) updateData.longDescription = result.longDescription
       if (result.shortDescription) updateData.shortDescription = result.shortDescription
       if (result.imageMediaId) updateData.image = result.imageMediaId
