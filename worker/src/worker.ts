@@ -1199,6 +1199,17 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       })
 
       if (!response.ok) {
+        // 404 is expected — most CosIng ingredients don't have an INCIDecoder page.
+        // Treat as a successful crawl with no data so the ingredient is marked as crawled.
+        if (response.status === 404) {
+          jlog.info('Not found on INCIDecoder', { ingredient: item.ingredientName }, { event: true, labels: ['ingredients'] })
+          results.push({
+            ingredientId: item.ingredientId,
+            ingredientName: item.ingredientName,
+            tokensUsed: 0,
+          })
+          continue
+        }
         log.warn('HTTP error fetching ingredient', { status: response.status, name: item.ingredientName, url })
         results.push({
           ingredientId: item.ingredientId,
@@ -1262,12 +1273,12 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       }
 
       if (!longDescription) {
-        log.warn('No description content found', { name: item.ingredientName, url })
+        // Page exists but no extractable description — still mark as crawled
+        jlog.info('No description found on page', { ingredient: item.ingredientName }, { event: true, labels: ['ingredients'] })
         results.push({
           ingredientId: item.ingredientId,
           ingredientName: item.ingredientName,
           tokensUsed: 0,
-          error: `No description content found at ${url}`,
         })
         continue
       }
