@@ -634,7 +634,7 @@ export const purishDriver: SourceDriver = {
 
       const data = await res.json() as { products: ShopifyProduct[] }
       pagesUsed++
-      logger?.info('Discovery page scraped', { source: 'purish', page: progress.currentPage, products: data.products?.length ?? 0 }, { event: true, labels: ['discovery'] })
+      logger?.event('discovery.page_scraped', { source: 'purish', page: progress.currentPage, products: data.products?.length ?? 0 })
 
       if (!data.products || data.products.length === 0) {
         // Done with this collection
@@ -715,7 +715,7 @@ export const purishDriver: SourceDriver = {
       await jitteredDelay(1000)
     }
 
-    logger?.info('Search complete', { source: 'purish', query, results: products.length }, { event: true, labels: ['search'] })
+    logger?.event('search.source_complete', { source: 'purish', query, results: products.length })
     return { products }
   },
 
@@ -725,7 +725,7 @@ export const purishDriver: SourceDriver = {
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     const scrapeStartMs = Date.now()
-    logger?.info('Scraping product', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
+    logger?.event('scraper.started', { url: sourceUrl, source: 'purish' })
 
     // Extract handle and optional variant ID from URL
     const parsed = new URL(sourceUrl)
@@ -740,7 +740,7 @@ export const purishDriver: SourceDriver = {
     }
     if (!handle) {
       log.warn('Could not extract handle from URL', { url: sourceUrl })
-      logger?.warn('Scrape failed: no handle in URL', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.failed', { url: sourceUrl, source: 'purish', error: 'No handle in URL', reason: 'no_handle' })
       return null
     }
     const requestedVariantId = parsed.searchParams.get('variant')
@@ -751,7 +751,7 @@ export const purishDriver: SourceDriver = {
     const res = await stealthFetch(apiUrl)
     if (!res.ok) {
       log.warn('Failed to fetch product', { url: apiUrl, status: res.status })
-      logger?.warn('Scrape failed: API error', { url: sourceUrl, source: 'purish', status: res.status }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.failed', { url: sourceUrl, source: 'purish', error: 'API error', status: res.status })
       return null
     }
 
@@ -759,7 +759,7 @@ export const purishDriver: SourceDriver = {
     const product = data.product
     if (!product) {
       log.warn('No product in response', { handle })
-      logger?.warn('Scrape failed: no product in response', { url: sourceUrl, source: 'purish' }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.failed', { url: sourceUrl, source: 'purish', error: 'No product in response', reason: 'no_product' })
       return null
     }
 
@@ -880,7 +880,7 @@ export const purishDriver: SourceDriver = {
             : undefined)
 
     const scrapeDurationMs = Date.now() - scrapeStartMs
-    logger?.info('Product scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
+    logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText })
 
     return {
       gtin,

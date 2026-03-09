@@ -1571,6 +1571,16 @@ Tailwind v4 utilities live in `@layer utilities`. Custom CSS outside a layer has
 }
 ```
 
+## Shared Package (`@anyskin/shared`)
+
+The server depends on `@anyskin/shared` (workspace package at `../shared/`), consumed as raw TypeScript via `transpilePackages: ['@anyskin/shared']` in `next.config.mjs`. This package provides:
+
+- **`EventRegistry`** — TypeScript interface mapping ~90 typed event names to their data shapes
+- **`EVENT_META`** — default type/level/labels for each event name
+- **Shared types** — `SourceSlug`, `JobCollection`, `EventType`, `LogLevel`, `EventName`, `EventMeta`
+
+The server's **Events collection** has a `name` field (text, indexed, optional) that stores the typed event name (e.g. `crawl.started`, `persist.price_changed`). This field is populated by the worker's `jlog.event()` method. Old events created via `jlog.info(..., { event: true })` don't have a `name` — they only have the freeform `message` field.
+
 ## Keeping This File Up to Date
 
 Whenever you make changes to the server codebase, **update this file** to reflect those changes. This includes additions or modifications to collections, fields, hooks, access control, components, actions, endpoints, or any server-side patterns documented here. Documentation must stay in sync with the code.

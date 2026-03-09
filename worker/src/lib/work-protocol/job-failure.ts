@@ -30,7 +30,7 @@ export async function failJob(
         claimedAt: null,
       },
     })
-    jlog.error('Job failed', { reason }, { event: 'error', labels: ['job-failure'] })
+    jlog.event('job.failed', { reason })
   } catch (e) {
     log.error('Failed to mark job as failed', { collection, jobId, error: e instanceof Error ? e.message : String(e) })
   }
@@ -69,7 +69,7 @@ export async function retryOrFail(
           claimedAt: null,
         },
       })
-      jlog.error('Job failed: max retries exceeded', { retryCount: nextRetryCount, maxRetries, reason }, { event: 'error', labels: ['job-failure', 'max-retries'] })
+      jlog.event('job.failed_max_retries', { retryCount: nextRetryCount, maxRetries, reason })
       return true
     }
 
@@ -83,7 +83,7 @@ export async function retryOrFail(
         claimedAt: null,
       },
     })
-    jlog.warn('Job error, will retry', { retryCount: nextRetryCount, maxRetries, reason }, { event: 'warning', labels: ['job-retry'] })
+    jlog.event('job.retrying', { retryCount: nextRetryCount, maxRetries, reason })
     return false
   } catch (e) {
     log.error('Failed to update retry state', { collection, jobId, error: e instanceof Error ? e.message : String(e) })

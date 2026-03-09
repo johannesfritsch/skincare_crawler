@@ -197,7 +197,7 @@ export const rossmannDriver: SourceDriver = {
             const products = await scrapeProductCards()
             await emitProducts(products, category, categoryUrl)
             log.info('Scraped leaf page', { pageIndex, products: products.length })
-            logger?.info('Discovery page scraped', { source: 'rossmann', page: pageIndex, products: products.length }, { event: true, labels: ['discovery'] })
+            logger?.event('discovery.page_scraped', { source: 'rossmann', page: pageIndex, products: products.length })
 
             const lastIdx = await getLastPageIndex()
             if (pageIndex >= lastIdx) break
@@ -249,7 +249,7 @@ export const rossmannDriver: SourceDriver = {
             const products = await scrapeProductCards()
             await emitProducts(products, category, canonicalUrl)
             log.info('Scraped leaf page', { pageIndex: 0, products: products.length })
-            logger?.info('Discovery page scraped', { source: 'rossmann', page: 0, products: products.length }, { event: true, labels: ['discovery'] })
+            logger?.event('discovery.page_scraped', { source: 'rossmann', page: 0, products: products.length })
 
             await saveProgress()
 
@@ -280,7 +280,7 @@ export const rossmannDriver: SourceDriver = {
                 const pageProducts = await scrapeProductCards()
                 await emitProducts(pageProducts, category, canonicalUrl)
                 log.info('Scraped leaf page', { pageIndex, products: pageProducts.length })
-                logger?.info('Discovery page scraped', { source: 'rossmann', page: pageIndex, products: pageProducts.length }, { event: true, labels: ['discovery'] })
+                logger?.event('discovery.page_scraped', { source: 'rossmann', page: pageIndex, products: pageProducts.length })
               } catch (e) {
             log.warn('Error on page', { url: nextUrl, error: String(e) })
                 onError?.(nextUrl)
@@ -447,7 +447,7 @@ export const rossmannDriver: SourceDriver = {
     }
 
     log.info('Rossmann search complete', { query, found: products.length })
-    logger?.info('Search complete', { source: 'rossmann', query, results: products.length }, { event: true, labels: ['search'] })
+    logger?.event('search.source_complete', { source: 'rossmann', query, results: products.length })
     return { products }
   },
 
@@ -459,7 +459,7 @@ export const rossmannDriver: SourceDriver = {
     try {
       const scrapeStartMs = Date.now()
       log.info('Scraping product', { url: sourceUrl })
-      logger?.info('Scraping product', { url: sourceUrl, source: 'rossmann' }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.started', { url: sourceUrl, source: 'rossmann' })
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
@@ -642,7 +642,7 @@ export const rossmannDriver: SourceDriver = {
 
         if (!scraped.name) {
           log.info('No product name found on page', { url: sourceUrl })
-          logger?.warn('Scrape failed: no product name', { url: sourceUrl, source: 'rossmann' }, { event: true, labels: ['scraping'] })
+          logger?.event('scraper.failed', { url: sourceUrl, source: 'rossmann', error: 'No product name', reason: 'no_name' })
           return null
         }
 
@@ -660,7 +660,7 @@ export const rossmannDriver: SourceDriver = {
         const warnings: string[] = []
 
         const scrapeDurationMs = Date.now() - scrapeStartMs
-        logger?.info('Product scraped', { url: sourceUrl, source: 'rossmann', name: scraped.name, variants: scraped.variants.length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
+        logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'rossmann', name: scraped.name, variants: scraped.variants.length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText })
 
         return {
           gtin: gtin ?? undefined,
@@ -685,7 +685,7 @@ export const rossmannDriver: SourceDriver = {
       }
     } catch (error) {
       log.error('Error scraping product', { url: sourceUrl, error: String(error) })
-      logger?.error('Scrape failed: exception', { url: sourceUrl, source: 'rossmann', error: String(error) }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.failed', { url: sourceUrl, source: 'rossmann', error: String(error) })
       return null
     }
   },

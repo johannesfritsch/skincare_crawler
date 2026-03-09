@@ -2,7 +2,7 @@
 - ✅ Make sure leaf pages are all found for rossmann/mueller and the crawl can be resumed
 - ✅ Aggregate ph level and usageInterval (and other properties from the Google Sheet)
 - ✅ Sentiment analysis for VideoSnippets
-- Find out why not recognition candidates are found sometimes
+- Find out why no recognition candidates are found sometimes
 - ✅ Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers
 - ✅ Rename ProductQuotes to VideoMentions
 - ✅ Make sure that no 0 is in rating of no ratings are there for a SourceProduct
@@ -13,4 +13,5 @@
 - ✅ Implement availability for purish
 - ✅ Move articleNumber, images, priceInformation to variants and adapt all drivers (=> make sure priceInformation contain the availability)
 - We need to have a step where we also visit all previous variants to see if they have been discontinued
-- Bug where mueller has the same GTIN in a variant twice: Once available, once unavailable (http://localhost:3000/admin/collections/source-products/157)
+- ✅ Bug where mueller has the same GTIN in a variant twice: Once available, once unavailable (http://localhost:3000/admin/collections/source-products/157)
+- Rework aggregation

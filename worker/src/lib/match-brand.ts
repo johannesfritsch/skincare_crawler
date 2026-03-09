@@ -50,7 +50,7 @@ export async function matchBrand(
   if (exactResult.docs.length === 1) {
     const doc = exactResult.docs[0] as { id: number; name: string }
     log.info('Brand exact match', { brand: brandName, brandId: doc.id })
-    jlog?.info('Brand exact match', { brand: brandName, brandId: doc.id }, { event: true, labels: ['brand-matching'] })
+    jlog?.event('brand.exact_match', { brand: brandName, brandId: doc.id })
     return {
       brandId: doc.id,
       brandName: doc.name,
@@ -72,7 +72,7 @@ export async function matchBrand(
 
   if (fuzzyDocs.length === 1) {
     log.info('Brand auto-match', { brand: brandName, matched: fuzzyDocs[0].name, brandId: fuzzyDocs[0].id })
-    jlog?.info('Brand auto-match', { brand: brandName, matched: fuzzyDocs[0].name, brandId: fuzzyDocs[0].id }, { event: true, labels: ['brand-matching'] })
+    jlog?.event('brand.auto_match', { brand: brandName, matched: fuzzyDocs[0].name, brandId: fuzzyDocs[0].id })
     return {
       brandId: fuzzyDocs[0].id,
       brandName: fuzzyDocs[0].name,
@@ -114,7 +114,7 @@ export async function matchBrand(
           const match = fuzzyDocs.find((d) => d.name === parsed.selectedName)
           if (match) {
             log.info('Brand LLM selected', { brand: brandName, matched: match.name, brandId: match.id })
-            jlog?.info('Brand LLM selected', { brand: brandName, matched: match.name, brandId: match.id }, { event: true, labels: ['brand-matching', 'llm'] })
+            jlog?.event('brand.llm_selected', { brand: brandName, matched: match.name, brandId: match.id })
             return {
               brandId: match.id,
               brandName: match.name,
@@ -125,7 +125,7 @@ export async function matchBrand(
         }
       } catch {
         log.error('Failed to parse LLM response', { brand: brandName })
-        jlog?.warn('Brand LLM parse failure', { brand: brandName }, { event: true, labels: ['brand-matching', 'llm'] })
+        jlog?.event('brand.llm_parse_failed', { brand: brandName })
       }
     }
   }
@@ -141,7 +141,7 @@ export async function matchBrand(
   if (recheck.docs.length === 1) {
     const doc = recheck.docs[0] as { id: number; name: string }
     log.info('Race condition avoided', { brand: doc.name, brandId: doc.id })
-    jlog?.info('Brand found on recheck', { brand: brandName, brandId: doc.id }, { event: true, labels: ['brand-matching'] })
+    jlog?.event('brand.recheck_found', { brand: brandName, brandId: doc.id })
     return {
       brandId: doc.id,
       brandName: doc.name,
@@ -156,7 +156,7 @@ export async function matchBrand(
   }) as { id: number; name: string }
 
   log.info('Brand created', { brand: brandName, brandId: newBrand.id })
-  jlog?.info('Brand created', { brand: brandName, brandId: newBrand.id }, { event: true, labels: ['brand-matching'] })
+  jlog?.event('brand.created', { brand: brandName, brandId: newBrand.id })
 
   return {
     brandId: newBrand.id,

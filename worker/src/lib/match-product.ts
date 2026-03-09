@@ -60,7 +60,7 @@ export async function matchProduct(
     tokensUsed.completionTokens += brandResult.tokensUsed.completionTokens
     tokensUsed.totalTokens += brandResult.tokensUsed.totalTokens
     log.info('Brand matched', { brand: brandResult.brandName, brandId, created: brandResult.created })
-    jlog?.info('Product brand matched', { brand, matched: brandResult.brandName, brandId }, { event: true, labels: ['product-matching', 'brand-matching'] })
+    jlog?.event('product_match.brand_matched', { brand, matched: brandResult.brandName, brandId })
   }
 
   // Step 2: Search products — cast a wide net with many cheap DB queries
@@ -129,18 +129,18 @@ export async function matchProduct(
 
   const candidates = Array.from(candidateMap.values())
   log.info('Product candidates found', { count: candidates.length, product: productName })
-  jlog?.info('Product candidates found', { count: candidates.length, product: productName }, { event: true, labels: ['product-matching'] })
+  jlog?.event('product_match.candidates_found', { count: candidates.length, product: productName ?? '' })
 
   // Step 3: Select match
   if (candidates.length === 0) {
     log.info('No candidates found')
-    jlog?.warn('Product no match', { product: productName }, { event: true, labels: ['product-matching'] })
+    jlog?.event('product_match.no_match', { product: productName ?? '' })
     return null
   }
 
   if (candidates.length === 1) {
     log.info('Product auto-match', { product: productName, matched: candidates[0].name, productId: candidates[0].id })
-    jlog?.info('Product auto-match', { product: productName, matched: candidates[0].name, productId: candidates[0].id }, { event: true, labels: ['product-matching'] })
+    jlog?.event('product_match.auto_match', { product: productName ?? '', matched: candidates[0].name, productId: candidates[0].id })
     return {
       productId: candidates[0].id,
       productName: candidates[0].name,
@@ -184,7 +184,7 @@ export async function matchProduct(
         const match = candidates.find((c) => c.id === parsed.selectedId)
         if (match) {
           log.info('Product LLM selected', { product: productName, matched: match.name, productId: match.id })
-          jlog?.info('Product LLM selected', { product: productName, matched: match.name, productId: match.id }, { event: true, labels: ['product-matching', 'llm'] })
+          jlog?.event('product_match.llm_selected', { product: productName ?? '', matched: match.name, productId: match.id })
           return {
             productId: match.id,
             productName: match.name,
@@ -198,6 +198,6 @@ export async function matchProduct(
   }
 
   log.info('No match selected')
-  jlog?.warn('Product no match after LLM', { product: productName }, { event: true, labels: ['product-matching', 'llm'] })
+  jlog?.event('product_match.no_match_after_llm', { product: productName ?? '' })
   return null
 }

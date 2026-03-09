@@ -479,6 +479,10 @@ export interface Worker {
 export interface Event {
   id: number;
   type: 'start' | 'success' | 'info' | 'warning' | 'error';
+  /**
+   * Typed event name (e.g. crawl.started, persist.price_changed)
+   */
+  name?: string | null;
   level?: ('debug' | 'info' | 'warn' | 'error') | null;
   component?: ('worker' | 'server') | null;
   labels?:
@@ -2402,6 +2406,7 @@ export interface SearchResultsSelect<T extends boolean = true> {
  */
 export interface EventsSelect<T extends boolean = true> {
   type?: T;
+  name?: T;
   level?: T;
   component?: T;
   labels?:

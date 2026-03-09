@@ -1,0 +1,882 @@
+/**
+ * Typed Event Registry — single source of truth for all structured events
+ * emitted by the worker and stored in the server's Events collection.
+ *
+ * Event names follow `domain.action` convention. Driver-specific events use
+ * generic names with `source` in the data (not `dm.product_scraped`).
+ */
+
+// ─── Shared Types ───────────────────────────────────────────────────────────
+
+/** Store slugs — must match server's STORES registry and worker driver slugs */
+export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish'
+
+/** Job collection slugs — must match both server collection configs and worker claim logic */
+export type JobCollection =
+  | 'product-discoveries'
+  | 'product-searches'
+  | 'product-crawls'
+  | 'ingredients-discoveries'
+  | 'product-aggregations'
+  | 'video-discoveries'
+  | 'video-processings'
+  | 'ingredient-crawls'
+
+export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+/** Default metadata for each event — type, level, and optional labels */
+export interface EventMeta {
+  type: EventType
+  level: LogLevel
+  labels?: string[]
+}
+
+/** Union of all valid event names */
+export type EventName = keyof EventRegistry
+
+// ─── Event Registry ─────────────────────────────────────────────────────────
+
+/**
+ * Maps every named event to its typed data shape. All data values are scalar
+ * (string | number | boolean) to match the LogData constraint.
+ *
+ * The `event()` method on the logger enforces this at the call site:
+ *   jlog.event('crawl.started', { source: 'dm', items: 42, crawlVariants: true })
+ *                ^-- autocomplete   ^-- type-checked against EventRegistry
+ */
+export interface EventRegistry {
+  // ─── Job Lifecycle ──────────────────────────────────────────────────────
+  // claim.ts: job claimed & initialized, early completions
+  // job-failure.ts: failures & retries
+
+  'job.claimed': { collection: string; jobId: number; total?: number }
+  'job.completed': { collection: string; durationMs?: number }
+  'job.completed_empty': { collection: string; reason: string }
+  'job.failed': { reason: string }
+  'job.failed_max_retries': { retryCount: number; maxRetries: number; reason: string }
+  'job.retrying': { retryCount: number; maxRetries: number; reason: string }
+
+  // ─── Product Crawl ─────────────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch done, completed
+
+  'crawl.started': { source: string; items: number; crawlVariants: boolean }
+  'crawl.driver_missing': { source: string }
+  'crawl.batch_done': {
+    source: string
+    crawled: number
+    errors: number
+    remaining: number
+    batchSize: number
+    batchSuccesses: number
+    batchErrors: number
+    errorRate: number
+    batchDurationMs: number
+    newVariants: number
+    existingVariants: number
+    withIngredients: number
+    priceChanges: number
+  }
+  'crawl.completed': {
+    source: string
+    crawled: number
+    errors: number
+    durationMs: number
+  }
+
+  // ─── Scraper (per-product, driver-emitted) ─────────────────────────────
+  // All 4 drivers: dm, mueller, rossmann, purish
+
+  'scraper.started': { url: string; source: string }
+  'scraper.product_scraped': {
+    url: string
+    source: string
+    name: string
+    variants: number
+    durationMs: number
+    images: number
+    hasIngredients: boolean
+  }
+  'scraper.failed': {
+    url: string
+    source: string
+    error: string
+    reason?: string
+    status?: number
+  }
+  'scraper.warning': { url: string; source: string; detail: string }
+  'scraper.bot_check_detected': {
+    url: string
+    source: string
+    timeoutMs: number
+  }
+  'scraper.bot_check_cleared': {
+    url: string
+    source: string
+    elapsedMs: number
+  }
+  'scraper.bot_check_timeout': {
+    url: string
+    source: string
+    elapsedMs?: number
+  }
+
+  // ─── Persist (crawl results) ───────────────────────────────────────────
+  // persist.ts: variant processing, price changes, ingredients
+
+  'persist.variants_processed': {
+    url: string
+    newVariants: number
+    existingVariants: number
+    totalVariants: number
+  }
+  'persist.variants_disappeared': { url: string; markedUnavailable: number }
+  'persist.price_changed': {
+    url: string
+    source: string
+    change: string
+    previousCents: number
+    currentCents: number
+  }
+  'persist.ingredients_found': {
+    url: string
+    source: string
+    chars: number
+  }
+  'persist.crawl_warning': { warning: string }
+
+  // ─── Product Discovery ─────────────────────────────────────────────────
+  // worker.ts: handler start
+  // drivers: page scraped
+  // submit.ts: batch persisted, completed
+
+  'discovery.started': {
+    urlCount: number
+    currentUrlIndex: number
+    maxPages: number
+  }
+  'discovery.page_scraped': {
+    source: string
+    page: number
+    products: number
+  }
+  'discovery.batch_persisted': {
+    source: string
+    discovered: number
+    created: number
+    existing: number
+    batchSize: number
+    batchPersisted: number
+    batchErrors: number
+    batchDurationMs: number
+    pagesUsed: number
+  }
+  'discovery.completed': {
+    source: string
+    discovered: number
+    created: number
+    existing: number
+    durationMs: number
+  }
+
+  // ─── Product Search ────────────────────────────────────────────────────
+  // worker.ts: handler start
+  // drivers: search complete
+  // submit.ts: batch persisted, completed
+
+  'search.started': {
+    query: string
+    sources: string
+    maxResults: number
+  }
+  'search.source_complete': {
+    source: string
+    query: string
+    results: number
+  }
+  'search.batch_persisted': {
+    sources: string
+    discovered: number
+    created: number
+    existing: number
+    persisted: number
+    batchDurationMs: number
+  }
+  'search.completed': {
+    sources: string
+    discovered: number
+    created: number
+    existing: number
+    durationMs: number
+  }
+
+  // ─── Ingredients Discovery ─────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch persisted, completed
+
+  'ingredients_discovery.started': {
+    currentTerm: string
+    queueLength: number
+  }
+  'ingredients_discovery.batch_persisted': {
+    discovered: number
+    created: number
+    existing: number
+    errors: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'ingredients_discovery.completed': {
+    discovered: number
+    created: number
+    existing: number
+    errors: number
+    durationMs: number
+  }
+
+  // ─── Ingredient Crawl ──────────────────────────────────────────────────
+  // worker.ts: handler start, not found, no description
+  // submit.ts: error, persist failed, batch done, completed
+
+  'ingredient_crawl.started': { items: number; type: string }
+  'ingredient_crawl.not_found': { ingredient: string }
+  'ingredient_crawl.no_description': { ingredient: string }
+  'ingredient_crawl.error': {
+    ingredientId: number
+    ingredient: string
+    error: string
+  }
+  'ingredient_crawl.persist_failed': {
+    ingredientId: number
+    ingredient: string
+    error: string
+  }
+  'ingredient_crawl.batch_done': {
+    crawled: number
+    errors: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'ingredient_crawl.completed': {
+    crawled: number
+    errors: number
+    tokensUsed: number
+    durationMs: number
+  }
+
+  // ─── Video Discovery ──────────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch persisted, completed
+
+  'video_discovery.started': {
+    currentOffset: number
+    batchSize: number
+    maxVideos: number
+  }
+  'video_discovery.batch_persisted': {
+    discovered: number
+    created: number
+    existing: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'video_discovery.completed': {
+    discovered: number
+    created: number
+    existing: number
+    durationMs: number
+  }
+
+  // ─── Video Processing ─────────────────────────────────────────────────
+  // worker.ts: handler start, per-video pipeline steps
+  // submit.ts: persist failed, error, batch done, completed
+  // persist.ts: segment persisted
+
+  'video_processing.started': {
+    videos: number
+    transcriptionEnabled: boolean
+    transcriptionLanguage: string
+    transcriptionModel: string
+  }
+  'video_processing.downloaded': { title: string; sizeMB: number }
+  'video_processing.scene_detected': {
+    title: string
+    sceneChanges: number
+    segments: number
+  }
+  'video_processing.barcode_found': {
+    title: string
+    segment: number
+    barcode: string
+  }
+  'video_processing.clustered': {
+    title: string
+    segment: number
+    clusters: number
+  }
+  'video_processing.candidates_identified': {
+    title: string
+    segment: number
+    candidates: number
+  }
+  'video_processing.product_recognized': {
+    title: string
+    segment: number
+    brand: string
+    product: string
+  }
+  'video_processing.transcribed': { title: string; words: number }
+  'video_processing.transcript_corrected': {
+    title: string
+    fixes: number
+    tokens: number
+  }
+  'video_processing.sentiment_analyzed': { title: string; tokens: number }
+  'video_processing.transcription_failed': { title: string; error: string }
+  'video_processing.complete': {
+    title: string
+    segments: number
+    tokens: number
+  }
+  'video_processing.failed': { title: string; error: string }
+  'video_processing.persist_failed': { videoId: string; error: string }
+  'video_processing.error': { videoId: string; error: string }
+  'video_processing.segment_persisted': { message: string }
+  'video_processing.batch_done': {
+    processed: number
+    errors: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'video_processing.completed': {
+    processed: number
+    errors: number
+    tokensUsed: number
+    durationMs: number
+  }
+
+  // ─── Product Aggregation ───────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: error, persist error/failed, warning, batch done, completed
+  // persist.ts: brand matched, ingredients matched, image uploaded, classification
+
+  'aggregation.started': {
+    items: number
+    type: string
+    scope: string
+    language: string
+  }
+  'aggregation.error': { gtin: string; error: string }
+  'aggregation.persist_error': { gtin: string; error: string }
+  'aggregation.persist_failed': { gtin: string; error: string }
+  'aggregation.warning': { gtin: string; warning: string }
+  'aggregation.brand_matched': { brandName: string; brandId: number }
+  'aggregation.ingredients_matched': {
+    matched: number
+    unmatched: number
+    total: number
+  }
+  'aggregation.image_uploaded': { mediaId: number }
+  'aggregation.classification_applied': {
+    productType: string
+    attributeCount: number
+    claimCount: number
+  }
+  'aggregation.batch_done': {
+    aggregated: number
+    errors: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'aggregation.completed': {
+    aggregated: number
+    errors: number
+    tokensUsed: number
+    durationMs: number
+  }
+
+  // ─── Brand Matching ────────────────────────────────────────────────────
+  // match-brand.ts
+
+  'brand.exact_match': { brand: string; brandId: number }
+  'brand.auto_match': { brand: string; matched: string; brandId: number }
+  'brand.llm_selected': { brand: string; matched: string; brandId: number }
+  'brand.llm_parse_failed': { brand: string }
+  'brand.recheck_found': { brand: string; brandId: number }
+  'brand.created': { brand: string; brandId: number }
+
+  // ─── Ingredient Matching ───────────────────────────────────────────────
+  // match-ingredients.ts
+
+  'ingredients.exact_match_summary': { exactMatches: number; total: number }
+  'ingredients.all_exact_matched': { matched: number }
+  'ingredients.llm_selection_failed': { ambiguousCount: number }
+  'ingredients.matched': { matched: number; unmatched: number }
+
+  // ─── Product Matching ──────────────────────────────────────────────────
+  // match-product.ts
+
+  'product_match.brand_matched': {
+    brand: string
+    matched: string
+    brandId: number
+  }
+  'product_match.candidates_found': { count: number; product: string }
+  'product_match.no_match': { product: string }
+  'product_match.auto_match': {
+    product: string
+    matched: string
+    productId: number
+  }
+  'product_match.llm_selected': {
+    product: string
+    matched: string
+    productId: number
+  }
+  'product_match.no_match_after_llm': { product: string }
+
+  // ─── Classification ────────────────────────────────────────────────────
+  // classify-product.ts
+
+  'classification.invalid_product_type': { productType: string }
+  'classification.complete': {
+    productType: string
+    attributes: number
+    claims: number
+  }
+}
+
+// ─── EVENT_META ──────────────────────────────────────────────────────────────
+
+/**
+ * Default metadata for each event name — type (start/success/info/warning/error),
+ * level (info/warn/error), and optional labels for filtering.
+ *
+ * The logger uses this as defaults; callers can override via the `opts` parameter.
+ */
+export const EVENT_META: Record<EventName, EventMeta> = {
+  // Job lifecycle
+  'job.claimed': { type: 'start', level: 'info' },
+  'job.completed': { type: 'success', level: 'info' },
+  'job.completed_empty': { type: 'success', level: 'info' },
+  'job.failed': { type: 'error', level: 'error', labels: ['job-failure'] },
+  'job.failed_max_retries': {
+    type: 'error',
+    level: 'error',
+    labels: ['job-failure', 'max-retries'],
+  },
+  'job.retrying': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['job-retry'],
+  },
+
+  // Crawl
+  'crawl.started': { type: 'start', level: 'info', labels: ['scraping'] },
+  'crawl.driver_missing': {
+    type: 'error',
+    level: 'error',
+    labels: ['scraping'],
+  },
+  'crawl.batch_done': { type: 'info', level: 'info', labels: ['scraping'] },
+  'crawl.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['scraping'],
+  },
+
+  // Scraper
+  'scraper.started': { type: 'info', level: 'info', labels: ['scraping'] },
+  'scraper.product_scraped': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping'],
+  },
+  'scraper.failed': { type: 'error', level: 'error', labels: ['scraping'] },
+  'scraper.warning': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['scraping'],
+  },
+  'scraper.bot_check_detected': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['scraping', 'bot-check'],
+  },
+  'scraper.bot_check_cleared': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'bot-check'],
+  },
+  'scraper.bot_check_timeout': {
+    type: 'error',
+    level: 'error',
+    labels: ['scraping', 'bot-check'],
+  },
+
+  // Persist
+  'persist.variants_processed': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'variants'],
+  },
+  'persist.variants_disappeared': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'variants'],
+  },
+  'persist.price_changed': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'price'],
+  },
+  'persist.ingredients_found': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'ingredients'],
+  },
+  'persist.crawl_warning': { type: 'warning', level: 'warn' },
+
+  // Discovery
+  'discovery.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'discovery.page_scraped': {
+    type: 'info',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'discovery.batch_persisted': {
+    type: 'info',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'discovery.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['discovery'],
+  },
+
+  // Search
+  'search.started': { type: 'start', level: 'info', labels: ['search'] },
+  'search.source_complete': {
+    type: 'info',
+    level: 'info',
+    labels: ['search'],
+  },
+  'search.batch_persisted': {
+    type: 'info',
+    level: 'info',
+    labels: ['search'],
+  },
+  'search.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['search'],
+  },
+
+  // Ingredients discovery
+  'ingredients_discovery.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'ingredients_discovery.batch_persisted': {
+    type: 'info',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'ingredients_discovery.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['discovery'],
+  },
+
+  // Ingredient crawl
+  'ingredient_crawl.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['ingredients'],
+  },
+  'ingredient_crawl.not_found': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredients'],
+  },
+  'ingredient_crawl.no_description': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredients'],
+  },
+  'ingredient_crawl.error': {
+    type: 'error',
+    level: 'error',
+    labels: ['ingredients'],
+  },
+  'ingredient_crawl.persist_failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['ingredients'],
+  },
+  'ingredient_crawl.batch_done': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredients'],
+  },
+  'ingredient_crawl.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['ingredients'],
+  },
+
+  // Video discovery
+  'video_discovery.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'video_discovery.batch_persisted': {
+    type: 'info',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'video_discovery.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['discovery'],
+  },
+
+  // Video processing
+  'video_processing.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['video'],
+  },
+  'video_processing.downloaded': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing'],
+  },
+  'video_processing.scene_detected': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'scene-detection'],
+  },
+  'video_processing.barcode_found': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'barcode'],
+  },
+  'video_processing.clustered': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing'],
+  },
+  'video_processing.candidates_identified': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'recognition'],
+  },
+  'video_processing.product_recognized': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'recognition'],
+  },
+  'video_processing.transcribed': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'transcription'],
+  },
+  'video_processing.transcript_corrected': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'transcription'],
+  },
+  'video_processing.sentiment_analyzed': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'sentiment'],
+  },
+  'video_processing.transcription_failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['video-processing', 'transcription'],
+  },
+  'video_processing.complete': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing'],
+  },
+  'video_processing.failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['video-processing'],
+  },
+  'video_processing.persist_failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['video-processing'],
+  },
+  'video_processing.error': {
+    type: 'error',
+    level: 'error',
+    labels: ['video-processing'],
+  },
+  'video_processing.segment_persisted': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing'],
+  },
+  'video_processing.batch_done': {
+    type: 'info',
+    level: 'info',
+    labels: ['video'],
+  },
+  'video_processing.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['video'],
+  },
+
+  // Aggregation
+  'aggregation.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['aggregation'],
+  },
+  'aggregation.error': { type: 'error', level: 'error' },
+  'aggregation.persist_error': { type: 'error', level: 'error' },
+  'aggregation.persist_failed': { type: 'error', level: 'error' },
+  'aggregation.warning': { type: 'warning', level: 'warn' },
+  'aggregation.brand_matched': {
+    type: 'info',
+    level: 'info',
+    labels: ['brand-matching', 'persistence'],
+  },
+  'aggregation.ingredients_matched': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredient-matching', 'persistence'],
+  },
+  'aggregation.image_uploaded': {
+    type: 'info',
+    level: 'info',
+    labels: ['image', 'persistence'],
+  },
+  'aggregation.classification_applied': {
+    type: 'info',
+    level: 'info',
+    labels: ['classification', 'persistence'],
+  },
+  'aggregation.batch_done': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation'],
+  },
+  'aggregation.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['aggregation'],
+  },
+
+  // Brand matching
+  'brand.exact_match': {
+    type: 'info',
+    level: 'info',
+    labels: ['brand-matching'],
+  },
+  'brand.auto_match': {
+    type: 'info',
+    level: 'info',
+    labels: ['brand-matching'],
+  },
+  'brand.llm_selected': {
+    type: 'info',
+    level: 'info',
+    labels: ['brand-matching', 'llm'],
+  },
+  'brand.llm_parse_failed': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['brand-matching', 'llm'],
+  },
+  'brand.recheck_found': {
+    type: 'info',
+    level: 'info',
+    labels: ['brand-matching'],
+  },
+  'brand.created': {
+    type: 'info',
+    level: 'info',
+    labels: ['brand-matching'],
+  },
+
+  // Ingredient matching
+  'ingredients.exact_match_summary': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredient-matching'],
+  },
+  'ingredients.all_exact_matched': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredient-matching'],
+  },
+  'ingredients.llm_selection_failed': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['ingredient-matching', 'llm'],
+  },
+  'ingredients.matched': {
+    type: 'info',
+    level: 'info',
+    labels: ['ingredient-matching'],
+  },
+
+  // Product matching
+  'product_match.brand_matched': {
+    type: 'info',
+    level: 'info',
+    labels: ['product-matching', 'brand-matching'],
+  },
+  'product_match.candidates_found': {
+    type: 'info',
+    level: 'info',
+    labels: ['product-matching'],
+  },
+  'product_match.no_match': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['product-matching'],
+  },
+  'product_match.auto_match': {
+    type: 'info',
+    level: 'info',
+    labels: ['product-matching'],
+  },
+  'product_match.llm_selected': {
+    type: 'info',
+    level: 'info',
+    labels: ['product-matching', 'llm'],
+  },
+  'product_match.no_match_after_llm': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['product-matching', 'llm'],
+  },
+
+  // Classification
+  'classification.invalid_product_type': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['classification', 'llm'],
+  },
+  'classification.complete': {
+    type: 'info',
+    level: 'info',
+    labels: ['classification'],
+  },
+}

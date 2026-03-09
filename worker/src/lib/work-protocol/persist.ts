@@ -455,7 +455,7 @@ export async function persistCrawlResult(
     }
   }
   if (totalVariants > 0) {
-    jlog.info('Variants processed', { url: variantUrl, newVariants, existingVariants, totalVariants }, { event: true, labels: ['scraping', 'variants'] })
+    jlog.event('persist.variants_processed', { url: variantUrl, newVariants, existingVariants, totalVariants })
   }
 
   // Mark disappeared variants as unavailable.
@@ -520,7 +520,7 @@ export async function persistCrawlResult(
       }
     }
     if (markedUnavailable > 0) {
-      jlog.info('Disappeared variants marked unavailable', { url: variantUrl, markedUnavailable }, { event: true, labels: ['scraping', 'variants'] })
+      jlog.event('persist.variants_disappeared', { url: variantUrl, markedUnavailable })
     }
   }
 
@@ -555,23 +555,23 @@ export async function persistCrawlResult(
   // Emit price change event
   if (priceChange && priceChange !== 'stable') {
     const prevAmount = existingVariantHistory[0]?.amount ?? null
-    jlog.info('Price change detected', {
+    jlog.event('persist.price_changed', {
       url: variantUrl,
       source,
       change: priceChange,
       previousCents: prevAmount ?? 0,
       currentCents: newAmount ?? 0,
-    }, { event: true, labels: ['scraping', 'price'] })
+    })
   }
 
   // Emit ingredient extraction signal
   const hasIngredients = !!data.ingredientsText && data.ingredientsText.trim().length > 0
   if (hasIngredients) {
-    jlog.info('Ingredients found', {
+    jlog.event('persist.ingredients_found', {
       url: variantUrl,
       source,
       chars: data.ingredientsText!.trim().length,
-    }, { event: true, labels: ['scraping', 'ingredients'] })
+    })
   }
 
   // Log warnings
@@ -579,7 +579,7 @@ export async function persistCrawlResult(
     log.info('persistCrawlResult: source-product has warnings', { sourceProductId, warningCount: warnings.length })
   }
   for (const warning of warnings) {
-    jlog.warn(warning, { event: true })
+    jlog.event('persist.crawl_warning', { warning })
   }
 
   return { productId: sourceProductId, warnings, newVariants, existingVariants, hasIngredients, priceChange }
@@ -1112,7 +1112,7 @@ export async function persistVideoProcessingResult(
     }
 
     // Emit event with segment log
-    jlog.info(segment.eventLog, { event: true })
+    jlog.event('video_processing.segment_persisted', { message: segment.eventLog })
   }
 
   // Save transcript on the video and mark as processed
@@ -1247,7 +1247,7 @@ export async function persistProductAggregationResult(
         tokensUsed += brandResult.tokensUsed.totalTokens
         updateData.brand = brandResult.brandId
         log.info('persistProductAggregationResult: brand matched', { brandName: aggregated.brandName, brandId: brandResult.brandId })
-        jlog.info('Brand matched', { brandName: aggregated.brandName, brandId: brandResult.brandId }, { event: true, labels: ['brand-matching', 'persistence'] })
+        jlog.event('aggregation.brand_matched', { brandName: aggregated.brandName, brandId: brandResult.brandId })
       } catch (error) {
         errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
@@ -1274,7 +1274,7 @@ export async function persistProductAggregationResult(
           }))
 
           log.info('persistProductAggregationResult: ingredients matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
-          jlog.info('Ingredients matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length }, { event: true, labels: ['ingredient-matching', 'persistence'] })
+          jlog.event('aggregation.ingredients_matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
 
           if (matchResult.unmatched.length > 0) {
             warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
@@ -1308,7 +1308,7 @@ export async function persistProductAggregationResult(
           const mediaId = (mediaDoc as { id: number }).id
           updateData.images = [{ image: mediaId }]
           log.info('persistProductAggregationResult: uploaded image', { mediaId })
-          jlog.info('Image uploaded', { mediaId }, { event: true, labels: ['image', 'persistence'] })
+          jlog.event('aggregation.image_uploaded', { mediaId })
         }
       } catch (error) {
         warningMessages.push(`Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1321,7 +1321,7 @@ export async function persistProductAggregationResult(
   // Apply classification (only present for full scope)
   if (classification) {
     log.info('persistProductAggregationResult: applying classification', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
-    jlog.info('Classification applied', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length }, { event: true, labels: ['classification', 'persistence'] })
+    jlog.event('aggregation.classification_applied', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
     if (classification.description) {
       updateData.description = classification.description
     }

@@ -1,31 +1,10 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
+import type { EventRegistry, EventName, EventMeta, LogLevel, JobCollection, EventType } from '@anyskin/shared'
+import { EVENT_META } from '@anyskin/shared'
 
-// ---------------------------------------------------------------------------
-// Job collection type — all 8 job collections that can have events
-// ---------------------------------------------------------------------------
-
-export type JobCollection =
-  | 'product-discoveries'
-  | 'product-searches'
-  | 'product-crawls'
-  | 'ingredients-discoveries'
-  | 'product-aggregations'
-  | 'video-discoveries'
-  | 'video-processings'
-  | 'ingredient-crawls'
-
-// ---------------------------------------------------------------------------
-// Event types & options
-// ---------------------------------------------------------------------------
-
-export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
-
-export interface EventOpts {
-  /** true = derive event type from log level; or pass explicit type */
-  event?: boolean | EventType
-  /** Labels for filtering/categorizing events */
-  labels?: string[]
-}
+// Re-export shared types for backward compatibility
+export type { JobCollection, EventType, LogLevel, EventRegistry, EventName, EventMeta } from '@anyskin/shared'
+export { EVENT_META } from '@anyskin/shared'
 
 // ---------------------------------------------------------------------------
 // Structured log data — flat key/value pairs attached to every log call
@@ -38,20 +17,13 @@ export type LogData = Record<string, string | number | boolean | null | undefine
 // Log levels
 // ---------------------------------------------------------------------------
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+// LogLevel is imported from @anyskin/shared above
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
   warn: 2,
   error: 3,
-}
-
-const LEVEL_TO_EVENT: Record<LogLevel, EventType> = {
-  debug: 'info',
-  info: 'info',
-  warn: 'warning',
-  error: 'error',
 }
 
 // ---------------------------------------------------------------------------
@@ -123,16 +95,21 @@ export function initLogger(client: PayloadRestClient): void {
 }
 
 export interface Logger {
-  debug(msg: string, data?: LogData, opts?: EventOpts): void
-  info(msg: string, data?: LogData, opts?: EventOpts): void
-  warn(msg: string, data?: LogData, opts?: EventOpts): void
-  error(msg: string, data?: LogData, opts?: EventOpts): void
+  debug(msg: string, data?: LogData): void
+  info(msg: string, data?: LogData): void
+  warn(msg: string, data?: LogData): void
+  error(msg: string, data?: LogData): void
 
-  // Backward compat: allow passing EventOpts directly as second arg
-  debug(msg: string, opts?: EventOpts): void
-  info(msg: string, opts?: EventOpts): void
-  warn(msg: string, opts?: EventOpts): void
-  error(msg: string, opts?: EventOpts): void
+  /**
+   * Emit a typed, named event. The data shape is enforced by the EventRegistry.
+   *
+   * Usage:
+   *   jlog.event('crawl.started', { source: 'dm', items: 42, crawlVariants: true })
+   *
+   * Defaults for type/level/labels come from EVENT_META; override via `opts`.
+   * Only emits to the server when the logger is job-scoped (via `forJob()`).
+   */
+  event<N extends EventName>(name: N, data: EventRegistry[N], opts?: Partial<EventMeta>): void
 
   forJob(collection: JobCollection, id: number): Logger
 }
@@ -149,6 +126,7 @@ function emitEvent(
   message: string,
   labels?: string[],
   data?: LogData,
+  name?: string,
 ): void {
   if (!_client) return
 
@@ -171,26 +149,12 @@ function emitEvent(
         component: 'worker',
         message,
         job: { relationTo: collection, value: jobId },
+        ...(name ? { name } : {}),
         ...(labels?.length ? { labels: labels.map((l) => ({ label: l })) } : {}),
         ...(cleanData ? { data: cleanData } : {}),
       },
     })
     .catch(() => {})
-}
-
-// ---------------------------------------------------------------------------
-// Detect whether second argument is LogData or EventOpts
-//
-// EventOpts has { event?, labels? }. LogData has arbitrary keys.
-// We check: if the object ONLY has keys from EventOpts, treat it as opts.
-// ---------------------------------------------------------------------------
-
-const EVENT_OPTS_KEYS = new Set(['event', 'labels'])
-
-function isEventOpts(arg: unknown): arg is EventOpts {
-  if (!arg || typeof arg !== 'object' || Array.isArray(arg)) return false
-  const keys = Object.keys(arg)
-  return keys.length > 0 && keys.every((k) => EVENT_OPTS_KEYS.has(k))
 }
 
 // ---------------------------------------------------------------------------
@@ -204,22 +168,8 @@ function makeLogger(
   function log(
     level: LogLevel,
     msg: string,
-    arg2?: LogData | EventOpts,
-    arg3?: EventOpts,
+    data?: LogData,
   ): void {
-    // Parse overloaded arguments
-    let data: LogData | undefined
-    let opts: EventOpts | undefined
-
-    if (arg2 !== undefined) {
-      if (isEventOpts(arg2)) {
-        opts = arg2
-      } else {
-        data = arg2 as LogData
-        opts = arg3
-      }
-    }
-
     // Console output
     if (LEVEL_ORDER[level] >= LEVEL_ORDER[configuredLevel]) {
       if (configuredFormat === 'json') {
@@ -244,28 +194,38 @@ function makeLogger(
         consoleFn(`${timestampPretty()} ${LEVEL_BADGE[level]} \x1b[1m${tag}\x1b[0m ${msg}${dataStr}`)
       }
     }
-
-    // Event emission (only when explicitly requested AND a job is bound)
-    if (opts?.event && job) {
-      const eventType =
-        typeof opts.event === 'string' ? opts.event : LEVEL_TO_EVENT[level]
-      emitEvent(
-        eventType,
-        level,
-        job.collection,
-        job.id,
-        `[${tag}] ${msg}`,
-        opts.labels,
-        data,
-      )
-    }
   }
 
   return {
-    debug: (msg: string, arg2?: LogData | EventOpts, arg3?: EventOpts) => log('debug', msg, arg2, arg3),
-    info: (msg: string, arg2?: LogData | EventOpts, arg3?: EventOpts) => log('info', msg, arg2, arg3),
-    warn: (msg: string, arg2?: LogData | EventOpts, arg3?: EventOpts) => log('warn', msg, arg2, arg3),
-    error: (msg: string, arg2?: LogData | EventOpts, arg3?: EventOpts) => log('error', msg, arg2, arg3),
+    debug: (msg: string, data?: LogData) => log('debug', msg, data),
+    info: (msg: string, data?: LogData) => log('info', msg, data),
+    warn: (msg: string, data?: LogData) => log('warn', msg, data),
+    error: (msg: string, data?: LogData) => log('error', msg, data),
+
+    event<N extends EventName>(eventName: N, data: EventRegistry[N], opts?: Partial<EventMeta>): void {
+      const meta = EVENT_META[eventName]
+      const resolvedType = opts?.type ?? meta.type
+      const resolvedLevel = opts?.level ?? meta.level
+      const resolvedLabels = opts?.labels ?? meta.labels
+
+      // Console output — use the event name as the message
+      log(resolvedLevel, eventName, data as LogData)
+
+      // Emit server event if job-scoped
+      if (job) {
+        emitEvent(
+          resolvedType,
+          resolvedLevel,
+          job.collection,
+          job.id,
+          `[${tag}] ${eventName}`,
+          resolvedLabels,
+          data as LogData,
+          eventName,
+        )
+      }
+    },
+
     forJob(collection: JobCollection, id: number): Logger {
       return makeLogger(tag, { collection, id })
     },

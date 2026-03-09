@@ -29,7 +29,7 @@ async function waitForBotCheck(page: Page, logger?: Logger): Promise<boolean> {
 
   const url = page.url()
   log.warn('Bot check detected, waiting for verification', { url })
-  logger?.warn('Bot check detected', { url, source: 'mueller', timeoutMs: BOT_CHECK_TIMEOUT }, { event: true, labels: ['scraping', 'bot-check'] })
+  logger?.event('scraper.bot_check_detected', { url, source: 'mueller', timeoutMs: BOT_CHECK_TIMEOUT })
 
   const start = Date.now()
   while (Date.now() - start < BOT_CHECK_TIMEOUT) {
@@ -37,14 +37,14 @@ async function waitForBotCheck(page: Page, logger?: Logger): Promise<boolean> {
     if (!await isBotCheck()) {
       const elapsedMs = Date.now() - start
       log.info('Bot check cleared', { url, elapsedMs })
-      logger?.info('Bot check cleared', { url, source: 'mueller', elapsedMs }, { event: true, labels: ['scraping', 'bot-check'] })
+      logger?.event('scraper.bot_check_cleared', { url, source: 'mueller', elapsedMs })
       return true
     }
   }
 
   const elapsedMs = Date.now() - start
   log.error('Bot check timed out', { url, elapsedMs })
-  logger?.error('Bot check timed out', { url, source: 'mueller', elapsedMs }, { event: true, labels: ['scraping', 'bot-check'] })
+  logger?.event('scraper.bot_check_timeout', { url, source: 'mueller', elapsedMs })
   return false
 }
 
@@ -228,11 +228,13 @@ export const muellerDriver: SourceDriver = {
             const products = await scrapeProductTiles()
             await emitProducts(products, category, categoryUrl)
             log.info('Scraped page', { pageNum, products: products.length })
-            logger?.info('Discovery page scraped', { source: 'mueller', page: pageNum, products: products.length }, { event: true, labels: ['discovery'] })
+            logger?.event('discovery.page_scraped', { source: 'mueller', page: pageNum, products: products.length })
           } catch (e) {
             log.warn('Error on page', { url: pagedUrl, error: String(e) })
             onError?.(pagedUrl)
             pagesUsed++
+            await saveProgress()
+            continue
           }
 
           await saveProgress()
@@ -294,7 +296,7 @@ export const muellerDriver: SourceDriver = {
             const products = await scrapeProductTiles()
             await emitProducts(products, category, canonicalUrl)
             log.info('Scraped page', { pageNum: 1, products: products.length })
-            logger?.info('Discovery page scraped', { source: 'mueller', page: 1, products: products.length }, { event: true, labels: ['discovery'] })
+            logger?.event('discovery.page_scraped', { source: 'mueller', page: 1, products: products.length })
 
             await saveProgress()
 
@@ -326,7 +328,7 @@ export const muellerDriver: SourceDriver = {
                 const pageProducts = await scrapeProductTiles()
                 await emitProducts(pageProducts, category, canonicalUrl)
                 log.info('Scraped page', { pageNum, products: pageProducts.length })
-                logger?.info('Discovery page scraped', { source: 'mueller', page: pageNum, products: pageProducts.length }, { event: true, labels: ['discovery'] })
+                logger?.event('discovery.page_scraped', { source: 'mueller', page: pageNum, products: pageProducts.length })
               } catch (e) {
                 log.warn('Error on page', { url: pagedUrl, error: String(e) })
                 onError?.(pagedUrl)
@@ -396,7 +398,7 @@ export const muellerDriver: SourceDriver = {
       await sleep(randomDelay(1000, 2000))
       if (!await waitForBotCheck(page, logger)) {
         log.error('Bot check timeout on search page', { query })
-        logger?.error('Bot check timed out on search', { source: 'mueller', query }, { event: true, labels: ['search', 'bot-check'] })
+        logger?.event('scraper.bot_check_timeout', { url: searchUrl, source: 'mueller' })
         return { products: [] }
       }
 
@@ -504,7 +506,7 @@ export const muellerDriver: SourceDriver = {
     }
 
     log.info('Mueller search complete', { query, found: products.length })
-    logger?.info('Search complete', { source: 'mueller', query, results: products.length }, { event: true, labels: ['search'] })
+    logger?.event('search.source_complete', { source: 'mueller', query, results: products.length })
     return { products }
   },
 
@@ -516,7 +518,7 @@ export const muellerDriver: SourceDriver = {
     try {
       const scrapeStartMs = Date.now()
       log.info('Scraping product', { url: sourceUrl })
-      logger?.info('Scraping product', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.started', { url: sourceUrl, source: 'mueller' })
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
@@ -526,7 +528,7 @@ export const muellerDriver: SourceDriver = {
         await page.waitForSelector('h1, [class*="product-info"]', { timeout: 15000 }).catch(() => {})
         await sleep(randomDelay(1000, 2000))
         if (!await waitForBotCheck(page, logger)) {
-          logger?.error('Scrape failed: bot check timed out', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping', 'bot-check'] })
+          logger?.event('scraper.failed', { url: sourceUrl, source: 'mueller', error: 'Bot check timed out', reason: 'bot_check' })
           return null
         }
 
@@ -1018,7 +1020,7 @@ export const muellerDriver: SourceDriver = {
 
         if (!scraped.name) {
           log.info('No product name found on page', { url: sourceUrl })
-          logger?.warn('Scrape failed: no product name', { url: sourceUrl, source: 'mueller' }, { event: true, labels: ['scraping'] })
+          logger?.event('scraper.failed', { url: sourceUrl, source: 'mueller', error: 'No product name', reason: 'no_name' })
           return null
         }
 
@@ -1038,7 +1040,7 @@ export const muellerDriver: SourceDriver = {
         log.debug('Category info', { url: sourceUrl, breadcrumbs: scraped.categoryBreadcrumbs ? scraped.categoryBreadcrumbs.join(' -> ') : '(none)', categoryUrl: scraped.categoryUrl ?? '(none)' })
 
         const scrapeDurationMs = Date.now() - scrapeStartMs
-        logger?.info('Product scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.flatMap((v) => v.options).length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
+        logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'mueller', name: scraped.name, variants: scraped.variants.flatMap((v) => v.options).length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText })
 
         return {
           gtin: scraped.gtin ?? undefined,
@@ -1074,7 +1076,7 @@ export const muellerDriver: SourceDriver = {
       }
     } catch (error) {
       log.error('Error scraping product', { url: sourceUrl, error: String(error) })
-      logger?.error('Scrape failed: exception', { url: sourceUrl, source: 'mueller', error: String(error) }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.failed', { url: sourceUrl, source: 'mueller', error: String(error) })
       return null
     }
   },

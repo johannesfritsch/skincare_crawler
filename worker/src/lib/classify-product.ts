@@ -232,7 +232,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   let productType = result.productType ?? 'other'
   if (!VALID_PRODUCT_TYPES.has(productType)) {
     log.info('Invalid productType, falling back to other', { productType })
-    jlog?.warn('Classification invalid productType', { productType }, { event: true, labels: ['classification', 'llm'] })
+    jlog?.event('classification.invalid_product_type', { productType })
     productType = 'other'
   }
 
@@ -278,7 +278,7 @@ export async function classifyProduct(sources: SourceInput[], language: string =
     }
   }
 
-  jlog?.info('Classification complete', { productType, attributes: rawAttributes.length, claims: rawClaims.length }, { event: true, labels: ['classification'] })
+  jlog?.event('classification.complete', { productType, attributes: rawAttributes.length, claims: rawClaims.length })
 
   return {
     description: result.description ?? '',

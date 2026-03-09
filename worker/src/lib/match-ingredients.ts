@@ -323,12 +323,12 @@ export async function matchIngredients(
   }
 
   log.info('Exact match results', { exactMatches: matched.length, remaining: remainingNames.length })
-  jlog?.info('Ingredients exact match', { exactMatches: matched.length, total: ingredientNames.length }, { event: true, labels: ['ingredient-matching'] })
+  jlog?.event('ingredients.exact_match_summary', { exactMatches: matched.length, total: ingredientNames.length })
 
   // If all resolved via exact match, skip LLM calls entirely
   if (remainingNames.length === 0) {
     log.info('All ingredients matched exactly, no LLM needed', { matched: matched.length })
-    jlog?.info('All ingredients exact matched', { matched: matched.length }, { event: true, labels: ['ingredient-matching'] })
+    jlog?.event('ingredients.all_exact_matched', { matched: matched.length })
     for (const m of matched) {
       log.debug('Ingredient matched', { original: m.originalName, matched: m.matchedName, ingredientId: m.ingredientId })
     }
@@ -380,7 +380,7 @@ export async function matchIngredients(
       tokensUsed.totalTokens += selectResult.usage.totalTokens
     } catch (error) {
       log.error('LLM match selection failed, treating ambiguous as unmatched', { ambiguousCount: ambiguous.length })
-      jlog?.warn('Ingredients LLM selection failed', { ambiguousCount: ambiguous.length }, { event: true, labels: ['ingredient-matching', 'llm'] })
+      jlog?.event('ingredients.llm_selection_failed', { ambiguousCount: ambiguous.length })
       for (const { original } of ambiguous) {
         unmatched.push(original)
       }
@@ -408,7 +408,7 @@ export async function matchIngredients(
   }
 
   log.info('Ingredient matching result', { matched: matched.length, unmatched: unmatched.length, totalTokens: tokensUsed.totalTokens })
-  jlog?.info('Ingredients matched', { matched: matched.length, unmatched: unmatched.length }, { event: true, labels: ['ingredient-matching'] })
+  jlog?.event('ingredients.matched', { matched: matched.length, unmatched: unmatched.length })
   for (const m of matched) {
     log.debug('Ingredient matched', { original: m.originalName, matched: m.matchedName, ingredientId: m.ingredientId })
   }

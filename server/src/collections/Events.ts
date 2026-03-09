@@ -8,7 +8,7 @@ export const Events: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'message',
-    defaultColumns: ['type', 'level', 'component', 'message', 'data', 'job', 'createdAt'],
+    defaultColumns: ['type', 'name', 'level', 'component', 'message', 'data', 'job', 'createdAt'],
     group: 'System',
   },
   fields: [
@@ -25,6 +25,14 @@ export const Events: CollectionConfig = {
         { label: 'Error', value: 'error' },
       ],
       index: true,
+    },
+    {
+      name: 'name',
+      type: 'text',
+      index: true,
+      admin: {
+        description: 'Typed event name (e.g. crawl.started, persist.price_changed)',
+      },
     },
     {
       name: 'level',

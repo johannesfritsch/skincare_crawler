@@ -431,7 +431,7 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 
 ## Logging (`lib/logger.ts`)
 
-Structured logger with dual output: human-readable console + remote event emission to the server's `events` collection.
+Structured logger with dual output: human-readable console + remote event emission to the server's `events` collection. Types (`JobCollection`, `EventType`, `LogLevel`) and the event registry (`EventRegistry`, `EVENT_META`) are imported from `@anyskin/shared` and re-exported for consumers.
 
 ### Structured log data
 
@@ -451,22 +451,30 @@ log.warn('Rate limited', { retryAfterMs: 5000 })
 //   {"ts":"2026-03-01T14:32:05.123Z","level":"info","tag":"DM","msg":"Page loaded","url":"https://...","statusCode":200}
 ```
 
-### Event emission
+### Typed event API
 
-Events are only emitted when `{ event: true }` (or `{ event: 'start' }` etc.) is passed AND the logger is job-scoped via `forJob()`.
+All server event emission uses the `event()` method, which provides type-safe, named events with data shapes enforced by the `EventRegistry` in `@anyskin/shared`. The `debug()`/`info()`/`warn()`/`error()` methods are for console logging only — they do not emit server events.
 
 ```typescript
 const jlog = log.forJob('product-crawls', 42)
 
-// Structured data + event emission
-jlog.info('Batch crawled', { crawled: 10, errors: 2 }, { event: true, labels: ['scraping'] })
-jlog.info('Crawl completed', { total: 100 }, { event: 'success' })
+// Type-safe — autocomplete on event names, type-checked data shape
+jlog.event('crawl.started', { source: 'dm', items: 42, crawlVariants: true })
+jlog.event('scraper.product_scraped', { url, source: 'dm', name, variants: 3, durationMs: 1200, images: 5, hasIngredients: true })
+jlog.event('persist.price_changed', { url, source: 'dm', change: 'drop', previousCents: 999, currentCents: 799 })
 
-// Backward compat — EventOpts as second arg still works (no data)
-jlog.info('Started', { event: 'start' })
+// Override default metadata from EVENT_META
+jlog.event('crawl.started', data, { level: 'debug' })
 ```
 
-The `data` object is sent to the server as a JSON field on the `events` collection record, making it queryable/filterable in the admin UI.
+The `event()` method:
+1. Looks up `EVENT_META[name]` for default type/level/labels
+2. Allows overriding any metadata field via the optional `opts` parameter
+3. Logs to console using the event name as the message
+4. Emits to the server with both `message` (prefixed with `[tag]`) and `name` fields
+5. Only emits server events when the logger is job-scoped (via `forJob()`)
+
+Event names follow `domain.action` convention (e.g. `crawl.started`, `scraper.product_scraped`, `persist.price_changed`). ~90 events are defined covering all 127 emission sites. See `shared/src/events.ts` for the complete registry.
 
 ### Logger tags
 
@@ -491,7 +499,7 @@ Source drivers accept an optional `logger` in their options (`scrapeProduct`, `d
 
 ### Job collections
 
-The `JobCollection` type covers all 8 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-discoveries`, `video-processings`, `ingredient-crawls`.
+The `JobCollection` type (imported from `@anyskin/shared`) covers all 8 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-discoveries`, `video-processings`, `ingredient-crawls`.
 
 ### Configuration
 

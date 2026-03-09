@@ -14,6 +14,12 @@ Monorepo for crawling, processing, and aggregating beauty/skincare product data 
 
 ```
 crawler/
+├── shared/             # @anyskin/shared — types shared between server and worker
+│   ├── src/
+│   │   ├── index.ts            # Barrel export
+│   │   └── events.ts           # EventRegistry, EVENT_META, shared types
+│   ├── package.json
+│   └── tsconfig.json
 ├── server/             # Payload CMS + Next.js (admin UI, REST API, PostgreSQL)
 │   ├── src/
 │   │   ├── payload.config.ts
@@ -26,6 +32,8 @@ crawler/
 │   │   ├── worker.ts           # Main loop (~1000 lines, 7 job handlers)
 │   │   └── lib/                # All worker logic
 │   └── AGENTS.md               # Worker architecture & internals
+├── pnpm-workspace.yaml         # Workspace: server, worker, shared
+├── package.json                # Root workspace config (private, pnpm overrides)
 ├── eslint.config.mjs
 ├── README.md
 └── TODO.md
@@ -131,7 +139,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 |------------|---------|
 | `users` | Admin users (Payload auth) |
 | `workers` | Worker processes (API key auth, capabilities list, lastSeenAt) |
-| `events` | Structured audit log (type, level, component, message, data JSON for structured metadata, job polymorphic relation, labels) |
+| `events` | Structured audit log (type, name (typed event name e.g. `crawl.started`), level, component, message, data JSON for structured metadata, job polymorphic relation, labels) |
 | `media` | File uploads |
 | `crawl-results` | Join table: product-crawls → source-products (hidden) |
 | `discovery-results` | Join table: product-discoveries → source-products (hidden) |
@@ -188,8 +196,8 @@ The server registry is a simple static list (server and worker are separate proc
    - Import the driver and add it to the `drivers[]` array
    - `ALL_SOURCE_SLUGS` and `DEFAULT_IMAGE_SOURCE_PRIORITY` update automatically
 
-3. **Update the `SourceSlug` type** — `worker/src/lib/source-discovery/types.ts`
-   - Add the new slug to the `SourceSlug` union type (e.g. `'dm' | 'mueller' | 'rossmann' | 'newstore'`)
+3. **Update the `SourceSlug` type** — `shared/src/events.ts` and `worker/src/lib/source-discovery/types.ts`
+   - Add the new slug to the `SourceSlug` union type in both files (e.g. `'dm' | 'mueller' | 'rossmann' | 'newstore'`)
 
 4. **Update server store registry** — `server/src/collections/shared/store-fields.ts`
    - Add `{ value: 'newslug', label: 'Store Name', hosts: ['www.newstore.com', 'newstore.com'] }` to `STORES`
@@ -219,6 +227,8 @@ The server registry is a simple static list (server and worker are separate proc
 ## Development Notes
 
 - **TypeScript** throughout; worker uses `@/` path aliases via tsconfig
+- **pnpm workspace** — root `pnpm-workspace.yaml` lists `server`, `worker`, `shared`. The root `package.json` holds shared `pnpm.onlyBuiltDependencies` and `pnpm.overrides`. Run `pnpm install` from the root.
+- **`@anyskin/shared`** — consumed as raw TypeScript (no build step). Server uses `transpilePackages: ['@anyskin/shared']` in `next.config.mjs`. Worker uses `tsx` which handles TS imports natively. Contains the `EventRegistry` (typed event names → data shapes), `EVENT_META` (default type/level/labels per event), and shared types (`SourceSlug`, `JobCollection`, `EventType`, `LogLevel`).
 - **No build step** for worker in dev — runs via `tsx`
 - **Server types**: Run `pnpm generate:types` after collection schema changes
 - **Tests**: Server has Vitest (integration) + Playwright (e2e) in `server/tests/`

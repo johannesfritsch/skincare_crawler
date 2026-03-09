@@ -145,7 +145,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
 
   // Determine source slug from first work item
   const crawlSource = workItems.length > 0 ? workItems[0].source : 'unknown'
-  jlog.info('Job started', { source: crawlSource, items: workItems.length, crawlVariants }, { event: 'start', labels: ['scraping'] })
+  jlog.event('crawl.started', { source: crawlSource, items: workItems.length, crawlVariants })
 
   if (workItems.length === 0) {
     log.warn('No work items, releasing claim', { jobId })
@@ -165,7 +165,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   for (const item of workItems) {
     const driver = getSourceDriverBySlug(item.source)
     if (!driver) {
-      jlog.error('No driver for source', { source: item.source }, { event: true, labels: ['scraping'] })
+      jlog.event('crawl.driver_missing', { source: item.source })
       results.push({
         ...item,
         data: null,
@@ -203,7 +203,7 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
   const debug = work.debug as boolean
 
   log.info('Product discovery job', { jobId, urlCount: sourceUrls.length, currentUrlIndex })
-  jlog.info('Job started', { urlCount: sourceUrls.length, currentUrlIndex, maxPages: maxPages ?? 0 }, { event: 'start', labels: ['discovery'] })
+  jlog.event('discovery.started', { urlCount: sourceUrls.length, currentUrlIndex, maxPages: maxPages ?? 0 })
 
   const discoveredProducts: DiscoveredProduct[] = []
   let totalPagesUsed = 0
@@ -279,7 +279,7 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
   const debug = (work.debug as boolean) ?? false
 
   log.info('Product search job', { jobId, query, sources: sources.join(', '), maxResults })
-  jlog.info('Job started', { query, sources: sources.join(','), maxResults }, { event: 'start', labels: ['search'] })
+  jlog.event('search.started', { query, sources: sources.join(','), maxResults })
 
   const allProducts: Array<{ product: DiscoveredProduct; source: string }> = []
 
@@ -324,7 +324,7 @@ async function handleIngredientsDiscovery(work: Record<string, unknown>): Promis
 
   log.info('Ingredients discovery job', { jobId })
   const jlog = log.forJob('ingredients-discoveries', jobId)
-  jlog.info('Job started', { currentTerm: currentTerm ?? 'none', queueLength: termQueue.length }, { event: 'start', labels: ['discovery'] })
+  jlog.event('ingredients_discovery.started', { currentTerm: currentTerm ?? 'none', queueLength: termQueue.length })
 
   const driver = getIngredientsDriver(sourceUrl)
   if (!driver) {
@@ -401,7 +401,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
 
   log.info('Video discovery job', { jobId, channelUrl, currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited' })
   const jlog = log.forJob('video-discoveries', jobId)
-  jlog.info('Job started', { currentOffset, batchSize, maxVideos: maxVideos ?? 0 }, { event: 'start', labels: ['discovery'] })
+  jlog.event('video_discovery.started', { currentOffset, batchSize, maxVideos: maxVideos ?? 0 })
 
   const driver = getVideoDriver(channelUrl)
   if (!driver) {
@@ -466,7 +466,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
   const transcriptionModel = (work.transcriptionModel as string) ?? 'nova-3'
 
   log.info('Video processing job', { jobId, videos: videos.length, transcription: transcriptionEnabled ? `${transcriptionLanguage}/${transcriptionModel}` : 'disabled' })
-  jlog.info('Job started', { videos: videos.length, transcriptionEnabled, transcriptionLanguage, transcriptionModel }, { event: 'start', labels: ['video'] })
+  jlog.event('video_processing.started', { videos: videos.length, transcriptionEnabled, transcriptionLanguage, transcriptionModel })
 
   const results: Array<Record<string, unknown>> = []
 
@@ -486,7 +486,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
       // Step 1: Download video
       await downloadVideo(video.externalUrl, videoPath)
       const fileSizeMB = (fs.statSync(videoPath).size / (1024 * 1024)).toFixed(1)
-      jlog.info('Video downloaded', { title: video.title, sizeMB: Number(fileSizeMB) }, { event: true, labels: ['video-processing'] })
+      jlog.event('video_processing.downloaded', { title: video.title, sizeMB: Number(fileSizeMB) })
       await heartbeat(jobId, 'video-processing')
 
       // Step 2: Upload video mp4 as media
@@ -512,7 +512,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
       }
 
       log.info('Segments built', { segments: segments.length, sceneChanges: sceneChanges.length })
-      jlog.info('Scene detection complete', { title: video.title, sceneChanges: sceneChanges.length, segments: segments.length }, { event: true, labels: ['video-processing', 'scene-detection'] })
+      jlog.event('video_processing.scene_detected', { title: video.title, sceneChanges: sceneChanges.length, segments: segments.length })
 
       // Step 5: Process each segment
       const segmentResults: Array<Record<string, unknown>> = []
@@ -552,7 +552,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
         if (foundBarcode) {
           // ── Barcode path ──
           log.info('Barcode path matched', { barcode: foundBarcode })
-          jlog.info('Barcode found in segment', { title: video.title, segment: i + 1, barcode: foundBarcode }, { event: true, labels: ['video-processing', 'barcode'] })
+          jlog.event('video_processing.barcode_found', { title: video.title, segment: i + 1, barcode: foundBarcode })
           eventLog.push(``)
           eventLog.push(`Path: BARCODE`)
           eventLog.push(`Barcode scan: found ${foundBarcode} in screenshot ${barcodeScreenshotIndex! + 1}/${screenshotFiles.length}`)
@@ -617,7 +617,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           }
 
           log.info('Clusters formed', { clusters: clusterRepresentatives.length })
-          jlog.info('Visual clustering complete', { title: video.title, segment: i + 1, clusters: clusterRepresentatives.length }, { event: true, labels: ['video-processing'] })
+          jlog.event('video_processing.clustered', { title: video.title, segment: i + 1, clusters: clusterRepresentatives.length })
 
           eventLog.push(``)
           eventLog.push(`Clustering: ${clusterRepresentatives.length} clusters from ${screenshotFiles.length} screenshots`)
@@ -639,7 +639,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
           totalTokensUsed += classifyResult.tokensUsed.totalTokens
           const candidateClusters = new Set(classifyResult.candidates)
           log.info('Phase 1 classification complete', { productClusters: candidateClusters.size, totalClusters: clusterRepresentatives.length })
-          jlog.info('Product candidates identified', { title: video.title, segment: i + 1, candidates: candidateClusters.size }, { event: true, labels: ['video-processing', 'recognition'] })
+          jlog.event('video_processing.candidates_identified', { title: video.title, segment: i + 1, candidates: candidateClusters.size })
           await heartbeat(jobId, 'video-processing')
 
           eventLog.push(``)
@@ -676,7 +676,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             const recognition = await recognizeProduct(selected)
             if (recognition) {
               totalTokensUsed += recognition.tokensUsed.totalTokens
-              jlog.info('Product recognized', { title: video.title, segment: i + 1, brand: recognition.brand ?? 'unknown', product: recognition.productName ?? 'unknown' }, { event: true, labels: ['video-processing', 'recognition'] })
+              jlog.event('video_processing.product_recognized', { title: video.title, segment: i + 1, brand: recognition.brand ?? 'unknown', product: recognition.productName ?? 'unknown' })
               recognitionResults.push({
                 clusterGroup,
                 brand: recognition.brand,
@@ -788,7 +788,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             model: transcriptionModel,
             keywords: uniqueKeywords,
           })
-          jlog.info('Transcription complete', { title: video.title, words: rawTranscription.words.length }, { event: true, labels: ['video-processing', 'transcription'] })
+          jlog.event('video_processing.transcribed', { title: video.title, words: rawTranscription.words.length })
           await heartbeat(jobId, 'video-processing')
 
           // Step T3: Fetch all brand names from DB for LLM correction context
@@ -806,7 +806,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             recognizedProductNames,
           )
           tokensTranscriptCorrection = correction.tokensUsed.totalTokens
-          jlog.info('Transcript corrected', { title: video.title, fixes: correction.corrections.length, tokens: tokensTranscriptCorrection }, { event: true, labels: ['video-processing', 'transcription'] })
+          jlog.event('video_processing.transcript_corrected', { title: video.title, fixes: correction.corrections.length, tokens: tokensTranscriptCorrection })
           await heartbeat(jobId, 'video-processing')
 
           // Use corrected transcript text but keep original word timestamps
@@ -950,18 +950,18 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
             await heartbeat(jobId, 'video-processing')
           }
 
-          jlog.info('Sentiment analysis complete', { title: video.title, tokens: tokensSentiment }, { event: true, labels: ['video-processing', 'sentiment'] })
+          jlog.event('video_processing.sentiment_analyzed', { title: video.title, tokens: tokensSentiment })
         } catch (transcriptionError) {
           const msg = transcriptionError instanceof Error ? transcriptionError.message : String(transcriptionError)
           log.error('Transcription pipeline failed', { videoId: video.videoId, error: msg })
-          jlog.error('Transcription failed', { title: video.title, error: msg }, { event: true, labels: ['video-processing', 'transcription'] })
+          jlog.event('video_processing.transcription_failed', { title: video.title, error: msg })
           // Continue without transcription data — segments are still saved
         }
       }
 
       const totalTokensAll = totalTokensUsed + tokensTranscriptCorrection + tokensSentiment
       log.info('Done processing video', { videoId: video.videoId, segments: segmentResults.length, totalTokens: totalTokensAll, recognitionTokens: totalTokensUsed, correctionTokens: tokensTranscriptCorrection, sentimentTokens: tokensSentiment })
-      jlog.info('Video processing complete', { title: video.title, segments: segmentResults.length, tokens: totalTokensAll }, { event: true, labels: ['video-processing'] })
+      jlog.event('video_processing.complete', { title: video.title, segments: segmentResults.length, tokens: totalTokensAll })
 
       results.push({
         videoId: video.videoId,
@@ -979,7 +979,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       log.error('Video processing failed', { videoId: video.videoId, error: msg })
-      jlog.error('Video processing failed', { title: video.title, error: msg }, { event: true, labels: ['video-processing'] })
+      jlog.event('video_processing.failed', { title: video.title, error: msg })
       results.push({
         videoId: video.videoId,
         success: false,
@@ -1026,7 +1026,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
 
   log.info('Product aggregation job', { jobId, items: workItems.length, type: aggregationType, scope })
   const jlog = log.forJob('product-aggregations', jobId)
-  jlog.info('Job started', { items: workItems.length, type: aggregationType, scope, language }, { event: 'start', labels: ['aggregation'] })
+  jlog.event('aggregation.started', { items: workItems.length, type: aggregationType, scope, language })
 
   if (workItems.length === 0) {
     log.warn('No work items for aggregation job, releasing claim', { jobId })
@@ -1168,7 +1168,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
 
   log.info('Ingredient crawl job', { jobId, items: workItems.length, type: crawlType })
   const jlog = log.forJob('ingredient-crawls', jobId)
-  jlog.info('Job started', { items: workItems.length, type: crawlType }, { event: 'start', labels: ['ingredients'] })
+  jlog.event('ingredient_crawl.started', { items: workItems.length, type: crawlType })
 
   if (workItems.length === 0) {
     log.warn('No work items for ingredient crawl, releasing claim', { jobId })
@@ -1202,7 +1202,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
         // 404 is expected — most CosIng ingredients don't have an INCIDecoder page.
         // Treat as a successful crawl with no data so the ingredient is marked as crawled.
         if (response.status === 404) {
-          jlog.info('Not found on INCIDecoder', { ingredient: item.ingredientName }, { event: true, labels: ['ingredients'] })
+          jlog.event('ingredient_crawl.not_found', { ingredient: item.ingredientName })
           results.push({
             ingredientId: item.ingredientId,
             ingredientName: item.ingredientName,
@@ -1274,7 +1274,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
 
       if (!longDescription) {
         // Page exists but no extractable description — still mark as crawled
-        jlog.info('No description found on page', { ingredient: item.ingredientName }, { event: true, labels: ['ingredients'] })
+        jlog.event('ingredient_crawl.no_description', { ingredient: item.ingredientName })
         results.push({
           ingredientId: item.ingredientId,
           ingredientName: item.ingredientName,

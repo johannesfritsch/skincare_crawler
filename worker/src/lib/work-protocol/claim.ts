@@ -310,7 +310,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       },
     })
 
-    jlog.info('Started product crawl', { total }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'product-crawls', jobId, total })
   }
 
   // Build query options for finding work
@@ -364,7 +364,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.info('Product crawl completed', { crawled: (job.crawled as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
+    jlog.event('job.completed_empty', { collection: 'product-crawls', reason: 'No remaining uncrawled products in scope' })
     return { type: 'none' }
   }
 
@@ -413,7 +413,7 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
         progress: null,
       },
     })
-    jlog.info('Started product discovery', { urlCount: sourceUrls.length }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'product-discoveries', jobId, total: sourceUrls.length })
   }
 
   return {
@@ -455,7 +455,7 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
         existing: 0,
       },
     })
-    jlog.info('Started product search', { query, sources: sources.join(', ') }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'product-searches', jobId })
   }
 
   return {
@@ -493,7 +493,7 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
         termQueue,
       },
     })
-    jlog.info('Started ingredients discovery', { event: 'start' })
+    jlog.event('job.claimed', { collection: 'ingredients-discoveries', jobId })
   } else {
     termQueue = (job.termQueue as string[]) ?? []
   }
@@ -546,7 +546,7 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
         progress: null,
       },
     })
-    jlog.info('Started video discovery', { channelUrl }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'video-discoveries', jobId })
   }
 
   return {
@@ -604,7 +604,7 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
         tokensSentiment: 0,
       },
     })
-    jlog.info('Started video processing', { total }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'video-processings', jobId, total })
   }
 
   // Find videos to process
@@ -709,7 +709,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       },
     })
 
-    jlog.info('Started product aggregation', { type: aggregationType, total }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'product-aggregations', jobId, total })
   }
 
   // Each source in a work item carries product-level data (from source-products)
@@ -796,7 +796,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         id: jobId,
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
-      jlog.info('Completed: no GTINs specified', { event: 'success' })
+      jlog.event('job.completed_empty', { collection: 'product-aggregations', reason: 'No GTINs specified' })
       return { type: 'none' }
     }
 
@@ -829,7 +829,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         id: jobId,
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
-      jlog.info('Product aggregation completed', { aggregated: (job.aggregated as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
+      jlog.event('job.completed_empty', { collection: 'product-aggregations', reason: 'No more source products to aggregate' })
       return { type: 'none' }
     }
 
@@ -945,7 +945,7 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
       },
     })
 
-    jlog.info('Started ingredient crawl', { type: crawlType, total }, { event: 'start' })
+    jlog.event('job.claimed', { collection: 'ingredient-crawls', jobId, total })
   }
 
   interface WorkItem {
@@ -967,7 +967,7 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
         id: jobId,
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
-      jlog.info('Completed: no ingredients specified', { event: 'success' })
+      jlog.event('job.completed_empty', { collection: 'ingredient-crawls', reason: 'No ingredients specified' })
       return { type: 'none' }
     }
 
@@ -1003,7 +1003,7 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
         id: jobId,
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
-    jlog.info('Ingredient crawl completed', { crawled: (job.crawled as number) ?? 0, errors: (job.errors as number) ?? 0 }, { event: 'success' })
+    jlog.event('job.completed_empty', { collection: 'ingredient-crawls', reason: 'No more uncrawled ingredients' })
       return { type: 'none' }
     }
 

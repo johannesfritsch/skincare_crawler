@@ -471,7 +471,7 @@ export const dmDriver: SourceDriver = {
 
       totalProductPages = result.totalPages
       log.info('Fetched category products', { categoryId: leaf.categoryId, page: currentProductPage, totalPages: totalProductPages, products: result.products.length, breadcrumb: leaf.breadcrumb })
-      logger?.info('Discovery page scraped', { source: 'dm', page: currentProductPage, products: result.products.length }, { event: true, labels: ['discovery'] })
+      logger?.event('discovery.page_scraped', { source: 'dm', page: currentProductPage, products: result.products.length })
 
       // Emit each product via callback
       for (const product of result.products) {
@@ -560,7 +560,7 @@ export const dmDriver: SourceDriver = {
     }
 
     log.info('DM search complete', { query, found: products.length })
-    logger?.info('Search complete', { source: 'dm', query, results: products.length }, { event: true, labels: ['search'] })
+    logger?.event('search.source_complete', { source: 'dm', query, results: products.length })
     return { products }
   },
 
@@ -572,13 +572,13 @@ export const dmDriver: SourceDriver = {
     try {
       const scrapeStartMs = Date.now()
       const warnings: string[] = []
-      logger?.info('Scraping product', { url: sourceUrl, source: 'dm' }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.started', { url: sourceUrl, source: 'dm' })
 
       // Extract GTIN from URL to call DM API
       const gtin = extractGtinFromDmUrl(sourceUrl)
       if (!gtin) {
         log.info('Could not extract GTIN from URL', { sourceUrl })
-        logger?.warn('Scrape failed: no GTIN in URL', { url: sourceUrl, source: 'dm' }, { event: true, labels: ['scraping'] })
+        logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: 'No GTIN in URL', reason: 'no_gtin' })
         return null
       }
 
@@ -586,7 +586,7 @@ export const dmDriver: SourceDriver = {
       const res = await stealthFetch(`${DM_PRODUCT_API}/${gtin}`, { headers: DM_HEADERS })
       if (!res.ok) {
         log.info('API returned error', { status: res.status, gtin })
-        logger?.warn('Scrape failed: API error', { url: sourceUrl, source: 'dm', status: res.status }, { event: true, labels: ['scraping'] })
+        logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: 'API error', status: res.status })
         return null
       }
       const data: DmProductDetail = await res.json()
@@ -594,7 +594,7 @@ export const dmDriver: SourceDriver = {
       const name = data.title?.headline
       if (!name) {
         log.info('No product name in API response', { gtin })
-        logger?.warn('Scrape failed: no product name', { url: sourceUrl, source: 'dm' }, { event: true, labels: ['scraping'] })
+        logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: 'No product name', reason: 'no_name' })
         return null
       }
 
@@ -692,7 +692,7 @@ export const dmDriver: SourceDriver = {
         : undefined
 
       const scrapeDurationMs = Date.now() - scrapeStartMs
-      logger?.info('Product scraped', { url: sourceUrl, source: 'dm', name, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'dm', name, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText })
 
       return {
         gtin: String(data.gtin),
@@ -721,7 +721,7 @@ export const dmDriver: SourceDriver = {
       }
     } catch (error) {
       log.error('Error scraping product', { url: sourceUrl, error: String(error) })
-      logger?.error('Scrape failed: exception', { url: sourceUrl, source: 'dm', error: String(error) }, { event: true, labels: ['scraping'] })
+      logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: String(error) })
       return null
     }
   },
