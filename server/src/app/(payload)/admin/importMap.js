@@ -26,6 +26,14 @@ import { default as default_8da85ba43770e514d85a6fec69d919f4 } from '@/component
 import { default as default_5c9675293c0510e33f09c7bb908e986e } from '../../../components/EmbeddedSnippetPlayer'
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
 import { default as default_e577ad08317d2e8977edf3e679038fc8 } from '../../../components/graphics/Logo'
+import { default as default_3c7210db046870c5915c5f17c14448fe } from '../../../components/dashboard/DashboardProvider'
+import { default as default_1737443f6dd3677fc06df984f77cd693 } from '../../../components/dashboard/widgets/EventSummary'
+import { default as default_3de07bbd61fe5b44b313ca5841f82966 } from '../../../components/dashboard/widgets/EventTimeline'
+import { default as default_42858160b6516d99fcaa61033ca302b7 } from '../../../components/dashboard/widgets/EventHighlights'
+import { default as default_62dfced5d43912fa28b88e4b88ebb826 } from '../../../components/dashboard/widgets/EventSources'
+import { default as default_85972962f1986108985424a759c445ce } from '../../../components/dashboard/widgets/EventDomains'
+import { default as default_11733af7851d1c1afce770f6f3ec7640 } from '../../../components/dashboard/widgets/EventJobs'
+import { default as default_cb47b15b5106d233a6a2b5100c0db50f } from '../../../components/dashboard/widgets/EventErrors'
 import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } from '@payloadcms/ui/rsc'
 
 export const importMap = {
@@ -57,5 +65,13 @@ export const importMap = {
   "/components/EmbeddedSnippetPlayer#default": default_5c9675293c0510e33f09c7bb908e986e,
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,
   "/components/graphics/Logo#default": default_e577ad08317d2e8977edf3e679038fc8,
+  "/components/dashboard/DashboardProvider#default": default_3c7210db046870c5915c5f17c14448fe,
+  "/components/dashboard/widgets/EventSummary#default": default_1737443f6dd3677fc06df984f77cd693,
+  "/components/dashboard/widgets/EventTimeline#default": default_3de07bbd61fe5b44b313ca5841f82966,
+  "/components/dashboard/widgets/EventHighlights#default": default_42858160b6516d99fcaa61033ca302b7,
+  "/components/dashboard/widgets/EventSources#default": default_62dfced5d43912fa28b88e4b88ebb826,
+  "/components/dashboard/widgets/EventDomains#default": default_85972962f1986108985424a759c445ce,
+  "/components/dashboard/widgets/EventJobs#default": default_11733af7851d1c1afce770f6f3ec7640,
+  "/components/dashboard/widgets/EventErrors#default": default_cb47b15b5106d233a6a2b5100c0db50f,
   "@payloadcms/ui/rsc#CollectionCards": CollectionCards_ab83ff7e88da8d3530831f296ec4756a
 }

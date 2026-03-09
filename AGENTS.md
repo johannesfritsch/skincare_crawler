@@ -44,7 +44,8 @@ crawler/
 - **Payload CMS 3.x** on Next.js 15, React 19
 - **Database**: PostgreSQL via `@payloadcms/db-postgres`
 - **Auth**: `users` collection (admin UI) + `workers` collection (API key auth for workers)
-- **No custom endpoints** — workers use Payload's standard REST API (`/api/<collection>`)
+- **Custom endpoints**: `GET /api/dashboard/events?range=1h|24h|7d|30d` — aggregated event data for the admin dashboard (auth via `req.user`). Workers use Payload's standard REST API (`/api/<collection>`)
+- **Admin dashboard**: 7 custom widgets (EventSummary, EventTimeline, EventDomains, EventSources, EventJobs, EventHighlights, EventErrors) via `admin.dashboard` (experimental). DashboardProvider in `beforeDashboard` handles data fetching with 30s polling and range selector. Uses module-level pub/sub store (same pattern as `BulkJobBar.tsx`). Charts via `recharts`.
 - Jobs are created in the admin UI; workers poll and process them autonomously
 - See `server/AGENTS.md` for Payload CMS development patterns
 
@@ -86,6 +87,7 @@ WORKER_SERVER_URL=http://localhost:3000
 WORKER_API_KEY=<api-key-from-workers-collection>
 WORKER_POLL_INTERVAL=10          # seconds between idle polls
 WORKER_JOB_TIMEOUT_MINUTES=30   # minutes before abandoned job can be reclaimed
+EVENT_RETENTION_DAYS=30          # days before old events are purged (default: 30)
 LOG_LEVEL=debug|info|warn|error  # default: info
 LOG_FORMAT=text|json             # default: text; json for log aggregators
 OPENAI_API_KEY=sk-...            # for LLM tasks

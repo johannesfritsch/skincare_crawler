@@ -463,6 +463,7 @@ export interface Worker {
     | 'video-processing'
     | 'product-aggregation'
     | 'ingredient-crawl'
+    | 'event-purge'
   )[];
   status: 'active' | 'disabled';
   lastSeenAt?: string | null;

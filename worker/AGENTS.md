@@ -69,18 +69,22 @@ worker/src/
 
 ```
 1. Authenticate         GET /api/workers/me  →  AuthenticatedWorker
-2. claimWork(client)     Query all job collections for pending + stale in_progress
+2. purgeOldEvents()      Periodic maintenance: deletes events older than EVENT_RETENTION_DAYS
+                         Requires 'event-purge' capability (skipped silently if not assigned)
+                         Runs at most once per hour (tracked via lastPurgeAt timestamp)
+                         Emits worker.events_purged event on success
+3. claimWork(client)     Query all job collections for pending + stale in_progress
                          Prioritize "selected target" jobs, else random
                          Attempt to claim via PATCH (claimedBy + claimedAt)
                          Server-side hook rejects if already claimed by another worker
                          On rejection, try next candidate
                          Build work unit with all data needed by handler
-3. Run handler           handleProductCrawl / handleProductDiscovery / etc.
-4. heartbeat()           Refreshes claimedAt + lastSeenAt during long operations
-5. submitWork(client)    Persist results → update job status/progress
+4. Run handler           handleProductCrawl / handleProductDiscovery / etc.
+5. heartbeat()           Refreshes claimedAt + lastSeenAt during long operations
+6. submitWork(client)    Persist results → update job status/progress
                          If 100% errors in batch → retryOrFail (increment retryCount, fail if > maxRetries)
-6. On handler throw      Main loop catches → retryOrFail (increment retryCount, fail if > maxRetries)
-7. Sleep (POLL_INTERVAL) Repeat from step 2
+7. On handler throw      Main loop catches → retryOrFail (increment retryCount, fail if > maxRetries)
+8. Sleep (POLL_INTERVAL) Repeat from step 2
 ```
 
 ### Env vars
@@ -90,6 +94,7 @@ WORKER_SERVER_URL              Base URL of the server (default: http://localhost
 WORKER_API_KEY                 API key from workers collection (required)
 WORKER_POLL_INTERVAL           Seconds between polls when idle (default: 10)
 WORKER_JOB_TIMEOUT_MINUTES     Minutes before abandoned job can be reclaimed (default: 30)
+EVENT_RETENTION_DAYS           Days before old events are purged (default: 30)
 LOG_LEVEL                      debug|info|warn|error (default: info)
 LOG_FORMAT                     text|json (default: text; json = newline-delimited JSON for log aggregators)
 OPENAI_API_KEY                 For LLM tasks: matching, classification, video recognition

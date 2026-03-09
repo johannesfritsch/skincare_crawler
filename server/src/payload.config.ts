@@ -36,6 +36,8 @@ import { DiscoveryResults } from './collections/DiscoveryResults'
 import { SearchResults } from './collections/SearchResults'
 import { Workers } from './collections/Workers'
 
+import { dashboardEventsHandler } from './endpoints/dashboard-events'
+
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
@@ -76,10 +78,79 @@ export default buildConfig({
         Icon: '/components/graphics/Icon',
         Logo: '/components/graphics/Logo',
       },
+      beforeDashboard: ['/components/dashboard/DashboardProvider'],
+    },
+    dashboard: {
+      widgets: [
+      {
+        slug: 'event-summary',
+        label: 'Summary',
+        ComponentPath: '/components/dashboard/widgets/EventSummary',
+        minWidth: 'medium',
+        maxWidth: 'full',
+      },
+      {
+        slug: 'event-timeline',
+        label: 'Event Timeline',
+        ComponentPath: '/components/dashboard/widgets/EventTimeline',
+        minWidth: 'large',
+        maxWidth: 'full',
+      },
+      {
+        slug: 'event-highlights',
+        label: 'Operational Highlights',
+        ComponentPath: '/components/dashboard/widgets/EventHighlights',
+        minWidth: 'small',
+        maxWidth: 'large',
+      },
+      {
+        slug: 'event-sources',
+        label: 'Activity by Store',
+        ComponentPath: '/components/dashboard/widgets/EventSources',
+        minWidth: 'small',
+        maxWidth: 'large',
+      },
+      {
+        slug: 'event-domains',
+        label: 'Activity by Domain',
+        ComponentPath: '/components/dashboard/widgets/EventDomains',
+        minWidth: 'small',
+        maxWidth: 'large',
+      },
+      {
+        slug: 'event-jobs',
+        label: 'Job Activity',
+        ComponentPath: '/components/dashboard/widgets/EventJobs',
+        minWidth: 'medium',
+        maxWidth: 'full',
+      },
+      {
+        slug: 'event-errors',
+        label: 'Recent Errors',
+        ComponentPath: '/components/dashboard/widgets/EventErrors',
+        minWidth: 'large',
+        maxWidth: 'full',
+      },
+    ],
+    defaultLayout: [
+      { widgetSlug: 'event-summary', width: 'full' },
+      { widgetSlug: 'event-timeline', width: 'full' },
+      { widgetSlug: 'event-highlights', width: 'medium' },
+      { widgetSlug: 'event-sources', width: 'medium' },
+      { widgetSlug: 'event-domains', width: 'medium' },
+      { widgetSlug: 'event-jobs', width: 'large' },
+      { widgetSlug: 'event-errors', width: 'full' },
+    ],
     },
   },
   collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, ProductVariants, SourceProducts, SourceVariants, ProductDiscoveries, ProductSearches, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, SearchResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
-  endpoints: [],
+  endpoints: [
+    {
+      path: '/dashboard/events',
+      method: 'get',
+      handler: dashboardEventsHandler,
+    },
+  ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

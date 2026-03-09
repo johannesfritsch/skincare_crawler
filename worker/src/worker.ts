@@ -60,6 +60,8 @@ const SERVER_URL = process.env.WORKER_SERVER_URL ?? 'http://localhost:3000'
 const API_KEY = process.env.WORKER_API_KEY ?? ''
 const DEFAULT_POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL ?? '10', 10) * 1000
 const JOB_TIMEOUT_MINUTES = parseInt(process.env.WORKER_JOB_TIMEOUT_MINUTES ?? '30', 10)
+const EVENT_RETENTION_DAYS = parseInt(process.env.EVENT_RETENTION_DAYS ?? '30', 10)
+const PURGE_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
 
 if (!API_KEY) {
   console.error('[Worker] WORKER_API_KEY is required')
@@ -1395,6 +1397,62 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
   log.info('Submitted ingredient crawl results', { jobId, items: results.length })
 }
 
+// ─── Event Purge ───
+
+let lastPurgeAt = 0
+
+async function purgeOldEvents(w: AuthenticatedWorker): Promise<void> {
+  if (!w.capabilities.includes('event-purge')) return
+
+  const now = Date.now()
+  if (now - lastPurgeAt < PURGE_INTERVAL_MS) return
+
+  lastPurgeAt = now
+  const cutoff = new Date(now - EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
+
+  log.info('Purging old events', { retentionDays: EVENT_RETENTION_DAYS, cutoff })
+  const start = Date.now()
+
+  try {
+    const result = await client.delete({
+      collection: 'events',
+      where: { createdAt: { less_than: cutoff } },
+    })
+
+    const deleted = typeof result === 'object' && result !== null && 'docs' in result
+      ? (result as { docs: unknown[] }).docs.length
+      : 0
+
+    const durationMs = Date.now() - start
+
+    if (deleted > 0) {
+      log.info('Purged old events', { deleted, durationMs })
+      // Emit event without job scope (no jlog needed — this is maintenance)
+      const eventData = { deleted, retentionDays: EVENT_RETENTION_DAYS, durationMs }
+      try {
+        await client.create({
+          collection: 'events',
+          data: {
+            type: 'info',
+            name: 'worker.events_purged',
+            level: 'info',
+            component: 'worker',
+            message: `[Worker] Purged ${deleted} events older than ${EVENT_RETENTION_DAYS} days`,
+            data: eventData,
+            labels: [{ label: 'maintenance' }],
+          },
+        })
+      } catch {
+        // Best-effort event emission
+      }
+    } else {
+      log.debug('No old events to purge', { durationMs })
+    }
+  } catch (e) {
+    log.warn('Event purge failed', { error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
 // ─── Main Loop ───
 
 async function main(): Promise<void> {
@@ -1432,6 +1490,9 @@ async function main(): Promise<void> {
     try {
       // Update worker lastSeenAt each loop iteration
       await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } }).catch(() => {})
+
+      // Periodic maintenance: purge old events (runs at most once per hour, requires event-purge capability)
+      await purgeOldEvents(worker)
 
       const work = await claimWork(client, worker, JOB_TIMEOUT_MINUTES)
 

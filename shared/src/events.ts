@@ -445,6 +445,11 @@ export interface EventRegistry {
     attributes: number
     claims: number
   }
+
+  // ─── Worker Maintenance ────────────────────────────────────────────────
+  // worker.ts: periodic event purge
+
+  'worker.events_purged': { deleted: number; retentionDays: number; durationMs: number }
 }
 
 // ─── EVENT_META ──────────────────────────────────────────────────────────────
@@ -878,5 +883,12 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['classification'],
+  },
+
+  // Worker maintenance
+  'worker.events_purged': {
+    type: 'info',
+    level: 'info',
+    labels: ['maintenance'],
   },
 }

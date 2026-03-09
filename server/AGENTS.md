@@ -1581,6 +1581,60 @@ The server depends on `@anyskin/shared` (workspace package at `../shared/`), con
 
 The server's **Events collection** has a `name` field (text, indexed, optional) that stores the typed event name (e.g. `crawl.started`, `persist.price_changed`). This field is populated by the worker's `jlog.event()` method. Old events created via `jlog.info(..., { event: true })` don't have a `name` — they only have the freeform `message` field.
 
+## Admin Dashboard
+
+The admin dashboard uses Payload's experimental `admin.dashboard` feature with 7 custom widget types and a shared data provider.
+
+### Architecture
+
+- **Custom endpoint**: `GET /api/dashboard/events?range=1h|24h|7d|30d` (`src/endpoints/dashboard-events.ts`) — runs 7 parallel SQL queries via Drizzle raw SQL, returns aggregated event data. Auth via `req.user` (Payload's built-in JWT from admin UI cookie). Default range: `1h`.
+- **DashboardProvider**: `src/components/dashboard/DashboardProvider.tsx` — `'use client'` component rendered via `beforeDashboard`. Fetches from the endpoint, polls every 30s, provides a range selector UI (4 tabs: 1h/24h/7d/30d). Writes data into a module-level pub/sub store.
+- **Dashboard store**: `src/components/dashboard/dashboard-store.ts` — module-level pub/sub (same pattern as `BulkJobBar.tsx`'s `getJobState`/`setJobState`). Exports `useDashboardState()` hook via `useSyncExternalStore`. Widget client components subscribe to this store.
+- **Widgets**: 7 pairs of server shell + client component, registered in `payload.config.ts` under `admin.dashboard.widgets`. Each server shell just renders its client component.
+
+### DashboardResponse Type
+
+```typescript
+interface DashboardResponse {
+  range: '1h' | '24h' | '7d' | '30d'
+  since: string
+  generatedAt: string
+  summary: { totalEvents, errors, warnings, jobsStarted, jobsCompleted, jobsFailed }
+  timeline: Array<{ bucket, total, errors, warnings }>
+  byDomain: Array<{ domain, total, errors, warnings }>
+  bySource: Array<{ source, total, errors }>
+  byJobCollection: Array<{ collection, started, completed, failed, retrying }>
+  recentErrors: Array<{ id, name, message, data, jobCollection, jobId, createdAt }>  // limit 10
+  highlights: { productsCrawled, productsDiscovered, priceChanges, variantsDisappeared, tokensUsed, avgBatchDurationMs }
+}
+```
+
+### Widget Types
+
+| Widget | Slug | Client Component | Description |
+|--------|------|-----------------|-------------|
+| EventSummary | `event-summary` | `EventSummaryClient` | 6 stat cards (total, errors, warnings, jobs started/completed/failed) |
+| EventTimeline | `event-timeline` | `EventTimelineClient` | recharts stacked BarChart (Info/Warnings/Errors over time) |
+| EventDomains | `event-domains` | `EventDomainsClient` | recharts horizontal BarChart with per-domain colors |
+| EventSources | `event-sources` | `EventSourcesClient` | CSS bar chart with store names and colors |
+| EventJobs | `event-jobs` | `EventJobsClient` | Table with started/completed/failed/retrying per job collection |
+| EventHighlights | `event-highlights` | `EventHighlightsClient` | Metric cards (products crawled/discovered, price changes, etc.) |
+| EventErrors | `event-errors` | `EventErrorsClient` | Scrollable list of last 10 errors with event name, job link, time ago |
+
+### Key Files
+
+- `src/endpoints/dashboard-events.ts` — endpoint handler
+- `src/components/dashboard/dashboard-store.ts` — pub/sub store
+- `src/components/dashboard/DashboardProvider.tsx` — data fetcher + range selector
+- `src/components/dashboard/widgets/Event*.tsx` — server shells
+- `src/components/dashboard/widgets/Event*Client.tsx` — client components
+
+### Styling Notes
+
+- **Payload admin panel does not load Tailwind CSS** — all dashboard components use inline styles and Payload CSS variables (`var(--theme-elevation-...)`, `var(--theme-text)`, etc.)
+- Charts use `recharts` (installed as server dependency)
+- Widget widths: `x-small` = 25%, `small` = 33.33%, `medium` = 50%, `large` = 66.67%, `x-large` = 75%, `full` = 100%
+
 ## Keeping This File Up to Date
 
 Whenever you make changes to the server codebase, **update this file** to reflect those changes. This includes additions or modifications to collections, fields, hooks, access control, components, actions, endpoints, or any server-side patterns documented here. Documentation must stay in sync with the code.
