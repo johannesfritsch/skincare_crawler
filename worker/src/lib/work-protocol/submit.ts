@@ -221,18 +221,31 @@ interface SubmitProductAggregationBody {
   aggregationType: string
   scope: string
   results: Array<{
-    gtin: string
+    gtins: string[]
     sourceProductIds: number[]
-    aggregated: {
-      gtin?: string
+    // Per-variant aggregated data (one per GTIN in the product group)
+    variantResults: Array<{
+      gtin: string
+      variantData: {
+        variantLabel?: string
+        variantDimension?: string
+        amount?: number
+        amountUnit?: string
+        selectedImageUrl?: string
+        selectedImageAlt?: string | null
+        ingredientsText?: string
+        sourceVariantIds: number[]
+        description?: string
+        labels?: string[]
+      }
+    }> | null
+    // Product-level aggregated data (shared across all variants in the group)
+    productData: {
       name?: string
       brandName?: string
-      ingredientsText?: string
-      selectedImageUrl?: string
-      selectedImageAlt?: string | null
     } | null
+    // Classification results (full scope only) — shared across all variants
     classification?: {
-      description: string
       productType: string
       warnings: string | null
       skinApplicability: string | null
@@ -907,20 +920,22 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
 
   let batchSuccesses = 0
   for (const result of results) {
-    if (result.error || !result.aggregated) {
+    const gtinLabels = (result.gtins as string[])?.join(', ') || 'unknown'
+
+    if (result.error || !result.variantResults) {
       errors++
-      log.info('Product aggregation error', { jobId, gtin: result.gtin, error: result.error ?? 'no data' })
+      log.info('Product aggregation error', { jobId, gtins: gtinLabels, error: result.error ?? 'no data' })
       if (result.error) {
-        jlog.event('aggregation.error', { gtin: result.gtin, error: result.error! })
+        jlog.event('aggregation.error', { gtin: gtinLabels, error: result.error! })
       }
       continue
     }
 
     try {
       const persistResult = await persistProductAggregationResult(payload, jobId, {
-        gtin: result.gtin,
+        variantResults: result.variantResults,
         sourceProductIds: result.sourceProductIds,
-        aggregated: result.aggregated,
+        productData: result.productData,
         classification: result.classification,
         classifySourceProductIds: result.classifySourceProductIds,
         scope: scope as 'full' | 'partial',
@@ -931,14 +946,14 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
 
       if (persistResult.error) {
         errors++
-        log.info('Product aggregation persist error', { jobId, gtin: result.gtin, productId: persistResult.productId, error: persistResult.error.slice(0, 100) })
-        jlog.event('aggregation.persist_error', { gtin: result.gtin, error: persistResult.error })
+        log.info('Product aggregation persist error', { jobId, gtins: gtinLabels, productId: persistResult.productId, error: persistResult.error.slice(0, 100) })
+        jlog.event('aggregation.persist_error', { gtin: gtinLabels, error: persistResult.error })
       } else {
         aggregated++
         batchSuccesses++
-        log.info('Product aggregation persisted', { jobId, gtin: result.gtin, productId: persistResult.productId, tokens: persistResult.tokensUsed, hasWarning: !!persistResult.warning })
+        log.info('Product aggregation persisted', { jobId, gtins: gtinLabels, productId: persistResult.productId, variants: (result.variantResults as unknown[]).length, tokens: persistResult.tokensUsed, hasWarning: !!persistResult.warning })
         if (persistResult.warning) {
-          jlog.event('aggregation.warning', { gtin: result.gtin, warning: persistResult.warning! })
+          jlog.event('aggregation.warning', { gtin: gtinLabels, warning: persistResult.warning! })
         }
       }
 
@@ -961,7 +976,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     } catch (e) {
       errors++
       const msg = e instanceof Error ? e.message : String(e)
-      jlog.event('aggregation.persist_failed', { gtin: result.gtin, error: msg })
+      jlog.event('aggregation.persist_failed', { gtin: gtinLabels, error: msg })
     }
   }
 

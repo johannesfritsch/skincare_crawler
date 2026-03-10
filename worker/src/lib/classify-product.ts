@@ -23,7 +23,6 @@ interface EvidenceEntry {
 }
 
 export interface ClassifyProductResult {
-  description: string
   productType: string
   warnings: string | null
   skinApplicability: string | null
@@ -42,9 +41,7 @@ const SYSTEM_PROMPT = `You are an expert cosmetic chemist analyzing cosmetics/pe
 
 You will receive one or more sources for the same product, each with a description and/or ingredient list.
 
-First, write a short neutral product description (2-4 sentences) in {{LANGUAGE}}. State what the product is, what it does, and any notable claims. No advertising language, no superlatives, no promotional tone. Just factual information.
-
-Then classify the product into exactly one product type from this list:
+Classify the product into exactly one product type from this list:
 cleanser, toner, moisturizer, sunCream, peeling, treatment, mask, eyeCream, lipcare, serum, eyelashSerum, other
 
 Pick the single most appropriate type. Use "other" only if none of the specific types fit.
@@ -125,7 +122,6 @@ CRITICAL: "Free from X" / "Frei von X" / "ohne X" / "X-frei" means the product d
 
 Return ONLY JSON:
 {
-  "description": "A neutral 2-4 sentence product description.",
   "productType": "moisturizer",
   "warnings": "Avoid contact with eyes. If irritation occurs, discontinue use.",
   "skinApplicability": "sensitive",
@@ -181,16 +177,13 @@ export async function classifyProduct(sources: SourceInput[], language: string =
     })
     .join('\n\n---\n\n')
 
-  const languageLabel = language === 'de' ? 'German' : 'English'
-  const systemPrompt = SYSTEM_PROMPT.replace('{{LANGUAGE}}', languageLabel)
-
-  log.info('LLM product classification', { model: 'gpt-4.1-mini', temperature: 0, sources: sources.length, language: languageLabel })
+  log.info('LLM product classification', { model: 'gpt-4.1-mini', temperature: 0, sources: sources.length })
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
     temperature: 0,
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userContent },
     ],
   })
@@ -217,7 +210,6 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   }
 
   const result = parsed as {
-    description?: string
     productType?: string
     warnings?: string | null
     skinApplicability?: string | null
@@ -281,7 +273,6 @@ export async function classifyProduct(sources: SourceInput[], language: string =
   jlog?.event('classification.complete', { productType, attributes: rawAttributes.length, claims: rawClaims.length })
 
   return {
-    description: result.description ?? '',
     productType,
     warnings,
     skinApplicability,

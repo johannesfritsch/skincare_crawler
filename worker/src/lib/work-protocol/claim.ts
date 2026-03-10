@@ -5,6 +5,7 @@ import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { createLogger } from '@/lib/logger'
+import type { AggregationSource } from '@/lib/aggregate-product'
 
 export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
@@ -677,7 +678,8 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
   const scope = ((job.scope as string) || 'full') as 'full' | 'partial'
   const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
-  jlog.info('Product aggregation job loaded', { jobId, type: aggregationType, scope, status: job.status as string, itemsPerTick })
+  const includeSisterVariants = (job.includeSisterVariants as boolean) ?? true
+  jlog.info('Product aggregation job loaded', { jobId, type: aggregationType, scope, status: job.status as string, itemsPerTick, includeSisterVariants })
 
   // Initialize if pending
   if (job.status === 'pending') {
@@ -712,24 +714,17 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     jlog.event('job.claimed', { collection: 'product-aggregations', jobId, total })
   }
 
-  // Each source in a work item carries product-level data (from source-products)
-  // plus variant-level data (from the source-variant matching the GTIN being aggregated).
-  interface AggregationSource {
-    sourceProductId: number
-    sourceVariantId: number
-    // Product-level (from source-products)
-    name: string | null
-    brandName: string | null
-    source: string | null
-    // Variant-level (from source-variants)
-    ingredientsText: string | null
-    description: string | null
-    images: Array<{ url: string; alt: string | null }> | null
-  }
+  // AggregationSource is imported from aggregate-product.ts (single source of truth)
 
-  interface WorkItem {
+  /** A single GTIN with its cross-store sources */
+  interface GtinItem {
     gtin: string
     sources: AggregationSource[]
+  }
+
+  /** A product group: sibling GTINs that should become variants of the same product */
+  interface WorkItem {
+    variants: GtinItem[]
   }
 
   const workItems: WorkItem[] = []
@@ -766,7 +761,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       limit: 100,
     })
 
-    return (result.docs as Record<string, unknown>[]).map((sp) => {
+    return (result.docs as Record<string, unknown>[]).map((sp): AggregationSource => {
       const sv = variantsBySpId.get(sp.id as number)!
       return {
         sourceProductId: sp.id as number,
@@ -783,12 +778,123 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
               .filter((img) => !!img.url)
               .map((img) => ({ url: img.url!, alt: img.alt ?? null }))
           : null,
+        labels: sv.labels
+          ? (sv.labels as Array<{ label?: string }>)
+              .filter((l) => !!l.label)
+              .map((l) => ({ label: l.label! }))
+          : null,
+        amount: (sv.amount as number) ?? null,
+        amountUnit: (sv.amountUnit as string) ?? null,
+        variantLabel: (sv.variantLabel as string) ?? null,
+        variantDimension: (sv.variantDimension as string) ?? null,
       }
     })
   }
 
+  // Helper: given a set of GTINs, expand to include all sibling GTINs
+  // (GTINs whose source-variants share a source-product with any of the input GTINs)
+  async function expandSisterGtins(gtins: string[]): Promise<Set<string>> {
+    const allGtins = new Set<string>(gtins)
+    // Find all source-variants for these GTINs
+    const variants = await payload.find({
+      collection: 'source-variants',
+      where: { gtin: { in: gtins.join(',') } },
+      limit: 1000,
+    })
+    if (variants.docs.length === 0) return allGtins
+
+    // Collect unique source-product IDs
+    const spIds = new Set<number>()
+    for (const v of variants.docs) {
+      const sv = v as Record<string, unknown>
+      const spRef = sv.sourceProduct as number | Record<string, unknown>
+      const spId = typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+      spIds.add(spId)
+    }
+
+    // Find ALL source-variants of those source-products to get sister GTINs
+    const siblingVariants = await payload.find({
+      collection: 'source-variants',
+      where: {
+        and: [
+          { sourceProduct: { in: [...spIds].join(',') } },
+          { gtin: { exists: true } },
+        ],
+      },
+      limit: 1000,
+    })
+
+    for (const v of siblingVariants.docs) {
+      const gtin = (v as Record<string, unknown>).gtin as string
+      if (gtin) allGtins.add(gtin)
+    }
+
+    return allGtins
+  }
+
+  // Helper: group a set of GTINs into product groups (by shared source-products)
+  // GTINs that share any source-product end up in the same group via union-find
+  async function groupGtinsIntoProducts(gtins: string[]): Promise<string[][]> {
+    if (gtins.length <= 1) return [gtins]
+
+    // Fetch all source-variants for these GTINs to find their source-product parents
+    const variants = await payload.find({
+      collection: 'source-variants',
+      where: {
+        and: [
+          { gtin: { in: gtins.join(',') } },
+          { gtin: { exists: true } },
+        ],
+      },
+      limit: 1000,
+    })
+
+    // Build: sourceProductId → set of GTINs
+    const spToGtins = new Map<number, Set<string>>()
+    for (const v of variants.docs) {
+      const sv = v as Record<string, unknown>
+      const gtin = sv.gtin as string
+      if (!gtin) continue
+      const spRef = sv.sourceProduct as number | Record<string, unknown>
+      const spId = typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+      if (!spToGtins.has(spId)) spToGtins.set(spId, new Set())
+      spToGtins.get(spId)!.add(gtin)
+    }
+
+    // Union-find: GTINs that share any source-product get merged into the same group
+    const parent = new Map<string, string>()
+    function find(x: string): string {
+      if (!parent.has(x)) parent.set(x, x)
+      if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!))
+      return parent.get(x)!
+    }
+    function union(a: string, b: string) {
+      const ra = find(a)
+      const rb = find(b)
+      if (ra !== rb) parent.set(ra, rb)
+    }
+
+    // For each source-product, union all its GTINs together
+    for (const gtinSet of spToGtins.values()) {
+      const arr = [...gtinSet]
+      for (let i = 1; i < arr.length; i++) {
+        union(arr[0], arr[i])
+      }
+    }
+
+    // Collect groups
+    const groups = new Map<string, string[]>()
+    for (const gtin of gtins) {
+      const root = find(gtin)
+      if (!groups.has(root)) groups.set(root, [])
+      groups.get(root)!.push(gtin)
+    }
+
+    return [...groups.values()]
+  }
+
   if (aggregationType === 'selected_gtins') {
-    const gtinList = ((job.gtins as string) || '').split('\n').map((g: string) => g.trim()).filter(Boolean)
+    let gtinList = ((job.gtins as string) || '').split('\n').map((g: string) => g.trim()).filter(Boolean)
 
     if (gtinList.length === 0) {
       await payload.update({
@@ -800,11 +906,31 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       return { type: 'none' }
     }
 
-    for (const gtin of gtinList) {
-      const sources = await findSourcesByGtin(gtin)
-      if (sources.length === 0) continue
+    // Expand to include sister GTINs if enabled
+    if (includeSisterVariants) {
+      const expanded = await expandSisterGtins(gtinList)
+      const addedCount = expanded.size - gtinList.length
+      if (addedCount > 0) {
+        jlog.info('Expanded sister GTINs', { original: gtinList.length, expanded: expanded.size, added: addedCount })
+      }
+      gtinList = [...expanded]
+    }
 
-      workItems.push({ gtin, sources })
+    // Group GTINs into product groups (sibling GTINs become one work item)
+    const groups = includeSisterVariants
+      ? await groupGtinsIntoProducts(gtinList)
+      : gtinList.map((g) => [g]) // no grouping: each GTIN is its own group
+
+    for (const group of groups) {
+      const variants: GtinItem[] = []
+      for (const gtin of group) {
+        const sources = await findSourcesByGtin(gtin)
+        if (sources.length === 0) continue
+        variants.push({ gtin, sources })
+      }
+      if (variants.length > 0) {
+        workItems.push({ variants })
+      }
     }
   } else {
     // 'all' type — cursor-based: iterate crawled source-products, look up GTINs from their variants
@@ -862,15 +988,35 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       }
     }
 
-    // For each unique GTIN, fetch all crawled source-products + variants that share it
-    for (const gtin of seenGtins) {
-      const sources = await findSourcesByGtin(gtin)
-      if (sources.length === 0) continue
-
-      workItems.push({ gtin, sources })
+    // Expand to include sister GTINs if enabled
+    let allGtins = [...seenGtins]
+    if (includeSisterVariants) {
+      const expanded = await expandSisterGtins(allGtins)
+      const addedCount = expanded.size - allGtins.length
+      if (addedCount > 0) {
+        jlog.info('Expanded sister GTINs', { original: allGtins.length, expanded: expanded.size, added: addedCount })
+      }
+      allGtins = [...expanded]
     }
 
-    jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, gtins: workItems.map((w) => w.gtin).join(', '), cursor: lastId })
+    // Group GTINs into product groups
+    const groups = includeSisterVariants
+      ? await groupGtinsIntoProducts(allGtins)
+      : allGtins.map((g) => [g])
+
+    for (const group of groups) {
+      const variants: GtinItem[] = []
+      for (const gtin of group) {
+        const sources = await findSourcesByGtin(gtin)
+        if (sources.length === 0) continue
+        variants.push({ gtin, sources })
+      }
+      if (variants.length > 0) {
+        workItems.push({ variants })
+      }
+    }
+
+    jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, totalGtins: allGtins.length, cursor: lastId })
 
     // Return lastId for cursor tracking
     return {
@@ -880,12 +1026,13 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       aggregationType,
       scope,
       imageSourcePriority,
+      includeSisterVariants,
       lastCheckedSourceId: lastId,
       workItems,
     }
   }
 
-  jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, gtins: workItems.map((w) => w.gtin).join(', ') })
+  jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, totalGtins: workItems.reduce((sum, w) => sum + w.variants.length, 0) })
 
   return {
     type: 'product-aggregation',
@@ -894,6 +1041,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     aggregationType,
     scope,
     imageSourcePriority,
+    includeSisterVariants,
     lastCheckedSourceId: (job.lastCheckedSourceId as number) || 0,
     workItems,
   }

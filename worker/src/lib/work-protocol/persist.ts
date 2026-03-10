@@ -1164,19 +1164,33 @@ export async function persistVideoProcessingResult(
 
 // ─── Product Aggregation ───
 
-export interface PersistProductAggregationInput {
+export interface PersistVariantInput {
   gtin: string
-  sourceProductIds: number[]
-  aggregated: {
-    gtin?: string
-    name?: string
-    brandName?: string
-    ingredientsText?: string
+  variantData: {
+    variantLabel?: string
+    variantDimension?: string
+    amount?: number
+    amountUnit?: string
     selectedImageUrl?: string
     selectedImageAlt?: string | null
+    ingredientsText?: string
+    sourceVariantIds: number[]
+    description?: string
+    labels?: string[]
+  }
+}
+
+export interface PersistProductAggregationInput {
+  /** All GTINs in this product group */
+  variantResults: PersistVariantInput[]
+  sourceProductIds: number[]
+  // Product-level aggregated data
+  productData: {
+    name?: string
+    brandName?: string
   } | null
+  // Classification results (full scope only) — written to each product-variant
   classification?: {
-    description: string
     productType: string
     warnings: string | null
     skinApplicability: string | null
@@ -1198,60 +1212,298 @@ export async function persistProductAggregationResult(
   jobId: number,
   input: PersistProductAggregationInput,
 ): Promise<{ productId: number; tokensUsed: number; error?: string; warning?: string }> {
-  const { gtin, sourceProductIds, aggregated, classification, classifySourceProductIds, scope } = input
+  const { variantResults, sourceProductIds, productData, classification, classifySourceProductIds, scope } = input
   const jlog = log.forJob('product-aggregations', jobId)
-  log.info('persistProductAggregationResult: starting', { gtin, sourceProductCount: sourceProductIds.length })
+  const gtinLabels = variantResults.map((v) => v.gtin).join(', ')
+  log.info('persistProductAggregationResult: starting', { gtins: gtinLabels, variantCount: variantResults.length, sourceProductCount: sourceProductIds.length })
   let tokensUsed = 0
   const errorMessages: string[] = []
   const warningMessages: string[] = []
 
-  if (!aggregated) {
-    log.info('persistProductAggregationResult: no data to aggregate', { gtin })
-    return { productId: 0, tokensUsed: 0, error: 'No data to aggregate from sources' }
+  if (variantResults.length === 0) {
+    log.info('persistProductAggregationResult: no variant data to aggregate', { gtins: gtinLabels })
+    return { productId: 0, tokensUsed: 0, error: 'No variant data to aggregate from sources' }
   }
 
-  // Find or create Product by looking up product-variants by GTIN
-  let productId: number
-  const existingVariants = await payload.find({
-    collection: 'product-variants',
-    where: { gtin: { equals: gtin } },
-    limit: 1,
-  })
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 1: Resolve or create the unified product + product-variants
+  //
+  // Look up existing product-variants for each GTIN.
+  // If some GTINs already have product-variants pointing to different products,
+  // merge them: keep the first product, move all variants to it, delete the empty ones.
+  // ══════════════════════════════════════════════════════════════════════
 
-  if (existingVariants.docs.length > 0) {
-    const variant = existingVariants.docs[0] as Record<string, unknown>
-    const productRef = variant.product as number | Record<string, unknown>
-    productId = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
-    log.info('persistProductAggregationResult: found existing product via variant', { gtin, productId })
+  let productId: number | null = null
+  const variantMap = new Map<string, number>() // gtin → product-variant ID
+  const productsToMerge = new Set<number>() // existing product IDs that need merging
+
+  // Find existing product-variants for all GTINs in the group
+  for (const vr of variantResults) {
+    const existing = await payload.find({
+      collection: 'product-variants',
+      where: { gtin: { equals: vr.gtin } },
+      limit: 1,
+    })
+
+    if (existing.docs.length > 0) {
+      const variant = existing.docs[0] as Record<string, unknown>
+      variantMap.set(vr.gtin, variant.id as number)
+      const productRef = variant.product as number | Record<string, unknown>
+      const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+      productsToMerge.add(pid)
+    }
+  }
+
+  if (productsToMerge.size > 0) {
+    // Use the first existing product as the canonical one
+    productId = [...productsToMerge][0]
+
+    // Merge: move all product-variants from other products to the canonical product
+    if (productsToMerge.size > 1) {
+      const otherProductIds = [...productsToMerge].slice(1)
+      log.info('persistProductAggregationResult: merging products', { canonical: productId, merging: otherProductIds.join(',') })
+
+      for (const otherId of otherProductIds) {
+        // Move all product-variants from the other product to the canonical product
+        const otherVariants = await payload.find({
+          collection: 'product-variants',
+          where: { product: { equals: otherId } },
+          limit: 1000,
+        })
+
+        for (const ov of otherVariants.docs) {
+          await payload.update({
+            collection: 'product-variants',
+            id: (ov as { id: number }).id,
+            data: { product: productId },
+          })
+        }
+
+        // Merge source products from the other product into the canonical one
+        const otherProduct = await payload.findByID({ collection: 'products', id: otherId }) as Record<string, unknown>
+        const otherSourceIds = ((otherProduct.sourceProducts ?? []) as unknown[]).map((sp: unknown) =>
+          Number(typeof sp === 'object' && sp !== null && 'id' in sp ? (sp as { id: number }).id : sp),
+        ).filter((id) => !isNaN(id))
+
+        if (otherSourceIds.length > 0) {
+          const canonicalProduct = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
+          const existingIds = ((canonicalProduct.sourceProducts ?? []) as unknown[]).map((sp: unknown) =>
+            Number(typeof sp === 'object' && sp !== null && 'id' in sp ? (sp as { id: number }).id : sp),
+          ).filter((id) => !isNaN(id))
+          const mergedIds = [...new Set([...existingIds, ...otherSourceIds])]
+          await payload.update({
+            collection: 'products',
+            id: productId,
+            data: { sourceProducts: mergedIds },
+          })
+        }
+
+        // Move video-mentions from the other product to the canonical one
+        try {
+          const otherMentions = await payload.find({
+            collection: 'video-mentions',
+            where: { product: { equals: otherId } },
+            limit: 1000,
+          })
+          for (const mention of otherMentions.docs) {
+            await payload.update({
+              collection: 'video-mentions',
+              id: (mention as { id: number }).id,
+              data: { product: productId },
+            })
+          }
+          if (otherMentions.docs.length > 0) {
+            log.info('persistProductAggregationResult: moved video-mentions', { from: otherId, to: productId, count: otherMentions.docs.length })
+          }
+        } catch (e) {
+          warningMessages.push(`Failed to move video-mentions from product ${otherId}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+
+        // Delete the now-empty other product
+        try {
+          await payload.delete({
+            collection: 'products',
+            where: { id: { equals: otherId } },
+          })
+          log.info('persistProductAggregationResult: deleted merged product', { deletedProductId: otherId })
+        } catch (e) {
+          warningMessages.push(`Failed to delete merged product ${otherId}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    }
+
+    log.info('persistProductAggregationResult: using existing product', { productId, existingVariants: variantMap.size })
   } else {
-    // Create a new product and a default product-variant for this GTIN
+    // No existing product-variants found — create a new product
     const newProduct = await payload.create({
       collection: 'products',
       data: {
-        name: aggregated.name || undefined,
+        name: productData?.name || undefined,
       },
     }) as { id: number }
     productId = newProduct.id
-
-    // Find source-variants with this GTIN to link to the product-variant
-    const matchingSourceVariants = await payload.find({
-      collection: 'source-variants',
-      where: { gtin: { equals: gtin } },
-      limit: 100,
-    })
-    const sourceVariantIds = matchingSourceVariants.docs.map((sv) => (sv as { id: number }).id)
-
-    await payload.create({
-      collection: 'product-variants',
-      data: {
-        product: productId,
-        gtin,
-        label: aggregated.name || gtin,
-        ...(sourceVariantIds.length > 0 ? { sourceVariants: sourceVariantIds } : {}),
-      },
-    })
-    log.info('persistProductAggregationResult: created new product + product-variant', { gtin, productId })
+    log.info('persistProductAggregationResult: created new product', { productId })
   }
+
+  // Create product-variants for GTINs that don't have one yet
+  for (const vr of variantResults) {
+    if (!variantMap.has(vr.gtin)) {
+      const newVariant = await payload.create({
+        collection: 'product-variants',
+        data: {
+          product: productId,
+          gtin: vr.gtin,
+          label: vr.variantData.variantLabel || productData?.name || vr.gtin,
+          ...(vr.variantData.sourceVariantIds.length > 0 ? { sourceVariants: vr.variantData.sourceVariantIds } : {}),
+        },
+      }) as { id: number }
+      variantMap.set(vr.gtin, newVariant.id)
+      log.info('persistProductAggregationResult: created product-variant', { gtin: vr.gtin, variantId: newVariant.id, productId })
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 2: Persist variant-level data to each product-variant
+  // ══════════════════════════════════════════════════════════════════════
+
+  const mapEvidence = (entry: { sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }) => {
+    const sourceProductId = classifySourceProductIds?.[entry.sourceIndex]
+    const result: Record<string, unknown> = {
+      sourceProduct: sourceProductId,
+      evidenceType: entry.type,
+    }
+    if (entry.type === 'descriptionSnippet' && entry.snippet) {
+      result.snippet = entry.snippet
+      if (entry.start != null) result.start = entry.start
+      if (entry.end != null) result.end = entry.end
+    }
+    if (entry.type === 'ingredient' && entry.ingredientNames) {
+      result.ingredientNames = entry.ingredientNames.map((name: string) => ({ name }))
+    }
+    return result
+  }
+
+  for (const vr of variantResults) {
+    const variantId = variantMap.get(vr.gtin)!
+    const vd = vr.variantData
+
+    const variantUpdateData: Record<string, unknown> = {
+      sourceVariants: vd.sourceVariantIds,
+    }
+
+    // Basic variant fields
+    if (vd.variantLabel) variantUpdateData.label = vd.variantLabel
+    if (vd.variantDimension) variantUpdateData.variantDimension = vd.variantDimension
+    if (vd.amount != null) variantUpdateData.amount = vd.amount
+    if (vd.amountUnit) variantUpdateData.amountUnit = vd.amountUnit
+
+    // Description (from consensus LLM or single source)
+    if (vd.description) {
+      variantUpdateData.description = vd.description
+    }
+
+    // Labels (from LLM deduplication)
+    if (vd.labels && vd.labels.length > 0) {
+      variantUpdateData.labels = vd.labels.map((label) => ({ label }))
+    }
+
+    // ── Full scope only: ingredient matching, image upload ──
+    if (scope === 'full') {
+      // Parse and match ingredients from raw text → write to variant
+      if (vd.ingredientsText) {
+        try {
+          const ingredientNames = await parseIngredients(vd.ingredientsText)
+          log.info('persistProductAggregationResult: parsed ingredients from raw text', { gtin: vr.gtin, ingredientCount: ingredientNames.length })
+
+          if (ingredientNames.length > 0) {
+            const matchResult = await matchIngredients(payload, ingredientNames, jlog)
+            tokensUsed += matchResult.tokensUsed.totalTokens
+
+            const matchedMap = new Map(
+              matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
+            )
+            variantUpdateData.ingredients = ingredientNames.map((name) => ({
+              name,
+              ingredient: matchedMap.get(name) ?? null,
+            }))
+
+            log.info('persistProductAggregationResult: ingredients matched', { gtin: vr.gtin, matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
+            jlog.event('aggregation.ingredients_matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
+
+            if (matchResult.unmatched.length > 0) {
+              warningMessages.push(`[${vr.gtin}] Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
+            }
+          }
+        } catch (error) {
+          errorMessages.push(`[${vr.gtin}] Ingredient parsing/matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      }
+
+      // Upload image → write to variant
+      if (vd.selectedImageUrl) {
+        try {
+          log.info('persistProductAggregationResult: downloading image', { gtin: vr.gtin, url: vd.selectedImageUrl })
+          const imageRes = await fetch(vd.selectedImageUrl)
+          if (!imageRes.ok) {
+            warningMessages.push(`[${vr.gtin}] Image download failed (${imageRes.status}): ${vd.selectedImageUrl}`)
+          } else {
+            const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
+            const buffer = Buffer.from(await imageRes.arrayBuffer())
+
+            const urlPath = new URL(vd.selectedImageUrl).pathname
+            const filename = urlPath.split('/').pop() || `variant-${variantId}.jpg`
+
+            const mediaDoc = await payload.create({
+              collection: 'media',
+              data: { alt: vd.selectedImageAlt || productData?.name || `Variant ${vr.gtin}` },
+              file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
+            })
+            const mediaId = (mediaDoc as { id: number }).id
+            variantUpdateData.images = [{ image: mediaId }]
+            log.info('persistProductAggregationResult: uploaded image to variant', { gtin: vr.gtin, mediaId, variantId })
+            jlog.event('aggregation.image_uploaded', { mediaId })
+          }
+        } catch (error) {
+          warningMessages.push(`[${vr.gtin}] Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      }
+
+      // Apply classification fields to variant (attributes, claims, details)
+      // Classification is shared across all variants (computed once per product group)
+      if (classification) {
+        log.info('persistProductAggregationResult: applying classification to variant', { gtin: vr.gtin, productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
+        jlog.event('aggregation.classification_applied', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
+
+        if (classification.warnings != null) variantUpdateData.warnings = classification.warnings
+        if (classification.skinApplicability != null) variantUpdateData.skinApplicability = classification.skinApplicability
+        if (classification.phMin != null) variantUpdateData.phMin = classification.phMin
+        if (classification.phMax != null) variantUpdateData.phMax = classification.phMax
+        if (classification.usageInstructions != null) variantUpdateData.usageInstructions = classification.usageInstructions
+        if (classification.usageSchedule != null) variantUpdateData.usageSchedule = classification.usageSchedule
+
+        variantUpdateData.productAttributes = classification.productAttributes
+          .filter((e) => classifySourceProductIds?.[e.sourceIndex] !== undefined)
+          .map((entry) => ({ attribute: entry.attribute, ...mapEvidence(entry) }))
+
+        variantUpdateData.productClaims = classification.productClaims
+          .filter((e) => classifySourceProductIds?.[e.sourceIndex] !== undefined)
+          .map((entry) => ({ claim: entry.claim, ...mapEvidence(entry) }))
+      }
+    } else {
+      log.info('persistProductAggregationResult: scope=partial, skipping variant LLM ops', { gtin: vr.gtin })
+    }
+
+    // Write variant data
+    await payload.update({
+      collection: 'product-variants',
+      id: variantId,
+      data: variantUpdateData,
+    })
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 3: Persist product-level data to product
+  // ══════════════════════════════════════════════════════════════════════
 
   const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
 
@@ -1261,149 +1513,43 @@ export async function persistProductAggregationResult(
   ).filter((id) => !isNaN(id))
   const allIds = [...new Set([...existingSourceIds, ...sourceProductIds.map(Number)])]
 
-  const updateData: Record<string, unknown> = {
+  const productUpdateData: Record<string, unknown> = {
     sourceProducts: allIds,
   }
 
-  if (aggregated.name) {
-    updateData.name = aggregated.name
+  if (productData?.name) {
+    productUpdateData.name = productData.name
   }
 
-  // ── Full scope only: brand matching, ingredient matching, image upload, classification ──
   if (scope === 'full') {
-    // Match brand
-    if (aggregated.brandName) {
+    // Match brand → product-level
+    if (productData?.brandName) {
       try {
-        const brandResult = await matchBrand(payload, aggregated.brandName, jlog)
+        const brandResult = await matchBrand(payload, productData.brandName, jlog)
         tokensUsed += brandResult.tokensUsed.totalTokens
-        updateData.brand = brandResult.brandId
-        log.info('persistProductAggregationResult: brand matched', { brandName: aggregated.brandName, brandId: brandResult.brandId })
-        jlog.event('aggregation.brand_matched', { brandName: aggregated.brandName, brandId: brandResult.brandId })
+        productUpdateData.brand = brandResult.brandId
+        log.info('persistProductAggregationResult: brand matched', { brandName: productData.brandName, brandId: brandResult.brandId })
+        jlog.event('aggregation.brand_matched', { brandName: productData.brandName, brandId: brandResult.brandId })
       } catch (error) {
         errorMessages.push(`Brand matching error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
 
-    // Parse and match ingredients from raw text
-    if (aggregated.ingredientsText) {
-      try {
-        // Step 1: Parse raw text into individual ingredient names (LLM)
-        const ingredientNames = await parseIngredients(aggregated.ingredientsText)
-        log.info('persistProductAggregationResult: parsed ingredients from raw text', { ingredientCount: ingredientNames.length })
-
-        if (ingredientNames.length > 0) {
-          // Step 2: Match parsed names against ingredient database
-          const matchResult = await matchIngredients(payload, ingredientNames, jlog)
-          tokensUsed += matchResult.tokensUsed.totalTokens
-
-          const matchedMap = new Map(
-            matchResult.matched.map((m) => [m.originalName, m.ingredientId]),
-          )
-          updateData.ingredients = ingredientNames.map((name) => ({
-            name,
-            ingredient: matchedMap.get(name) ?? null,
-          }))
-
-          log.info('persistProductAggregationResult: ingredients matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
-          jlog.event('aggregation.ingredients_matched', { matched: matchResult.matched.length, unmatched: matchResult.unmatched.length, total: ingredientNames.length })
-
-          if (matchResult.unmatched.length > 0) {
-            warningMessages.push(`Unmatched ingredients:\n${matchResult.unmatched.join('\n')}`)
-          }
-        }
-      } catch (error) {
-        errorMessages.push(`Ingredient parsing/matching failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      }
-    }
-
-    // Upload product image
-    if (aggregated.selectedImageUrl) {
-      try {
-        log.info('persistProductAggregationResult: downloading image', { url: aggregated.selectedImageUrl })
-        const imageRes = await fetch(aggregated.selectedImageUrl)
-        if (!imageRes.ok) {
-          warningMessages.push(`Image download failed (${imageRes.status}): ${aggregated.selectedImageUrl}`)
-        } else {
-          const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
-          const buffer = Buffer.from(await imageRes.arrayBuffer())
-
-          // Derive filename from URL
-          const urlPath = new URL(aggregated.selectedImageUrl).pathname
-          const filename = urlPath.split('/').pop() || `product-${productId}.jpg`
-
-          const mediaDoc = await payload.create({
-            collection: 'media',
-            data: { alt: aggregated.selectedImageAlt || aggregated.name || `Product ${productId}` },
-            file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
-          })
-          const mediaId = (mediaDoc as { id: number }).id
-          updateData.images = [{ image: mediaId }]
-          log.info('persistProductAggregationResult: uploaded image', { mediaId })
-          jlog.event('aggregation.image_uploaded', { mediaId })
-        }
-      } catch (error) {
-        warningMessages.push(`Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      }
-    }
-  } else {
-    log.info('persistProductAggregationResult: scope=partial, skipping brand/ingredient matching, image upload')
-  }
-
-  // Apply classification (only present for full scope)
-  if (classification) {
-    log.info('persistProductAggregationResult: applying classification', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
-    jlog.event('aggregation.classification_applied', { productType: classification.productType, attributeCount: classification.productAttributes.length, claimCount: classification.productClaims.length })
-    if (classification.description) {
-      updateData.description = classification.description
-    }
-    if (classification.warnings != null) updateData.warnings = classification.warnings
-    if (classification.skinApplicability != null) updateData.skinApplicability = classification.skinApplicability
-    if (classification.phMin != null) updateData.phMin = classification.phMin
-    if (classification.phMax != null) updateData.phMax = classification.phMax
-    if (classification.usageInstructions != null) updateData.usageInstructions = classification.usageInstructions
-    if (classification.usageSchedule != null) updateData.usageSchedule = classification.usageSchedule
-
-    if (classification.productType) {
+    // Product type from classification → product-level
+    if (classification?.productType) {
       const ptDoc = await payload.find({
         collection: 'product-types',
         where: { slug: { equals: classification.productType } },
         limit: 1,
       })
       if (ptDoc.docs.length > 0) {
-        updateData.productType = (ptDoc.docs[0] as { id: number }).id
+        productUpdateData.productType = (ptDoc.docs[0] as { id: number }).id
       }
     }
-
-    const mapEvidence = (entry: { sourceIndex: number; type: string; snippet?: string; start?: number; end?: number; ingredientNames?: string[] }) => {
-      const sourceProductId = classifySourceProductIds?.[entry.sourceIndex]
-      const result: Record<string, unknown> = {
-        sourceProduct: sourceProductId,
-        evidenceType: entry.type,
-      }
-      if (entry.type === 'descriptionSnippet' && entry.snippet) {
-        result.snippet = entry.snippet
-        if (entry.start != null) result.start = entry.start
-        if (entry.end != null) result.end = entry.end
-      }
-      if (entry.type === 'ingredient' && entry.ingredientNames) {
-        result.ingredientNames = entry.ingredientNames.map((name) => ({ name }))
-      }
-      return result
-    }
-
-    updateData.productAttributes = classification.productAttributes
-      .filter((e) => classifySourceProductIds?.[e.sourceIndex] !== undefined)
-      .map((entry) => ({ attribute: entry.attribute, ...mapEvidence(entry) }))
-
-    updateData.productClaims = classification.productClaims
-      .filter((e) => classifySourceProductIds?.[e.sourceIndex] !== undefined)
-      .map((entry) => ({ claim: entry.claim, ...mapEvidence(entry) }))
   }
 
-  // ── Score history ──
-  // Compute current store + creator scores and append to history
+  // ── Score history (always computed) ──
   try {
-    // Store score: avg rating across source products (0–5 stars → 0–10)
     let storeScore: number | null = null
     if (sourceProductIds.length > 0) {
       const sourceProducts = await payload.find({
@@ -1415,11 +1561,10 @@ export async function persistProductAggregationResult(
         .filter(sp => sp.rating != null && sp.ratingNum != null && Number(sp.ratingNum) > 0)
       if (rated.length > 0) {
         const avgRating = rated.reduce((sum, sp) => sum + Number(sp.rating), 0) / rated.length
-        storeScore = Math.round(avgRating * 2 * 10) / 10 // stars→0-10, 1 decimal
+        storeScore = Math.round(avgRating * 2 * 10) / 10
       }
     }
 
-    // Creator score: avg sentiment from video-mentions (-1…+1 → 0–10)
     let creatorScore: number | null = null
     const mentions = await payload.find({
       collection: 'video-mentions',
@@ -1430,10 +1575,9 @@ export async function persistProductAggregationResult(
       .filter(m => m.overallSentimentScore != null)
     if (scoredMentions.length > 0) {
       const avgSentiment = scoredMentions.reduce((sum, m) => sum + Number(m.overallSentimentScore), 0) / scoredMentions.length
-      creatorScore = Math.round(((avgSentiment + 1) * 5) * 10) / 10 // -1…+1 → 0–10, 1 decimal
+      creatorScore = Math.round(((avgSentiment + 1) * 5) * 10) / 10
     }
 
-    // Only record if at least one score exists
     if (storeScore != null || creatorScore != null) {
       const existingHistory = ((product.scoreHistory ?? []) as Array<{
         recordedAt: string
@@ -1442,10 +1586,9 @@ export async function persistProductAggregationResult(
         change?: string | null
       }>)
 
-      // Determine change direction vs previous record (requires >= 5% relative move)
       let change: string | null = null
       if (existingHistory.length > 0) {
-        const prev = existingHistory[0] // newest first (prepended)
+        const prev = existingHistory[0]
         const scoreChange = (current: number, previous: number): 'drop' | 'increase' | 'stable' => {
           if (previous === 0) return current > 0 ? 'increase' : 'stable'
           const pct = (current - previous) / previous
@@ -1453,37 +1596,34 @@ export async function persistProductAggregationResult(
           if (pct >= 0.05) return 'increase'
           return 'stable'
         }
-        // Compare whichever scores are available; use store score first
         if (storeScore != null && prev.storeScore != null) {
           change = scoreChange(storeScore, Number(prev.storeScore))
         } else if (creatorScore != null && prev.creatorScore != null) {
           change = scoreChange(creatorScore, Number(prev.creatorScore))
         }
-        // If a second score also exists, let it override to 'drop'/'increase' if store was stable
         if (change === 'stable' && creatorScore != null && prev.creatorScore != null && storeScore != null && prev.storeScore != null) {
           const creatorChange = scoreChange(creatorScore, Number(prev.creatorScore))
           if (creatorChange !== 'stable') change = creatorChange
         }
       }
 
-      const scoreEntry = {
+      productUpdateData.scoreHistory = [{
         recordedAt: new Date().toISOString(),
         storeScore,
         creatorScore,
         change,
-      }
-
-      updateData.scoreHistory = [scoreEntry, ...existingHistory]
+      }, ...existingHistory]
       log.info('persistProductAggregationResult: score history computed', { storeScore, creatorScore, change })
     }
   } catch (error) {
     warningMessages.push(`Score history computation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 
+  // Write product data
   await payload.update({
     collection: 'products',
     id: productId,
-    data: updateData,
+    data: productUpdateData,
   })
 
   return {

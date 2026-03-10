@@ -11,6 +11,18 @@ export const VideoSnippets: CollectionConfig = {
     defaultColumns: ['video', 'timestampStart', 'matchingType', 'referencedProducts'],
     group: 'Videos',
   },
+  hooks: {
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'video-mentions',
+          where: { videoSnippet: { equals: id } },
+          req,
+        })
+      },
+    ],
+  },
   fields: [
     // --- Sidebar ---
     {

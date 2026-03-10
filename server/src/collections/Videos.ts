@@ -19,6 +19,18 @@ export const Videos: CollectionConfig = {
       beforeListTable: ['@/components/bulk-actions/VideoBulkStatus'],
     },
   },
+  hooks: {
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'video-snippets',
+          where: { video: { equals: id } },
+          req,
+        })
+      },
+    ],
+  },
   fields: [
     {
       name: 'embeddedPlayer',

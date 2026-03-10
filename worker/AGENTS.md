@@ -299,40 +299,49 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 ### 7. product-aggregation
 
 **Handler**: `handleProductAggregation()`
-**Flow per GTIN**:
+**Flow per product group** (a product group = one or more sibling GTINs that share source-products):
 
 ```
-1. aggregateFromSources(sources, { imageSourcePriority })    → merged data (pure logic)
-   - Each source combines product-level data (name, brandName from source-products) with
-     variant-level data (description, images, ingredientsText from the source-variant matching the GTIN)
+1. For each GTIN in the group:
+   aggregateSourceVariantsToVariant(sources, { imageSourcePriority })  → per-variant data
    - Name: longest string (from source-products)
-   - Brand: first non-null (from source-products)
    - Ingredients: from source with longest raw text (from source-variants)
-   - Image: first image from highest-priority source (from source-variants, configurable via imageSourcePriority, default: dm > rossmann > mueller)
-   Note: GTIN comes from the work item (resolved via source-variants in claim), not from source products
-2. [full scope only] deduplicateDescriptions/Ingredients → classifyProduct(client, uniqueSources, lang)
-   - Deduplicates descriptions and ingredients across sources to avoid sending identical content to LLMs
-   - Product type, attributes, claims with evidence
-3. Submit results
+   - Image: first image from highest-priority source (configurable, default: dm > rossmann > mueller > purish)
+   - Description, labels: collected from all sources for LLM consensus
+
+2. aggregateVariantsToProduct(allSources)  → product-level data
+   - Uses ALL sources across ALL GTINs in the group
+
+3. [full scope only] Per-variant LLM steps:
+   - consensusDescription() per variant
+   - deduplicateLabels() per variant
+
+4. [full scope only] Product-level LLM step (once per group):
+   - classifyProduct() using deduplicated descriptions/ingredients from all sources
+
+5. Submit results (one result per product group, containing all variant data)
 ```
+
+**Sister variant grouping** (`includeSisterVariants` field on job, default: true):
+- When enabled, the claim phase discovers all sibling GTINs that share a source-product. For example, if GTIN-A (50ml) and GTIN-B (100ml) both have source-variants under the same source-product, they are grouped into one work item and become variants of the same unified product.
+- Uses `expandSisterGtins()` to find all GTINs whose source-variants share any source-product with the input GTINs, then `groupGtinsIntoProducts()` to cluster GTINs via union-find (GTINs that share any source-product end up in the same group, transitively).
+- When disabled, each GTIN is treated as its own product group (backward-compatible behavior).
+- Works for both `selected_gtins` and `all` aggregation types.
 
 **Scope** (`scope` field on job, passed through claim → handler → submit → persist):
 - `full`: Runs all LLM-heavy operations — `classifyProduct()`, `matchBrand()`, `matchIngredients()`, image download/upload, and score history computation.
 - `partial`: Skips all LLM calls and image operations. Only updates basic product data (name, GTIN, source product links) and computes score history. Use for cheap periodic score refreshes.
 
 **Persistence** (`persistProductAggregationResult`):
-- Finds existing product via `product-variants` GTIN lookup (queries `product-variants` by GTIN, gets parent product ID); creates new product + product-variant together if not found
-- Merges source product IDs (always)
-- Updates name (always)
-- [full only] Calls `matchBrand()` → links brand
-- [full only] Parses raw `ingredientsText` via `parseIngredients()` (LLM, handles footnotes/asterisks) → then `matchIngredients()` → links ingredient records
-- [full only] Downloads selected image URL → uploads to `media` collection → sets `image` on product (filename uses `productId` instead of GTIN)
-- [full only] Applies classification: productType, attributes (with evidence), claims (with evidence)
+- Accepts multiple GTINs (variant results) for one product group
+- **Phase 1 — Resolve/merge product**: Looks up existing product-variants for each GTIN. If some GTINs already have product-variants pointing to different products, **merges them**: keeps the first product as canonical, moves all product-variants and video-mentions from other products to it, merges source product IDs, then deletes the now-empty duplicate products. Creates new product + product-variant(s) for GTINs not yet in the database.
+- **Phase 2 — Per-variant data**: For each GTIN, updates its product-variant with aggregated data (description, labels, ingredients, images, classification). Ingredient matching, image upload, and classification application happen per variant (full scope only). Classification is computed once per product group and shared across all variants.
+- **Phase 3 — Product-level data**: Merges source product IDs, updates name, matches brand (full only), sets productType from classification (full only), computes score history (always).
 - Computes score history (always): fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
 
-**GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches both the crawled source-products (for product-level data: name, brandName) and the matching source-variants (for variant-level data: description, images, ingredientsText). Each work item carries an array of `AggregationSource` objects combining both. The GTIN is passed as a top-level field on each work item. At persist time, `persistProductAggregationResult()` looks up existing products via `product-variants` (by GTIN), or creates a new product + product-variant pair when no match is found.
+**GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches both the crawled source-products (for product-level data: name, brandName) and the matching source-variants (for variant-level data: description, images, ingredientsText). When `includeSisterVariants` is enabled, it expands the GTIN set to include all sibling GTINs sharing any source-product, then groups them via union-find. Each work item carries a `variants` array of `{ gtin, sources: AggregationSource[] }`. At persist time, `persistProductAggregationResult()` resolves all GTINs to product-variants, merging existing products if needed.
 
 ### 8. ingredient-crawl
 

@@ -16,6 +16,16 @@ export const ProductCrawls: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim],
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'crawl-results',
+          where: { crawl: { equals: id } },
+          req,
+        })
+      },
+    ],
   },
   fields: [
     {

@@ -90,6 +90,18 @@ export const ProductAggregations: CollectionConfig = {
               },
             },
             {
+              name: 'includeSisterVariants',
+              type: 'checkbox',
+              label: 'Include Sister Variants',
+              defaultValue: true,
+              admin: {
+                description:
+                  'When enabled, automatically discovers and groups all sibling GTINs that share a source-product. ' +
+                  'For example, if you enter the GTIN for a 50ml moisturizer, the 100ml variant will also be included ' +
+                  'and both will become variants of the same unified product.',
+              },
+            },
+            {
               name: 'language',
               type: 'select',
               label: 'Description Language',

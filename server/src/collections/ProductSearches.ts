@@ -16,6 +16,16 @@ export const ProductSearches: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim],
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'search-results',
+          where: { search: { equals: id } },
+          req,
+        })
+      },
+    ],
   },
   fields: [
     {

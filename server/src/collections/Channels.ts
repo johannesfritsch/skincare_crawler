@@ -16,6 +16,18 @@ export const Channels: CollectionConfig = {
       },
     },
   },
+  hooks: {
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'videos',
+          where: { channel: { equals: id } },
+          req,
+        })
+      },
+    ],
+  },
   fields: [
     {
       name: 'discoverStatus',

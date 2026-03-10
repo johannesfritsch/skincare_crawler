@@ -137,7 +137,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
 | `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), created/existing/discovered counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
-| `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, aggregated/errors/tokens |
+| `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), aggregated/errors/tokens |
 | `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |
 
 ### System
@@ -160,7 +160,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 3. Worker runs handler (e.g. scrapes product pages via Playwright driver)
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
-6. Product aggregation resolves GTINs via source-variants → groups source-products by GTIN → selects best image (by source priority) → downloads & uploads to media → matchBrand + parseIngredients (raw text → names via LLM) + matchIngredients + classifyProduct (LLM) → unified products + product-variants (with GTIN + source-variant links)
+6. Product aggregation resolves GTINs via source-variants → when includeSisterVariants is enabled (default), expands to find all sibling GTINs sharing any source-product and groups them via union-find → each group becomes one unified product with multiple product-variants (one per GTIN) → per-variant: selects best image (by source priority), downloads & uploads to media, parseIngredients + matchIngredients → per-product: matchBrand + classifyProduct (LLM, shared across variants) → if sibling GTINs previously had separate products, merges them (moves variants + video-mentions, deletes empty duplicates)
 7. Video processing: download → scene detect → barcode/visual match → audio transcription (Deepgram) → LLM correction → transcript split → sentiment analysis (LLM) → video-mentions
 ```
 

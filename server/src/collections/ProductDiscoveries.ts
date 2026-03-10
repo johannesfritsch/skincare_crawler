@@ -15,6 +15,16 @@ export const ProductDiscoveries: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim],
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'discovery-results',
+          where: { discovery: { equals: id } },
+          req,
+        })
+      },
+    ],
   },
   fields: [
     // Main configuration - always visible

@@ -11,6 +11,18 @@ export const Creators: CollectionConfig = {
     defaultColumns: ['name', 'createdAt'],
     group: 'Videos',
   },
+  hooks: {
+    beforeDelete: [
+      async ({ id, req }) => {
+        // Cascade delete: remove child records that have required (NOT NULL) references
+        await req.payload.delete({
+          collection: 'channels',
+          where: { creator: { equals: id } },
+          req,
+        })
+      },
+    ],
+  },
   fields: [
     {
       name: 'name',

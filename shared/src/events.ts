@@ -471,6 +471,24 @@ export interface EventRegistry {
   }
   'product_match.no_match_after_llm': { product: string }
 
+  // ─── Label Deduplication ─────────────────────────────────────────────
+  // deduplicate-labels.ts
+
+  'labels.deduplicated': {
+    inputCount: number
+    outputCount: number
+    cacheHit: boolean
+  }
+
+  // ─── Description Consensus ────────────────────────────────────────────
+  // consensus-description.ts
+
+  'description.consensus': {
+    inputCount: number
+    uniqueCount: number
+    cacheHit: boolean
+  }
+
   // ─── Classification ────────────────────────────────────────────────────
   // classify-product.ts
 
@@ -906,6 +924,20 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'warning',
     level: 'warn',
     labels: ['product-matching', 'llm'],
+  },
+
+  // Label deduplication
+  'labels.deduplicated': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'llm'],
+  },
+
+  // Description consensus
+  'description.consensus': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'llm'],
   },
 
   // Classification

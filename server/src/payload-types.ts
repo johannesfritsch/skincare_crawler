@@ -1068,6 +1068,10 @@ export interface ProductAggregation {
    */
   gtins?: string | null;
   /**
+   * When enabled, automatically discovers and groups all sibling GTINs that share a source-product. For example, if you enter the GTIN for a 50ml moisturizer, the 100ml variant will also be included and both will become variants of the same unified product.
+   */
+  includeSisterVariants?: boolean | null;
+  /**
    * Language for the generated product description.
    */
   language?: ('de' | 'en') | null;
@@ -1123,9 +1127,76 @@ export interface Product {
   brand?: (number | null) | Brand;
   productType?: (number | null) | ProductType;
   name?: string | null;
+  /**
+   * Product variants — each has its own GTIN, ingredients, images, description, attributes, and claims
+   */
+  variants?: {
+    docs?: (number | ProductVariant)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  videoSnippets?: {
+    docs?: (number | VideoSnippet)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  videoMentions?: {
+    docs?: (number | VideoMention)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * Timestamped snapshots of store and creator scores, recorded during each aggregation run
+   */
+  scoreHistory?:
+    | {
+        recordedAt: string;
+        storeScore?: number | null;
+        creatorScore?: number | null;
+        /**
+         * Score movement vs previous record (>= 5% relative change)
+         */
+        change?: ('drop' | 'stable' | 'increase') | null;
+        id?: string | null;
+      }[]
+    | null;
+  aggregations?: {
+    docs?: (number | ProductAggregation)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * Links to crawled source product data
+   */
+  sourceProducts?: (number | SourceProduct)[] | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-variants".
+ */
+export interface ProductVariant {
+  id: number;
+  product: number | Product;
+  /**
+   * Global Trade Item Number for this specific variant
+   */
+  gtin?: string | null;
+  /**
+   * Variant-specific label (e.g. "50ml", "Rose Gold", "SPF 30")
+   */
+  label?: string | null;
+  /**
+   * Links to retailer-specific variants for this product variant
+   */
+  sourceVariants?: (number | SourceVariant)[] | null;
+  /**
+   * Aggregated description (LLM consensus from source variants)
+   */
   description?: string | null;
   /**
-   * Product images (first entry is the primary display image, aggregated from source products)
+   * Variant images (first entry is primary display image, aggregated from source variants by source priority)
    */
   images?:
     | {
@@ -1134,13 +1205,26 @@ export interface Product {
       }[]
     | null;
   /**
-   * Product variants, each with their own GTIN and retailer source links
+   * Product amount (e.g. 100, 250)
    */
-  variants?: {
-    docs?: (number | ProductVariant)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
+  amount?: number | null;
+  /**
+   * Unit of measurement (e.g. ml, g)
+   */
+  amountUnit?: string | null;
+  /**
+   * Variant dimension type (e.g. "Color", "Size")
+   */
+  variantDimension?: string | null;
+  /**
+   * Deduplicated labels from source variants (LLM-normalized to canonical German, store-specific labels removed)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * Product warnings extracted from descriptions (e.g. "Avoid contact with eyes")
    */
@@ -1174,7 +1258,7 @@ export interface Product {
     | boolean
     | null;
   /**
-   * Product ingredients (aggregated from sources)
+   * Product ingredients (parsed from source variant INCI text, matched to ingredient database)
    */
   ingredients?:
     | {
@@ -1253,66 +1337,6 @@ export interface Product {
         id?: string | null;
       }[]
     | null;
-  videoSnippets?: {
-    docs?: (number | VideoSnippet)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  videoMentions?: {
-    docs?: (number | VideoMention)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * Timestamped snapshots of store and creator scores, recorded during each aggregation run
-   */
-  scoreHistory?:
-    | {
-        recordedAt: string;
-        storeScore?: number | null;
-        creatorScore?: number | null;
-        /**
-         * Score movement vs previous record (>= 5% relative change)
-         */
-        change?: ('drop' | 'stable' | 'increase') | null;
-        id?: string | null;
-      }[]
-    | null;
-  aggregations?: {
-    docs?: (number | ProductAggregation)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * Links to crawled source product data
-   */
-  sourceProducts?: (number | SourceProduct)[] | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-variants".
- */
-export interface ProductVariant {
-  id: number;
-  product: number | Product;
-  /**
-   * Global Trade Item Number for this specific variant
-   */
-  gtin?: string | null;
-  /**
-   * Variant-specific label (e.g. "50ml", "Rose Gold", "SPF 30")
-   */
-  label?: string | null;
-  /**
-   * Variant-specific product image (aggregated from source variants)
-   */
-  image?: (number | null) | Media;
-  /**
-   * Links to retailer-specific variants for this product variant
-   */
-  sourceVariants?: (number | SourceVariant)[] | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2138,6 +2162,32 @@ export interface ProductsSelect<T extends boolean = true> {
   brand?: T;
   productType?: T;
   name?: T;
+  variants?: T;
+  videoSnippets?: T;
+  videoMentions?: T;
+  scoreHistory?:
+    | T
+    | {
+        recordedAt?: T;
+        storeScore?: T;
+        creatorScore?: T;
+        change?: T;
+        id?: T;
+      };
+  aggregations?: T;
+  sourceProducts?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-variants_select".
+ */
+export interface ProductVariantsSelect<T extends boolean = true> {
+  product?: T;
+  gtin?: T;
+  label?: T;
+  sourceVariants?: T;
   description?: T;
   images?:
     | T
@@ -2145,7 +2195,15 @@ export interface ProductsSelect<T extends boolean = true> {
         image?: T;
         id?: T;
       };
-  variants?: T;
+  amount?: T;
+  amountUnit?: T;
+  variantDimension?: T;
+  labels?:
+    | T
+    | {
+        label?: T;
+        id?: T;
+      };
   warnings?: T;
   skinApplicability?: T;
   phMin?: T;
@@ -2193,32 +2251,6 @@ export interface ProductsSelect<T extends boolean = true> {
             };
         id?: T;
       };
-  videoSnippets?: T;
-  videoMentions?: T;
-  scoreHistory?:
-    | T
-    | {
-        recordedAt?: T;
-        storeScore?: T;
-        creatorScore?: T;
-        change?: T;
-        id?: T;
-      };
-  aggregations?: T;
-  sourceProducts?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-variants_select".
- */
-export interface ProductVariantsSelect<T extends boolean = true> {
-  product?: T;
-  gtin?: T;
-  label?: T;
-  image?: T;
-  sourceVariants?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2390,6 +2422,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   itemsPerTick?: T;
   type?: T;
   gtins?: T;
+  includeSisterVariants?: T;
   language?: T;
   imageSourcePriority?: T;
   total?: T;

@@ -19,3 +19,4 @@
 - Allow all jobs to be scheduled.
 - Continue with video testing.
 - Fix the frontend (especially the URL schema and add stuff we added just now)
+- Import reviews
