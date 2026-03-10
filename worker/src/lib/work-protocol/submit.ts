@@ -1052,11 +1052,21 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
 
       // Add INCIDecoder source if we found data (longDescription present means INCIDecoder had content)
       if (result.longDescription && result.sourceUrl) {
+        const inciDecoderFieldsProvided = [
+          ...(result.longDescription ? ['longDescription'] : []),
+          // shortDescription is LLM-generated from longDescription, not scraped — excluded from fieldsProvided
+          ...(result.imageMediaId ? ['image'] : []),
+        ]
         const ingredientDoc = await payload.findByID({ collection: 'ingredients', id: result.ingredientId }) as Record<string, unknown>
-        const existingSources = (ingredientDoc.sources as Array<{ source: string }>) ?? []
-        const hasInciDecoder = existingSources.some((s) => s.source === 'incidecoder')
-        if (!hasInciDecoder) {
-          updateData.sources = [...existingSources, { source: 'incidecoder', sourceUrl: result.sourceUrl }]
+        const existingSources = (ingredientDoc.sources as Array<{ source: string; fieldsProvided?: string[] }>) ?? []
+        const inciIdx = existingSources.findIndex((s) => s.source === 'incidecoder')
+        if (inciIdx === -1) {
+          updateData.sources = [...existingSources, { source: 'incidecoder', sourceUrl: result.sourceUrl, fieldsProvided: inciDecoderFieldsProvided }]
+        } else if (!existingSources[inciIdx].fieldsProvided?.length) {
+          // Backfill fieldsProvided on existing INCIDecoder source entry
+          const updated = [...existingSources]
+          updated[inciIdx] = { ...updated[inciIdx], fieldsProvided: inciDecoderFieldsProvided }
+          updateData.sources = updated
         }
       }
 

@@ -382,6 +382,24 @@ export interface Ingredient {
     | {
         source: 'cosing' | 'incidecoder';
         sourceUrl?: string | null;
+        /**
+         * Which ingredient fields were populated by this source
+         */
+        fieldsProvided?:
+          | (
+              | 'name'
+              | 'casNumber'
+              | 'ecNumber'
+              | 'cosIngId'
+              | 'chemicalDescription'
+              | 'functions'
+              | 'itemType'
+              | 'restrictions'
+              | 'longDescription'
+              | 'shortDescription'
+              | 'image'
+            )[]
+          | null;
         id?: string | null;
       }[]
     | null;
@@ -2050,6 +2068,7 @@ export interface IngredientsSelect<T extends boolean = true> {
     | {
         source?: T;
         sourceUrl?: T;
+        fieldsProvided?: T;
         id?: T;
       };
   crawledAt?: T;

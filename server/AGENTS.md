@@ -1577,7 +1577,8 @@ The server depends on `@anyskin/shared` (workspace package at `../shared/`), con
 
 - **`EventRegistry`** — TypeScript interface mapping ~90 typed event names to their data shapes
 - **`EVENT_META`** — default type/level/labels for each event name
-- **Shared types** — `SourceSlug`, `JobCollection`, `EventType`, `LogLevel`, `EventName`, `EventMeta`
+- **Shared types** — `SourceSlug`, `JobCollection`, `EventType`, `LogLevel`, `EventName`, `EventMeta`, `IngredientField`
+- **Ingredient field constants** — `INGREDIENT_FIELDS` (all content field names), `COSING_FIELDS` (fields from CosIng), `INCIDECODER_FIELDS` (fields from INCIDecoder). Used by the Ingredients collection config for the `fieldsProvided` select options, and by worker persist/submit code to set `fieldsProvided` on source entries.
 
 The server's **Events collection** has a `name` field (text, indexed, optional) that stores the typed event name (e.g. `crawl.started`, `persist.price_changed`). This field is populated by the worker's `jlog.event()` method. Old events created via `jlog.info(..., { event: true })` don't have a `name` — they only have the freeform `message` field.
 
@@ -1638,6 +1639,128 @@ interface DashboardResponse {
 - **Payload admin panel does not load Tailwind CSS** — all dashboard components use inline styles and Payload CSS variables (`var(--theme-elevation-...)`, `var(--theme-text)`, etc.)
 - Charts use `recharts` (installed as server dependency)
 - Widget widths: `x-small` = 25%, `small` = 33.33%, `medium` = 50%, `large` = 66.67%, `x-large` = 75%, `full` = 100%
+
+### Extending the Dashboard — Checklist
+
+The dashboard endpoint (`src/endpoints/dashboard-events.ts`) aggregates events using **hardcoded event names in raw SQL**. There are no shared constants — every event name reference is inline. When adding a new job type, new events, or new highlights, you must update multiple places. This checklist covers every location.
+
+#### Scenario A: Adding a new job type (new job collection + handler)
+
+When a new job collection is added (e.g. `ingredient-enrichments`), the dashboard has **5 update sites**:
+
+1. **Events collection `job` field** — `src/collections/Events.ts:79`
+   - Add the new collection slug to the `relationTo` array on the `job` polymorphic relationship field:
+   ```typescript
+   relationTo: ['product-discoveries', ..., 'ingredient-crawls', 'ingredient-enrichments'],
+   ```
+
+2. **Query #5 (byJobCollection) — CASE WHEN subquery** — `dashboard-events.ts:213-225`
+   - Add a new WHEN clause to the CASE expression that maps the FK column to a slug:
+   ```sql
+   WHEN ingredient_enrichments_id IS NOT NULL THEN 'ingredient-enrichments'
+   ```
+   - Add the new FK column to the `coalesce(...)` for `job_id`
+
+3. **Query #6 (recentErrors) — same CASE WHEN subquery** — `dashboard-events.ts:250-262`
+   - Identical change as #2 — this is a duplicate of the CASE/coalesce logic for the LEFT JOIN
+
+4. **Query #5 WHERE clause** — `dashboard-events.ts:231-232`
+   - No change needed — uses `LIKE '%.completed'` and exact matches for universal events (`job.claimed`, `job.failed`, etc.) which auto-match new job types
+
+5. **Query #1 (summary)** — `dashboard-events.ts:155-157`
+   - No change needed — uses same LIKE/IN patterns that auto-match
+
+**Note**: The two CASE WHEN blocks (queries #5 and #6) are duplicated code. If you add a new job collection, you must update **both**. The FK column name is derived from the Payload collection slug with hyphens replaced by underscores (e.g. `ingredient-enrichments` → `ingredient_enrichments_id`).
+
+#### Scenario B: Adding a new domain-specific completion event
+
+When a new job type emits its own `<domain>.completed` event (e.g. `enrichment.completed`):
+
+1. **`shared/src/events.ts`** — Add the event to `EventRegistry` with its data shape, and add default metadata to `EVENT_META`
+
+2. **Query #1 (summary `jobsCompleted`)** — `dashboard-events.ts:156`
+   - No change needed — `name LIKE '%.completed'` auto-matches any `<domain>.completed`
+
+3. **Query #5 (byJobCollection `completed`)** — `dashboard-events.ts:207`
+   - No change needed — same LIKE pattern
+
+4. **Query #7 (highlights `tokensUsed`)** — `dashboard-events.ts:278-280`
+   - **MUST UPDATE** if the new completion event carries `tokensUsed` in its data. Add it to the IN list:
+   ```sql
+   WHERE name IN ('crawl.completed', 'aggregation.completed', 'video_processing.completed', 'ingredient_crawl.completed', 'enrichment.completed')
+   ```
+   - Only job-level completion events with `tokensUsed` in their EventRegistry data shape should be listed here
+
+**Known quirk**: The `%.completed` LIKE pattern also matches per-item events like `video_processing.complete` and `classification.complete` (note: `.complete` not `.completed`). These are per-item events, not job-level completions. This slightly inflates `jobsCompleted` counts. The naming convention is: **job-level completions use `.completed`** (past tense), **per-item completions use `.complete`** (present tense). New events should follow this convention.
+
+#### Scenario C: Adding a new highlight metric
+
+To add a new metric to the Highlights widget (e.g. "Ingredients Crawled"):
+
+1. **`DashboardResponse` type** — `dashboard-events.ts:63-70`
+   - Add the new field to `highlights`
+
+2. **Query #7 (highlights)** — `dashboard-events.ts:272-284`
+   - Add a new `coalesce(sum/count/avg(...) FILTER (WHERE name = '...'), 0)::int AS "newMetric"` line
+
+3. **Response shaping** — `dashboard-events.ts:373-380`
+   - Add the new field to the highlights object
+
+4. **Widget** — `src/components/dashboard/widgets/EventHighlightsClient.tsx`
+   - Add a new `<Metric>` card
+
+#### Scenario D: Adding a new batch event for avg duration
+
+The `avgBatchDurationMs` highlight uses `LIKE '%.batch_done'` — `dashboard-events.ts:281`. This auto-matches any event named `<domain>.batch_done`. If your new job type emits `<domain>.batch_done` with `batchDurationMs` in its data, it's automatically included. No changes needed.
+
+Current matches: `crawl.batch_done`, `video_processing.batch_done`, `aggregation.batch_done`, `ingredient_crawl.batch_done`.
+
+Events ending in `.batch_persisted` (discovery, search, ingredients_discovery, video_discovery) are **not** matched — they use a different naming convention because they persist discovered items rather than processing batches.
+
+#### Scenario E: Adding a new dashboard widget
+
+1. Create server shell: `src/components/dashboard/widgets/MyWidget.tsx` (imports and renders MyWidgetClient)
+2. Create client component: `src/components/dashboard/widgets/MyWidgetClient.tsx` (`'use client'`, uses `useDashboardState()` from `dashboard-store.ts`)
+3. Register in `payload.config.ts` under `admin.dashboard.widgets` (slug, label, ComponentPath, minWidth, maxWidth) and `defaultLayout`
+4. If the widget needs new data: add fields to `DashboardResponse`, add SQL query to the `Promise.all`, shape in the response object
+5. Delete `importMap.js` and regenerate: `rm src/app/\(payload\)/admin/importMap.js && pnpm payload generate:importmap`
+
+#### Quick reference: All hardcoded event names in dashboard-events.ts
+
+| Event name / pattern | Query | Purpose | Line(s) |
+|---|---|---|---|
+| `job.claimed` | #1, #5 | Job started count | 155, 206, 231 |
+| `%.completed` (LIKE) | #1, #5 | Job completed count | 156, 207, 231 |
+| `job.completed_empty` | #1, #5 | Job completed (no work) | 156, 207, 231 |
+| `job.failed` | #1, #5 | Job failed count | 157, 208, 232 |
+| `job.failed_max_retries` | #1, #5 | Job failed (max retries) | 157, 208, 232 |
+| `job.retrying` | #5 | Job retry count | 209, 232 |
+| `crawl.batch_done` | #7 | Products crawled (batchSuccesses) | 274 |
+| `discovery.batch_persisted` | #7 | Products discovered (batchPersisted) | 275 |
+| `persist.price_changed` | #7 | Price change count | 276 |
+| `persist.variants_disappeared` | #7 | Variants disappeared (markedUnavailable) | 277 |
+| `crawl.completed` | #7 | Tokens used (IN list) | 279 |
+| `aggregation.completed` | #7 | Tokens used (IN list) | 279 |
+| `video_processing.completed` | #7 | Tokens used (IN list) | 279 |
+| `ingredient_crawl.completed` | #7 | Tokens used (IN list) | 280 |
+| `%.batch_done` (LIKE) | #7 | Avg batch duration | 281 |
+
+#### Quick reference: CASE WHEN FK columns in events_rels (queries #5 and #6)
+
+Both queries #5 (line 213) and #6 (line 250) have identical CASE WHEN subqueries mapping FK columns to collection slugs. Current mappings:
+
+| FK column | Collection slug |
+|---|---|
+| `product_crawls_id` | `product-crawls` |
+| `product_discoveries_id` | `product-discoveries` |
+| `product_searches_id` | `product-searches` |
+| `ingredients_discoveries_id` | `ingredients-discoveries` |
+| `product_aggregations_id` | `product-aggregations` |
+| `video_discoveries_id` | `video-discoveries` |
+| `video_processings_id` | `video-processings` |
+| `ingredient_crawls_id` | `ingredient-crawls` |
+
+When adding a new job collection, add a new WHEN clause to **both** CASE blocks and add the new FK column to **both** `coalesce(...)` expressions.
 
 ## Keeping This File Up to Date
 

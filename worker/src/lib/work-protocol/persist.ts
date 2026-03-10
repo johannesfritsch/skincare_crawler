@@ -691,8 +691,19 @@ export async function persistIngredient(
   })
 
   // Build CosIng source entry if we have a sourceUrl
+  // fieldsProvided tracks exactly which content fields this source populated
+  const cosIngFieldsProvided = [
+    'name', // always provided by CosIng
+    ...(data.casNumber ? ['casNumber'] : []),
+    ...(data.ecNumber ? ['ecNumber'] : []),
+    ...(data.cosIngId ? ['cosIngId'] : []),
+    ...(data.chemicalDescription ? ['chemicalDescription'] : []),
+    ...(data.functions.length > 0 ? ['functions'] : []),
+    ...(data.itemType ? ['itemType'] : []),
+    ...(data.restrictions ? ['restrictions'] : []),
+  ]
   const cosIngSource = data.sourceUrl
-    ? { source: 'cosing', sourceUrl: data.sourceUrl }
+    ? { source: 'cosing', sourceUrl: data.sourceUrl, fieldsProvided: cosIngFieldsProvided }
     : null
 
   if (existing.docs.length === 0) {
@@ -738,12 +749,17 @@ export async function persistIngredient(
       updates.functions = data.functions.map((f) => ({ function: f }))
     }
 
-    // Add CosIng source if not already present
+    // Add CosIng source if not already present, or update fieldsProvided if it exists
     if (cosIngSource) {
-      const existingSources = (doc.sources as Array<{ source: string }>) ?? []
-      const hasCosIng = existingSources.some((s) => s.source === 'cosing')
-      if (!hasCosIng) {
+      const existingSources = (doc.sources as Array<{ source: string; fieldsProvided?: string[] }>) ?? []
+      const cosIngIdx = existingSources.findIndex((s) => s.source === 'cosing')
+      if (cosIngIdx === -1) {
         updates.sources = [...existingSources, cosIngSource]
+      } else if (!existingSources[cosIngIdx].fieldsProvided?.length) {
+        // Backfill fieldsProvided on existing CosIng source entry
+        const updated = [...existingSources]
+        updated[cosIngIdx] = { ...updated[cosIngIdx], fieldsProvided: cosIngFieldsProvided }
+        updates.sources = updated
       }
     }
 

@@ -11,6 +11,39 @@
 /** Store slugs — must match server's STORES registry and worker driver slugs */
 export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish'
 
+// ─── Ingredient Field Tracking ──────────────────────────────────────────────
+
+/**
+ * Content fields on the ingredients collection that can be attributed to a
+ * data source. Metadata fields (status, crawledAt, sourceUrl, sources) are
+ * excluded — only fields that hold ingredient data are listed.
+ */
+export const INGREDIENT_FIELDS = [
+  'name',
+  'casNumber',
+  'ecNumber',
+  'cosIngId',
+  'chemicalDescription',
+  'functions',
+  'itemType',
+  'restrictions',
+  'longDescription',
+  'shortDescription',
+  'image',
+] as const
+
+export type IngredientField = (typeof INGREDIENT_FIELDS)[number]
+
+/** Fields typically provided by the CosIng data source */
+export const COSING_FIELDS: IngredientField[] = [
+  'name', 'casNumber', 'ecNumber', 'cosIngId', 'chemicalDescription', 'functions', 'itemType', 'restrictions',
+]
+
+/** Fields typically provided by the INCIDecoder data source (shortDescription is excluded — it's LLM-generated, not scraped) */
+export const INCIDECODER_FIELDS: IngredientField[] = [
+  'longDescription', 'image',
+]
+
 /** Job collection slugs — must match both server collection configs and worker claim logic */
 export type JobCollection =
   | 'product-discoveries'

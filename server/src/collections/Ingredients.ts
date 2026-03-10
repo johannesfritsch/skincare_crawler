@@ -1,4 +1,28 @@
 import type { CollectionConfig } from 'payload'
+import { INGREDIENT_FIELDS } from '@anyskin/shared'
+
+/**
+ * Select options for the fieldsProvided select field, derived from the shared
+ * INGREDIENT_FIELDS constant. Labels are human-readable versions of field names.
+ */
+const INGREDIENT_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  casNumber: 'CAS Number',
+  ecNumber: 'EC Number',
+  cosIngId: 'CosIng ID',
+  chemicalDescription: 'Chemical Description',
+  functions: 'Functions',
+  itemType: 'Item Type',
+  restrictions: 'Restrictions',
+  longDescription: 'Long Description',
+  shortDescription: 'Short Description',
+  image: 'Image',
+}
+
+const INGREDIENT_FIELD_OPTIONS = INGREDIENT_FIELDS.map((value) => ({
+  label: INGREDIENT_FIELD_LABELS[value] ?? value,
+  value,
+}))
 
 export const Ingredients: CollectionConfig = {
   slug: 'ingredients',
@@ -160,6 +184,16 @@ export const Ingredients: CollectionConfig = {
           name: 'sourceUrl',
           type: 'text',
           label: 'Source URL',
+        },
+        {
+          name: 'fieldsProvided',
+          type: 'select',
+          hasMany: true,
+          label: 'Fields Provided',
+          options: [...INGREDIENT_FIELD_OPTIONS],
+          admin: {
+            description: 'Which ingredient fields were populated by this source',
+          },
         },
       ],
     },
