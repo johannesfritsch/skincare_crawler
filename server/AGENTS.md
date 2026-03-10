@@ -1587,10 +1587,10 @@ The admin dashboard uses Payload's experimental `admin.dashboard` feature with 7
 
 ### Architecture
 
-- **Custom endpoint**: `GET /api/dashboard/events?range=1h|24h|7d|30d` (`src/endpoints/dashboard-events.ts`) — runs 7 parallel SQL queries via Drizzle raw SQL, returns aggregated event data. Auth via `req.user` (Payload's built-in JWT from admin UI cookie). Default range: `1h`.
+- **Custom endpoint**: `GET /api/dashboard/events?range=1h|24h|7d|30d` (`src/endpoints/dashboard-events.ts`) — runs 9 parallel SQL queries via Drizzle raw SQL, returns aggregated event data including ingredient stats. Auth via `req.user` (Payload's built-in JWT from admin UI cookie). Default range: `1h`.
 - **DashboardProvider**: `src/components/dashboard/DashboardProvider.tsx` — `'use client'` component rendered via `beforeDashboard`. Fetches from the endpoint, polls every 30s, provides a range selector UI (4 tabs: 1h/24h/7d/30d). Writes data into a module-level pub/sub store.
 - **Dashboard store**: `src/components/dashboard/dashboard-store.ts` — module-level pub/sub (same pattern as `BulkJobBar.tsx`'s `getJobState`/`setJobState`). Exports `useDashboardState()` hook via `useSyncExternalStore`. Widget client components subscribe to this store.
-- **Widgets**: 7 pairs of server shell + client component, registered in `payload.config.ts` under `admin.dashboard.widgets`. Each server shell just renders its client component.
+- **Widgets**: 8 pairs of server shell + client component, registered in `payload.config.ts` under `admin.dashboard.widgets`. Each server shell just renders its client component.
 
 ### DashboardResponse Type
 
@@ -1606,6 +1606,7 @@ interface DashboardResponse {
   byJobCollection: Array<{ collection, started, completed, failed, retrying }>
   recentErrors: Array<{ id, name, message, data, jobCollection, jobId, createdAt }>  // limit 10
   highlights: { productsCrawled, productsDiscovered, priceChanges, variantsDisappeared, tokensUsed, avgBatchDurationMs }
+  ingredientStats: { total, crawled, uncrawled, sourceGroups: Array<{ sourceCount, ingredients }> }
 }
 ```
 
@@ -1620,14 +1621,17 @@ interface DashboardResponse {
 | EventJobs | `event-jobs` | `EventJobsClient` | Table with started/completed/failed/retrying per job collection |
 | EventHighlights | `event-highlights` | `EventHighlightsClient` | Metric cards (products crawled/discovered, price changes, etc.) |
 | EventErrors | `event-errors` | `EventErrorsClient` | Scrollable list of last 10 errors with event name, job link, time ago |
+| IngredientStats | `ingredient-stats` | `IngredientStatsClient` | Total/crawled/uncrawled counts with progress bar, source coverage breakdown (0/1/2+ sources) |
 
 ### Key Files
 
-- `src/endpoints/dashboard-events.ts` — endpoint handler
+- `src/endpoints/dashboard-events.ts` — endpoint handler (9 SQL queries)
 - `src/components/dashboard/dashboard-store.ts` — pub/sub store
 - `src/components/dashboard/DashboardProvider.tsx` — data fetcher + range selector
 - `src/components/dashboard/widgets/Event*.tsx` — server shells
 - `src/components/dashboard/widgets/Event*Client.tsx` — client components
+- `src/components/dashboard/widgets/IngredientStats.tsx` — server shell
+- `src/components/dashboard/widgets/IngredientStatsClient.tsx` — client component
 
 ### Styling Notes
 

@@ -1372,6 +1372,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
         shortDescription: shortDescription || undefined,
         imageMediaId,
         tokensUsed,
+        sourceUrl: url,
       })
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)

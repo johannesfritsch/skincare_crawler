@@ -257,12 +257,14 @@ export interface EventRegistry {
     errors: number
     batchSize: number
     batchDurationMs: number
+    withInciDecoder: number
   }
   'ingredient_crawl.completed': {
     crawled: number
     errors: number
     tokensUsed: number
     durationMs: number
+    withInciDecoder: number
   }
 
   // ─── Video Discovery ──────────────────────────────────────────────────

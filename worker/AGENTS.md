@@ -178,7 +178,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 | `persistCrawlFailure()` | Creates `crawl-results` with error |
 | `persistDiscoveredProduct()` | Dedup by `source-products.sourceUrl`; creates `source-products` (no variant — variants are only created during crawl) when new; updates existing source-product when URL already exists; creates `discovery-results` join record |
 
-| `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.) |
+| `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.); adds `{ source: 'cosing', sourceUrl }` to the `sources` array on create/update, deduplicating by checking if CosIng source already exists |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup via `product-variants`) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
 | `persistProductAggregationResult()` | Finds/creates `products` via `product-variants` GTIN lookup (no longer uses `products.gtin`); creates `product-variants` with GTIN + source-variant links for new products; [full only] runs matchBrand, parses raw ingredientsText via `parseIngredients()` LLM call then matchIngredients, uploads image, applies classification (productType, attributes, claims with evidence); [always] computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
@@ -349,7 +349,7 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 **Crawl types**: `all_uncrawled` (cursor-based, processes ingredients missing longDescription), `selected` (specific ingredient IDs)
 
-**Persistence**: Inline in submit handler — updates `ingredients` record with `longDescription` and `shortDescription`.
+**Persistence**: Inline in submit handler — updates `ingredients` record with `longDescription` and `shortDescription`. Also adds `{ source: 'incidecoder', sourceUrl }` to the `sources` array when INCIDecoder had data (longDescription present). Tracks `withInciDecoder` counter in batch and completion events.
 
 ## Source Drivers
 

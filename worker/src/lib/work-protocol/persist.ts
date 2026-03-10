@@ -690,6 +690,11 @@ export async function persistIngredient(
     limit: 1,
   })
 
+  // Build CosIng source entry if we have a sourceUrl
+  const cosIngSource = data.sourceUrl
+    ? { source: 'cosing', sourceUrl: data.sourceUrl }
+    : null
+
   if (existing.docs.length === 0) {
     try {
       await payload.create({
@@ -704,6 +709,7 @@ export async function persistIngredient(
           itemType: data.itemType,
           restrictions: data.restrictions ?? null,
           sourceUrl: data.sourceUrl ?? null,
+          sources: cosIngSource ? [cosIngSource] : [],
           status: 'uncrawled',
         },
       })
@@ -730,6 +736,15 @@ export async function persistIngredient(
     if (!doc.restrictions && data.restrictions) updates.restrictions = data.restrictions
     if ((!doc.functions || (doc.functions as unknown[]).length === 0) && data.functions.length > 0) {
       updates.functions = data.functions.map((f) => ({ function: f }))
+    }
+
+    // Add CosIng source if not already present
+    if (cosIngSource) {
+      const existingSources = (doc.sources as Array<{ source: string }>) ?? []
+      const hasCosIng = existingSources.some((s) => s.source === 'cosing')
+      if (!hasCosIng) {
+        updates.sources = [...existingSources, cosIngSource]
+      }
     }
 
     if (Object.keys(updates).length > 0) {

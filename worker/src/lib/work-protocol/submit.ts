@@ -262,6 +262,7 @@ interface SubmitIngredientCrawlBody {
     shortDescription?: string
     imageMediaId?: number
     tokensUsed: number
+    sourceUrl?: string
     error?: string
   }>
 }
@@ -1032,6 +1033,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
   const ingredientIds = new Set<number>(existingIngredientIds)
 
   let batchSuccesses = 0
+  let batchWithInciDecoder = 0
   for (const result of results) {
     if (result.error) {
       errors++
@@ -1048,6 +1050,16 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
       if (result.shortDescription) updateData.shortDescription = result.shortDescription
       if (result.imageMediaId) updateData.image = result.imageMediaId
 
+      // Add INCIDecoder source if we found data (longDescription present means INCIDecoder had content)
+      if (result.longDescription && result.sourceUrl) {
+        const ingredientDoc = await payload.findByID({ collection: 'ingredients', id: result.ingredientId }) as Record<string, unknown>
+        const existingSources = (ingredientDoc.sources as Array<{ source: string }>) ?? []
+        const hasInciDecoder = existingSources.some((s) => s.source === 'incidecoder')
+        if (!hasInciDecoder) {
+          updateData.sources = [...existingSources, { source: 'incidecoder', sourceUrl: result.sourceUrl }]
+        }
+      }
+
       await payload.update({
         collection: 'ingredients',
         id: result.ingredientId,
@@ -1057,8 +1069,9 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
       tokensUsed += result.tokensUsed
       crawled++
       batchSuccesses++
+      if (result.longDescription) batchWithInciDecoder++
       ingredientIds.add(result.ingredientId)
-      log.info('Ingredient crawl persisted', { jobId, ingredientId: result.ingredientId, ingredient: result.ingredientName })
+      log.info('Ingredient crawl persisted', { jobId, ingredientId: result.ingredientId, ingredient: result.ingredientName, hasInciDecoder: !!result.longDescription })
     } catch (e) {
       errors++
       const msg = e instanceof Error ? e.message : String(e)
@@ -1092,7 +1105,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
     })
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
-    jlog.event('ingredient_crawl.completed', { crawled, errors, tokensUsed, durationMs: jobDurationMs })
+    jlog.event('ingredient_crawl.completed', { crawled, errors, tokensUsed, durationMs: jobDurationMs, withInciDecoder: batchWithInciDecoder })
   } else {
     const batchDurationMs = Date.now() - batchStartMs
     await payload.update({
@@ -1108,7 +1121,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         ...(crawlType === 'all_uncrawled' ? { lastCheckedIngredientId } : {}),
       },
     })
-    jlog.event('ingredient_crawl.batch_done', { crawled, errors, batchSize: results.length, batchDurationMs })
+    jlog.event('ingredient_crawl.batch_done', { crawled, errors, batchSize: results.length, batchDurationMs, withInciDecoder: batchWithInciDecoder })
   }
 
   return { crawled, errors, tokensUsed, done: shouldComplete }

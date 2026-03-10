@@ -68,6 +68,16 @@ export interface DashboardResponse {
     tokensUsed: number
     avgBatchDurationMs: number | null
   }
+
+  ingredientStats: {
+    total: number
+    crawled: number
+    uncrawled: number
+    sourceGroups: Array<{
+      sourceCount: number
+      ingredients: number
+    }>
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +141,7 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
   const db = req.payload.db.drizzle
 
   // Run all queries in parallel
-  const [summaryRows, timelineRows, domainRows, sourceRows, jobCollectionRows, errorRows, highlightRows] =
+  const [summaryRows, timelineRows, domainRows, sourceRows, jobCollectionRows, errorRows, highlightRows, ingredientStatsRows, ingredientSourceGroupRows] =
     await Promise.all([
       // 1. Summary
       // Note: job completion events are domain-specific (crawl.completed, search.completed, etc.)
@@ -272,6 +282,32 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
         FROM events
         WHERE created_at >= ${cutoffISO}::timestamptz
       `),
+
+      // 8. Ingredient stats (snapshot, not time-scoped)
+      // Total/crawled/uncrawled counts + source count distribution
+      db.execute(sql`
+        SELECT
+          count(*)::int AS total,
+          count(*) FILTER (WHERE status = 'crawled')::int AS crawled,
+          count(*) FILTER (WHERE status = 'uncrawled')::int AS uncrawled
+        FROM ingredients
+      `),
+
+      // 9. Ingredient source count groups
+      db.execute(sql`
+        SELECT source_count::int AS "sourceCount", count(*)::int AS ingredients
+        FROM (
+          SELECT i.id, coalesce(s.cnt, 0) AS source_count
+          FROM ingredients i
+          LEFT JOIN (
+            SELECT _parent_id, count(*) AS cnt
+            FROM ingredients_sources
+            GROUP BY _parent_id
+          ) s ON s._parent_id = i.id
+        ) sub
+        GROUP BY source_count
+        ORDER BY source_count
+      `),
     ])
 
   // ---------------------------------------------------------------------------
@@ -280,6 +316,7 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
 
   const summary = summaryRows.rows[0] as Record<string, number>
   const highlights = highlightRows.rows[0] as Record<string, number | null>
+  const ingredientSummary = ingredientStatsRows.rows[0] as Record<string, number>
 
   const response: DashboardResponse = {
     range,
@@ -340,6 +377,16 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
       variantsDisappeared: Number(highlights.variantsDisappeared ?? 0),
       tokensUsed: Number(highlights.tokensUsed ?? 0),
       avgBatchDurationMs: highlights.avgBatchDurationMs != null ? Number(highlights.avgBatchDurationMs) : null,
+    },
+
+    ingredientStats: {
+      total: Number(ingredientSummary.total ?? 0),
+      crawled: Number(ingredientSummary.crawled ?? 0),
+      uncrawled: Number(ingredientSummary.uncrawled ?? 0),
+      sourceGroups: (ingredientSourceGroupRows.rows as Array<Record<string, unknown>>).map((row) => ({
+        sourceCount: Number(row.sourceCount ?? 0),
+        ingredients: Number(row.ingredients ?? 0),
+      })),
     },
   }
 

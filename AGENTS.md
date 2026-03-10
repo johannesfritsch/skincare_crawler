@@ -45,7 +45,7 @@ crawler/
 - **Database**: PostgreSQL via `@payloadcms/db-postgres`
 - **Auth**: `users` collection (admin UI) + `workers` collection (API key auth for workers)
 - **Custom endpoints**: `GET /api/dashboard/events?range=1h|24h|7d|30d` — aggregated event data for the admin dashboard (auth via `req.user`). Workers use Payload's standard REST API (`/api/<collection>`)
-- **Admin dashboard**: 7 custom widgets (EventSummary, EventTimeline, EventDomains, EventSources, EventJobs, EventHighlights, EventErrors) via `admin.dashboard` (experimental). DashboardProvider in `beforeDashboard` handles data fetching with 30s polling and range selector. Uses module-level pub/sub store (same pattern as `BulkJobBar.tsx`). Charts via `recharts`.
+- **Admin dashboard**: 8 custom widgets (EventSummary, EventTimeline, EventDomains, EventSources, EventJobs, EventHighlights, EventErrors, IngredientStats) via `admin.dashboard` (experimental). DashboardProvider in `beforeDashboard` handles data fetching with 30s polling and range selector. Uses module-level pub/sub store (same pattern as `BulkJobBar.tsx`). Charts via `recharts`.
 - Jobs are created in the admin UI; workers poll and process them autonomously
 - See `server/AGENTS.md` for Payload CMS development patterns
 

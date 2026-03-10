@@ -136,8 +136,32 @@ export const Ingredients: CollectionConfig = {
       type: 'text',
       label: 'Source URL',
       admin: {
-        description: 'CosIng page URL',
+        description: 'Legacy field (CosIng page URL). Use sources array instead.',
       },
+    },
+    {
+      name: 'sources',
+      type: 'array',
+      label: 'Sources',
+      admin: {
+        description: 'Data sources for this ingredient (CosIng, INCIDecoder, etc.)',
+      },
+      fields: [
+        {
+          name: 'source',
+          type: 'select',
+          required: true,
+          options: [
+            { label: 'CosIng', value: 'cosing' },
+            { label: 'INCIDecoder', value: 'incidecoder' },
+          ],
+        },
+        {
+          name: 'sourceUrl',
+          type: 'text',
+          label: 'Source URL',
+        },
+      ],
     },
     {
       name: 'crawledAt',

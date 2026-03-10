@@ -372,9 +372,19 @@ export interface Ingredient {
   itemType?: ('ingredient' | 'substance') | null;
   restrictions?: string | null;
   /**
-   * CosIng page URL
+   * Legacy field (CosIng page URL). Use sources array instead.
    */
   sourceUrl?: string | null;
+  /**
+   * Data sources for this ingredient (CosIng, INCIDecoder, etc.)
+   */
+  sources?:
+    | {
+        source: 'cosing' | 'incidecoder';
+        sourceUrl?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   crawledAt?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -2035,6 +2045,13 @@ export interface IngredientsSelect<T extends boolean = true> {
   itemType?: T;
   restrictions?: T;
   sourceUrl?: T;
+  sources?:
+    | T
+    | {
+        source?: T;
+        sourceUrl?: T;
+        id?: T;
+      };
   crawledAt?: T;
   updatedAt?: T;
   createdAt?: T;
