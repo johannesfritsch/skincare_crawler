@@ -1509,13 +1509,19 @@ Key details:
 
 ### Drizzle ORM Query Patterns
 
+**IMPORTANT: Column naming differs between Drizzle ORM and raw SQL.** See the root `AGENTS.md` section "PostgreSQL Column Naming Convention" for the full reference. Summary:
+
+- **Drizzle ORM** (`t.products.brand`, `eq(t.source_variants.sourceProduct, ...)`) — use **camelCase Payload field names**. Drizzle maps them to actual DB columns automatically.
+- **Raw SQL** (`db.execute(sql\`...\`)`) — use **actual snake_case DB column names** (`brand_id`, `source_product_id`, `processing_status`). Never use camelCase in raw SQL.
+- When in doubt, verify against the live database: `psql "postgres://anyskin_crawler:anyskin_crawler@127.0.0.1:35432/anyskin_crawler" -c '\d <table_name>'`
+
 ```typescript
 const payload = await getPayload({ config: await config })
 const db = payload.db.drizzle
 const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.source_variants
 
 // Table names are snake_case: products, brands, product_types, product_variants, source_products, source_variants
-// Column names are camelCase: t.source_products.ratingNum (NOT rating_num)
+// Drizzle property names are camelCase: t.source_products.ratingNum → actual DB column: rating_num
 // Payload array fields → separate tables: products_ingredients, products_product_claims
 // hasMany relationships → {collection}_rels join table (e.g. products_rels)
 // product_variants has: product (FK → products), gtin (unique), label, image (FK → media)
@@ -1533,6 +1539,10 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 // sizes_thumbnail_url, sizes_card_url, sizes_detail_url — access via sql template:
 //   sql`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`
 // Join: .leftJoin(t.media, eq(t.products.image, t.media.id))
+
+// Raw SQL example (use snake_case column names, NOT camelCase):
+// db.execute(sql`SELECT source_product_id, rating_num FROM source_products WHERE rating_num > 0`)
+// NOT: sql`SELECT "sourceProduct", "ratingNum" FROM source_products` ← WRONG, will fail
 ```
 
 ### Media Image Sizes
@@ -1584,16 +1594,17 @@ The server's **Events collection** has a `name` field (text, indexed, optional) 
 
 ## Admin Dashboard
 
-The admin dashboard uses Payload's experimental `admin.dashboard` feature with 7 custom widget types and a shared data provider.
+The admin dashboard uses Payload's experimental `admin.dashboard` feature with 13 custom widget types and a shared data provider. Widgets are split into two categories: **event-driven** (time-scoped activity from the `events` table) and **snapshot** (current database state, not time-scoped).
 
 ### Architecture
 
-- **Custom endpoint**: `GET /api/dashboard/events?range=1h|24h|7d|30d` (`src/endpoints/dashboard-events.ts`) — runs 9 parallel SQL queries via Drizzle raw SQL, returns aggregated event data including ingredient stats. Auth via `req.user` (Payload's built-in JWT from admin UI cookie). Default range: `1h`.
-- **DashboardProvider**: `src/components/dashboard/DashboardProvider.tsx` — `'use client'` component rendered via `beforeDashboard`. Fetches from the endpoint, polls every 30s, provides a range selector UI (4 tabs: 1h/24h/7d/30d). Writes data into a module-level pub/sub store.
-- **Dashboard store**: `src/components/dashboard/dashboard-store.ts` — module-level pub/sub (same pattern as `BulkJobBar.tsx`'s `getJobState`/`setJobState`). Exports `useDashboardState()` hook via `useSyncExternalStore`. Widget client components subscribe to this store.
-- **Widgets**: 8 pairs of server shell + client component, registered in `payload.config.ts` under `admin.dashboard.widgets`. Each server shell just renders its client component.
+- **Events endpoint**: `GET /api/dashboard/events?range=1h|24h|7d|30d` (`src/endpoints/dashboard-events.ts`) — runs 9 parallel SQL queries via Drizzle raw SQL, returns aggregated event data including ingredient stats. Auth via `req.user`. Default range: `1h`.
+- **Snapshot endpoint**: `GET /api/dashboard/snapshot` (`src/endpoints/dashboard-snapshot.ts`) — runs 12 parallel SQL queries against data tables (products, source-products, source-variants, videos, etc.). Returns entity counts, data quality metrics, source coverage, video pipeline stats, job queue status, and active workers. Not time-scoped. Auth via `req.user`.
+- **DashboardProvider**: `src/components/dashboard/DashboardProvider.tsx` — `'use client'` component rendered via `beforeDashboard`. Fetches from both endpoints, polls every 30s, provides a range selector UI (4 tabs: 1h/24h/7d/30d) and a "last updated" indicator. Writes data into a module-level pub/sub store.
+- **Dashboard store**: `src/components/dashboard/dashboard-store.ts` — module-level pub/sub (same pattern as `BulkJobBar.tsx`'s `getJobState`/`setJobState`). State holds both `data` (DashboardResponse) and `snapshot` (SnapshotResponse). Exports `useDashboardState()` hook via `useSyncExternalStore`. Widget client components subscribe to this store.
+- **Widgets**: 13 pairs of server shell + client component, registered in `payload.config.ts` under `admin.dashboard.widgets`. Each server shell just renders its client component.
 
-### DashboardResponse Type
+### DashboardResponse Type (events endpoint)
 
 ```typescript
 interface DashboardResponse {
@@ -1606,12 +1617,48 @@ interface DashboardResponse {
   bySource: Array<{ source, total, errors }>
   byJobCollection: Array<{ collection, started, completed, failed, retrying }>
   recentErrors: Array<{ id, name, message, data, jobCollection, jobId, createdAt }>  // limit 10
-  highlights: { productsCrawled, productsDiscovered, priceChanges, variantsDisappeared, tokensUsed, avgBatchDurationMs }
+  highlights: {
+    productsCrawled, productsDiscovered, productsAggregated, productsSearched,
+    ingredientsCrawled, ingredientsDiscovered, videosProcessed, videosDiscovered,
+    priceChanges, priceDrops, priceIncreases, variantsDisappeared, botChecks,
+    tokensUsed, avgBatchDurationMs
+  }
   ingredientStats: { total, crawled, uncrawled, sourceGroups: Array<{ sourceCount, ingredients }> }
 }
 ```
 
+### SnapshotResponse Type (snapshot endpoint)
+
+```typescript
+interface SnapshotResponse {
+  generatedAt: string
+  entities: {
+    products, productVariants, sourceProducts, sourceVariants, uniqueGtins,
+    brands, ingredients, videos, creators, channels, mediaFiles
+  }
+  productQuality: {
+    total, withImage, withBrand, withProductType, withIngredients,
+    withDescription, withScoreHistory
+  }
+  sourceCoverage: Array<{
+    source, total, crawled, uncrawled, withGtin, variants, avgRating, avgRatingCount
+  }>
+  videoPipeline: {
+    total, processed, unprocessed, withTranscript, totalSnippets,
+    snippetsByBarcode, snippetsByVisual, totalMentions,
+    mentionsByPositive, mentionsByNeutral, mentionsByNegative, mentionsByMixed,
+    productsWithMentions, channelsByPlatform: Array<{ platform, count }>
+  }
+  jobQueue: Array<{
+    collection, pending, inProgress, completed, failed, active, stale
+  }>
+  workers: Array<{ id, name, status, lastSeenAt, capabilities }>
+}
+```
+
 ### Widget Types
+
+#### Event-driven widgets (time-scoped, from `DashboardResponse`)
 
 | Widget | Slug | Client Component | Description |
 |--------|------|-----------------|-------------|
@@ -1619,20 +1666,35 @@ interface DashboardResponse {
 | EventTimeline | `event-timeline` | `EventTimelineClient` | recharts stacked BarChart (Info/Warnings/Errors over time) |
 | EventDomains | `event-domains` | `EventDomainsClient` | recharts horizontal BarChart with per-domain colors |
 | EventSources | `event-sources` | `EventSourcesClient` | CSS bar chart with store names and colors |
-| EventJobs | `event-jobs` | `EventJobsClient` | Table with started/completed/failed/retrying per job collection |
-| EventHighlights | `event-highlights` | `EventHighlightsClient` | Metric cards (products crawled/discovered, price changes, etc.) |
-| EventErrors | `event-errors` | `EventErrorsClient` | Scrollable list of last 10 errors with event name, job link, time ago |
-| IngredientStats | `ingredient-stats` | `IngredientStatsClient` | Total/crawled/uncrawled counts with progress bar, source coverage breakdown (0/1/2+ sources) |
+| EventJobs | `event-jobs` | `EventJobsClient` | Table with started/completed/failed/retrying per job collection, clickable links to collection list views |
+| EventHighlights | `event-highlights` | `EventHighlightsClient` | Dynamic grid of metric cards: crawled, discovered, aggregated, searched, ingredients, videos, price changes (with drop/increase breakdown), disappeared variants, bot checks, tokens used, avg batch duration. Only non-zero metrics are shown. |
+| EventErrors | `event-errors` | `EventErrorsClient` | Last 10 errors with event name, clickable job links (to admin edit view), time ago, and extracted key data fields (url, source, ingredient, etc.) from the error's JSON data |
+| IngredientStats | `ingredient-stats` | `IngredientStatsClient` | Total/crawled/uncrawled counts with progress bar, source coverage breakdown (0/1/2+ sources). Not time-scoped. |
+
+#### Snapshot widgets (not time-scoped, from `SnapshotResponse`)
+
+| Widget | Slug | Client Component | Description |
+|--------|------|-----------------|-------------|
+| DatabaseOverview | `database-overview` | `DatabaseOverviewClient` | Grid of 11 entity count cards (products, variants, GTINs, source products/variants, brands, ingredients, videos, creators, channels, media) |
+| ProductQuality | `product-quality` | `ProductQualityClient` | Overall completeness percentage + 6 horizontal progress bars (image, brand, productType, ingredients, description, scoreHistory) |
+| SourceCoverage | `source-coverage` | `SourceCoverageClient` | Table with one row per store: products count, crawl progress bar with %, variants, GTINs, avg rating with review count |
+| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Processing progress bar, stats grid (snippets by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
+| JobQueue | `job-queue` | `JobQueueClient` | Live workers section (name, status dot, last seen) + job queue table (pending/running/completed/failed/stale per collection, clickable links) |
 
 ### Key Files
 
-- `src/endpoints/dashboard-events.ts` — endpoint handler (9 SQL queries)
-- `src/components/dashboard/dashboard-store.ts` — pub/sub store
-- `src/components/dashboard/DashboardProvider.tsx` — data fetcher + range selector
-- `src/components/dashboard/widgets/Event*.tsx` — server shells
-- `src/components/dashboard/widgets/Event*Client.tsx` — client components
-- `src/components/dashboard/widgets/IngredientStats.tsx` — server shell
-- `src/components/dashboard/widgets/IngredientStatsClient.tsx` — client component
+- `src/endpoints/dashboard-events.ts` — events endpoint handler (9 SQL queries, time-scoped)
+- `src/endpoints/dashboard-snapshot.ts` — snapshot endpoint handler (12 SQL queries, current state)
+- `src/components/dashboard/dashboard-store.ts` — pub/sub store (holds both `data` and `snapshot`)
+- `src/components/dashboard/DashboardProvider.tsx` — data fetcher + range selector + last-updated indicator
+- `src/components/dashboard/widgets/Event*.tsx` — event widget server shells
+- `src/components/dashboard/widgets/Event*Client.tsx` — event widget client components
+- `src/components/dashboard/widgets/IngredientStats.tsx` / `IngredientStatsClient.tsx`
+- `src/components/dashboard/widgets/DatabaseOverview.tsx` / `DatabaseOverviewClient.tsx`
+- `src/components/dashboard/widgets/ProductQuality.tsx` / `ProductQualityClient.tsx`
+- `src/components/dashboard/widgets/SourceCoverage.tsx` / `SourceCoverageClient.tsx`
+- `src/components/dashboard/widgets/VideoPipeline.tsx` / `VideoPipelineClient.tsx`
+- `src/components/dashboard/widgets/JobQueue.tsx` / `JobQueueClient.tsx`
 
 ### Styling Notes
 
@@ -1722,28 +1784,36 @@ Events ending in `.batch_persisted` (discovery, search, ingredients_discovery, v
 1. Create server shell: `src/components/dashboard/widgets/MyWidget.tsx` (imports and renders MyWidgetClient)
 2. Create client component: `src/components/dashboard/widgets/MyWidgetClient.tsx` (`'use client'`, uses `useDashboardState()` from `dashboard-store.ts`)
 3. Register in `payload.config.ts` under `admin.dashboard.widgets` (slug, label, ComponentPath, minWidth, maxWidth) and `defaultLayout`
-4. If the widget needs new data: add fields to `DashboardResponse`, add SQL query to the `Promise.all`, shape in the response object
-5. Delete `importMap.js` and regenerate: `rm src/app/\(payload\)/admin/importMap.js && pnpm payload generate:importmap`
+4. If the widget needs **event-driven** data: add fields to `DashboardResponse` in `dashboard-events.ts`, add SQL query to the `Promise.all`, shape in the response object. Access via `const { data } = useDashboardState()`
+5. If the widget needs **snapshot** data (entity counts, data quality, etc.): add fields to `SnapshotResponse` in `dashboard-snapshot.ts`, add SQL query to the `Promise.all`, shape in the response object. Access via `const { snapshot } = useDashboardState()`
+6. Delete `importMap.js` and regenerate: `rm src/app/\(payload\)/admin/importMap.js && pnpm payload generate:importmap`
 
 #### Quick reference: All hardcoded event names in dashboard-events.ts
 
-| Event name / pattern | Query | Purpose | Line(s) |
-|---|---|---|---|
-| `job.claimed` | #1, #5 | Job started count | 155, 206, 231 |
-| `%.completed` (LIKE) | #1, #5 | Job completed count | 156, 207, 231 |
-| `job.completed_empty` | #1, #5 | Job completed (no work) | 156, 207, 231 |
-| `job.failed` | #1, #5 | Job failed count | 157, 208, 232 |
-| `job.failed_max_retries` | #1, #5 | Job failed (max retries) | 157, 208, 232 |
-| `job.retrying` | #5 | Job retry count | 209, 232 |
-| `crawl.batch_done` | #7 | Products crawled (batchSuccesses) | 274 |
-| `discovery.batch_persisted` | #7 | Products discovered (batchPersisted) | 275 |
-| `persist.price_changed` | #7 | Price change count | 276 |
-| `persist.variants_disappeared` | #7 | Variants disappeared (markedUnavailable) | 277 |
-| `crawl.completed` | #7 | Tokens used (IN list) | 279 |
-| `aggregation.completed` | #7 | Tokens used (IN list) | 279 |
-| `video_processing.completed` | #7 | Tokens used (IN list) | 279 |
-| `ingredient_crawl.completed` | #7 | Tokens used (IN list) | 280 |
-| `%.batch_done` (LIKE) | #7 | Avg batch duration | 281 |
+| Event name / pattern | Query | Purpose |
+|---|---|---|
+| `job.claimed` | #1, #5 | Job started count |
+| `%.completed` (LIKE) | #1, #5 | Job completed count |
+| `job.completed_empty` | #1, #5 | Job completed (no work) |
+| `job.failed` | #1, #5 | Job failed count |
+| `job.failed_max_retries` | #1, #5 | Job failed (max retries) |
+| `job.retrying` | #5 | Job retry count |
+| `crawl.batch_done` | #7 | Products crawled (batchSuccesses) |
+| `discovery.batch_persisted` | #7 | Products discovered (batchPersisted) |
+| `aggregation.batch_done` | #7 | Products aggregated |
+| `search.batch_persisted` | #7 | Products searched (persisted) |
+| `ingredient_crawl.batch_done` | #7 | Ingredients crawled |
+| `ingredients_discovery.batch_persisted` | #7 | Ingredients discovered |
+| `video_processing.batch_done` | #7 | Videos processed |
+| `video_discovery.batch_persisted` | #7 | Videos discovered |
+| `persist.price_changed` | #7 | Price changes (total, drops, increases) |
+| `persist.variants_disappeared` | #7 | Variants disappeared (markedUnavailable) |
+| `scraper.bot_check_detected` | #7 | Bot check count |
+| `crawl.completed` | #7 | Tokens used (IN list) |
+| `aggregation.completed` | #7 | Tokens used (IN list) |
+| `video_processing.completed` | #7 | Tokens used (IN list) |
+| `ingredient_crawl.completed` | #7 | Tokens used (IN list) |
+| `%.batch_done` (LIKE) | #7 | Avg batch duration |
 
 #### Quick reference: CASE WHEN FK columns in events_rels (queries #5 and #6)
 

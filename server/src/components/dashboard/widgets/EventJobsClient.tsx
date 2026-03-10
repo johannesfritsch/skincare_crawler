@@ -72,13 +72,27 @@ export default function EventJobsClient() {
           {data.byJobCollection.map((row) => (
             <tr key={row.collection}>
               <td style={{ ...cellStyle, fontWeight: 500, color: 'var(--theme-text)' }}>
-                {COLLECTION_LABELS[row.collection] ?? row.collection}
+                <a
+                  href={`/admin/collections/${row.collection}`}
+                  style={{
+                    color: 'inherit',
+                    textDecoration: 'none',
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.textDecoration = 'underline'
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.textDecoration = 'none'
+                  }}
+                >
+                  {COLLECTION_LABELS[row.collection] ?? row.collection}
+                </a>
               </td>
               <td style={{ ...cellStyle, textAlign: 'right', color: '#3b82f6' }}>
-                {row.started || '–'}
+                {row.started || '\u2013'}
               </td>
               <td style={{ ...cellStyle, textAlign: 'right', color: '#22c55e' }}>
-                {row.completed || '–'}
+                {row.completed || '\u2013'}
               </td>
               <td
                 style={{
@@ -88,7 +102,7 @@ export default function EventJobsClient() {
                   fontWeight: row.failed > 0 ? 600 : 400,
                 }}
               >
-                {row.failed || '–'}
+                {row.failed || '\u2013'}
               </td>
               <td
                 style={{
@@ -97,7 +111,7 @@ export default function EventJobsClient() {
                   color: row.retrying > 0 ? '#f59e0b' : 'var(--theme-elevation-400)',
                 }}
               >
-                {row.retrying || '–'}
+                {row.retrying || '\u2013'}
               </td>
             </tr>
           ))}

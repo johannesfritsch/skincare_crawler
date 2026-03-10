@@ -4,6 +4,7 @@ import { useEffect, useCallback, useRef } from 'react'
 import {
   useDashboardState,
   setDashboardData,
+  setSnapshotData,
   setDashboardRange,
   setDashboardLoading,
   setDashboardError,
@@ -22,7 +23,7 @@ export default function DashboardProvider() {
   const { range, loading, data, error } = useDashboardState()
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchData = useCallback(
+  const fetchEvents = useCallback(
     async (r: DashboardRange) => {
       try {
         const res = await fetch(`/api/dashboard/events?range=${r}`, {
@@ -41,25 +42,47 @@ export default function DashboardProvider() {
     [],
   )
 
+  const fetchSnapshot = useCallback(async () => {
+    try {
+      const res = await fetch('/api/dashboard/snapshot', {
+        credentials: 'include',
+      })
+      if (!res.ok) return // non-critical — snapshot is supplementary
+      const snap = await res.json()
+      setSnapshotData(snap)
+    } catch {
+      // silently ignore snapshot errors
+    }
+  }, [])
+
   // Fetch on mount and when range changes
   useEffect(() => {
     setDashboardLoading(true)
-    fetchData(range)
+    fetchEvents(range)
+    fetchSnapshot()
 
-    // Set up polling
+    // Set up polling for both
     if (intervalRef.current) clearInterval(intervalRef.current)
-    intervalRef.current = setInterval(() => fetchData(range), POLL_INTERVAL_MS)
+    intervalRef.current = setInterval(() => {
+      fetchEvents(range)
+      fetchSnapshot()
+    }, POLL_INTERVAL_MS)
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [range, fetchData])
+  }, [range, fetchEvents, fetchSnapshot])
 
   const handleRangeChange = (r: DashboardRange) => {
     if (r !== range) {
       setDashboardRange(r)
     }
   }
+
+  // Format "last updated" time
+  const lastUpdated = data?.generatedAt
+    ? formatTimeAgo(data.generatedAt)
+    : null
 
   return (
     <div style={{ marginBottom: '24px' }}>
@@ -70,28 +93,49 @@ export default function DashboardProvider() {
           justifyContent: 'space-between',
         }}
       >
-        <h2
-          style={{
-            margin: 0,
-            fontSize: '1.25rem',
-            fontWeight: 600,
-            color: 'var(--theme-text)',
-          }}
-        >
-          Event Dashboard
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: '1.25rem',
+              fontWeight: 600,
+              color: 'var(--theme-text)',
+            }}
+          >
+            Dashboard
+          </h2>
           {loading && (
             <span
               style={{
-                marginLeft: '8px',
                 fontSize: '0.75rem',
                 fontWeight: 400,
                 color: 'var(--theme-elevation-500)',
               }}
             >
-              Loading…
+              Loading...
             </span>
           )}
-        </h2>
+          {!loading && lastUpdated && (
+            <span
+              style={{
+                fontSize: '0.6875rem',
+                color: 'var(--theme-elevation-400)',
+              }}
+            >
+              Updated {lastUpdated}
+            </span>
+          )}
+          {error && (
+            <span
+              style={{
+                fontSize: '0.6875rem',
+                color: '#ef4444',
+              }}
+            >
+              Error: {error}
+            </span>
+          )}
+        </div>
 
         <div
           style={{
@@ -111,7 +155,6 @@ export default function DashboardProvider() {
                 fontSize: '0.8125rem',
                 fontWeight: range === r.value ? 600 : 400,
                 border: 'none',
-                
                 cursor: 'pointer',
                 backgroundColor:
                   range === r.value ? 'var(--theme-elevation-0)' : 'transparent',
@@ -129,30 +172,17 @@ export default function DashboardProvider() {
           ))}
         </div>
       </div>
-      <div
-        style={{
-          marginTop: '8px',
-          fontSize: '0.75rem',
-          fontFamily: 'monospace',
-          color: 'var(--theme-elevation-500)',
-        }}
-      >
-        {error && <span style={{ color: '#ef4444' }}>Error: {error} | </span>}
-        {data ? (
-          <>
-            range={data.range} | since={data.since} | total={data.summary.totalEvents} |
-            errors={data.summary.errors} | warnings={data.summary.warnings} |
-            timeline={data.timeline.length} buckets |
-            domains={data.byDomain.length} |
-            sources={data.bySource.length} |
-            jobs={data.byJobCollection.length} |
-            recentErrors={data.recentErrors.length} |
-            highlights: crawled={data.highlights.productsCrawled} discovered={data.highlights.productsDiscovered}
-          </>
-        ) : (
-          loading ? 'Fetching...' : 'No data'
-        )}
-      </div>
     </div>
   )
+}
+
+function formatTimeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const secs = Math.floor(diff / 1000)
+  if (secs < 5) return 'just now'
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  return `${hours}h ago`
 }

@@ -37,6 +37,7 @@ import { SearchResults } from './collections/SearchResults'
 import { Workers } from './collections/Workers'
 
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
+import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -138,14 +139,54 @@ export default buildConfig({
         minWidth: 'small',
         maxWidth: 'large',
       },
+      {
+        slug: 'database-overview',
+        label: 'Database Overview',
+        ComponentPath: '/components/dashboard/widgets/DatabaseOverview',
+        minWidth: 'medium',
+        maxWidth: 'full',
+      },
+      {
+        slug: 'product-quality',
+        label: 'Product Data Quality',
+        ComponentPath: '/components/dashboard/widgets/ProductQuality',
+        minWidth: 'small',
+        maxWidth: 'large',
+      },
+      {
+        slug: 'source-coverage',
+        label: 'Source Coverage',
+        ComponentPath: '/components/dashboard/widgets/SourceCoverage',
+        minWidth: 'medium',
+        maxWidth: 'full',
+      },
+      {
+        slug: 'video-pipeline',
+        label: 'Video Pipeline',
+        ComponentPath: '/components/dashboard/widgets/VideoPipeline',
+        minWidth: 'small',
+        maxWidth: 'large',
+      },
+      {
+        slug: 'job-queue',
+        label: 'Job Queue & Workers',
+        ComponentPath: '/components/dashboard/widgets/JobQueue',
+        minWidth: 'medium',
+        maxWidth: 'full',
+      },
     ],
     defaultLayout: [
+      { widgetSlug: 'database-overview', width: 'full' },
       { widgetSlug: 'event-summary', width: 'full' },
       { widgetSlug: 'event-timeline', width: 'full' },
-      { widgetSlug: 'event-highlights', width: 'medium' },
+      { widgetSlug: 'event-highlights', width: 'full' },
+      { widgetSlug: 'source-coverage', width: 'medium' },
+      { widgetSlug: 'product-quality', width: 'medium' },
       { widgetSlug: 'ingredient-stats', width: 'medium' },
+      { widgetSlug: 'video-pipeline', width: 'medium' },
       { widgetSlug: 'event-sources', width: 'medium' },
       { widgetSlug: 'event-domains', width: 'medium' },
+      { widgetSlug: 'job-queue', width: 'full' },
       { widgetSlug: 'event-jobs', width: 'large' },
       { widgetSlug: 'event-errors', width: 'full' },
     ],
@@ -157,6 +198,11 @@ export default buildConfig({
       path: '/dashboard/events',
       method: 'get',
       handler: dashboardEventsHandler,
+    },
+    {
+      path: '/dashboard/snapshot',
+      method: 'get',
+      handler: dashboardSnapshotHandler,
     },
   ],
   editor: lexicalEditor(),

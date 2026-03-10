@@ -63,8 +63,17 @@ export interface DashboardResponse {
   highlights: {
     productsCrawled: number
     productsDiscovered: number
+    productsAggregated: number
+    productsSearched: number
+    ingredientsCrawled: number
+    ingredientsDiscovered: number
+    videosProcessed: number
+    videosDiscovered: number
     priceChanges: number
+    priceDrops: number
+    priceIncreases: number
     variantsDisappeared: number
+    botChecks: number
     tokensUsed: number
     avgBatchDurationMs: number | null
   }
@@ -273,8 +282,17 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
         SELECT
           coalesce(sum((data->>'batchSuccesses')::int) FILTER (WHERE name = 'crawl.batch_done'), 0)::int AS "productsCrawled",
           coalesce(sum((data->>'batchPersisted')::int) FILTER (WHERE name = 'discovery.batch_persisted'), 0)::int AS "productsDiscovered",
+          coalesce(sum((data->>'aggregated')::int) FILTER (WHERE name = 'aggregation.batch_done'), 0)::int AS "productsAggregated",
+          coalesce(sum((data->>'persisted')::int) FILTER (WHERE name = 'search.batch_persisted'), 0)::int AS "productsSearched",
+          coalesce(sum((data->>'crawled')::int) FILTER (WHERE name = 'ingredient_crawl.batch_done'), 0)::int AS "ingredientsCrawled",
+          coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'ingredients_discovery.batch_persisted'), 0)::int AS "ingredientsDiscovered",
+          coalesce(sum((data->>'processed')::int) FILTER (WHERE name = 'video_processing.batch_done'), 0)::int AS "videosProcessed",
+          coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'video_discovery.batch_persisted'), 0)::int AS "videosDiscovered",
           count(*) FILTER (WHERE name = 'persist.price_changed')::int AS "priceChanges",
+          count(*) FILTER (WHERE name = 'persist.price_changed' AND data->>'change' = 'drop')::int AS "priceDrops",
+          count(*) FILTER (WHERE name = 'persist.price_changed' AND data->>'change' = 'increase')::int AS "priceIncreases",
           coalesce(sum((data->>'markedUnavailable')::int) FILTER (WHERE name = 'persist.variants_disappeared'), 0)::int AS "variantsDisappeared",
+          count(*) FILTER (WHERE name = 'scraper.bot_check_detected')::int AS "botChecks",
           coalesce(sum((data->>'tokensUsed')::int) FILTER (WHERE name IN (
             'crawl.completed', 'aggregation.completed', 'video_processing.completed', 'ingredient_crawl.completed'
           )), 0)::int AS "tokensUsed",
@@ -373,8 +391,17 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
     highlights: {
       productsCrawled: Number(highlights.productsCrawled ?? 0),
       productsDiscovered: Number(highlights.productsDiscovered ?? 0),
+      productsAggregated: Number(highlights.productsAggregated ?? 0),
+      productsSearched: Number(highlights.productsSearched ?? 0),
+      ingredientsCrawled: Number(highlights.ingredientsCrawled ?? 0),
+      ingredientsDiscovered: Number(highlights.ingredientsDiscovered ?? 0),
+      videosProcessed: Number(highlights.videosProcessed ?? 0),
+      videosDiscovered: Number(highlights.videosDiscovered ?? 0),
       priceChanges: Number(highlights.priceChanges ?? 0),
+      priceDrops: Number(highlights.priceDrops ?? 0),
+      priceIncreases: Number(highlights.priceIncreases ?? 0),
       variantsDisappeared: Number(highlights.variantsDisappeared ?? 0),
+      botChecks: Number(highlights.botChecks ?? 0),
       tokensUsed: Number(highlights.tokensUsed ?? 0),
       avgBatchDurationMs: highlights.avgBatchDurationMs != null ? Number(highlights.avgBatchDurationMs) : null,
     },

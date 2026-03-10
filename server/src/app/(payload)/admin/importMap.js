@@ -35,6 +35,11 @@ import { default as default_85972962f1986108985424a759c445ce } from '../../../co
 import { default as default_11733af7851d1c1afce770f6f3ec7640 } from '../../../components/dashboard/widgets/EventJobs'
 import { default as default_cb47b15b5106d233a6a2b5100c0db50f } from '../../../components/dashboard/widgets/EventErrors'
 import { default as default_3e28f03018cdf0165c2fbc5c2602cc04 } from '../../../components/dashboard/widgets/IngredientStats'
+import { default as default_6de3dfa6f64396d71e9dcf5577f37760 } from '../../../components/dashboard/widgets/DatabaseOverview'
+import { default as default_c925feff919a3a381391617fafb4590d } from '../../../components/dashboard/widgets/ProductQuality'
+import { default as default_bf6bd238e8206ba71321b608b9bba97a } from '../../../components/dashboard/widgets/SourceCoverage'
+import { default as default_8c9ecd99e7466f2170429759b098aa4c } from '../../../components/dashboard/widgets/VideoPipeline'
+import { default as default_2b2c8fff53fd1c745a247d113d2dcb79 } from '../../../components/dashboard/widgets/JobQueue'
 import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } from '@payloadcms/ui/rsc'
 
 export const importMap = {
@@ -75,5 +80,10 @@ export const importMap = {
   "/components/dashboard/widgets/EventJobs#default": default_11733af7851d1c1afce770f6f3ec7640,
   "/components/dashboard/widgets/EventErrors#default": default_cb47b15b5106d233a6a2b5100c0db50f,
   "/components/dashboard/widgets/IngredientStats#default": default_3e28f03018cdf0165c2fbc5c2602cc04,
+  "/components/dashboard/widgets/DatabaseOverview#default": default_6de3dfa6f64396d71e9dcf5577f37760,
+  "/components/dashboard/widgets/ProductQuality#default": default_c925feff919a3a381391617fafb4590d,
+  "/components/dashboard/widgets/SourceCoverage#default": default_bf6bd238e8206ba71321b608b9bba97a,
+  "/components/dashboard/widgets/VideoPipeline#default": default_8c9ecd99e7466f2170429759b098aa4c,
+  "/components/dashboard/widgets/JobQueue#default": default_2b2c8fff53fd1c745a247d113d2dcb79,
   "@payloadcms/ui/rsc#CollectionCards": CollectionCards_ab83ff7e88da8d3530831f296ec4756a
 }

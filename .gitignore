@@ -43,3 +43,11 @@ server/media/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+.todos/
+.sidecar/
+.sidecar-agent
+.sidecar-task
+.sidecar-pr
+.sidecar-start.sh
+.sidecar-base
+.td-root

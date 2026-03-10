@@ -3,18 +3,24 @@
  *
  * The DashboardProvider (rendered via beforeDashboard) owns the data-fetching
  * and writes into this store. Widget client components subscribe via
- * useDashboardData(). Uses useSyncExternalStore for React 19 compatibility.
+ * useDashboardState(). Uses useSyncExternalStore for React 19 compatibility.
  *
  * This follows the same pub/sub pattern used by BulkJobBar.tsx (getJobState/setJobState).
+ *
+ * Two data sources:
+ * - `data` — event-driven metrics (time-scoped, from /api/dashboard/events)
+ * - `snapshot` — entity counts & data quality (not time-scoped, from /api/dashboard/snapshot)
  */
 
 import { useSyncExternalStore } from 'react'
 import type { DashboardResponse } from '@/endpoints/dashboard-events'
+import type { SnapshotResponse } from '@/endpoints/dashboard-snapshot'
 
 export type DashboardRange = '1h' | '24h' | '7d' | '30d'
 
 interface DashboardState {
   data: DashboardResponse | null
+  snapshot: SnapshotResponse | null
   range: DashboardRange
   loading: boolean
   error: string | null
@@ -22,6 +28,7 @@ interface DashboardState {
 
 let state: DashboardState = {
   data: null,
+  snapshot: null,
   range: '1h',
   loading: true,
   error: null,
@@ -39,6 +46,11 @@ export function getDashboardState(): DashboardState {
 
 export function setDashboardData(data: DashboardResponse) {
   state = { ...state, data, loading: false, error: null }
+  notify()
+}
+
+export function setSnapshotData(snapshot: SnapshotResponse) {
+  state = { ...state, snapshot }
   notify()
 }
 
