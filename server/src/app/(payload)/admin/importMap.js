@@ -15,6 +15,7 @@ import { default as default_c1d837b9afc45ac9c38a0f36ac4123ad } from '@/component
 import { default as default_2b2449be958b3fc2e4dc845ee04272ae } from '@/components/bulk-actions/SourceProductBulkStatus'
 import { default as default_f62dd3a91b2006f094eb4d883af5cd2e } from '@/components/SourceProductSaveButton'
 import { default as default_71114434a48b09da52b44bb429e5be8e } from '@/components/DownloadDiscoveredUrlsButton'
+import { default as default_9f9fee88ad3a50872c710dabae879464 } from '@/components/DownloadSearchedGtinsButton'
 import { default as default_ea1e7cd347416b9bbef166fb9ca683e8 } from '@/components/DownloadCrawledGtinsButton'
 import { default as default_0794882da6eab7bb4ff2423cf9aedab6 } from '@/components/ChannelJobStatus'
 import { default as default_a8ab241c8c17c65f461a6a923e398f73 } from '@/components/ChannelSaveButton'
@@ -60,6 +61,7 @@ export const importMap = {
   "@/components/bulk-actions/SourceProductBulkStatus#default": default_2b2449be958b3fc2e4dc845ee04272ae,
   "@/components/SourceProductSaveButton#default": default_f62dd3a91b2006f094eb4d883af5cd2e,
   "@/components/DownloadDiscoveredUrlsButton#default": default_71114434a48b09da52b44bb429e5be8e,
+  "@/components/DownloadSearchedGtinsButton#default": default_9f9fee88ad3a50872c710dabae879464,
   "@/components/DownloadCrawledGtinsButton#default": default_ea1e7cd347416b9bbef166fb9ca683e8,
   "@/components/ChannelJobStatus#default": default_0794882da6eab7bb4ff2423cf9aedab6,
   "@/components/ChannelSaveButton#default": default_a8ab241c8c17c65f461a6a923e398f73,

@@ -11,6 +11,7 @@ export const ProductVariants: CollectionConfig = {
     defaultColumns: ['label', 'gtin', 'product', 'createdAt'],
     listSearchableFields: ['gtin', 'label'],
     group: 'Products',
+    hidden: true,
   },
   fields: [
     {

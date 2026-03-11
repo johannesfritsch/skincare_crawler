@@ -167,6 +167,15 @@ export const ProductSearches: CollectionConfig = {
           label: 'Output',
           fields: [
             {
+              name: 'downloadSearchedSourceUrls',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '@/components/DownloadSearchedGtinsButton',
+                },
+              },
+            },
+            {
               name: 'searchResults',
               type: 'join',
               collection: 'search-results',
