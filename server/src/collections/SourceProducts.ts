@@ -9,7 +9,7 @@ export const SourceProducts: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'brandName', 'source', 'status', 'createdAt'],
+    defaultColumns: ['name', 'brandName', 'source', 'createdAt'],
     group: 'Source Products',
     description: 'Products crawled from source stores',
     listSearchableFields: ['name', 'brandName'],
@@ -27,21 +27,6 @@ export const SourceProducts: CollectionConfig = {
         // Cascade delete: remove child records that have required (NOT NULL) references
         await req.payload.delete({
           collection: 'source-variants',
-          where: { sourceProduct: { equals: id } },
-          req,
-        })
-        await req.payload.delete({
-          collection: 'crawl-results',
-          where: { sourceProduct: { equals: id } },
-          req,
-        })
-        await req.payload.delete({
-          collection: 'discovery-results',
-          where: { sourceProduct: { equals: id } },
-          req,
-        })
-        await req.payload.delete({
-          collection: 'search-results',
           where: { sourceProduct: { equals: id } },
           req,
         })
@@ -77,20 +62,7 @@ export const SourceProducts: CollectionConfig = {
         },
       },
     },
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'uncrawled',
-      options: [
-        { label: 'Uncrawled', value: 'uncrawled' },
-        { label: 'Crawled', value: 'crawled' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+
     {
       name: 'brandName',
       type: 'text',
@@ -172,25 +144,7 @@ export const SourceProducts: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'History',
-          fields: [
-            {
-              name: 'discoveries',
-              type: 'join',
-              collection: 'discovery-results',
-              on: 'sourceProduct',
-              admin: { allowCreate: false },
-            },
-            {
-              name: 'crawls',
-              type: 'join',
-              collection: 'crawl-results',
-              on: 'sourceProduct',
-              admin: { allowCreate: false },
-            },
-          ],
-        },
+
       ],
     },
   ],

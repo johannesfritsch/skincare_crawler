@@ -31,9 +31,6 @@ import { VideoMentions } from './collections/VideoMentions'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
 import { VideoProcessings } from './collections/VideoProcessings'
 
-import { CrawlResults } from './collections/CrawlResults'
-import { DiscoveryResults } from './collections/DiscoveryResults'
-import { SearchResults } from './collections/SearchResults'
 import { Workers } from './collections/Workers'
 
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
@@ -192,7 +189,7 @@ export default buildConfig({
     ],
     },
   },
-  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, ProductVariants, SourceProducts, SourceVariants, ProductDiscoveries, ProductSearches, ProductCrawls, ProductAggregations, CrawlResults, DiscoveryResults, SearchResults, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
+  collections: [Users, Media, Brands, ProductTypes, Ingredients, IngredientsDiscoveries, IngredientCrawls, Products, ProductVariants, SourceProducts, SourceVariants, ProductDiscoveries, ProductSearches, ProductCrawls, ProductAggregations, Events, Creators, Channels, Videos, VideoSnippets, VideoMentions, VideoDiscoveries, VideoProcessings, Workers],
   endpoints: [
     {
       path: '/dashboard/events',

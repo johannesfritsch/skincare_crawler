@@ -130,13 +130,13 @@ All requests use `Authorization: workers API-Key <key>` header.
    - **Stale in-progress**: `status=in_progress` AND `claimedBy` exists AND `claimedAt` older than `WORKER_JOB_TIMEOUT_MINUTES` (default 30m) — abandoned by crashed workers
    - **Pending**: `status=pending` — new jobs not yet started
 2. Collect all claimable jobs across types (deduplicated by ID)
-3. Priority: "selected target" jobs first (selected_urls, selected_gtins, from_discovery), else random
+3. Priority: "selected target" jobs first (selected_urls, from_discovery, from_search), else random
 4. Attempt to claim by PATCHing `claimedBy` + `claimedAt` on the job (sends `X-Job-Timeout-Minutes` header)
    - Server-side `enforceJobClaim` hook rejects if the job is already claimed by a different worker with a fresh `claimedAt`
    - On rejection, try the next candidate
 5. Call `build*Work()` for the claimed job type — this:
    - Fetches the full job document
-   - Initializes the job if pending (set status=in_progress, count totals, create stubs)
+   - Initializes the job if pending (set status=in_progress, count totals)
    - Builds and returns a typed work unit with all data needed by the handler
    - May complete the job early if no work remains (returns `{ type: 'none' }`)
 
@@ -175,9 +175,9 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | Updates parent `source-products` with **product-level** scraped data (name, brandName, categoryBreadcrumb, rating, ratingNum); writes **variant-level** data (description, images, ingredientsText, amount, amountUnit, labels, priceHistory with availability) to the crawled `source-variant`; on **first crawl** (no `sourceVariantId`), creates a source-variant for the crawled URL (for all stores — DM/Rossmann get a variant matching the product URL, Mueller/PURISH get their query-param variants) — if a variant with that URL already exists (e.g. created as a sibling during another product's crawl), re-links it to the correct source-product; on **re-crawl** (existing `sourceVariantId`), updates the variant's GTIN, canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), `crawledAt`, and all variant-level content fields; **availability is tracked per price entry** — each priceHistory entry includes an `availability` field (available/unavailable/unknown, defaults to `available`); creates sibling `source-variants` from variant URLs provided by the driver (all sources) with GTIN but no priceHistory (siblings get their price+availability entry when crawled directly — seeding on creation would cause duplicates) — **sibling ownership**: when a sibling URL matches an existing source-product's `sourceUrl`, the variant is linked to that source-product (not the current one), since color/shade variants on DM are separate products with their own source-products; updates metadata (GTIN, articleNumber, sourceProduct) on existing sibling variants when needed but does NOT append availability entries (to avoid N entries per variant per crawl session — availability is tracked on creation, direct crawl, and disappearance only); **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and appends a `availability: 'unavailable'` priceHistory entry to any whose URL is NOT in the scraped set (skips if already marked unavailable in most recent entry; store-agnostic — works for all drivers); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
-| `persistCrawlFailure()` | Creates `crawl-results` with error |
-| `persistDiscoveredProduct()` | Dedup by `source-products.sourceUrl`; creates `source-products` (no variant — variants are only created during crawl) when new; updates existing source-product when URL already exists; creates `discovery-results` join record |
+| `persistCrawlResult()` | **Creates source-products if needed** (find-or-create by normalized URL — no stubs are pre-created; crawl is the sole creator of source-products); updates parent `source-products` with **product-level** scraped data (name, brandName, categoryBreadcrumb, rating, ratingNum); writes **variant-level** data (description, images, ingredientsText, amount, amountUnit, labels, priceHistory with availability) to the crawled `source-variant`; on **first crawl** (no `sourceVariantId`), creates a source-variant for the crawled URL (for all stores — DM/Rossmann get a variant matching the product URL, Mueller/PURISH get their query-param variants) — if a variant with that URL already exists (e.g. created as a sibling during another product's crawl), re-links it to the correct source-product; on **re-crawl** (existing `sourceVariantId`), updates the variant's GTIN, canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), `crawledAt`, and all variant-level content fields; **availability is tracked per price entry** — each priceHistory entry includes an `availability` field (available/unavailable/unknown, defaults to `available`); creates sibling `source-variants` from variant URLs provided by the driver (all sources) with GTIN but no priceHistory (siblings get their price+availability entry when crawled directly — seeding on creation would cause duplicates) — **sibling ownership**: when a sibling URL matches an existing source-product's `sourceUrl`, the variant is linked to that source-product (not the current one), since color/shade variants on DM are separate products with their own source-products; updates metadata (GTIN, articleNumber, sourceProduct) on existing sibling variants when needed but does NOT append availability entries (to avoid N entries per variant per crawl session — availability is tracked on creation, direct crawl, and disappearance only); **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and appends a `availability: 'unavailable'` priceHistory entry to any whose URL is NOT in the scraped set (skips if already marked unavailable in most recent entry; store-agnostic — works for all drivers); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
+| ~~`persistCrawlFailure()`~~ | **Removed** — no longer writes to join tables |
+| ~~`persistDiscoveredProduct()`~~ | **Removed** — discovery/search no longer create source-product stubs; they only accumulate URLs |
 
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.); adds `{ source: 'cosing', sourceUrl, fieldsProvided }` to the `sources` array on create/update — `fieldsProvided` lists which content fields were actually populated (only non-null fields from the CosIng data, e.g. `['name', 'casNumber', 'functions']`); deduplicates by checking if CosIng source already exists, backfills `fieldsProvided` on existing entries missing it |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
@@ -198,17 +198,17 @@ Work items come in two forms:
 **Crawl types**:
 - `all` — two-phase: first uncrawled source-products (no variants yet, via `findUncrawledProducts()`), then uncrawled source-variants (via `findUncrawledVariants()`) for given source(s)
 - `selected_urls` — specific URLs from the job's `urls` field (normalized via `normalizeVariantUrl` which preserves all query params)
-- `selected_gtins` — look up source-products via source-variants by GTIN, crawl their URLs
-- `from_discovery` — crawl URLs from a linked product-discovery job
+- `from_discovery` — crawl URLs from a linked product-discovery job's `productUrls` field
+- `from_search` — crawl URLs from a linked product-search job's `productUrls` field
 
-**Scope**: `recrawl` resets matching source-products back to `uncrawled` and clears `crawledAt` on their variants (optionally filtered by `minCrawlAge`)
+**Scope**: `recrawl` clears `crawledAt` on matching source-variants (optionally filtered by `minCrawlAge`), making them eligible for re-crawling
 
-**`crawlVariants`** (default: true): When enabled, after crawling a variant, any sibling variant URLs discovered on the page are also crawled. All three drivers (DM, Mueller, Rossmann) extract full variant URLs from the page — the driver is the source of truth for URL construction, persist just stores whatever the driver provides. The parent source-product stays `uncrawled` until all its variants have been crawled. When disabled, only the default variant per product is crawled and the parent is immediately marked `crawled`.
+**`crawlVariants`** (default: true): When enabled, after crawling a variant, any sibling variant URLs discovered on the page are also crawled. All three drivers (DM, Mueller, Rossmann) extract full variant URLs from the page — the driver is the source of truth for URL construction, persist just stores whatever the driver provides. When disabled, only the default variant per product is crawled.
 
 **Variant tracking**: Each source-variant has a `crawledAt` timestamp set when it is individually crawled. `findUncrawledVariants()` skips variants where `crawledAt` is already set. When `crawlVariants=true` for scoped jobs (selected_urls, selected_gtins, from_discovery), the system resolves the original URLs to source-product IDs and finds ALL their uncrawled variants (including sibling variants with different URLs).
 
 **Resumption**: Two-phase work queue via `buildProductCrawlWork()`:
-1. **Uncrawled products** (via `findUncrawledProducts()`): source-products with `status=uncrawled` that have zero source-variants — these need their first crawl. Work items have no `sourceVariantId`; the URL is `source-products.sourceUrl`.
+1. **Uncrawled products** (via `findUncrawledProducts()`): source-products with zero source-variants — these need their first crawl. Work items have no `sourceVariantId`; the URL is `source-products.sourceUrl`.
 2. **Uncrawled variants** (via `findUncrawledVariants()`): source-variants where `crawledAt` is null — these were created as siblings during a previous crawl and need their own crawl. Work items have a `sourceVariantId`.
 Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
@@ -230,7 +230,7 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 **Key params**: `query` (search text), `sources` (dm/mueller/rossmann, multi-select), `maxResults` (per source, default 50)
 
-**Persistence**: Reuses `persistDiscoveredProduct()` from discovery pipeline. Creates `search-results` join records (not `discovery-results`). Each result tracks which source it came from and which individual query line (`matchedQuery`) produced it (e.g. a single GTIN from a multiline search).
+**Persistence**: Accumulates discovered URLs in the job's `productUrls` textarea field (same pattern as discovery). No source-product stubs are created — URLs are stored for later use by `from_search` crawl jobs.
 
 **Driver support**: All three drivers fully implemented. DM uses API-based search (`product-search.services.dmtech.com`). Rossmann and Mueller use Playwright-based browser scraping of their search pages (`/de/search?text=` and `/search/?q=` respectively), with pagination support.
 
@@ -564,10 +564,10 @@ All events below are emitted to the server's `events` collection (visible in adm
 |-------|------|----------------|--------|
 | `Batch done` (crawl) | After each crawl batch | `source`, `crawled`, `errors`, `remaining`, `batchSize`, `batchSuccesses`, `batchErrors`, `errorRate`, `batchDurationMs`, `newVariants`, `existingVariants`, `withIngredients`, `priceChanges` | `scraping` |
 | `Completed` (crawl) | Crawl job done | `source`, `crawled`, `errors`, `durationMs` | `scraping` |
-| `Batch persisted` (discovery) | After each discovery batch | `source`, `discovered`, `created`, `existing`, `batchSize`, `batchPersisted`, `batchErrors`, `batchDurationMs`, `pagesUsed` | `discovery` |
-| `Completed` (discovery) | Discovery job done | `source`, `discovered`, `created`, `existing`, `durationMs` | `discovery` |
-| `Search results persisted` | After search batch | `sources`, `discovered`, `created`, `existing`, `persisted`, `batchDurationMs` | `search` |
-| `Completed` (search) | Search job done | `sources`, `discovered`, `created`, `existing`, `durationMs` | `search` |
+| `Batch persisted` (discovery) | After each discovery batch | `source`, `discovered`, `batchSize`, `batchPersisted`, `batchErrors`, `batchDurationMs`, `pagesUsed` | `discovery` |
+| `Completed` (discovery) | Discovery job done | `source`, `discovered`, `durationMs` | `discovery` |
+| `Search results persisted` | After search batch | `sources`, `discovered`, `persisted`, `batchDurationMs` | `search` |
+| `Completed` (search) | Search job done | `sources`, `discovered`, `durationMs` | `search` |
 
 **Job failure/retry events** (from `job-failure.ts`):
 
@@ -599,9 +599,9 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **PURISH labels**: Labels are scraped directly from the product page HTML (not from Shopify tags). Two sources are extracted by `fetchProductPageData()` and merged (deduplicated): (1) `<span class="product-tag">` elements inside `.porduct-tags-wrap` — "free-from" claims like "Paraben-free", "Cruelty-free", "Made in the USA"; (2) `<span>` text inside `.product-badge-custom` divs — store badges like "Bestseller", "Last Chance", "Kostenloser Versand". Labels are taken as-is with no filtering or normalization. DM extracts labels from `data.pills`; Mueller and Rossmann currently don't extract labels.
 - **PURISH description**: Descriptions are extracted from the `<tabs-desktop>` tab structure in the product page HTML, not from `body_html` in the Shopify JSON API. Tab titles (from `<button class="tab-navigate">`) become `## Headlines` and tab content is converted to markdown text beneath each. All tabs are included (Beschreibung, Inhaltsstoffe, Anwendung, Warnhinweise, etc.) so nothing is lost. Falls back to `body_html` from the JSON API if no tab structure is found on the page.
 - **Category breadcrumbs**: Source-products store category as a `categoryBreadcrumb` text string (e.g. `"Pflege -> Körperpflege -> Handcreme"`), written by crawl/discovery persist functions. This is raw metadata from retailers; it is not mapped to any collection during aggregation.
-- **Deduplication**: Source-products are matched by `sourceUrl` (unique, indexed field on `source-products`) to prevent duplicates during discovery and search. Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicate variants during crawl.
+- **Deduplication**: Source-products are matched by `sourceUrl` (unique, indexed field on `source-products`) to prevent duplicates during crawl (persist finds-or-creates by normalized URL). Discovery and search deduplicate URLs in-memory before appending to the job's `productUrls` field. Source-variants are matched by `sourceUrl` (unique constraint on `source-variants`) to prevent duplicate variants during crawl.
 - **Price history**: Each crawl appends to the `priceHistory` array on the crawled source-variant (not on source-products). Each entry includes `availability` (available/unavailable/unknown) alongside price data, giving full availability history. Entries may have price data only, availability only (for sibling/disappeared variants), or both. Discovery/search do not collect price data — prices and availability are only recorded during crawl.
-- **Join records**: `crawl-results` and `discovery-results` link jobs to the source-products they produced
+- **No join tables**: The `crawl-results`, `discovery-results`, and `search-results` collections have been removed. Discovery/search jobs accumulate URLs in their `productUrls` field. Crawl jobs create source-products directly during persist (find-or-create by normalized URL).
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)

@@ -1,6 +1,6 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { SourceSlug } from '@/lib/source-product-queries'
-import { getSourceSlugFromUrl, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
+import { normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
 
 import { matchProduct } from '@/lib/match-product'
 import { matchBrand } from '@/lib/match-brand'
@@ -100,17 +100,6 @@ interface ScrapedProductData {
 
 type Availability = 'available' | 'unavailable' | 'unknown'
 
-interface DiscoveredProduct {
-  gtin?: string
-  productUrl: string
-  brandName?: string
-  name?: string
-  rating?: number
-  ratingCount?: number
-  category?: string
-  categoryUrl?: string
-}
-
 interface ScrapedIngredientData {
   name: string
   casNumber?: string
@@ -158,11 +147,31 @@ export async function persistCrawlResult(
   payload: PayloadRestClient,
   input: PersistCrawlResultInput,
 ): Promise<{ productId: number; warnings: string[]; newVariants: number; existingVariants: number; hasIngredients: boolean; priceChange: string | null }> {
-  const { crawlId, sourceProductId, source, data, crawlVariants } = input
-  let { sourceVariantId } = input
+  const { crawlId, source, data, crawlVariants } = input
+  let { sourceVariantId, sourceProductId } = input
   const variantUrl = normalizeVariantUrl(input.sourceUrl)
   const jlog = log.forJob('product-crawls', crawlId)
-  log.info('persistCrawlResult: starting', { crawlId, sourceVariantId: sourceVariantId ?? 'none (first crawl)', sourceProductId, source })
+  log.info('persistCrawlResult: starting', { crawlId, sourceVariantId: sourceVariantId ?? 'none (first crawl)', sourceProductId: sourceProductId ?? 'none (will create)', source })
+
+  // If no sourceProductId, create the source-product now (crawl is the sole creator)
+  if (!sourceProductId) {
+    const productUrl = normalizeProductUrl(input.sourceUrl)
+    const existingProduct = await payload.find({
+      collection: 'source-products',
+      where: { sourceUrl: { equals: productUrl } },
+      limit: 1,
+    })
+    if (existingProduct.docs.length > 0) {
+      sourceProductId = (existingProduct.docs[0] as Record<string, unknown>).id as number
+    } else {
+      const newProduct = await payload.create({
+        collection: 'source-products',
+        data: { source, sourceUrl: productUrl },
+      }) as { id: number }
+      sourceProductId = newProduct.id
+      log.info('persistCrawlResult: created source-product', { sourceProductId, url: productUrl })
+    }
+  }
   const warnings = [...data.warnings]
 
   // Build category breadcrumb string
@@ -250,9 +259,7 @@ export async function persistCrawlResult(
 
   // Update source-product with product-level data only.
   // Variant-specific data (description, images, ingredientsText, amount, amountUnit) goes on source-variants.
-  // Status is set to 'crawled' initially; may be deferred below if crawlVariants is true and siblings need crawling
   const productPayload: Record<string, unknown> = {
-    status: 'crawled' as const,
     source,
     brandName: data.brandName ?? null,
     name: data.name,
@@ -524,33 +531,7 @@ export async function persistCrawlResult(
     }
   }
 
-  // If crawlVariants is enabled, check whether any sibling variants still need crawling.
-  // If so, keep the parent source-product as 'uncrawled' so findUncrawledVariants picks up the siblings.
-  if (crawlVariants) {
-    const allVariants = await payload.find({
-      collection: 'source-variants',
-      where: { sourceProduct: { equals: sourceProductId } },
-      limit: 1000,
-    })
-    const uncrawledSiblings = allVariants.docs.filter((v) => {
-      const sv = v as Record<string, unknown>
-      return !sv.crawledAt
-    })
-    if (uncrawledSiblings.length > 0) {
-      log.info('persistCrawlResult: uncrawled siblings remain, keeping source-product as uncrawled', { uncrawledCount: uncrawledSiblings.length, sourceProductId })
-      await payload.update({
-        collection: 'source-products',
-        id: sourceProductId,
-        data: { status: 'uncrawled' },
-      })
-    }
-  }
 
-  // Create CrawlResult join record
-  await payload.create({
-    collection: 'crawl-results',
-    data: { crawl: crawlId, sourceProduct: sourceProductId },
-  })
 
   // Emit price change event
   if (priceChange && priceChange !== 'stable') {
@@ -585,98 +566,7 @@ export async function persistCrawlResult(
   return { productId: sourceProductId, warnings, newVariants, existingVariants, hasIngredients, priceChange }
 }
 
-export async function persistCrawlFailure(
-  payload: PayloadRestClient,
-  crawlId: number,
-  sourceProductId: number,
-  error: string,
-): Promise<void> {
-  await payload.create({
-    collection: 'crawl-results',
-    data: { crawl: crawlId, sourceProduct: sourceProductId, error },
-  })
-}
 
-// ─── Product Discovery ───
-
-export interface PersistDiscoveredProductInput {
-  discoveryId: number | null
-  searchId?: number | null
-  product: DiscoveredProduct
-  source: SourceSlug
-}
-
-export async function persistDiscoveredProduct(
-  payload: PayloadRestClient,
-  input: PersistDiscoveredProductInput,
-): Promise<{ sourceProductId: number; isNew: boolean }> {
-  const { discoveryId, product, source } = input
-  const productUrl = normalizeProductUrl(product.productUrl)
-  const effectiveSource = getSourceSlugFromUrl(productUrl) ?? source
-  log.info('persistDiscoveredProduct: starting', { discoveryId, url: productUrl, source: effectiveSource })
-
-  // Dedup by source-products.sourceUrl (the product-level URL is the unique key)
-  const existingProduct = await payload.find({
-    collection: 'source-products',
-    where: { sourceUrl: { equals: productUrl } },
-    limit: 1,
-  })
-
-  const discoveryData: Record<string, unknown> = {
-    brandName: product.brandName,
-    name: product.name,
-    categoryBreadcrumb: product.category ?? null,
-    rating: product.rating || null,
-    ratingNum: product.ratingCount || null,
-  }
-
-  let sourceProductId: number
-  let isNew: boolean
-
-  if (existingProduct.docs.length === 0) {
-    // New: no source-product with this URL exists → create source-product (no variant yet)
-
-    const newProduct = await payload.create({
-      collection: 'source-products',
-      data: {
-        source: effectiveSource,
-        sourceUrl: productUrl,
-        status: 'uncrawled',
-        ...discoveryData,
-      },
-    }) as { id: number }
-    sourceProductId = newProduct.id
-
-    isNew = true
-    log.info('persistDiscoveredProduct: created new source-product', { sourceProductId, url: productUrl })
-  } else {
-    // Existing source-product → update it
-    const sp = existingProduct.docs[0] as Record<string, unknown>
-    sourceProductId = sp.id as number
-
-    await payload.update({
-      collection: 'source-products',
-      id: sourceProductId,
-      data: {
-        source: effectiveSource,
-        ...discoveryData,
-      },
-    })
-
-    isNew = false
-    log.info('persistDiscoveredProduct: updated existing source-product', { sourceProductId, url: productUrl })
-  }
-
-  // Create DiscoveryResult join record (only for discovery jobs, not search jobs)
-  if (discoveryId != null) {
-    await payload.create({
-      collection: 'discovery-results',
-      data: { discovery: discoveryId, sourceProduct: sourceProductId },
-    })
-  }
-
-  return { sourceProductId, isNew }
-}
 
 // ─── Ingredients Discovery ───
 

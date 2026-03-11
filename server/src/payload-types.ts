@@ -83,9 +83,6 @@ export interface Config {
     'product-searches': ProductSearch;
     'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
-    'crawl-results': CrawlResult;
-    'discovery-results': DiscoveryResult;
-    'search-results': SearchResult;
     events: Event;
     creators: Creator;
     channels: Channel;
@@ -115,19 +112,14 @@ export interface Config {
     };
     'source-products': {
       sourceVariants: 'source-variants';
-      discoveries: 'discovery-results';
-      crawls: 'crawl-results';
     };
     'product-discoveries': {
-      discoveredProducts: 'discovery-results';
       events: 'events';
     };
     'product-searches': {
-      searchResults: 'search-results';
       events: 'events';
     };
     'product-crawls': {
-      crawledProducts: 'crawl-results';
       events: 'events';
     };
     'product-aggregations': {
@@ -168,9 +160,6 @@ export interface Config {
     'product-searches': ProductSearchesSelect<false> | ProductSearchesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
-    'crawl-results': CrawlResultsSelect<false> | CrawlResultsSelect<true>;
-    'discovery-results': DiscoveryResultsSelect<false> | DiscoveryResultsSelect<true>;
-    'search-results': SearchResultsSelect<false> | SearchResultsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
@@ -618,17 +607,9 @@ export interface ProductDiscovery {
   debug?: boolean | null;
   productUrls?: string | null;
   /**
-   * Products found on the page
+   * Product URLs found
    */
   discovered?: number | null;
-  /**
-   * New products created
-   */
-  created?: number | null;
-  /**
-   * Products already in database
-   */
-  existing?: number | null;
   /**
    * Internal state for resumable discovery
    */
@@ -643,289 +624,6 @@ export interface ProductDiscovery {
     | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  discoveredProducts?: {
-    docs?: (number | DiscoveryResult)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "discovery-results".
- */
-export interface DiscoveryResult {
-  id: number;
-  discovery: number | ProductDiscovery;
-  sourceProduct: number | SourceProduct;
-  /**
-   * Error message if this URL failed during discovery
-   */
-  error?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * Products crawled from source stores
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-products".
- */
-export interface SourceProduct {
-  id: number;
-  /**
-   * Product page URL at the source store (dedup key)
-   */
-  sourceUrl?: string | null;
-  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
-  status?: ('uncrawled' | 'crawled') | null;
-  /**
-   * Product brand name
-   */
-  brandName?: string | null;
-  /**
-   * Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"
-   */
-  categoryBreadcrumb?: string | null;
-  /**
-   * Average rating (0-5)
-   */
-  rating?: number | null;
-  /**
-   * Total number of reviews
-   */
-  ratingNum?: number | null;
-  name?: string | null;
-  sourceVariants?: {
-    docs?: (number | SourceVariant)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  discoveries?: {
-    docs?: (number | DiscoveryResult)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  crawls?: {
-    docs?: (number | CrawlResult)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * Individual purchasable variants of source products, each with a unique URL
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "source-variants".
- */
-export interface SourceVariant {
-  id: number;
-  /**
-   * Variant-specific URL. For DM/Rossmann: the GTIN-based product URL. For Mueller: base URL with ?itemId= parameter.
-   */
-  sourceUrl?: string | null;
-  sourceProduct: number | SourceProduct;
-  /**
-   * Global Trade Item Number for this specific variant
-   */
-  gtin?: string | null;
-  /**
-   * Store-specific article number / SKU (e.g., DM DAN, Mueller code, Shopify SKU)
-   */
-  sourceArticleNumber?: string | null;
-  /**
-   * When this specific variant was last crawled
-   */
-  crawledAt?: string | null;
-  /**
-   * Human-readable label (e.g. "Shade 420 - Nude Rose", "50ml")
-   */
-  variantLabel?: string | null;
-  /**
-   * The dimension this variant represents (e.g. "Color", "Size")
-   */
-  variantDimension?: string | null;
-  /**
-   * Product amount (e.g., 3, 100, 250)
-   */
-  amount?: number | null;
-  /**
-   * Unit of measurement (e.g., ml, g, Stück)
-   */
-  amountUnit?: string | null;
-  /**
-   * Full product description extracted from the variant page (markdown)
-   */
-  description?: string | null;
-  images?:
-    | {
-        url: string;
-        alt?: string | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Raw INCI ingredients text as crawled from the variant page
-   */
-  ingredientsText?: string | null;
-  /**
-   * Product labels (e.g., Neu, Limitiert, dm-Marke)
-   */
-  labels?:
-    | {
-        label: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Timestamped price & availability entries from each crawl of this variant
-   */
-  priceHistory?:
-    | {
-        recordedAt: string;
-        /**
-         * Price in cents
-         */
-        amount?: number | null;
-        currency?: string | null;
-        perUnitAmount?: number | null;
-        perUnitCurrency?: string | null;
-        /**
-         * Reference quantity (e.g., 100 for "per 100 ml")
-         */
-        perUnitQuantity?: number | null;
-        /**
-         * Unit of measurement (e.g., ml, g, l, kg)
-         */
-        unit?: string | null;
-        /**
-         * Whether this variant was available at crawl time
-         */
-        availability?: ('available' | 'unavailable' | 'unknown') | null;
-        /**
-         * Price movement vs previous record
-         */
-        change?: ('drop' | 'stable' | 'increase') | null;
-        id?: string | null;
-      }[]
-    | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "crawl-results".
- */
-export interface CrawlResult {
-  id: number;
-  crawl: number | ProductCrawl;
-  sourceProduct: number | SourceProduct;
-  /**
-   * Error message if the crawl failed for this product
-   */
-  error?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-crawls".
- */
-export interface ProductCrawl {
-  id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
-  /**
-   * Products to crawl per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
-   */
-  crawlVariants?: boolean | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  /**
-   * "All in Database" processes existing source-products. The other options target specific products.
-   */
-  type: 'all' | 'selected_urls' | 'selected_gtins' | 'from_discovery';
-  /**
-   * Which store(s) to crawl products from.
-   */
-  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish') | null;
-  /**
-   * One product URL per line. The store is detected automatically from the URL.
-   */
-  urls?: string | null;
-  /**
-   * One GTIN per line. All matching source-products across the selected store(s) will be crawled.
-   */
-  gtins?: string | null;
-  /**
-   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
-   */
-  discovery?: (number | null) | ProductDiscovery;
-  /**
-   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
-   */
-  scope?: ('uncrawled_only' | 'recrawl') | null;
-  /**
-   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
-   */
-  minCrawlAge?: number | null;
-  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
-  /**
-   * Total products to crawl
-   */
-  total?: number | null;
-  /**
-   * Products successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Products that failed to crawl
-   */
-  errors?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  crawledProducts?: {
-    docs?: (number | CrawlResult)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -985,25 +683,13 @@ export interface ProductSearch {
    * Keep browser visible (non-headless).
    */
   debug?: boolean | null;
+  productUrls?: string | null;
   /**
-   * Products found across all sources
+   * Product URLs found across all sources
    */
   discovered?: number | null;
-  /**
-   * New products created
-   */
-  created?: number | null;
-  /**
-   * Products already in database
-   */
-  existing?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  searchResults?: {
-    docs?: (number | SearchResult)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1014,20 +700,95 @@ export interface ProductSearch {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "search-results".
+ * via the `definition` "product-crawls".
  */
-export interface SearchResult {
+export interface ProductCrawl {
   id: number;
-  search: number | ProductSearch;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
-   * The individual query line (e.g. a single GTIN) that produced this result
+   * When the current worker claimed this job
    */
-  matchedQuery?: string | null;
-  sourceProduct: number | SourceProduct;
+  claimedAt?: string | null;
   /**
-   * Which source this result came from
+   * Worker currently processing this job
    */
-  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the job was marked as failed
+   */
+  failedAt?: string | null;
+  /**
+   * Why the job was marked as failed
+   */
+  failureReason?: string | null;
+  /**
+   * Products to crawl per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
+   */
+  crawlVariants?: boolean | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  /**
+   * "All in Database" processes existing source-products. The other options target specific products.
+   */
+  type: 'all' | 'selected_urls' | 'from_discovery' | 'from_search';
+  /**
+   * Which store(s) to crawl products from.
+   */
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  /**
+   * One product URL per line. The store is detected automatically from the URL.
+   */
+  urls?: string | null;
+  /**
+   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
+   */
+  discovery?: (number | null) | ProductDiscovery;
+  /**
+   * Crawl the product URLs found by this search. Covers all stores that the search found.
+   */
+  search?: (number | null) | ProductSearch;
+  /**
+   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
+   */
+  scope?: ('uncrawled_only' | 'recrawl') | null;
+  /**
+   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
+   */
+  minCrawlAge?: number | null;
+  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
+  /**
+   * Total products to crawl
+   */
+  total?: number | null;
+  /**
+   * Products successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Products that failed to crawl
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1345,6 +1106,144 @@ export interface ProductVariant {
         id?: string | null;
       }[]
     | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Individual purchasable variants of source products, each with a unique URL
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-variants".
+ */
+export interface SourceVariant {
+  id: number;
+  /**
+   * Variant-specific URL. For DM/Rossmann: the GTIN-based product URL. For Mueller: base URL with ?itemId= parameter.
+   */
+  sourceUrl?: string | null;
+  sourceProduct: number | SourceProduct;
+  /**
+   * Global Trade Item Number for this specific variant
+   */
+  gtin?: string | null;
+  /**
+   * Store-specific article number / SKU (e.g., DM DAN, Mueller code, Shopify SKU)
+   */
+  sourceArticleNumber?: string | null;
+  /**
+   * When this specific variant was last crawled
+   */
+  crawledAt?: string | null;
+  /**
+   * Human-readable label (e.g. "Shade 420 - Nude Rose", "50ml")
+   */
+  variantLabel?: string | null;
+  /**
+   * The dimension this variant represents (e.g. "Color", "Size")
+   */
+  variantDimension?: string | null;
+  /**
+   * Product amount (e.g., 3, 100, 250)
+   */
+  amount?: number | null;
+  /**
+   * Unit of measurement (e.g., ml, g, Stück)
+   */
+  amountUnit?: string | null;
+  /**
+   * Full product description extracted from the variant page (markdown)
+   */
+  description?: string | null;
+  images?:
+    | {
+        url: string;
+        alt?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Raw INCI ingredients text as crawled from the variant page
+   */
+  ingredientsText?: string | null;
+  /**
+   * Product labels (e.g., Neu, Limitiert, dm-Marke)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Timestamped price & availability entries from each crawl of this variant
+   */
+  priceHistory?:
+    | {
+        recordedAt: string;
+        /**
+         * Price in cents
+         */
+        amount?: number | null;
+        currency?: string | null;
+        perUnitAmount?: number | null;
+        perUnitCurrency?: string | null;
+        /**
+         * Reference quantity (e.g., 100 for "per 100 ml")
+         */
+        perUnitQuantity?: number | null;
+        /**
+         * Unit of measurement (e.g., ml, g, l, kg)
+         */
+        unit?: string | null;
+        /**
+         * Whether this variant was available at crawl time
+         */
+        availability?: ('available' | 'unavailable' | 'unknown') | null;
+        /**
+         * Price movement vs previous record
+         */
+        change?: ('drop' | 'stable' | 'increase') | null;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Products crawled from source stores
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-products".
+ */
+export interface SourceProduct {
+  id: number;
+  /**
+   * Product page URL at the source store (dedup key)
+   */
+  sourceUrl?: string | null;
+  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  /**
+   * Product brand name
+   */
+  brandName?: string | null;
+  /**
+   * Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"
+   */
+  categoryBreadcrumb?: string | null;
+  /**
+   * Average rating (0-5)
+   */
+  rating?: number | null;
+  /**
+   * Total number of reviews
+   */
+  ratingNum?: number | null;
+  name?: string | null;
+  sourceVariants?: {
+    docs?: (number | SourceVariant)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1877,18 +1776,6 @@ export interface PayloadLockedDocument {
         value: number | ProductAggregation;
       } | null)
     | ({
-        relationTo: 'crawl-results';
-        value: number | CrawlResult;
-      } | null)
-    | ({
-        relationTo: 'discovery-results';
-        value: number | DiscoveryResult;
-      } | null)
-    | ({
-        relationTo: 'search-results';
-        value: number | SearchResult;
-      } | null)
-    | ({
         relationTo: 'events';
         value: number | Event;
       } | null)
@@ -2269,15 +2156,12 @@ export interface ProductVariantsSelect<T extends boolean = true> {
 export interface SourceProductsSelect<T extends boolean = true> {
   sourceUrl?: T;
   source?: T;
-  status?: T;
   brandName?: T;
   categoryBreadcrumb?: T;
   rating?: T;
   ratingNum?: T;
   name?: T;
   sourceVariants?: T;
-  discoveries?: T;
-  crawls?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2345,12 +2229,9 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   debug?: T;
   productUrls?: T;
   discovered?: T;
-  created?: T;
-  existing?: T;
   progress?: T;
   startedAt?: T;
   completedAt?: T;
-  discoveredProducts?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2372,12 +2253,10 @@ export interface ProductSearchesSelect<T extends boolean = true> {
   failedAt?: T;
   failureReason?: T;
   debug?: T;
+  productUrls?: T;
   discovered?: T;
-  created?: T;
-  existing?: T;
   startedAt?: T;
   completedAt?: T;
-  searchResults?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2400,8 +2279,8 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   type?: T;
   source?: T;
   urls?: T;
-  gtins?: T;
   discovery?: T;
+  search?: T;
   scope?: T;
   minCrawlAge?: T;
   minCrawlAgeUnit?: T;
@@ -2410,7 +2289,6 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
-  crawledProducts?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2443,40 +2321,6 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   products?: T;
   events?: T;
   lastCheckedSourceId?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "crawl-results_select".
- */
-export interface CrawlResultsSelect<T extends boolean = true> {
-  crawl?: T;
-  sourceProduct?: T;
-  error?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "discovery-results_select".
- */
-export interface DiscoveryResultsSelect<T extends boolean = true> {
-  discovery?: T;
-  sourceProduct?: T;
-  error?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "search-results_select".
- */
-export interface SearchResultsSelect<T extends boolean = true> {
-  search?: T;
-  matchedQuery?: T;
-  sourceProduct?: T;
-  source?: T;
   updatedAt?: T;
   createdAt?: T;
 }

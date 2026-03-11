@@ -1,6 +1,6 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
-import { findUncrawledProducts, findUncrawledVariants, getSourceSlugFromUrl, countUncrawled, resetProducts, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
+import { findUncrawledProducts, findUncrawledVariants, countUncrawled, resetProducts, normalizeProductUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
@@ -121,7 +121,7 @@ export async function claimWork(
   // Prioritize: selected crawls/aggregations first, otherwise random
   const selectedTargetJobs = activeJobs.filter(
     (j) => (j.type === 'product-crawl' &&
-           (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery' || j.crawlType === 'selected_gtins')) ||
+           (j.crawlType === 'selected_urls' || j.crawlType === 'from_discovery' || j.crawlType === 'from_search')) ||
            (j.type === 'product-aggregation' && j.aggregationType === 'selected_gtins'),
   )
 
@@ -189,7 +189,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
   // Determine source drivers
   const sources: string[] = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
 
-  // Build URL list based on type — these are now product-level URLs (on source-products.sourceUrl)
+  // Build URL list based on type — these are product-level URLs
   let sourceUrls: string[] | undefined
   if (job.type === 'selected_urls') {
     sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeProductUrl(u.trim())).filter(Boolean)
@@ -197,30 +197,10 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
     const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
     const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
     sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
-  } else if (job.type === 'selected_gtins') {
-    // GTINs live on source-variants — resolve to parent source-product URLs
-    const gtins = ((job.gtins as string) ?? '').split('\n').map((g: string) => g.trim()).filter(Boolean)
-    const variants = await payload.find({
-      collection: 'source-variants',
-      where: { gtin: { in: gtins.join(',') } },
-      limit: 10000,
-    })
-    // Get parent source-product IDs, then their sourceUrls
-    const spIds = [...new Set(variants.docs.map((v) => {
-      const sv = v as Record<string, unknown>
-      const spRef = sv.sourceProduct as number | Record<string, unknown>
-      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
-    }))]
-    if (spIds.length > 0) {
-      const spResult = await payload.find({
-        collection: 'source-products',
-        where: { id: { in: spIds.join(',') } },
-        limit: 10000,
-      })
-      sourceUrls = spResult.docs
-        .map((sp) => (sp as Record<string, unknown>).sourceUrl as string)
-        .filter(Boolean)
-    }
+  } else if (job.type === 'from_search' && job.search) {
+    const searchId = typeof job.search === 'number' ? job.search : (job.search as Record<string, number>).id
+    const search = await payload.findByID({ collection: 'product-searches', id: searchId }) as Record<string, unknown>
+    sourceUrls = ((search.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
   }
 
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
@@ -243,39 +223,10 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
   if (job.status === 'pending') {
     jlog.info('Initializing product crawl job', { jobId })
 
-    // Auto-create stubs for URLs that don't have source-products yet
-    if (sourceUrls) {
-      let stubsCreated = 0
-      for (const url of sourceUrls) {
-        const slug = getSourceSlugFromUrl(url)
-        if (!slug) {
-          jlog.info('Skipping URL with no source slug', { jobId, url })
-          continue
-        }
-
-        // Check if a source-product with this URL already exists
-        const existingProduct = await payload.find({
-          collection: 'source-products',
-          where: { sourceUrl: { equals: url } },
-          limit: 1,
-        })
-
-        if (existingProduct.docs.length === 0) {
-          // Create a stub source-product (no variant — variants are created during crawl)
-          await payload.create({
-            collection: 'source-products',
-            data: { source: slug, sourceUrl: url, status: 'uncrawled' },
-          })
-          stubsCreated++
-        }
-      }
-      jlog.info('Created stubs for uncrawled URLs', { jobId, stubsCreated, totalUrls: sourceUrls.length })
-    }
-
     // Reset matching products so they're eligible for crawling.
     // For 'selected_urls' and 'from_discovery': always reset (these target specific URLs explicitly).
     // For 'all' and 'selected_gtins': only reset when scope='recrawl'.
-    const shouldReset = job.type === 'selected_urls' || job.type === 'from_discovery' || job.scope === 'recrawl'
+    const shouldReset = job.type === 'selected_urls' || job.type === 'from_discovery' || job.type === 'from_search' || job.scope === 'recrawl'
     if (shouldReset) {
       let crawledBefore: Date | undefined
       if (job.scope === 'recrawl' && job.minCrawlAge && job.minCrawlAgeUnit) {
@@ -409,8 +360,6 @@ async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: numb
         startedAt: new Date().toISOString(),
         completedAt: null,
         discovered: 0,
-        created: 0,
-        existing: 0,
         progress: null,
       },
     })
@@ -442,15 +391,9 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
 
   jlog.info('Product search job loaded', { jobId, query, sources: sources.join(', '), maxResults, isGtinSearch })
 
-  // Initialize job if pending — clear previous results so a re-run starts fresh
+  // Initialize job if pending
   if (job.status === 'pending') {
     jlog.info('Initializing product search job', { jobId })
-
-    // Delete existing search-results from any previous run
-    await payload.delete({
-      collection: 'search-results',
-      where: { search: { equals: jobId } },
-    })
 
     await payload.update({
       collection: 'product-searches',
@@ -460,8 +403,7 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
         startedAt: new Date().toISOString(),
         completedAt: null,
         discovered: 0,
-        created: 0,
-        existing: 0,
+        productUrls: '',
       },
     })
     jlog.event('job.claimed', { collection: 'product-searches', jobId })
@@ -695,9 +637,10 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     jlog.info('Initializing product aggregation job', { jobId })
     let total: number | undefined
     if (aggregationType === 'all') {
+      // Count source-products that have at least one source-variant (i.e. have been crawled)
+      // We use a rough count here — source-products without variants are skipped during cursor iteration
       const totalCount = await payload.count({
         collection: 'source-products',
-        where: { status: { equals: 'crawled' } },
       })
       total = totalCount.totalDocs
     } else {
@@ -757,16 +700,11 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       variantsBySpId.set(spId, sv) // One variant per source-product for this GTIN
     }
 
-    // Fetch only crawled source-products
+    // Fetch source-products that have variants (i.e. have been crawled)
     const spIds = [...variantsBySpId.keys()]
     const result = await payload.find({
       collection: 'source-products',
-      where: {
-        and: [
-          { id: { in: spIds.join(',') } },
-          { status: { equals: 'crawled' } },
-        ],
-      },
+      where: { id: { in: spIds.join(',') } },
       limit: 100,
     })
 
@@ -947,12 +885,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
 
     const sourceProducts = await payload.find({
       collection: 'source-products',
-      where: {
-        and: [
-          { status: { equals: 'crawled' } },
-          { id: { greater_than: lastCheckedSourceId } },
-        ],
-      },
+      where: { id: { greater_than: lastCheckedSourceId } },
       sort: 'id',
       limit: itemsPerTick * 5,
     })

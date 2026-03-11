@@ -197,8 +197,6 @@ export interface EventRegistry {
   'discovery.batch_persisted': {
     source: string
     discovered: number
-    created: number
-    existing: number
     batchSize: number
     batchPersisted: number
     batchErrors: number
@@ -208,8 +206,6 @@ export interface EventRegistry {
   'discovery.completed': {
     source: string
     discovered: number
-    created: number
-    existing: number
     durationMs: number
   }
 
@@ -231,16 +227,12 @@ export interface EventRegistry {
   'search.batch_persisted': {
     sources: string
     discovered: number
-    created: number
-    existing: number
     persisted: number
     batchDurationMs: number
   }
   'search.completed': {
     sources: string
     discovered: number
-    created: number
-    existing: number
     durationMs: number
   }
 

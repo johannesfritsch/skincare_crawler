@@ -8,25 +8,16 @@ export async function downloadSearchedSourceUrls(
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   const payload = await getPayload({ config })
 
-  // Get all source-product IDs from search results (depth 1 to populate sourceProduct)
-  const results = await payload.find({
-    collection: 'search-results',
-    where: { search: { equals: searchId } },
-    limit: 50000,
-    depth: 1,
+  const search = await payload.findByID({
+    collection: 'product-searches',
+    id: searchId,
+    depth: 0,
   })
 
-  const sourceUrls = results.docs
-    .map((doc) => {
-      const sp = doc.sourceProduct
-      if (typeof sp === 'object' && sp !== null && 'sourceUrl' in sp) {
-        return sp.sourceUrl as string
-      }
-      return null
-    })
-    .filter(Boolean) as string[]
+  const urls = (search.productUrls ?? '').trim()
+  if (!urls) {
+    return { success: true, data: '' }
+  }
 
-  const unique = [...new Set(sourceUrls)]
-
-  return { success: true, data: unique.join('\n') }
+  return { success: true, data: urls }
 }

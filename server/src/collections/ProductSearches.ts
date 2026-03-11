@@ -11,21 +11,11 @@ export const ProductSearches: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'query',
-    defaultColumns: ['query', 'sources', 'status', 'discovered', 'created', 'startedAt'],
-    group: 'Source Products',
+    defaultColumns: ['query', 'sources', 'status', 'discovered', 'startedAt'],
+    group: 'Discovery & Search',
   },
   hooks: {
     beforeChange: [enforceJobClaim],
-    beforeDelete: [
-      async ({ id, req }) => {
-        // Cascade delete: remove child records that have required (NOT NULL) references
-        await req.payload.delete({
-          collection: 'search-results',
-          where: { search: { equals: id } },
-          req,
-        })
-      },
-    ],
   },
   fields: [
     {
@@ -98,6 +88,15 @@ export const ProductSearches: CollectionConfig = {
         description: 'Keep browser visible (non-headless).',
       },
     },
+    // Hidden field used by worker to track discovered URLs
+    {
+      name: 'productUrls',
+      type: 'textarea',
+      validate: () => true,
+      admin: {
+        hidden: true,
+      },
+    },
     // Everything below only shows after creation
     {
       type: 'tabs',
@@ -106,42 +105,14 @@ export const ProductSearches: CollectionConfig = {
           label: 'Progress',
           fields: [
             {
-              type: 'row',
-              fields: [
-                {
-                  name: 'discovered',
-                  type: 'number',
-                  label: 'Discovered',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products found across all sources',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'created',
-                  type: 'number',
-                  label: 'Created',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'New products created',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'existing',
-                  type: 'number',
-                  label: 'Existing',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products already in database',
-                    width: '33%',
-                  },
-                },
-              ],
+              name: 'discovered',
+              type: 'number',
+              label: 'URLs Discovered',
+              defaultValue: 0,
+              admin: {
+                readOnly: true,
+                description: 'Product URLs found across all sources',
+              },
             },
             {
               type: 'row',
@@ -185,13 +156,6 @@ export const ProductSearches: CollectionConfig = {
                   Field: '@/components/DownloadSearchedGtinsButton',
                 },
               },
-            },
-            {
-              name: 'searchResults',
-              type: 'join',
-              collection: 'search-results',
-              on: 'search',
-              admin: { allowCreate: false },
             },
           ],
         },

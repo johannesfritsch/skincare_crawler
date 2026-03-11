@@ -16,16 +16,6 @@ export const ProductCrawls: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim],
-    beforeDelete: [
-      async ({ id, req }) => {
-        // Cascade delete: remove child records that have required (NOT NULL) references
-        await req.payload.delete({
-          collection: 'crawl-results',
-          where: { crawl: { equals: id } },
-          req,
-        })
-      },
-    ],
   },
   fields: [
     {
@@ -92,8 +82,8 @@ export const ProductCrawls: CollectionConfig = {
               options: [
                 { label: 'All in Database', value: 'all' },
                 { label: 'Specific URLs', value: 'selected_urls' },
-                { label: 'Specific GTINs', value: 'selected_gtins' },
                 { label: 'From Discovery Job', value: 'from_discovery' },
+                { label: 'From Search Job', value: 'from_search' },
               ],
               admin: {
                 description:
@@ -109,8 +99,7 @@ export const ProductCrawls: CollectionConfig = {
               options: [...SOURCE_OPTIONS_WITH_ALL],
               admin: {
                 description: 'Which store(s) to crawl products from.',
-                condition: (data) =>
-                  data?.type === 'all' || data?.type === 'selected_gtins',
+                condition: (data) => data?.type === 'all',
               },
             },
             {
@@ -124,16 +113,6 @@ export const ProductCrawls: CollectionConfig = {
               },
             },
             {
-              name: 'gtins',
-              type: 'textarea',
-              label: 'GTINs',
-              admin: {
-                description:
-                  'One GTIN per line. All matching source-products across the selected store(s) will be crawled.',
-                condition: (data) => data?.type === 'selected_gtins',
-              },
-            },
-            {
               name: 'discovery',
               type: 'relationship',
               relationTo: 'product-discoveries',
@@ -142,6 +121,17 @@ export const ProductCrawls: CollectionConfig = {
                 description:
                   'Crawl the product URLs found by this discovery. Covers all stores that the discovery found.',
                 condition: (data) => data?.type === 'from_discovery',
+              },
+            },
+            {
+              name: 'search',
+              type: 'relationship',
+              relationTo: 'product-searches',
+              label: 'Search Job',
+              admin: {
+                description:
+                  'Crawl the product URLs found by this search. Covers all stores that the search found.',
+                condition: (data) => data?.type === 'from_search',
               },
             },
             {
@@ -157,16 +147,14 @@ export const ProductCrawls: CollectionConfig = {
               admin: {
                 description:
                   '"Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.',
-                condition: (data) =>
-                  data?.type === 'all' || data?.type === 'selected_gtins',
+                condition: (data) => data?.type === 'all',
               },
             },
             {
               type: 'row',
               admin: {
                 condition: (data) =>
-                  (data?.type === 'all' || data?.type === 'selected_gtins') &&
-                  data?.scope === 'recrawl',
+                  data?.type === 'all' && data?.scope === 'recrawl',
               },
               fields: [
                 {
@@ -266,30 +254,6 @@ export const ProductCrawls: CollectionConfig = {
                   },
                 },
               ],
-            },
-          ],
-        },
-
-        {
-          label: 'Output',
-          fields: [
-            {
-              name: 'crawledProducts',
-              type: 'join',
-              collection: 'crawl-results',
-              on: 'crawl',
-              admin: {
-                allowCreate: false,
-              },
-            },
-            {
-              name: 'downloadGtins',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '@/components/DownloadCrawledGtinsButton',
-                },
-              },
             },
           ],
         },

@@ -10,21 +10,11 @@ export const ProductDiscoveries: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'sourceUrls',
-    defaultColumns: ['sourceUrls', 'status', 'discovered', 'created', 'startedAt'],
-    group: 'Source Products',
+    defaultColumns: ['sourceUrls', 'status', 'discovered', 'startedAt'],
+    group: 'Discovery & Search',
   },
   hooks: {
     beforeChange: [enforceJobClaim],
-    beforeDelete: [
-      async ({ id, req }) => {
-        // Cascade delete: remove child records that have required (NOT NULL) references
-        await req.payload.delete({
-          collection: 'discovery-results',
-          where: { discovery: { equals: id } },
-          req,
-        })
-      },
-    ],
   },
   fields: [
     // Main configuration - always visible
@@ -101,42 +91,14 @@ export const ProductDiscoveries: CollectionConfig = {
           label: 'Progress',
           fields: [
             {
-              type: 'row',
-              fields: [
-                {
-                  name: 'discovered',
-                  type: 'number',
-                  label: 'Discovered',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products found on the page',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'created',
-                  type: 'number',
-                  label: 'Created',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'New products created',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'existing',
-                  type: 'number',
-                  label: 'Existing',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products already in database',
-                    width: '33%',
-                  },
-                },
-              ],
+              name: 'discovered',
+              type: 'number',
+              label: 'URLs Discovered',
+              defaultValue: 0,
+              admin: {
+                readOnly: true,
+                description: 'Product URLs found',
+              },
             },
             {
               name: 'progress',
@@ -182,13 +144,6 @@ export const ProductDiscoveries: CollectionConfig = {
           label: 'Output',
           fields: [
             {
-              name: 'discoveredProducts',
-              type: 'join',
-              collection: 'discovery-results',
-              on: 'discovery',
-              admin: { allowCreate: false },
-            },
-            {
               name: 'downloadUrls',
               type: 'ui',
               admin: {
@@ -199,7 +154,6 @@ export const ProductDiscoveries: CollectionConfig = {
             },
           ],
         },
-
         {
           label: 'Events',
           fields: [

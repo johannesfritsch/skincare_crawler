@@ -75,7 +75,7 @@ export default function SourceCoverageClient() {
         <tbody>
           {snapshot.sourceCoverage.map((row) => {
             const crawlPct =
-              row.total > 0 ? Math.round((row.crawled / row.total) * 100) : 0
+              row.total > 0 ? Math.round((row.withVariants / row.total) * 100) : 0
             const color = SOURCE_COLORS[row.source] ?? '#64748b'
 
             return (

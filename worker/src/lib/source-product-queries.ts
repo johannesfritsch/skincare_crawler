@@ -56,7 +56,7 @@ export function getSourceSlugFromUrl(url: string): SourceSlug | null {
 }
 
 /**
- * Find uncrawled source-products that have no variants yet (first crawl).
+ * Find source-products that need crawling — they have no source-variants yet (first crawl).
  * Returns source-product ID + sourceUrl for the initial crawl pass.
  *
  * When `sourceProductIds` is provided, only those specific source-products are returned.
@@ -67,7 +67,7 @@ export async function findUncrawledProducts(
   source: SourceSlug,
   options: { sourceUrls?: string[]; sourceProductIds?: number[]; limit: number },
 ): Promise<Array<{ sourceProductId: number; sourceUrl: string }>> {
-  const spWhere: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_FILTERS[source]]
+  const spWhere: Where[] = [SOURCE_FILTERS[source]]
   if (options.sourceProductIds && options.sourceProductIds.length > 0) {
     spWhere.push({ id: { in: options.sourceProductIds.join(',') } })
   }
@@ -78,7 +78,7 @@ export async function findUncrawledProducts(
   const spResult = await payload.find({
     collection: 'source-products',
     where: { and: spWhere },
-    limit: options.limit,
+    limit: options.limit * 3, // Over-fetch since we filter below
   })
 
   if (spResult.docs.length === 0) return []
@@ -108,7 +108,7 @@ export async function findUncrawledProducts(
 }
 
 /**
- * Find uncrawled source-variants (whose parent source-product has status=uncrawled).
+ * Find uncrawled source-variants (where crawledAt is not set).
  * Returns the source-variant ID + sourceUrl, plus the parent source-product ID and source.
  * Used for variant crawling (after the first crawl has created variants).
  *
@@ -120,8 +120,8 @@ export async function findUncrawledVariants(
   source: SourceSlug,
   options: { sourceProductIds?: number[]; limit: number },
 ): Promise<Array<{ sourceVariantId: number; sourceUrl: string; sourceProductId: number; gtin?: string }>> {
-  // Find uncrawled source-products, then find their uncrawled variants.
-  const spWhere: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_FILTERS[source]]
+  // Find source-products for this source, then find their uncrawled variants.
+  const spWhere: Where[] = [SOURCE_FILTERS[source]]
   if (options.sourceProductIds && options.sourceProductIds.length > 0) {
     spWhere.push({ id: { in: options.sourceProductIds.join(',') } })
   }
@@ -162,9 +162,12 @@ export async function findUncrawledVariants(
 }
 
 /**
- * Count uncrawled items for a given source.
+ * Count items that still need crawling for a given source.
  *
- * Counts uncrawled source-products (which may have no variants yet, or may have uncrawled variants).
+ * Counts source-products that either:
+ * 1. Have no source-variants at all (never been crawled), or
+ * 2. Have at least one source-variant without crawledAt (partially crawled, e.g. sibling variants)
+ *
  * When `sourceUrls` is provided, counts only source-products matching those URLs.
  * When `sourceProductIds` is provided, counts only those specific source-products.
  */
@@ -173,7 +176,7 @@ export async function countUncrawled(
   source: SourceSlug,
   options?: { sourceUrls?: string[]; sourceProductIds?: number[] },
 ): Promise<number> {
-  const spWhere: Where[] = [{ status: { equals: 'uncrawled' } }, SOURCE_FILTERS[source]]
+  const spWhere: Where[] = [SOURCE_FILTERS[source]]
 
   if (options?.sourceUrls && options.sourceUrls.length > 0) {
     spWhere.push({ sourceUrl: { in: options.sourceUrls.join(',') } })
@@ -182,14 +185,58 @@ export async function countUncrawled(
     spWhere.push({ id: { in: options.sourceProductIds.join(',') } })
   }
 
-  const result = await payload.count({
+  // Fetch all source-products in scope
+  const spResult = await payload.find({
     collection: 'source-products',
     where: { and: spWhere },
+    limit: 100000,
   })
 
-  return result.totalDocs
+  if (spResult.docs.length === 0) return 0
+
+  // Count source-products that have no variants OR have uncrawled variants
+  let count = 0
+  for (const doc of spResult.docs) {
+    const sp = doc as Record<string, unknown>
+    const spId = sp.id as number
+
+    // Check for any variants
+    const allVariants = await payload.find({
+      collection: 'source-variants',
+      where: { sourceProduct: { equals: spId } },
+      limit: 1,
+    })
+
+    if (allVariants.docs.length === 0) {
+      // No variants at all — needs first crawl
+      count++
+      continue
+    }
+
+    // Has variants — check if any are uncrawled
+    const uncrawledVariants = await payload.find({
+      collection: 'source-variants',
+      where: {
+        and: [
+          { sourceProduct: { equals: spId } },
+          { crawledAt: { exists: false } },
+        ],
+      },
+      limit: 1,
+    })
+
+    if (uncrawledVariants.docs.length > 0) {
+      count++
+    }
+  }
+
+  return count
 }
 
+/**
+ * Reset products for re-crawling: clear crawledAt on their variants.
+ * No longer changes source-product status (status field removed).
+ */
 export async function resetProducts(
   payload: PayloadRestClient,
   source: SourceSlug,
@@ -199,7 +246,7 @@ export async function resetProducts(
   if (sourceUrls && sourceUrls.length === 0) return
 
   // Build conditions for source-products to reset
-  const conditions: Where[] = [{ status: { equals: 'crawled' } }, SOURCE_FILTERS[source]]
+  const conditions: Where[] = [SOURCE_FILTERS[source]]
 
   if (sourceUrls && sourceUrls.length > 0) {
     conditions.push({ sourceUrl: { in: sourceUrls.join(',') } })
@@ -217,13 +264,6 @@ export async function resetProducts(
   if (spResult.docs.length === 0) return
 
   const spIds = spResult.docs.map((doc) => (doc as Record<string, unknown>).id as number)
-
-  // Reset source-products to uncrawled
-  await payload.update({
-    collection: 'source-products',
-    where: { and: conditions },
-    data: { status: 'uncrawled' },
-  })
 
   // Clear crawledAt on variants of the reset source-products so they're eligible for re-crawling
   await payload.update({

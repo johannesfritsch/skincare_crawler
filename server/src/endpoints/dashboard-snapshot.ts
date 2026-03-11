@@ -38,8 +38,7 @@ export interface SnapshotResponse {
   sourceCoverage: Array<{
     source: string
     total: number
-    crawled: number
-    uncrawled: number
+    withVariants: number
     withGtin: number
     variants: number
     avgRating: number | null
@@ -142,16 +141,19 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
     `),
 
     // 3. Source coverage per store (source-products level)
+    // "withVariants" = source-products that have at least one source-variant (i.e. have been crawled)
     db.execute(sql`
       SELECT
-        source,
+        sp.source,
         count(*)::int AS total,
-        count(*) FILTER (WHERE status = 'crawled')::int AS crawled,
-        count(*) FILTER (WHERE status = 'uncrawled')::int AS uncrawled,
-        round(avg(rating)::numeric, 2) AS "avgRating",
-        round(avg(rating_num)::numeric, 0) AS "avgRatingCount"
-      FROM source_products
-      GROUP BY source
+        count(*) FILTER (WHERE sv.id IS NOT NULL)::int AS "withVariants",
+        round(avg(sp.rating)::numeric, 2) AS "avgRating",
+        round(avg(sp.rating_num)::numeric, 0) AS "avgRatingCount"
+      FROM source_products sp
+      LEFT JOIN LATERAL (
+        SELECT id FROM source_variants WHERE source_product_id = sp.id LIMIT 1
+      ) sv ON true
+      GROUP BY sp.source
       ORDER BY total DESC
     `),
 
@@ -342,8 +344,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
     sourceCoverage: (sourceCoverageRows.rows as Array<Record<string, unknown>>).map((row) => ({
       source: String(row.source),
       total: Number(row.total ?? 0),
-      crawled: Number(row.crawled ?? 0),
-      uncrawled: Number(row.uncrawled ?? 0),
+      withVariants: Number(row.withVariants ?? 0),
       withGtin: gtinBySource.get(String(row.source)) ?? 0,
       variants: variantsBySource.get(String(row.source)) ?? 0,
       avgRating: row.avgRating != null ? Number(row.avgRating) : null,

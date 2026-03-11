@@ -2,13 +2,11 @@ import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
 import type { SourceSlug } from '@/lib/source-product-queries'
 
-import { getSourceSlugFromUrl, countUncrawled } from '@/lib/source-product-queries'
+import { getSourceSlugFromUrl, countUncrawled, normalizeProductUrl } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
 import {
   persistCrawlResult,
-  persistCrawlFailure,
-  persistDiscoveredProduct,
   persistIngredient,
   persistVideoDiscoveryResult,
   persistVideoProcessingResult,
@@ -357,12 +355,10 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         log.info('Product crawl persisted', { jobId, sourceUrl: result.sourceUrl })
       } catch (e) {
         log.error('Product crawl persist error', { jobId, sourceUrl: result.sourceUrl, error: e instanceof Error ? e.message : String(e) })
-        await persistCrawlFailure(payload, jobId, result.sourceProductId, `Persist error: ${e instanceof Error ? e.message : String(e)}`)
         errors++
       }
     } else {
       log.info('Product crawl failed', { jobId, sourceUrl: result.sourceUrl, error: result.error ?? 'Failed to scrape' })
-      await persistCrawlFailure(payload, jobId, result.sourceProductId, result.error ?? 'Failed to scrape')
       errors++
     }
   }
@@ -370,34 +366,15 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   // Count remaining — scoped to this job's source-product URLs (or source-product IDs when crawlVariants=true)
   let sourceUrls: string[] | undefined
   if (job.type === 'selected_urls') {
-    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeProductUrl(u.trim())).filter(Boolean)
   } else if (job.type === 'from_discovery' && job.discovery) {
     const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
     const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
-    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean)
-  } else if (job.type === 'selected_gtins') {
-    // GTINs live on source-variants — resolve to parent source-product URLs
-    const gtins = ((job.gtins as string) ?? '').split('\n').map((g: string) => g.trim()).filter(Boolean)
-    const variants = await payload.find({
-      collection: 'source-variants',
-      where: { gtin: { in: gtins.join(',') } },
-      limit: 10000,
-    })
-    const spIds = [...new Set(variants.docs.map((v) => {
-      const sv = v as Record<string, unknown>
-      const spRef = sv.sourceProduct as number | Record<string, unknown>
-      return typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
-    }))]
-    if (spIds.length > 0) {
-      const spResult = await payload.find({
-        collection: 'source-products',
-        where: { id: { in: spIds.join(',') } },
-        limit: 10000,
-      })
-      sourceUrls = spResult.docs
-        .map((sp) => (sp as Record<string, unknown>).sourceUrl as string)
-        .filter(Boolean)
-    }
+    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
+  } else if (job.type === 'from_search' && job.search) {
+    const searchId = typeof job.search === 'number' ? job.search : (job.search as Record<string, number>).id
+    const search = await payload.findByID({ collection: 'product-searches', id: searchId }) as Record<string, unknown>
+    sourceUrls = ((search.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
   }
 
   // When crawlVariants=true and we have scoped URLs, resolve to source-product IDs
@@ -489,69 +466,44 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   const job = await payload.findByID({ collection: 'product-discoveries', id: jobId }) as Record<string, unknown>
 
   // Determine source from URLs (try each until one matches a known driver)
-  const sourceUrls = ((job.sourceUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+  const jobSourceUrls = ((job.sourceUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
   let source: SourceSlug | null = null
-  for (const url of sourceUrls) {
+  for (const url of jobSourceUrls) {
     source = getSourceSlugFromUrl(url)
     if (source) break
   }
   if (!source) {
     log.error('Could not determine source from URLs', { jobId })
-    return { discovered: 0, created: 0, existing: 0, error: 'unknown source' }
+    return { discovered: 0, error: 'unknown source' }
   }
 
-  // Persist each product
-  let created = (job.created as number) ?? 0
-  let existing = (job.existing as number) ?? 0
+  // Just accumulate discovered URLs — no source-product creation
   let discovered = (job.discovered as number) ?? 0
 
   const productUrls: string[] = ((job.productUrls as string) ?? '').split('\n').filter(Boolean)
   const seenProductUrls = new Set<string>(productUrls)
 
-  let batchPersisted = 0
+  let batchNew = 0
   for (const product of products) {
-    if (seenProductUrls.has(product.productUrl)) continue
-    seenProductUrls.add(product.productUrl)
-    productUrls.push(product.productUrl)
+    const normalizedUrl = normalizeProductUrl(product.productUrl)
+    if (seenProductUrls.has(normalizedUrl)) continue
+    seenProductUrls.add(normalizedUrl)
+    productUrls.push(normalizedUrl)
     discovered++
-
-    try {
-      const result = await persistDiscoveredProduct(payload, {
-        discoveryId: jobId,
-        product,
-        source: source as SourceSlug,
-      })
-      batchPersisted++
-      if (result.isNew) {
-        created++
-      } else {
-        existing++
-      }
-    } catch (e) {
-      log.error('Product discovery persist error', { jobId, productUrl: product.productUrl, error: e instanceof Error ? e.message : String(e) })
-    }
+    batchNew++
   }
 
   const batchDurationMs = Date.now() - batchStartMs
-  const batchErrors = products.length - batchPersisted
-  log.info('Product discovery progress', { jobId, discovered, created, existing, done })
+  log.info('Product discovery progress', { jobId, discovered, batchNew, done })
   jlog.event('discovery.batch_persisted', {
     source: source ?? 'unknown',
     discovered,
-    created,
-    existing,
     batchSize: products.length,
-    batchPersisted,
-    batchErrors,
+    batchPersisted: batchNew,
+    batchErrors: 0,
     batchDurationMs,
     pagesUsed: body.pagesUsed,
   })
-
-  if (done && batchPersisted === 0 && products.length > 0) {
-    log.warn('Product discovery batch had zero successful persists, retrying or failing', { jobId, products: products.length })
-    await retryOrFail(payload, 'product-discoveries', jobId, `Batch of ${products.length} items all failed to persist`)
-    return { discovered, created, existing, done }
-  }
 
   if (done) {
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
@@ -563,14 +515,12 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
       data: {
         status: 'completed',
         discovered,
-        created,
-        existing,
         productUrls: productUrls.join('\n'),
         progress: null,
         completedAt: new Date().toISOString(),
       },
     })
-    jlog.event('discovery.completed', { source: source ?? 'unknown', discovered, created, existing, durationMs: jobDurationMs })
+    jlog.event('discovery.completed', { source: source ?? 'unknown', discovered, durationMs: jobDurationMs })
   } else {
     await payload.update({
       collection: 'product-discoveries',
@@ -578,8 +528,6 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
       data: {
         status: 'in_progress',
         discovered,
-        created,
-        existing,
         productUrls: productUrls.join('\n'),
         progress: { currentUrlIndex, driverProgress },
         claimedBy: null,
@@ -589,7 +537,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
     })
   }
 
-  return { discovered, created, existing, done }
+  return { discovered, done }
 }
 
 async function submitProductSearch(payload: PayloadRestClient, body: SubmitProductSearchBody) {
@@ -598,54 +546,24 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
   const batchStartMs = Date.now()
   log.info('Product search batch received', { jobId, products: products.length })
 
-  let created = 0
-  let existing = 0
+  // Just accumulate discovered URLs — no source-product creation
+  const job = await payload.findByID({ collection: 'product-searches', id: jobId }) as Record<string, unknown>
+  const productUrls: string[] = ((job.productUrls as string) ?? '').split('\n').filter(Boolean)
+  const seenProductUrls = new Set<string>(productUrls)
+
   let discovered = 0
-  let persisted = 0
-
-  for (const { product, source, matchedQuery } of products) {
+  for (const { product } of products) {
+    const normalizedUrl = normalizeProductUrl(product.productUrl)
+    if (seenProductUrls.has(normalizedUrl)) continue
+    seenProductUrls.add(normalizedUrl)
+    productUrls.push(normalizedUrl)
     discovered++
-
-    try {
-      const result = await persistDiscoveredProduct(payload, {
-        discoveryId: null,
-        searchId: jobId,
-        product,
-        source,
-      })
-      persisted++
-      if (result.isNew) {
-        created++
-      } else {
-        existing++
-      }
-
-      // Create search-results join record
-      await payload.create({
-        collection: 'search-results',
-        data: {
-          search: jobId,
-          sourceProduct: result.sourceProductId,
-          source,
-          matchedQuery,
-        },
-      })
-    } catch (e) {
-      log.error('Product search persist error', { jobId, productUrl: product.productUrl, error: e instanceof Error ? e.message : String(e) })
-    }
   }
 
   const batchDurationMs = Date.now() - batchStartMs
   const sources = [...new Set(products.map(p => p.source))].join(',')
-  log.info('Product search progress', { jobId, discovered, created, existing })
-  jlog.event('search.batch_persisted', { sources, discovered, created, existing, persisted, batchDurationMs })
-
-  // One-shot job: if zero results persisted successfully, retry or fail
-  if (persisted === 0 && products.length > 0) {
-    log.warn('Product search had zero successful persists, retrying or failing', { jobId, products: products.length })
-    await retryOrFail(payload, 'product-searches', jobId, `All ${products.length} search results failed to persist`)
-    return { discovered, created, existing }
-  }
+  log.info('Product search progress', { jobId, discovered })
+  jlog.event('search.batch_persisted', { sources, discovered, persisted: discovered, batchDurationMs })
 
   await payload.update({
     collection: 'product-searches',
@@ -653,16 +571,15 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
     data: {
       status: 'completed',
       discovered,
-      created,
-      existing,
+      productUrls: productUrls.join('\n'),
       completedAt: new Date().toISOString(),
       claimedBy: null,
       claimedAt: null,
     },
   })
-  jlog.event('search.completed', { sources, discovered, created, existing, durationMs: batchDurationMs })
+  jlog.event('search.completed', { sources, discovered, durationMs: batchDurationMs })
 
-  return { discovered, created, existing }
+  return { discovered }
 }
 
 async function submitIngredientsDiscovery(payload: PayloadRestClient, body: SubmitIngredientsDiscoveryBody) {
