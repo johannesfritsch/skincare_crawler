@@ -32,6 +32,77 @@ export const Videos: CollectionConfig = {
     ],
   },
   fields: [
+    // ── Sidebar ──
+    {
+      name: 'processingStatus',
+      type: 'select',
+      label: 'Processing Status',
+      defaultValue: 'unprocessed',
+      options: [
+        { label: 'Unprocessed', value: 'unprocessed' },
+        { label: 'Processed', value: 'processed' },
+      ],
+      index: true,
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'channel',
+      type: 'relationship',
+      relationTo: 'channels',
+      label: 'Channel',
+      required: true,
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'externalUrl',
+      type: 'text',
+      label: 'External URL',
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'publishedAt',
+      type: 'date',
+      label: 'Published At',
+      admin: {
+        position: 'sidebar',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
+      name: 'duration',
+      type: 'number',
+      label: 'Duration',
+      admin: {
+        position: 'sidebar',
+        description: 'Duration in seconds',
+      },
+    },
+    {
+      name: 'viewCount',
+      type: 'number',
+      label: 'View Count',
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'likeCount',
+      type: 'number',
+      label: 'Like Count',
+      admin: {
+        position: 'sidebar',
+      },
+    },
+
+    // ── Main area ──
     {
       name: 'embeddedPlayer',
       type: 'ui',
@@ -51,95 +122,69 @@ export const Videos: CollectionConfig = {
       },
     },
     {
-      name: 'channel',
-      type: 'relationship',
-      relationTo: 'channels',
-      label: 'Channel',
-      required: true,
-    },
-    {
-      name: 'title',
-      type: 'text',
-      label: 'Title',
-      required: true,
-    },
-    {
-      name: 'image',
-      type: 'upload',
-      relationTo: 'media',
-      label: 'Image',
-    },
-    {
-      name: 'publishedAt',
-      type: 'date',
-      label: 'Published At',
-      admin: {
-        date: {
-          pickerAppearance: 'dayAndTime',
+      type: 'tabs',
+      tabs: [
+        {
+          label: 'Video',
+          fields: [
+            {
+              name: 'title',
+              type: 'text',
+              label: 'Title',
+              required: true,
+            },
+            {
+              name: 'image',
+              type: 'upload',
+              relationTo: 'media',
+              label: 'Image',
+            },
+          ],
         },
-      },
-    },
-    {
-      name: 'processingStatus',
-      type: 'select',
-      label: 'Processing Status',
-      defaultValue: 'unprocessed',
-      options: [
-        { label: 'Unprocessed', value: 'unprocessed' },
-        { label: 'Processed', value: 'processed' },
+        {
+          label: 'Snippets',
+          fields: [
+            {
+              name: 'videoSnippets',
+              type: 'join',
+              collection: 'video-snippets',
+              on: 'video',
+              defaultSort: 'timestampStart',
+              admin: {
+                defaultColumns: ['timestampStart', 'matchingType', 'referencedProducts'],
+              },
+            },
+          ],
+        },
+        {
+          label: 'Transcript',
+          fields: [
+            {
+              name: 'transcript',
+              type: 'textarea',
+              label: 'Transcript',
+              admin: {
+                description: 'Full corrected transcript of the video audio',
+              },
+            },
+          ],
+        },
+        {
+          label: 'Transcript Words',
+          fields: [
+            {
+              name: 'transcriptWords',
+              type: 'json',
+              label: 'Transcript Words',
+              admin: {
+                description: 'Word-level timestamps from speech recognition: [{ word, start, end, confidence }]',
+              },
+            },
+          ],
+        },
       ],
-      index: true,
       admin: {
-        position: 'sidebar',
-      },
-    },
-    {
-      name: 'duration',
-      type: 'number',
-      label: 'Duration',
-      admin: {
-        description: 'Duration in seconds',
-      },
-    },
-    {
-      name: 'viewCount',
-      type: 'number',
-      label: 'View Count',
-    },
-    {
-      name: 'likeCount',
-      type: 'number',
-      label: 'Like Count',
-    },
-    {
-      name: 'externalUrl',
-      type: 'text',
-      label: 'External URL',
-    },
-    {
-      name: 'transcript',
-      type: 'textarea',
-      label: 'Transcript',
-      admin: {
-        description: 'Full corrected transcript of the video audio',
-      },
-    },
-    {
-      name: 'transcriptWords',
-      type: 'json',
-      label: 'Transcript Words',
-      admin: {
-        description: 'Word-level timestamps from speech recognition: [{ word, start, end, confidence }]',
-      },
-    },
-    {
-      name: 'videoSnippets',
-      type: 'join',
-      collection: 'video-snippets',
-      on: 'video',
-      defaultSort: 'timestampStart',
-      admin: {
-        defaultColumns: ['timestampStart', 'matchingType', 'referencedProducts'],
+        condition: (data) => !!data?.id,
       },
     },
   ],

@@ -20,3 +20,5 @@
 - Continue with video testing.
 - Fix the frontend (especially the URL schema and add stuff we added just now)
 - Import reviews
+- Implement isGtinSearch for non-Rossmann drivers
+- Rework searches and discovery to not create SourceProducts? All SPs are always crawled?

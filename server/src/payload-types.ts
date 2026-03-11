@@ -945,7 +945,7 @@ export interface ProductSearch {
    */
   isGtinSearch?: boolean | null;
   /**
-   * Product name, brand, or keyword to search for across selected stores.
+   * One query per line. Each line is searched independently across all selected stores.
    */
   query: string;
   /**
@@ -1019,6 +1019,10 @@ export interface ProductSearch {
 export interface SearchResult {
   id: number;
   search: number | ProductSearch;
+  /**
+   * The individual query line (e.g. a single GTIN) that produced this result
+   */
+  matchedQuery?: string | null;
   sourceProduct: number | SourceProduct;
   /**
    * Which source this result came from
@@ -1422,18 +1426,23 @@ export interface VideoSnippet {
  */
 export interface Video {
   id: number;
-  channel: number | Channel;
-  title: string;
-  image?: (number | null) | Media;
-  publishedAt?: string | null;
   processingStatus?: ('unprocessed' | 'processed') | null;
+  channel: number | Channel;
+  externalUrl?: string | null;
+  publishedAt?: string | null;
   /**
    * Duration in seconds
    */
   duration?: number | null;
   viewCount?: number | null;
   likeCount?: number | null;
-  externalUrl?: string | null;
+  title: string;
+  image?: (number | null) | Media;
+  videoSnippets?: {
+    docs?: (number | VideoSnippet)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   /**
    * Full corrected transcript of the video audio
    */
@@ -1450,11 +1459,6 @@ export interface Video {
     | number
     | boolean
     | null;
-  videoSnippets?: {
-    docs?: (number | VideoSnippet)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -2470,6 +2474,7 @@ export interface DiscoveryResultsSelect<T extends boolean = true> {
  */
 export interface SearchResultsSelect<T extends boolean = true> {
   search?: T;
+  matchedQuery?: T;
   sourceProduct?: T;
   source?: T;
   updatedAt?: T;
@@ -2526,18 +2531,18 @@ export interface ChannelsSelect<T extends boolean = true> {
  * via the `definition` "videos_select".
  */
 export interface VideosSelect<T extends boolean = true> {
-  channel?: T;
-  title?: T;
-  image?: T;
-  publishedAt?: T;
   processingStatus?: T;
+  channel?: T;
+  externalUrl?: T;
+  publishedAt?: T;
   duration?: T;
   viewCount?: T;
   likeCount?: T;
-  externalUrl?: T;
+  title?: T;
+  image?: T;
+  videoSnippets?: T;
   transcript?: T;
   transcriptWords?: T;
-  videoSnippets?: T;
   updatedAt?: T;
   createdAt?: T;
 }
