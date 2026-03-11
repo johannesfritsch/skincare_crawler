@@ -48,6 +48,7 @@ import type { AggregationSource } from '@/lib/aggregate-product'
 import { classifyProduct } from '@/lib/classify-product'
 import { deduplicateLabels } from '@/lib/deduplicate-labels'
 import { consensusDescription } from '@/lib/consensus-description'
+import { cleanProductName } from '@/lib/clean-product-name'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
 
 
@@ -1174,6 +1175,31 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
           } catch (e) {
             const error = e instanceof Error ? e.message : String(e)
             log.error('Classification error', { gtins: gtinLabels, error })
+          }
+        }
+        // Step D: Clean product name — remove variant-specific info (sizes, colors, etc.)
+        if (productData?.name) {
+          const allVariantLabels = perVariantResults
+            .map((pvr) => pvr.variantData!.variantLabel)
+            .filter((l): l is string => !!l)
+
+          if (allVariantLabels.length > 0) {
+            try {
+              const nameResult = await cleanProductName(productData.name, allVariantLabels, llmCache)
+              if (nameResult.name) {
+                productData.name = nameResult.name
+              }
+              tokensUsed += nameResult.tokensUsed.totalTokens
+              jlog.event('aggregation.name_cleaned', {
+                rawName: productData.name,
+                variantLabels: allVariantLabels.length,
+                cacheHit: nameResult.cacheHit,
+              })
+            } catch (e) {
+              const error = e instanceof Error ? e.message : String(e)
+              log.error('Product name cleaning error', { gtins: gtinLabels, error })
+              // Keep the raw name as fallback
+            }
           }
         }
       } else {

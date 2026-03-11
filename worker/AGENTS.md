@@ -13,6 +13,7 @@ worker/src/
     ├── browser.ts                    # Playwright browser management (stealth-enabled via playwright-extra)
     ├── stealth-fetch.ts              # Fetch with anti-bot headers
     ├── parse-ingredients.ts          # Ingredient text → name[] parser (LLM, handles footnotes/asterisks)
+    ├── clean-product-name.ts         # cleanProductName(rawName, variantLabels) — LLM-powered, strips variant-specific info (sizes, colors) from product names
     ├── source-product-queries.ts     # Source-product/variant DB query helpers + normalizeProductUrl() + normalizeVariantUrl()
     │
     ├── work-protocol/
@@ -316,8 +317,10 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
    - consensusDescription() per variant
    - deduplicateLabels() per variant
 
-4. [full scope only] Product-level LLM step (once per group):
+4. [full scope only] Product-level LLM steps (once per group):
    - classifyProduct() using deduplicated descriptions/ingredients from all sources
+   - cleanProductName() — strips variant-specific info (sizes, colors, shade numbers)
+     from the raw product name using variant labels as context
 
 5. Submit results (one result per product group, containing all variant data)
 ```
@@ -440,6 +443,7 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 | `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `persistProductAggregationResult` |
 | `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `persistVideoProcessingResult` |
 | `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, warnings, skinApplicability, phMin, phMax, usageInstructions, usageSchedule, productAttributes[], productClaims[], tokensUsed }` — detail fields extracted from descriptions by LLM; evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `handleProductAggregation` |
+| `cleanProductName(rawName, variantLabels, cache)` | raw product name + variant labels (e.g. "50ml", "Rose Gold") | `{ name, tokensUsed, cacheHit }` — strips variant-specific info (sizes, colors, shade numbers) to produce a clean generic product name | `handleProductAggregation` |
 | `correctTranscript(rawTranscript, words, brands, products)` | raw STT transcript + brand/product names | `{ correctedTranscript, corrections[], tokensUsed }` | `handleVideoProcessing` |
 | `analyzeSentiment(pre, transcript, post, products)` | transcript segments + product info | `{ products[]: { quotes[], overallSentiment, score }, tokensUsed }` | `handleVideoProcessing` |
 
@@ -504,7 +508,7 @@ Each module creates a logger with a PascalCase tag. Tags are distinct per module
 | `DM`, `Mueller`, `Rossmann`, `PurishDriver` | Source drivers |
 | `YouTube` | Video discovery driver |
 | `CosIng` | Ingredients discovery driver |
-| `matchBrand`, `matchIngredients`, `matchProduct`, `classifyProduct` | Matching/classification functions |
+| `matchBrand`, `matchIngredients`, `matchProduct`, `classifyProduct`, `cleanProductName` | Matching/classification functions |
 | `processVideo`, `recognizeProduct`, `transcribeAudio`, `correctTranscript`, `analyzeSentiment` | Video processing functions |
 
 ### Driver logger passthrough

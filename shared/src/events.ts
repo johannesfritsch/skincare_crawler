@@ -413,6 +413,11 @@ export interface EventRegistry {
     total: number
   }
   'aggregation.image_uploaded': { mediaId: number }
+  'aggregation.name_cleaned': {
+    rawName: string
+    variantLabels: number
+    cacheHit: boolean
+  }
   'aggregation.classification_applied': {
     productType: string
     attributeCount: number
@@ -823,6 +828,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['image', 'persistence'],
+  },
+  'aggregation.name_cleaned': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'llm'],
   },
   'aggregation.classification_applied': {
     type: 'info',
