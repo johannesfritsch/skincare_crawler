@@ -279,42 +279,47 @@ async function handleProductDiscovery(work: Record<string, unknown>): Promise<vo
 async function handleProductSearch(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const jlog = log.forJob('product-searches', jobId)
-  const query = work.query as string
+  const rawQuery = work.query as string
   const sources = work.sources as string[]
   const maxResults = (work.maxResults as number) ?? 50
   const isGtinSearch = (work.isGtinSearch as boolean) ?? true
   const debug = (work.debug as boolean) ?? false
 
-  log.info('Product search job', { jobId, query, sources: sources.join(', '), maxResults, isGtinSearch })
-  jlog.event('search.started', { query, sources: sources.join(','), maxResults })
+  // Split multiline query into individual queries (one per line), trim and filter empty lines
+  const queries = rawQuery.split('\n').map((q) => q.trim()).filter(Boolean)
 
-  const allProducts: Array<{ product: DiscoveredProduct; source: string }> = []
+  log.info('Product search job', { jobId, queries: queries.length, sources: sources.join(', '), maxResults, isGtinSearch })
+  jlog.event('search.started', { query: rawQuery, sources: sources.join(','), maxResults })
 
-  for (const sourceSlug of sources) {
-    const driver = getSourceDriverBySlug(sourceSlug)
-    if (!driver) {
-      log.warn('No driver for source, skipping', { jobId, source: sourceSlug })
-      continue
-    }
+  const allProducts: Array<{ product: DiscoveredProduct; source: string; matchedQuery: string }> = []
 
-    try {
-      const result = await driver.searchProducts({ query, maxResults, isGtinSearch, debug, logger: jlog })
-      log.info('Search results from source', { jobId, source: driver.label, products: result.products.length })
-
-      for (const product of result.products) {
-        allProducts.push({ product, source: sourceSlug })
+  for (const query of queries) {
+    for (const sourceSlug of sources) {
+      const driver = getSourceDriverBySlug(sourceSlug)
+      if (!driver) {
+        log.warn('No driver for source, skipping', { jobId, source: sourceSlug })
+        continue
       }
-    } catch (e) {
-      log.error('Search error', { jobId, source: driver.label, error: e instanceof Error ? e.message : String(e) })
+
+      try {
+        const result = await driver.searchProducts({ query, maxResults, isGtinSearch, debug, logger: jlog })
+        log.info('Search results', { jobId, query, source: driver.label, products: result.products.length })
+
+        for (const product of result.products) {
+          allProducts.push({ product, source: sourceSlug, matchedQuery: query })
+        }
+      } catch (e) {
+        log.error('Search error', { jobId, query, source: driver.label, error: e instanceof Error ? e.message : String(e) })
+      }
     }
   }
 
-  log.info('Search totals', { jobId, totalProducts: allProducts.length, sourceCount: sources.length })
+  log.info('Search totals', { jobId, totalProducts: allProducts.length, queries: queries.length, sourceCount: sources.length })
 
   await submitWork(client, worker, {
     type: 'product-search',
     jobId,
-    products: allProducts as Array<{ product: DiscoveredProduct; source: import('@/lib/source-product-queries').SourceSlug }>,
+    products: allProducts as Array<{ product: DiscoveredProduct; source: import('@/lib/source-product-queries').SourceSlug; matchedQuery: string }>,
   } as Parameters<typeof submitWork>[2])
 
   log.info('Submitted search results', { products: allProducts.length })

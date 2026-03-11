@@ -119,7 +119,7 @@ interface SubmitProductDiscoveryBody {
 interface SubmitProductSearchBody {
   type: 'product-search'
   jobId: number
-  products: Array<{ product: DiscoveredProduct; source: SourceSlug }>
+  products: Array<{ product: DiscoveredProduct; source: SourceSlug; matchedQuery: string }>
 }
 
 interface SubmitIngredientsDiscoveryBody {
@@ -603,7 +603,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
   let discovered = 0
   let persisted = 0
 
-  for (const { product, source } of products) {
+  for (const { product, source, matchedQuery } of products) {
     discovered++
 
     try {
@@ -627,6 +627,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
           search: jobId,
           sourceProduct: result.sourceProductId,
           source,
+          matchedQuery,
         },
       })
     } catch (e) {

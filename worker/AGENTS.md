@@ -230,7 +230,7 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 **Key params**: `query` (search text), `sources` (dm/mueller/rossmann, multi-select), `maxResults` (per source, default 50)
 
-**Persistence**: Reuses `persistDiscoveredProduct()` from discovery pipeline. Creates `search-results` join records (not `discovery-results`). Each result tracks which source it came from.
+**Persistence**: Reuses `persistDiscoveredProduct()` from discovery pipeline. Creates `search-results` join records (not `discovery-results`). Each result tracks which source it came from and which individual query line (`matchedQuery`) produced it (e.g. a single GTIN from a multiline search).
 
 **Driver support**: All three drivers fully implemented. DM uses API-based search (`product-search.services.dmtech.com`). Rossmann and Mueller use Playwright-based browser scraping of their search pages (`/de/search?text=` and `/search/?q=` respectively), with pagination support.
 

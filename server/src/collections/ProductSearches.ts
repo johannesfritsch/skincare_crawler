@@ -40,11 +40,11 @@ export const ProductSearches: CollectionConfig = {
     },
     {
       name: 'query',
-      type: 'text',
-      label: 'Search Query',
+      type: 'textarea',
+      label: 'Search Queries',
       required: true,
       admin: {
-        description: 'Product name, brand, or keyword to search for across selected stores.',
+        description: 'One query per line. Each line is searched independently across all selected stores.',
       },
     },
     {

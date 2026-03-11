@@ -150,7 +150,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `media` | File uploads |
 | `crawl-results` | Join table: product-crawls → source-products (hidden) |
 | `discovery-results` | Join table: product-discoveries → source-products (hidden) |
-| `search-results` | Join table: product-searches → source-products (hidden) |
+| `search-results` | Join table: product-searches → source-products (hidden). Has `matchedQuery` (text) storing the individual query line that produced the result (e.g. a single GTIN from a multiline search). `useAsTitle: 'matchedQuery'`, `defaultColumns: ['matchedQuery', 'sourceProduct', 'source']`. |
 
 ## End-to-End Data Flow
 

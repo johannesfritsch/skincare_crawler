@@ -8,6 +8,8 @@ export const SearchResults: CollectionConfig = {
     plural: 'Search Results',
   },
   admin: {
+    useAsTitle: 'matchedQuery',
+    defaultColumns: ['matchedQuery', 'sourceProduct', 'source'],
     group: 'Products',
     hidden: true,
   },
@@ -18,6 +20,15 @@ export const SearchResults: CollectionConfig = {
       relationTo: 'product-searches',
       required: true,
       index: true,
+    },
+    {
+      name: 'matchedQuery',
+      type: 'text',
+      label: 'Matched Query',
+      admin: {
+        readOnly: true,
+        description: 'The individual query line (e.g. a single GTIN) that produced this result',
+      },
     },
     {
       name: 'sourceProduct',
