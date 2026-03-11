@@ -205,7 +205,9 @@ Work items come in two forms:
 
 **`crawlVariants`** (default: true): When enabled, after crawling a variant, any sibling variant URLs discovered on the page are also crawled. All three drivers (DM, Mueller, Rossmann) extract full variant URLs from the page — the driver is the source of truth for URL construction, persist just stores whatever the driver provides. When disabled, only the default variant per product is crawled.
 
-**Variant tracking**: Each source-variant has a `crawledAt` timestamp set when it is individually crawled. `findUncrawledVariants()` skips variants where `crawledAt` is already set. When `crawlVariants=true` for scoped jobs (selected_urls, selected_gtins, from_discovery), the system resolves the original URLs to source-product IDs and finds ALL their uncrawled variants (including sibling variants with different URLs).
+**Variant tracking**: Each source-variant has a `crawledAt` timestamp set when it is individually crawled. `findUncrawledVariants()` skips variants where `crawledAt` is already set. When `crawlVariants=true` for scoped jobs (selected_urls, from_discovery, from_search), the system resolves the original URLs to source-product IDs and finds ALL their uncrawled variants (including sibling variants with different URLs).
+
+**GTIN output**: After each batch, `submitProductCrawl()` collects all GTINs from successfully crawled products (main GTIN + sibling variant GTINs from the scraped variant data) and appends them to the job's hidden `crawledGtins` textarea field (deduplicated). The admin UI has a "Download Crawled GTINs" button on the Output tab that downloads this field as a text file.
 
 **Resumption**: Two-phase work queue via `buildProductCrawlWork()`:
 1. **Uncrawled products** (via `findUncrawledProducts()`): source-products with zero source-variants — these need their first crawl. Work items have no `sourceVariantId`; the URL is `source-products.sourceUrl`.

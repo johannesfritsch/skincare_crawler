@@ -334,6 +334,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   let batchExistingVariants = 0
   let batchWithIngredients = 0
   let batchPriceChanges = 0
+  const batchGtins = new Set<string>()
 
   for (const result of results) {
     if (result.data) {
@@ -352,6 +353,15 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         batchExistingVariants += persistResult.existingVariants
         if (persistResult.hasIngredients) batchWithIngredients++
         if (persistResult.priceChange && persistResult.priceChange !== 'stable') batchPriceChanges++
+
+        // Collect GTINs: main product GTIN + all sibling variant GTINs
+        if (result.data.gtin) batchGtins.add(result.data.gtin)
+        for (const dim of result.data.variants ?? []) {
+          for (const opt of dim.options ?? []) {
+            if (opt.gtin) batchGtins.add(opt.gtin)
+          }
+        }
+
         log.info('Product crawl persisted', { jobId, sourceUrl: result.sourceUrl })
       } catch (e) {
         log.error('Product crawl persist error', { jobId, sourceUrl: result.sourceUrl, error: e instanceof Error ? e.message : String(e) })
@@ -360,6 +370,21 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     } else {
       log.info('Product crawl failed', { jobId, sourceUrl: result.sourceUrl, error: result.error ?? 'Failed to scrape' })
       errors++
+    }
+  }
+
+  // Accumulate discovered GTINs on the job
+  if (batchGtins.size > 0) {
+    const existingGtins = ((job.crawledGtins as string) ?? '').trim()
+    const existingSet = new Set(existingGtins ? existingGtins.split('\n') : [])
+    const newGtins = [...batchGtins].filter((g) => !existingSet.has(g))
+    if (newGtins.length > 0) {
+      const updated = existingGtins ? existingGtins + '\n' + newGtins.join('\n') : newGtins.join('\n')
+      await payload.update({
+        collection: 'product-crawls',
+        id: jobId,
+        data: { crawledGtins: updated },
+      })
     }
   }
 

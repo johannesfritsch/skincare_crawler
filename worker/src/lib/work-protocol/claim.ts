@@ -259,6 +259,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
         total,
         crawled: 0,
         errors: 0,
+        crawledGtins: '',
       },
     })
 

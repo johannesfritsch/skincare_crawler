@@ -149,6 +149,22 @@ export const ProductSearches: CollectionConfig = {
           label: 'Output',
           fields: [
             {
+              name: 'productUrlsDisplay',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: {
+                    path: '@/components/JobOutputField',
+                    clientProps: {
+                      fieldName: 'productUrls',
+                      label: 'Discovered URLs',
+                      description: 'One URL per line, accumulated during search.',
+                    },
+                  },
+                },
+              },
+            },
+            {
               name: 'downloadSearchedSourceUrls',
               type: 'ui',
               admin: {

@@ -784,6 +784,7 @@ export interface ProductCrawl {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  crawledGtins?: string | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -2289,6 +2290,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
+  crawledGtins?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;

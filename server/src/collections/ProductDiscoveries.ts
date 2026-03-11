@@ -74,7 +74,7 @@ export const ProductDiscoveries: CollectionConfig = {
         description: 'Keep browser visible (non-headless).',
       },
     },
-    // Hidden field used by worker to track discovered URLs
+    // Worker accumulates discovered URLs here; shown read-only on the Output tab
     {
       name: 'productUrls',
       type: 'textarea',
@@ -143,6 +143,22 @@ export const ProductDiscoveries: CollectionConfig = {
         {
           label: 'Output',
           fields: [
+            {
+              name: 'productUrlsDisplay',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: {
+                    path: '@/components/JobOutputField',
+                    clientProps: {
+                      fieldName: 'productUrls',
+                      label: 'Discovered URLs',
+                      description: 'One URL per line, accumulated during discovery.',
+                    },
+                  },
+                },
+              },
+            },
             {
               name: 'downloadUrls',
               type: 'ui',

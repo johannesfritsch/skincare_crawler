@@ -258,6 +258,43 @@ export const ProductCrawls: CollectionConfig = {
           ],
         },
         {
+          label: 'Output',
+          fields: [
+            {
+              name: 'crawledGtins',
+              type: 'textarea',
+              admin: {
+                hidden: true,
+              },
+            },
+            {
+              name: 'crawledGtinsDisplay',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: {
+                    path: '@/components/JobOutputField',
+                    clientProps: {
+                      fieldName: 'crawledGtins',
+                      label: 'Crawled GTINs',
+                      description: 'One GTIN per line, accumulated during crawl.',
+                    },
+                  },
+                },
+              },
+            },
+            {
+              name: 'downloadCrawledGtins',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '@/components/DownloadCrawledGtinsButton',
+                },
+              },
+            },
+          ],
+        },
+        {
           label: 'Events',
           fields: [
             {

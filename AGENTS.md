@@ -131,7 +131,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 
 | Collection | Key fields |
 |------------|------------|
-| `product-crawls` | source, type (all/selected_urls/from_discovery/from_search), scope, crawlVariants (default true), progress |
+| `product-crawls` | source, type (all/selected_urls/from_discovery/from_search), scope, crawlVariants (default true), progress, crawledGtins (hidden, accumulated GTINs) |
 | `product-discoveries` | sourceUrls, progress, discovered count, productUrls (hidden, accumulated URLs) |
 | `product-searches` | query, sources (dm/mueller/rossmann), maxResults, discovered count, productUrls (hidden, accumulated URLs) |
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
