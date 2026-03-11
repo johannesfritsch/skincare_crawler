@@ -75,6 +75,8 @@ export interface ProductSearchOptions {
   query: string
   maxResults?: number   // max products to return (default: 50)
   debug?: boolean       // keep browser visible (non-headless)
+  /** When true, query is a GTIN and drivers should filter results to exact GTIN matches only */
+  isGtinSearch?: boolean
   /** Job-scoped logger for event emission */
   logger?: import('@/lib/logger').Logger
 }

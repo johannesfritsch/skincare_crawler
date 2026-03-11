@@ -941,6 +941,10 @@ export interface ProductCrawl {
 export interface ProductSearch {
   id: number;
   /**
+   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
+   */
+  isGtinSearch?: boolean | null;
+  /**
    * Product name, brand, or keyword to search for across selected stores.
    */
   query: string;
@@ -2352,6 +2356,7 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
  * via the `definition` "product-searches_select".
  */
 export interface ProductSearchesSelect<T extends boolean = true> {
+  isGtinSearch?: T;
   query?: T;
   sources?: T;
   maxResults?: T;

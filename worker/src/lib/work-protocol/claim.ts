@@ -437,13 +437,21 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
   const query = (job.query as string) ?? ''
   const sources = (job.sources as string[]) ?? [...ALL_SOURCE_SLUGS]
   const maxResults = (job.maxResults as number) ?? 50
+  const isGtinSearch = (job.isGtinSearch as boolean) ?? true
   const debug = (job.debug as boolean) ?? false
 
-  jlog.info('Product search job loaded', { jobId, query, sources: sources.join(', '), maxResults })
+  jlog.info('Product search job loaded', { jobId, query, sources: sources.join(', '), maxResults, isGtinSearch })
 
-  // Initialize job if pending
+  // Initialize job if pending — clear previous results so a re-run starts fresh
   if (job.status === 'pending') {
     jlog.info('Initializing product search job', { jobId })
+
+    // Delete existing search-results from any previous run
+    await payload.delete({
+      collection: 'search-results',
+      where: { search: { equals: jobId } },
+    })
+
     await payload.update({
       collection: 'product-searches',
       id: jobId,
@@ -465,6 +473,7 @@ async function buildProductSearchWork(payload: PayloadRestClient, jobId: number)
     query,
     sources,
     maxResults,
+    isGtinSearch,
     debug,
   }
 }

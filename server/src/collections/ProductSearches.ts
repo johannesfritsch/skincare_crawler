@@ -29,6 +29,16 @@ export const ProductSearches: CollectionConfig = {
   },
   fields: [
     {
+      name: 'isGtinSearch',
+      type: 'checkbox',
+      label: 'GTIN Search',
+      defaultValue: true,
+      admin: {
+        description:
+          'When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.',
+      },
+    },
+    {
       name: 'query',
       type: 'text',
       label: 'Search Query',
@@ -77,6 +87,7 @@ export const ProductSearches: CollectionConfig = {
       },
     },
     ...jobClaimFields,
+
     {
       name: 'debug',
       type: 'checkbox',

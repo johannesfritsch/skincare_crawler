@@ -332,10 +332,10 @@ export const rossmannDriver: SourceDriver = {
   async searchProducts(
     options: ProductSearchOptions,
   ): Promise<ProductSearchResult> {
-    const { query, maxResults = 50, debug = false, logger } = options
+    const { query, maxResults = 50, isGtinSearch = false, debug = false, logger } = options
     const products: import('../../types').DiscoveredProduct[] = []
 
-    log.info('Searching Rossmann', { query, maxResults })
+    log.info('Searching Rossmann', { query, maxResults, isGtinSearch })
 
     const browser = await launchBrowser({ headless: !debug })
     try {
@@ -416,6 +416,14 @@ export const rossmannDriver: SourceDriver = {
           if (products.length >= maxResults) break
           const productUrl = p.href ? normalizeProductUrl(`https://www.rossmann.de${p.href}`) : null
           if (!productUrl) continue
+
+          // For GTIN searches, only include products with an exact GTIN match.
+          // Check both the data-item-ean attribute and the URL path (/p/{GTIN}).
+          if (isGtinSearch) {
+            const urlGtin = productUrl.match(/\/p\/(\d+)$/)?.[1]
+            if (p.gtin !== query && urlGtin !== query) continue
+          }
+
           products.push({
             gtin: p.gtin || undefined,
             productUrl,

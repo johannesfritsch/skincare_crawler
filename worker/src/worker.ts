@@ -282,9 +282,10 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
   const query = work.query as string
   const sources = work.sources as string[]
   const maxResults = (work.maxResults as number) ?? 50
+  const isGtinSearch = (work.isGtinSearch as boolean) ?? true
   const debug = (work.debug as boolean) ?? false
 
-  log.info('Product search job', { jobId, query, sources: sources.join(', '), maxResults })
+  log.info('Product search job', { jobId, query, sources: sources.join(', '), maxResults, isGtinSearch })
   jlog.event('search.started', { query, sources: sources.join(','), maxResults })
 
   const allProducts: Array<{ product: DiscoveredProduct; source: string }> = []
@@ -297,7 +298,7 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
     }
 
     try {
-      const result = await driver.searchProducts({ query, maxResults, debug, logger: jlog })
+      const result = await driver.searchProducts({ query, maxResults, isGtinSearch, debug, logger: jlog })
       log.info('Search results from source', { jobId, source: driver.label, products: result.products.length })
 
       for (const product of result.products) {
