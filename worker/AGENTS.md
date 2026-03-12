@@ -499,7 +499,43 @@ The `event()` method:
 4. Emits to the server with both `message` (prefixed with `[tag]`) and `name` fields
 5. Only emits server events when the logger is job-scoped (via `forJob()`)
 
-Event names follow `domain.action` convention (e.g. `crawl.started`, `scraper.product_scraped`, `persist.price_changed`). ~90 events are defined covering all 127 emission sites. See `shared/src/events.ts` for the complete registry.
+Event names follow `domain.action` convention (e.g. `crawl.started`, `scraper.product_scraped`, `persist.price_changed`). ~90 events are defined covering all emission sites. See `shared/src/events.ts` for the complete registry.
+
+### Banner logging (stage markers)
+
+The `banner(title, data?)` and `bannerEnd(title, success, data?)` methods print prominent ASCII-boxed output to the console, making stage boundaries easy to spot when scrolling through logs. They are console-only — no server event is emitted (use `event()` separately for that).
+
+```typescript
+log.banner('STAGE: download — "My Video"', { videoId: 42 })
+// Console output (text mode):
+// ┌──────────────────────────────────────────────────────────────────────┐
+// │ ▶ STAGE: download — "My Video"  videoId=42                          │
+// └──────────────────────────────────────────────────────────────────────┘
+
+log.bannerEnd('STAGE: download — "My Video"', true, { duration: '4.2s', tokens: 0 })
+// ┌──────────────────────────────────────────────────────────────────────┐
+// │ ✓ STAGE: download — "My Video"  duration=4.2s tokens=0              │
+// └──────────────────────────────────────────────────────────────────────┘
+
+log.bannerEnd('STAGE: download — "My Video"', false, { duration: '1.3s', error: 'timeout' })
+// ┌──────────────────────────────────────────────────────────────────────┐
+// │ ✗ STAGE: download — "My Video"  duration=1.3s error=timeout         │
+// └──────────────────────────────────────────────────────────────────────┘
+```
+
+In JSON mode, banners emit a single JSON line with `"banner": true` for filtering.
+
+### Stage lifecycle events
+
+Both stage-based pipelines (video processing and product aggregation) emit generic `stage.started`, `stage.completed`, and `stage.failed` events via the job-scoped logger. These are server events visible in the admin UI.
+
+```typescript
+jlog.event('stage.started', { pipeline: 'video-processing', stage: 'download', item: 'My Video Title' })
+jlog.event('stage.completed', { pipeline: 'product-aggregation', stage: 'classify', item: '4012345678901', durationMs: 3200, tokens: 450 })
+jlog.event('stage.failed', { pipeline: 'video-processing', stage: 'transcription', item: 'My Video', durationMs: 1300, error: 'timeout' })
+```
+
+Each stage execution produces exactly one `stage.started` + one `stage.completed` or `stage.failed` pair.
 
 ### Logger tags
 

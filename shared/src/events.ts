@@ -315,6 +315,29 @@ export interface EventRegistry {
     durationMs: number
   }
 
+  // ─── Stage Lifecycle (shared by video-processing & product-aggregation) ──
+  // worker.ts: emitted by stage dispatchers around each stage execution
+
+  'stage.started': {
+    pipeline: string  // 'video-processing' | 'product-aggregation'
+    stage: string     // e.g. 'download', 'resolve', 'classify'
+    item: string      // human-readable identifier (video title or GTINs)
+  }
+  'stage.completed': {
+    pipeline: string
+    stage: string
+    item: string
+    durationMs: number
+    tokens: number
+  }
+  'stage.failed': {
+    pipeline: string
+    stage: string
+    item: string
+    durationMs: number
+    error: string
+  }
+
   // ─── Video Processing ─────────────────────────────────────────────────
   // worker.ts: handler start, per-video pipeline steps
   // submit.ts: persist failed, error, batch done, completed
@@ -401,17 +424,6 @@ export interface EventRegistry {
     productType: string
     attributes: number
     claims: number
-  }
-  'aggregation.stage_complete': {
-    gtins: string
-    stage: string
-    productId: number | null
-    tokens: number
-  }
-  'aggregation.stage_failed': {
-    gtins: string
-    stage: string
-    error: string
   }
   'aggregation.error': { error: string }
   'aggregation.persist_error': { gtin: string; error: string }
@@ -723,6 +735,23 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     labels: ['discovery'],
   },
 
+  // Stage lifecycle (shared by video-processing & product-aggregation)
+  'stage.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['stage'],
+  },
+  'stage.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['stage'],
+  },
+  'stage.failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['stage'],
+  },
+
   // Video processing
   'video_processing.started': {
     type: 'start',
@@ -830,16 +859,6 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['aggregation', 'classification'],
-  },
-  'aggregation.stage_complete': {
-    type: 'success',
-    level: 'info',
-    labels: ['aggregation'],
-  },
-  'aggregation.stage_failed': {
-    type: 'error',
-    level: 'error',
-    labels: ['aggregation'],
   },
   'aggregation.error': { type: 'error', level: 'error' },
   'aggregation.persist_error': { type: 'error', level: 'error' },

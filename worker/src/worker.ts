@@ -473,13 +473,14 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
   const results: Array<Record<string, unknown>> = []
 
   for (const item of stageItems) {
-    log.info('════════════════════════════════════════════════════')
-    log.info('Processing stage', { title: item.title, videoId: item.videoId, stage: item.stageName })
+    const itemLabel = item.title ? `"${item.title}"` : `video #${item.videoId}`
+    log.banner(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, { videoId: item.videoId })
+    jlog.event('stage.started', { pipeline: 'video-processing', stage: item.stageName, item: item.title || String(item.videoId) })
 
     // Find the stage definition
     const stageDef = STAGES.find((s) => s.name === item.stageName)
     if (!stageDef) {
-      log.error('Unknown stage', { stage: item.stageName })
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, false, { error: 'unknown stage' })
       results.push({ videoId: item.videoId, stageName: item.stageName, success: false, error: `Unknown stage: ${item.stageName}` })
       continue
     }
@@ -492,25 +493,34 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
       heartbeat: () => heartbeat(jobId, 'video-processing'),
     }
 
+    const stageStartMs = Date.now()
     try {
       const stageResult = await stageDef.execute(stageCtx, item.videoId)
+      const durationMs = Date.now() - stageStartMs
+      const tokens = stageResult.tokens?.total ?? 0
+      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
 
-      jlog.event('video_processing.complete', { title: item.title, stage: item.stageName, tokens: stageResult.tokens?.total ?? 0 })
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, stageResult.success, { duration: durationStr, tokens })
+      jlog.event('stage.completed', { pipeline: 'video-processing', stage: item.stageName, item: item.title || String(item.videoId), durationMs, tokens })
 
       results.push({
         videoId: item.videoId,
         stageName: item.stageName,
         success: stageResult.success,
         error: stageResult.error,
-        tokensUsed: stageResult.tokens?.total ?? 0,
+        tokensUsed: tokens,
         tokensRecognition: stageResult.tokens?.recognition ?? 0,
         tokensTranscriptCorrection: stageResult.tokens?.transcriptCorrection ?? 0,
         tokensSentiment: stageResult.tokens?.sentiment ?? 0,
       })
     } catch (error) {
+      const durationMs = Date.now() - stageStartMs
       const msg = error instanceof Error ? error.message : String(error)
-      log.error('Stage execution failed', { videoId: item.videoId, stage: item.stageName, error: msg })
-      jlog.event('video_processing.failed', { title: item.title, stage: item.stageName, error: msg })
+      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
+
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, false, { duration: durationStr, error: msg.slice(0, 80) })
+      jlog.event('stage.failed', { pipeline: 'video-processing', stage: item.stageName, item: item.title || String(item.videoId), durationMs, error: msg })
+
       results.push({
         videoId: item.videoId,
         stageName: item.stageName,
@@ -551,13 +561,14 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
 
   for (const item of stageItems) {
     const gtinLabels = item.workItem.gtins.join(', ')
-    log.info('════════════════════════════════════════════════════')
-    log.info('Processing stage', { gtins: gtinLabels, productId: item.productId, stage: item.stageName })
+    const itemLabel = gtinLabels.length > 40 ? `${gtinLabels.slice(0, 37)}...` : gtinLabels
+    log.banner(`STAGE: ${item.stageName} \u2014 GTINs: ${itemLabel}`, { productId: item.productId })
+    jlog.event('stage.started', { pipeline: 'product-aggregation', stage: item.stageName, item: gtinLabels })
 
     // Find the stage definition
     const stageDef = AGGREGATION_STAGES.find((s) => s.name === item.stageName)
     if (!stageDef) {
-      log.error('Unknown stage', { stage: item.stageName })
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 GTINs: ${itemLabel}`, false, { error: 'unknown stage' })
       results.push({ productId: item.productId, stageName: item.stageName, success: false, error: `Unknown stage: ${item.stageName}`, tokensUsed: 0 })
       continue
     }
@@ -570,22 +581,31 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
       heartbeat: () => heartbeat(jobId, 'product-aggregation'),
     }
 
+    const stageStartMs = Date.now()
     try {
       const stageResult = await stageDef.execute(stageCtx, item.workItem)
+      const durationMs = Date.now() - stageStartMs
+      const tokens = stageResult.tokensUsed ?? 0
+      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
 
-      jlog.event('aggregation.stage_complete', { gtins: gtinLabels, stage: item.stageName, productId: stageResult.productId ?? item.productId, tokens: stageResult.tokensUsed ?? 0 })
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 GTINs: ${itemLabel}`, stageResult.success, { duration: durationStr, tokens, productId: stageResult.productId ?? item.productId })
+      jlog.event('stage.completed', { pipeline: 'product-aggregation', stage: item.stageName, item: gtinLabels, durationMs, tokens })
 
       results.push({
         productId: stageResult.productId ?? item.productId,
         stageName: item.stageName,
         success: stageResult.success,
         error: stageResult.error,
-        tokensUsed: stageResult.tokensUsed ?? 0,
+        tokensUsed: tokens,
       })
     } catch (error) {
+      const durationMs = Date.now() - stageStartMs
       const msg = error instanceof Error ? error.message : String(error)
-      log.error('Stage execution failed', { gtins: gtinLabels, stage: item.stageName, error: msg })
-      jlog.event('aggregation.stage_failed', { gtins: gtinLabels, stage: item.stageName, error: msg })
+      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
+
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 GTINs: ${itemLabel}`, false, { duration: durationStr, error: msg.slice(0, 80) })
+      jlog.event('stage.failed', { pipeline: 'product-aggregation', stage: item.stageName, item: gtinLabels, durationMs, error: msg })
+
       results.push({
         productId: item.productId,
         stageName: item.stageName,

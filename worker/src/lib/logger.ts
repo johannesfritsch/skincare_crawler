@@ -111,6 +111,32 @@ export interface Logger {
    */
   event<N extends EventName>(name: N, data: EventRegistry[N], opts?: Partial<EventMeta>): void
 
+  /**
+   * Print a prominent ASCII banner to the console (not emitted to server).
+   * Used to visually mark the start of a stage or major processing section.
+   *
+   * Console output (text mode):
+   * ```
+   * ┌─────────────────────────────────────────────────┐
+   * │ ▶ STAGE: download — "My Video Title"            │
+   * └─────────────────────────────────────────────────┘
+   * ```
+   */
+  banner(title: string, data?: LogData): void
+
+  /**
+   * Print a prominent ASCII banner marking the end of a stage.
+   * Shows success/failure status with optional data (duration, tokens).
+   *
+   * Console output (text mode):
+   * ```
+   * ┌─────────────────────────────────────────────────┐
+   * │ ✓ STAGE: download — "My Video Title"  4.2s      │
+   * └─────────────────────────────────────────────────┘
+   * ```
+   */
+  bannerEnd(title: string, success: boolean, data?: LogData): void
+
   forJob(collection: JobCollection, id: number): Logger
 }
 
@@ -155,6 +181,33 @@ function emitEvent(
       },
     })
     .catch(() => {})
+}
+
+// ---------------------------------------------------------------------------
+// Banner formatting (prominent stage markers)
+// ---------------------------------------------------------------------------
+
+const BANNER_COLOR = '\x1b[36m'  // cyan for banner box
+const BANNER_ICON_START = '\x1b[1;33m\u25B6\x1b[0m'  // bold yellow ▶
+const BANNER_ICON_OK = '\x1b[1;32m\u2713\x1b[0m'     // bold green ✓
+const BANNER_ICON_FAIL = '\x1b[1;31m\u2717\x1b[0m'   // bold red ✗
+const BANNER_WIDTH = 72
+
+function formatBanner(icon: string, title: string, data?: LogData): void {
+  const dataStr = data ? `  ${Object.entries(data).filter(([, v]) => v != null).map(([k, v]) => `${k}=${v}`).join(' ')}` : ''
+  const content = ` ${icon} ${title}${dataStr}`
+  // Strip ANSI codes to compute visible width
+  const visibleLen = content.replace(/\x1b\[[0-9;]*m/g, '').length
+  const innerWidth = Math.max(BANNER_WIDTH - 2, visibleLen + 1) // at least fits content + 1 padding
+  const padding = Math.max(0, innerWidth - visibleLen)
+
+  const top = `${BANNER_COLOR}\u250C${'\u2500'.repeat(innerWidth)}\u2510${RESET}`
+  const mid = `${BANNER_COLOR}\u2502${RESET}${content}${' '.repeat(padding)}${BANNER_COLOR}\u2502${RESET}`
+  const bot = `${BANNER_COLOR}\u2514${'\u2500'.repeat(innerWidth)}\u2518${RESET}`
+
+  console.log(top)
+  console.log(mid)
+  console.log(bot)
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +276,52 @@ function makeLogger(
           data as LogData,
           eventName,
         )
+      }
+    },
+
+    banner(title: string, data?: LogData): void {
+      if (LEVEL_ORDER['info'] >= LEVEL_ORDER[configuredLevel]) {
+        if (configuredFormat === 'json') {
+          const entry: Record<string, unknown> = {
+            ts: new Date().toISOString(),
+            level: 'info',
+            tag,
+            msg: `STAGE START: ${title}`,
+            banner: true,
+            ...data,
+          }
+          if (job) {
+            entry.jobCollection = job.collection
+            entry.jobId = job.id
+          }
+          console.log(JSON.stringify(entry))
+        } else {
+          formatBanner(BANNER_ICON_START, title, data)
+        }
+      }
+    },
+
+    bannerEnd(title: string, success: boolean, data?: LogData): void {
+      if (LEVEL_ORDER['info'] >= LEVEL_ORDER[configuredLevel]) {
+        if (configuredFormat === 'json') {
+          const entry: Record<string, unknown> = {
+            ts: new Date().toISOString(),
+            level: 'info',
+            tag,
+            msg: `STAGE ${success ? 'OK' : 'FAIL'}: ${title}`,
+            banner: true,
+            success,
+            ...data,
+          }
+          if (job) {
+            entry.jobCollection = job.collection
+            entry.jobId = job.id
+          }
+          console.log(JSON.stringify(entry))
+        } else {
+          const icon = success ? BANNER_ICON_OK : BANNER_ICON_FAIL
+          formatBanner(icon, title, data)
+        }
       }
     },
 
