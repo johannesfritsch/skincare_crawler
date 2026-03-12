@@ -104,7 +104,7 @@ interface SubmitProductCrawlBody {
   crawlVariants: boolean
   results: Array<{
     sourceVariantId?: number
-    sourceProductId: number
+    sourceProductId?: number
     sourceUrl: string
     source: SourceSlug
     data: ScrapedProductData | null

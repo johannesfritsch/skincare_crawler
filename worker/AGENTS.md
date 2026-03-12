@@ -227,7 +227,8 @@ Work items come in two forms:
 
 **GTIN output**: After each batch, `submitProductCrawl()` collects all GTINs from successfully crawled products (main GTIN + sibling variant GTINs from the scraped variant data) and appends them to the job's hidden `crawledGtins` textarea field (deduplicated). The admin UI has a "Download Crawled GTINs" button on the Output tab that downloads this field as a text file.
 
-**Resumption**: Two-phase work queue via `buildProductCrawlWork()`:
+**Resumption**: Three-phase work queue via `buildProductCrawlWork()`:
+0. **New URLs** (URL-scoped jobs only): URLs from `selected_urls`/`from_discovery`/`from_search` that have no existing `source-products` record. Work items have no `sourceProductId` or `sourceVariantId` — `persistCrawlResult()` will find-or-create the source-product during persist. Source slug is detected from the URL hostname via `getSourceSlugFromUrl()`.
 1. **Uncrawled products** (via `findUncrawledProducts()`): source-products with zero source-variants — these need their first crawl. Work items have no `sourceVariantId`; the URL is `source-products.sourceUrl`.
 2. **Uncrawled variants** (via `findUncrawledVariants()`): source-variants where `crawledAt` is null — these were created as siblings during a previous crawl and need their own crawl. Work items have a `sourceVariantId`.
 Each batch fetches `itemsPerTick` (default 10) uncrawled items.

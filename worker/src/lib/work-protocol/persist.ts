@@ -134,8 +134,8 @@ export interface PersistCrawlResultInput {
   crawlId: number
   /** The source-variant that was crawled (undefined on first crawl — variant will be created) */
   sourceVariantId?: number
-  /** The parent source-product */
-  sourceProductId: number
+  /** The parent source-product (undefined for new URLs — will be find-or-created during persist) */
+  sourceProductId?: number
   sourceUrl: string
   source: SourceSlug
   data: ScrapedProductData

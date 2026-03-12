@@ -1,6 +1,6 @@
 import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
-import { findUncrawledProducts, findUncrawledVariants, countUncrawled, resetProducts, normalizeProductUrl } from '@/lib/source-product-queries'
+import { findUncrawledProducts, findUncrawledVariants, countUncrawled, resetProducts, normalizeProductUrl, getSourceSlugFromUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
@@ -256,10 +256,30 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       }
     }
 
-    // Count total uncrawled source-products
+    // Count total: existing uncrawled source-products + new URLs without source-products
     let total = 0
     for (const source of sources) {
       total += await countUncrawled(payload, source as SourceSlug, sourceUrls ? { sourceUrls } : undefined)
+    }
+
+    // For URL-scoped jobs, also count URLs that don't have source-products yet
+    if (sourceUrls && sourceUrls.length > 0) {
+      const existingUrls = new Set<string>()
+      if (sourceProductIds && sourceProductIds.length > 0) {
+        const spResult = await payload.find({
+          collection: 'source-products',
+          where: { id: { in: sourceProductIds.join(',') } },
+          limit: 100000,
+        })
+        for (const doc of spResult.docs) {
+          existingUrls.add((doc as Record<string, unknown>).sourceUrl as string)
+        }
+      }
+      const newUrlCount = sourceUrls.filter((u) => !existingUrls.has(u)).length
+      total += newUrlCount
+      if (newUrlCount > 0) {
+        jlog.info('Found URLs without source-products (will create during crawl)', { jobId, newUrlCount })
+      }
     }
 
     jlog.info('Counted uncrawled products', { jobId, total })
@@ -286,8 +306,39 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
     ? { sourceProductIds }
     : sourceUrls ? { sourceUrls } : undefined
 
-  // Find work items: first try uncrawled products (no variants yet), then uncrawled variants
-  const workItems: Array<{ sourceVariantId?: number; sourceProductId: number; sourceUrl: string; source: string }> = []
+  // Find work items: new URLs without source-products, then uncrawled products, then uncrawled variants
+  const workItems: Array<{ sourceVariantId?: number; sourceProductId?: number; sourceUrl: string; source: string }> = []
+
+  // Phase 0: For URL-scoped jobs, create work items from URLs that have no source-product yet.
+  // These will have sourceProductId=undefined — persistCrawlResult will create the source-product.
+  if (sourceUrls && sourceUrls.length > 0) {
+    // Collect all existing source-product URLs for this job's scope
+    const existingUrlSet = new Set<string>()
+    const allSps = await payload.find({
+      collection: 'source-products',
+      where: { sourceUrl: { in: sourceUrls.join(',') } },
+      limit: 100000,
+    })
+    for (const doc of allSps.docs) {
+      existingUrlSet.add((doc as Record<string, unknown>).sourceUrl as string)
+    }
+
+    for (const url of sourceUrls) {
+      if (workItems.length >= itemsPerTick) break
+      if (existingUrlSet.has(url)) continue // has a source-product, will be found in Phase 1/2
+      const source = getSourceSlugFromUrl(url)
+      if (!source) {
+        jlog.warn('Cannot determine source for URL, skipping', { url })
+        continue
+      }
+      if (job.source !== 'all' && source !== job.source) continue // wrong source for this job
+      workItems.push({ sourceUrl: url, source })
+    }
+
+    if (workItems.length > 0) {
+      jlog.info('Created work items from new URLs (no source-product)', { jobId, count: workItems.length })
+    }
+  }
 
   for (const source of sources) {
     const remaining = itemsPerTick - workItems.length

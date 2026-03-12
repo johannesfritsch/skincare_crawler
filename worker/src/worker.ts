@@ -125,7 +125,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   const jlog = log.forJob('product-crawls', jobId)
   const workItems = work.workItems as Array<{
     sourceVariantId?: number
-    sourceProductId: number
+    sourceProductId?: number
     sourceUrl: string
     source: string
   }>
@@ -146,7 +146,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
 
   const results: Array<{
     sourceVariantId?: number
-    sourceProductId: number
+    sourceProductId?: number
     sourceUrl: string
     source: string
     data: ScrapedProductData | null
