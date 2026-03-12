@@ -181,8 +181,8 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
     db.execute(sql`
       SELECT
         count(*)::int AS total,
-        count(*) FILTER (WHERE processing_status = 'processed')::int AS processed,
-        count(*) FILTER (WHERE processing_status = 'unprocessed')::int AS unprocessed,
+        count(*) FILTER (WHERE transcript IS NOT NULL AND transcript != '')::int AS processed,
+        count(*) FILTER (WHERE image_id IS NULL)::int AS unprocessed,
         count(*) FILTER (WHERE transcript IS NOT NULL AND transcript != '')::int AS "withTranscript"
       FROM videos
     `),

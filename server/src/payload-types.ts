@@ -1326,7 +1326,6 @@ export interface VideoSnippet {
  */
 export interface Video {
   id: number;
-  processingStatus?: ('unprocessed' | 'processed') | null;
   channel: number | Channel;
   externalUrl?: string | null;
   publishedAt?: string | null;
@@ -1566,6 +1565,26 @@ export interface VideoProcessing {
    */
   urls?: string | null;
   /**
+   * Download video via yt-dlp and upload to media.
+   */
+  stageDownload?: boolean | null;
+  /**
+   * Detect scenes, extract screenshots, scan barcodes.
+   */
+  stageSceneDetection?: boolean | null;
+  /**
+   * LLM visual recognition and GTIN lookup.
+   */
+  stageProductRecognition?: boolean | null;
+  /**
+   * Speech-to-text via Deepgram with LLM correction.
+   */
+  stageTranscription?: boolean | null;
+  /**
+   * LLM quote extraction and sentiment scoring.
+   */
+  stageSentimentAnalysis?: boolean | null;
+  /**
    * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
    */
   sceneThreshold?: number | null;
@@ -1573,10 +1592,6 @@ export interface VideoProcessing {
    * Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.
    */
   clusterThreshold?: number | null;
-  /**
-   * Enable speech-to-text transcription via Deepgram and sentiment analysis.
-   */
-  transcriptionEnabled?: boolean | null;
   /**
    * Language for speech recognition.
    */
@@ -1586,15 +1601,15 @@ export interface VideoProcessing {
    */
   transcriptionModel?: ('nova-3' | 'nova-2' | 'enhanced' | 'base') | null;
   /**
-   * Total videos to process
+   * Total stage-executions to process
    */
   total?: number | null;
   /**
-   * Videos successfully processed
+   * Stage-executions successfully completed
    */
-  processed?: number | null;
+  completed?: number | null;
   /**
-   * Videos that failed to process
+   * Stage-executions that failed
    */
   errors?: number | null;
   /**
@@ -1613,6 +1628,18 @@ export interface VideoProcessing {
    * Tokens used for sentiment & quote extraction
    */
   tokensSentiment?: number | null;
+  /**
+   * Maps video IDs to last completed stage name. Example: { "42": "download", "43": "scene_detection" }
+   */
+  videoProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -2377,7 +2404,6 @@ export interface ChannelsSelect<T extends boolean = true> {
  * via the `definition` "videos_select".
  */
 export interface VideosSelect<T extends boolean = true> {
-  processingStatus?: T;
   channel?: T;
   externalUrl?: T;
   publishedAt?: T;
@@ -2487,18 +2513,23 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   type?: T;
   video?: T;
   urls?: T;
+  stageDownload?: T;
+  stageSceneDetection?: T;
+  stageProductRecognition?: T;
+  stageTranscription?: T;
+  stageSentimentAnalysis?: T;
   sceneThreshold?: T;
   clusterThreshold?: T;
-  transcriptionEnabled?: T;
   transcriptionLanguage?: T;
   transcriptionModel?: T;
   total?: T;
-  processed?: T;
+  completed?: T;
   errors?: T;
   tokensUsed?: T;
   tokensRecognition?: T;
   tokensTranscriptCorrection?: T;
   tokensSentiment?: T;
+  videoProgress?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;

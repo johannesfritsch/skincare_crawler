@@ -6,7 +6,7 @@ Standalone Node.js process that claims jobs from the server and processes them. 
 
 ```
 worker/src/
-├── worker.ts                         # Main loop + 6 job handlers (~1000 lines)
+├── worker.ts                         # Main loop + 8 job handlers (video-processing is ~80-line stage dispatcher)
 └── lib/
     ├── payload-client.ts             # REST client mirroring Payload's local API
     ├── logger.ts                     # Structured logger with event emission
@@ -51,13 +51,19 @@ worker/src/
     │   └── drivers/youtube.ts        # YouTube channel video lister
     │
     ├── video-processing/
-    │   ├── process-video.ts          # downloadVideo, detectSceneChanges, extractScreenshots,
-    │   │                             # scanBarcode, createThumbnailAndHash, hammingDistance
-    │   ├── recognize-product.ts      # classifyScreenshots (LLM), recognizeProduct (LLM)
-    │   ├── transcribe-audio.ts       # extractAudio (ffmpeg), transcribeAudio (Deepgram API)
-    │   ├── correct-transcript.ts     # correctTranscript (LLM) — fix STT errors with skincare context
-    │   ├── split-transcript.ts       # splitTranscriptForSnippet — pre/main/post by timestamps
-    │   └── analyze-sentiment.ts      # analyzeSentiment (LLM) — extract quotes & sentiment per product
+    │   ├── process-video.ts          # CLI wrappers (unchanged)
+    │   ├── recognize-product.ts      # LLM visual recognition (unchanged)
+    │   ├── transcribe-audio.ts       # Deepgram STT (unchanged)
+    │   ├── correct-transcript.ts     # LLM transcript correction (unchanged)
+    │   ├── split-transcript.ts       # Pre/main/post by timestamps (unchanged)
+    │   ├── analyze-sentiment.ts      # LLM sentiment analysis (unchanged)
+    │   └── stages/                   # Stage-based pipeline (NEW)
+    │       ├── index.ts              # Stage registry, types, ordering, VideoProgress, getNextStage(), getVideoProgress()
+    │       ├── download.ts           # Stage 1: Download video, upload to media
+    │       ├── scene-detection.ts    # Stage 2: Scene detection, screenshots, barcodes
+    │       ├── product-recognition.ts # Stage 3: LLM classification + GTIN lookup
+    │       ├── transcription.ts      # Stage 4: Deepgram STT + LLM correction
+    │       └── sentiment-analysis.ts # Stage 5: LLM quote extraction + sentiment
     │
     ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
     ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
@@ -181,7 +187,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.); adds `{ source: 'cosing', sourceUrl, fieldsProvided }` to the `sources` array on create/update — `fieldsProvided` lists which content fields were actually populated (only non-null fields from the CosIng data, e.g. `['name', 'casNumber', 'functions']`); deduplicates by checking if CosIng source already exists, backfills `fieldsProvided` on existing entries missing it |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
-| `persistVideoProcessingResult()` | Creates `video-snippets` with screenshots, referencedProducts + transcripts; creates `video-mentions` with sentiment; matches products by barcode (GTIN lookup via `product-variants`) or visual (LLM matchProduct); saves transcript on video; marks video as processed |
+| ~~`persistVideoProcessingResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `video-processing/stages/` persists its own results inline (video-snippets, video-mentions, transcripts, media uploads). |
 | `persistProductAggregationResult()` | Finds/creates `products` via `product-variants` GTIN lookup (no longer uses `products.gtin`); creates `product-variants` with GTIN + source-variant links for new products; [full only] runs matchBrand, parses raw ingredientsText via `parseIngredients()` LLM call then matchIngredients, uploads image, applies classification (productType, attributes, claims with evidence); [always] computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
 
 ## 8 Job Types — Detailed
@@ -258,46 +264,42 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 ### 6. video-processing
 
-**Handler**: `handleVideoProcessing()` (~700 lines, most complex handler)
-**Flow per video**:
+**Handler**: `handleVideoProcessing()` — stage dispatcher (~80 lines in `worker.ts`)
 
-```
-1. downloadVideo(url)              → local file path
-2. uploadMedia(path)               → media record ID
-3. detectSceneChanges(path, threshold=0.4)  → scene boundaries
-4. For each segment:
-   a. extractScreenshots(path, start, end, fps=1)
-   b. Upload each screenshot as media
-   c. scanBarcode(screenshotPath)
-      → If barcode found: matchingType='barcode', done
-      → If no barcode:
-        d. createThumbnailAndHash(path) → 64x64 grayscale perceptual hash
-        e. Cluster screenshots by hammingDistance (threshold=25)
-        f. classifyScreenshots(clusters) → LLM: "is this a product?"
-        g. recognizeProduct(candidates) → LLM: brand, product name, search terms
-        h. createRecognitionThumbnail(path) → 128x128 for matched clusters
-5. Transcription pipeline (if enabled):
-   a. extractAudio(videoPath) → WAV file (ffmpeg, mono 16kHz)
-   b. transcribeAudio(audioPath, { language, model, keywords })
-      → Deepgram API with product/brand names as boosted keywords
-      → Returns transcript text + word-level timestamps
-   c. correctTranscript(rawTranscript, words, allBrandNames, productNames)
-      → LLM pass (gpt-4.1-mini) to fix STT errors with skincare domain context
-   d. splitTranscriptForSnippet(words, start, end, pre=5s, post=3s)
-      → For each segment: preTranscript, transcript, postTranscript
-   e. analyzeSentiment(pre, transcript, post, products)
-      → LLM pass (gpt-4.1-mini) per segment: extract product quotes + sentiment scores
-6. Submit results with segments, screenshots, referencedProducts, transcripts, video-mentions
-```
+The video processing pipeline is a **stage-based architecture**. Instead of a monolithic handler, the worker runs one stage per video per tick. Each stage is a self-contained module in `video-processing/stages/` that reads its input from the database (prior stage's output) and persists its data outputs immediately. Videos are pure data records with no processing state — progress is tracked on the job's `videoProgress` JSON field (`Record<string, StageName | null>` mapping video IDs to last completed stage names).
+
+**Stage dispatcher flow**:
+1. `claimWork()` calls `buildVideoProcessingWork()` which uses `getVideoProgress(job)` to read the progress map, then `getNextStage()` + `videoNeedsWork()` to find videos needing work for the next enabled stage. For `all_unprocessed`, queries all videos with `externalUrl` and filters by progress map. For `single_video`/`selected_urls`, checks progress map instead of video status.
+2. Work unit contains `stageItems: Array<{ videoId, title, stageName }>`
+3. Handler iterates `stageItems`, dispatching each to the appropriate stage module
+4. Each stage runs independently, persists its own data outputs inline (media links, snippets, transcripts, mentions — no `processingStatus` writes)
+5. `submitVideoProcessing()` updates the progress map entry for each video (`progress[videoId] = stageName`) after successful stage execution, persists the updated `videoProgress` to the job on every update (both batch release and completion), and uses the progress map for remaining work checks
+
+**5 stages** (in order):
+
+| # | Stage name | What it does | Data outputs |
+|---|------------|--------------|-------------|
+| 1 | `download` | Downloads video via yt-dlp, uploads to media collection | `videos.image` (media upload) |
+| 2 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
+| 3 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
+| 4 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
+| 5 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
+
+**Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). This replaces the old `processingStatus` field on videos. `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
+
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageDownload`, `stageSceneDetection`, `stageProductRecognition`, `stageTranscription`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
 
 **Processing types**: `all_unprocessed`, `single_video`, `selected_urls`
 
-**Transcription config** (from VideoProcessings job):
-- `transcriptionEnabled` (default: true)
+**Transcription config** (Stage Config tab on the job):
 - `transcriptionLanguage` (default: 'de', options: de/en/fr/es/it)
 - `transcriptionModel` (default: 'nova-3', options: nova-3/nova-2/enhanced/base)
 
-**Persistence**: Creates `video-snippets` per segment (with referencedProducts + transcript fields). Creates `video-mentions` linking snippets to products with quotes and sentiment (only when transcript data exists). Saves full transcript + word timestamps on the video. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches, calls `matchProduct()` to find/create product records.
+Note: The old `transcriptionEnabled` field has been replaced by the `stageTranscription` checkbox.
+
+**Counters**: `completed` and `errors` counters on the job's progress field are incremented per stage execution.
+
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-snippets, video-mentions, media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches, calls `matchProduct()` to find/create product records.
 
 ### 7. product-aggregation
 
@@ -581,7 +583,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 
 ## Key Patterns
 
-- **Batch processing**: All jobs process `itemsPerTick` items per claim cycle (default 10, video processing default 1)
+- **Batch processing**: All jobs process `itemsPerTick` items per claim cycle (default 10, video processing default 1 stage-item per tick)
 - **Job claim locking**: Each job has `claimedBy` (worker relationship) and `claimedAt` (date) fields. A job is in one of four states:
   1. **Pending** (`status=pending`) — new, claimable by any worker
   2. **Claimed** (`status=in_progress`, `claimedBy` set, `claimedAt` fresh) — actively being worked on, NOT claimable

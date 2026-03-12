@@ -286,7 +286,7 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
           coalesce(sum((data->>'persisted')::int) FILTER (WHERE name = 'search.batch_persisted'), 0)::int AS "productsSearched",
           coalesce(sum((data->>'crawled')::int) FILTER (WHERE name = 'ingredient_crawl.batch_done'), 0)::int AS "ingredientsCrawled",
           coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'ingredients_discovery.batch_persisted'), 0)::int AS "ingredientsDiscovered",
-          coalesce(sum((data->>'processed')::int) FILTER (WHERE name = 'video_processing.batch_done'), 0)::int AS "videosProcessed",
+          coalesce(sum((data->>'completed')::int) FILTER (WHERE name = 'video_processing.batch_done'), 0)::int AS "videosProcessed",
           coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'video_discovery.batch_persisted'), 0)::int AS "videosDiscovered",
           count(*) FILTER (WHERE name = 'persist.price_changed')::int AS "priceChanges",
           count(*) FILTER (WHERE name = 'persist.price_changed' AND data->>'change' = 'drop')::int AS "priceDrops",

@@ -9,10 +9,14 @@ import {
   persistCrawlResult,
   persistIngredient,
   persistVideoDiscoveryResult,
-  persistVideoProcessingResult,
   persistProductAggregationResult,
 } from './persist'
 import { retryOrFail } from './job-failure'
+import {
+  getVideoProgress,
+  videoNeedsWork,
+  type StageName,
+} from '@/lib/video-processing/stages'
 
 const log = createLogger('Submit')
 
@@ -144,71 +148,19 @@ interface SubmitVideoDiscoveryBody {
   maxVideos?: number
 }
 
-interface VideoProcessingScreenshot {
-  imageMediaId: number
-  barcode?: string
-  thumbnailMediaId?: number
-  hash?: string
-  distance?: number | null
-  screenshotGroup?: number
-  recognitionCandidate?: boolean
-  recognitionThumbnailMediaId?: number
-}
-
-interface VideoProcessingSegment {
-  timestampStart: number
-  timestampEnd: number
-  matchingType: 'barcode' | 'visual'
-  barcode?: string
-  screenshots: VideoProcessingScreenshot[]
-  recognitionResults?: Array<{
-    clusterGroup: number
-    brand: string | null
-    productName: string | null
-    searchTerms: string[]
-  }>
-  eventLog: string
-}
-
-interface TranscriptData {
-  transcript: string
-  transcriptWords: Array<{ word: string; start: number; end: number; confidence: number }>
-}
-
-interface SnippetTranscript {
-  preTranscript: string
-  transcript: string
-  postTranscript: string
-}
-
-interface VideoQuoteData {
-  productId: number
-  quotes: Array<{
-    text: string
-    summary: string[]
-    sentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
-    sentimentScore: number
-  }>
-  overallSentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
-  overallSentimentScore: number
-}
-
 interface SubmitVideoProcessingBody {
   type: 'video-processing'
   jobId: number
+  enabledStages: string[]
   results: Array<{
     videoId: number
+    stageName: string
     success: boolean
     error?: string
     tokensUsed?: number
     tokensRecognition?: number
     tokensTranscriptCorrection?: number
     tokensSentiment?: number
-    videoMediaId?: number
-    segments?: VideoProcessingSegment[]
-    transcriptData?: TranscriptData
-    snippetTranscripts?: SnippetTranscript[]
-    snippetVideoQuotes?: VideoQuoteData[][]
   }>
 }
 
@@ -755,18 +707,21 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
 }
 
 async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVideoProcessingBody) {
-  const { jobId, results } = body
+  const { jobId, results, enabledStages } = body
   const jlog = log.forJob('video-processings', jobId)
   const batchStartMs = Date.now()
-  log.info('Video processing batch received', { jobId, videos: results.length })
+  log.info('Video processing batch received (stage-based)', { jobId, stageExecs: results.length })
 
   const job = await payload.findByID({ collection: 'video-processings', id: jobId }) as Record<string, unknown>
-  let processed = (job.processed as number) ?? 0
+  let completed = (job.completed as number) ?? 0
   let errors = (job.errors as number) ?? 0
   let tokensUsed = (job.tokensUsed as number) ?? 0
   let tokensRecognition = (job.tokensRecognition as number) ?? 0
   let tokensTranscriptCorrection = (job.tokensTranscriptCorrection as number) ?? 0
   let tokensSentiment = (job.tokensSentiment as number) ?? 0
+
+  // Read current videoProgress map from the job and update it with results
+  const progress = getVideoProgress(job)
 
   for (const result of results) {
     // Always accumulate tokens, regardless of success/failure
@@ -775,43 +730,74 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
     tokensTranscriptCorrection += result.tokensTranscriptCorrection ?? 0
     tokensSentiment += result.tokensSentiment ?? 0
 
-    if (result.success && result.segments) {
-      try {
-        await persistVideoProcessingResult(
-          payload,
-          jobId,
-          result.videoId,
-          result.videoMediaId,
-          result.segments,
-          result.transcriptData,
-          result.snippetTranscripts,
-          result.snippetVideoQuotes,
-        )
-        processed++
-        log.info('Video processing persisted', { jobId, videoId: result.videoId, segments: result.segments.length, tokens: result.tokensUsed ?? 0 })
-      } catch (e) {
-        errors++
-        const msg = e instanceof Error ? e.message : String(e)
-        log.error('Video processing persist failed', { jobId, videoId: result.videoId, error: msg })
-        jlog.event('video_processing.persist_failed', { videoId: String(result.videoId), error: msg })
-      }
+    if (result.success) {
+      // Stage already persisted its own results — update progress map and count it
+      completed++
+      progress[String(result.videoId)] = result.stageName as StageName
+      log.info('Stage execution complete', { jobId, videoId: result.videoId, stage: result.stageName, tokens: result.tokensUsed ?? 0 })
     } else {
       errors++
-      log.info('Video processing failed', { jobId, videoId: result.videoId, error: result.error })
-      jlog.event('video_processing.error', { videoId: String(result.videoId), error: result.error ?? 'Unknown error' })
+      log.info('Stage execution failed', { jobId, videoId: result.videoId, stage: result.stageName, error: result.error })
+      jlog.event('video_processing.error', { videoId: String(result.videoId), stage: result.stageName, error: result.error ?? 'Unknown error' })
     }
   }
 
-  // Check if all done
-  const total = (job.total as number) ?? 0
-  const allDone = processed + errors >= total
-  const batchDurationMs = Date.now() - batchStartMs
-  log.info('Video processing progress', { jobId, processed, errors, tokensUsed, done: allDone, completed: processed + errors, total })
+  // Check if there are more videos needing stages using the updated progress map
+  const enabledSet = new Set(enabledStages) as Set<StageName>
 
-  if (allDone && processed === 0) {
-    log.warn('Video processing completed with zero successes, retrying or failing', { jobId, errors, total })
-    await retryOrFail(payload, 'video-processings', jobId, `All ${errors} videos failed to process`)
-    return { processed, errors, tokensUsed, done: allDone }
+  let remainingWork = 0
+  if (job.type === 'single_video' && job.video) {
+    const videoId = typeof job.video === 'number' ? job.video : (job.video as { id: number }).id
+    const lastCompleted = progress[String(videoId)] ?? null
+    if (videoNeedsWork(lastCompleted, enabledSet)) {
+      remainingWork = 1
+    }
+  } else if (job.type === 'selected_urls') {
+    const urls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    for (const url of urls) {
+      const existing = await payload.find({
+        collection: 'videos',
+        where: { externalUrl: { equals: url } },
+        limit: 1,
+      })
+      if (existing.docs.length > 0) {
+        const vid = (existing.docs[0] as Record<string, unknown>).id as number
+        const lastCompleted = progress[String(vid)] ?? null
+        if (videoNeedsWork(lastCompleted, enabledSet)) {
+          remainingWork++
+        }
+      }
+    }
+  } else {
+    // all_unprocessed — fetch videos with externalUrl, check against progress map.
+    // Progress lives on the job, not the video, so we check the map in code.
+    const result = await payload.find({
+      collection: 'videos',
+      where: { externalUrl: { exists: true } },
+      limit: 100,
+      sort: 'createdAt',
+    })
+    for (const doc of result.docs) {
+      const vid = (doc as Record<string, unknown>).id as number
+      const lastCompleted = progress[String(vid)] ?? null
+      if (videoNeedsWork(lastCompleted, enabledSet)) {
+        remainingWork++
+      }
+    }
+    // If the query returned a full page, there may be more untracked videos
+    if (result.totalDocs > result.docs.length && remainingWork > 0) {
+      remainingWork = result.totalDocs // upper bound estimate
+    }
+  }
+
+  const allDone = remainingWork === 0
+  const batchDurationMs = Date.now() - batchStartMs
+  log.info('Video processing progress', { jobId, completed, errors, tokensUsed, done: allDone, remaining: remainingWork })
+
+  if (allDone && completed === 0 && errors > 0) {
+    log.warn('Video processing completed with zero successes, retrying or failing', { jobId, errors })
+    await retryOrFail(payload, 'video-processings', jobId, `All ${errors} stage-executions failed`)
+    return { completed, errors, tokensUsed, done: allDone }
   }
 
   if (allDone) {
@@ -820,28 +806,29 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
       id: jobId,
       data: {
         status: 'completed',
-        processed,
+        completed,
         errors,
         tokensUsed,
         tokensRecognition,
         tokensTranscriptCorrection,
         tokensSentiment,
+        videoProgress: progress,
         completedAt: new Date().toISOString(),
       },
     })
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
-    jlog.event('video_processing.completed', { processed, errors, tokensUsed, durationMs: jobDurationMs })
+    jlog.event('video_processing.completed', { completed, errors, tokensUsed, durationMs: jobDurationMs })
   } else {
     await payload.update({
       collection: 'video-processings',
       id: jobId,
-      data: { processed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment, claimedBy: null, claimedAt: null },
+      data: { completed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment, videoProgress: progress, claimedBy: null, claimedAt: null },
     })
-    jlog.event('video_processing.batch_done', { processed, errors, batchSize: results.length, batchDurationMs })
+    jlog.event('video_processing.batch_done', { completed, errors, batchSize: results.length, batchDurationMs })
   }
 
-  return { processed, errors, tokensUsed, done: allDone }
+  return { completed, errors, tokensUsed, done: allDone }
 }
 
 async function submitProductAggregation(payload: PayloadRestClient, body: SubmitProductAggregationBody) {

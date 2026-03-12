@@ -322,9 +322,7 @@ export interface EventRegistry {
 
   'video_processing.started': {
     videos: number
-    transcriptionEnabled: boolean
-    transcriptionLanguage: string
-    transcriptionModel: string
+    stages: string
   }
   'video_processing.downloaded': { title: string; sizeMB: number }
   'video_processing.scene_detected': {
@@ -363,21 +361,21 @@ export interface EventRegistry {
   'video_processing.transcription_failed': { title: string; error: string }
   'video_processing.complete': {
     title: string
-    segments: number
+    stage: string
     tokens: number
   }
-  'video_processing.failed': { title: string; error: string }
+  'video_processing.failed': { title: string; stage?: string; error: string }
   'video_processing.persist_failed': { videoId: string; error: string }
-  'video_processing.error': { videoId: string; error: string }
+  'video_processing.error': { videoId: string; stage?: string; error: string }
   'video_processing.segment_persisted': { message: string }
   'video_processing.batch_done': {
-    processed: number
+    completed: number
     errors: number
     batchSize: number
     batchDurationMs: number
   }
   'video_processing.completed': {
-    processed: number
+    completed: number
     errors: number
     tokensUsed: number
     durationMs: number

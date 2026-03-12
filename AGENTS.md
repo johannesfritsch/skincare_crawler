@@ -117,7 +117,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 | Collection | Purpose |
 |------------|---------|
-| `videos` | YouTube/social videos (channel ref, title, duration, processingStatus, transcript, transcriptWords) |
+| `videos` | YouTube/social videos — pure data records with no processing state (title, image (upload → media, stores video MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoSnippets (join)) |
 | `video-snippets` | Video segments (timestamps, matchingType: barcode/visual, screenshots, referencedProducts, preTranscript/transcript/postTranscript) |
 | `video-mentions` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
 | `creators` | Social media creators |
@@ -136,7 +136,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `product-searches` | query, sources (dm/mueller/rossmann), maxResults, discovered count, productUrls (hidden, accumulated URLs) |
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
 | `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), created/existing/discovered counts |
-| `video-processings` | type (all_unprocessed/single_video/selected_urls), transcription config (language, model, enabled), processed/errors/tokens (total + per-step) |
+| `video-processings` | type (all_unprocessed/single_video/selected_urls), stage checkboxes (stageDownload, stageSceneDetection, stageProductRecognition, stageTranscription, stageSentimentAnalysis), sceneThreshold, clusterThreshold, transcriptionLanguage, transcriptionModel, videoProgress (JSON map of videoId → last completed stage, e.g. `{ "42": "download", "43": "scene_detection" }`), progress (completed/errors/tokens) |
 | `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), aggregated/errors/tokens |
 | `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |
 
@@ -158,7 +158,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
 6. Product aggregation resolves GTINs via source-variants → when includeSisterVariants is enabled (default), expands to find all sibling GTINs sharing any source-product and groups them via union-find → each group becomes one unified product with multiple product-variants (one per GTIN) → per-variant: selects best image (by source priority), downloads & uploads to media, parseIngredients + matchIngredients → per-product: matchBrand + classifyProduct (LLM, shared across variants) → if sibling GTINs previously had separate products, merges them (moves variants + video-mentions, deletes empty duplicates)
-7. Video processing: download → scene detect → barcode/visual match → audio transcription (Deepgram) → LLM correction → transcript split → sentiment analysis (LLM) → video-mentions
+7. Video processing runs as 5 independent stages (download → scene detection → product recognition → transcription → sentiment analysis), each persisting immediately. Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes.
 ```
 
 ## Keeping AGENTS.md Up to Date

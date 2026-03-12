@@ -902,6 +902,11 @@ interface VideoQuoteData {
   overallSentimentScore: number
 }
 
+/**
+ * @deprecated Stage-based video processing persists results directly within each stage.
+ * This function is retained for backward compatibility but is no longer called.
+ * See worker/src/lib/video-processing/stages/ for per-stage persistence.
+ */
 export async function persistVideoProcessingResult(
   payload: PayloadRestClient,
   jobId: number,
@@ -1036,20 +1041,19 @@ export async function persistVideoProcessingResult(
     jlog.event('video_processing.segment_persisted', { message: segment.eventLog })
   }
 
-  // Save transcript on the video and mark as processed
-  await payload.update({
-    collection: 'videos',
-    id: videoId,
-    data: {
-      processingStatus: 'processed',
-      ...(transcriptData ? {
+  // Save transcript on the video
+  if (transcriptData) {
+    await payload.update({
+      collection: 'videos',
+      id: videoId,
+      data: {
         transcript: transcriptData.transcript,
         transcriptWords: transcriptData.transcriptWords,
-      } : {}),
-    },
-  })
+      },
+    })
+  }
 
-  log.info('Video persisted and marked as processed', { videoId, segmentCount: segments.length })
+  log.info('Video persisted', { videoId, segmentCount: segments.length })
 }
 
 // ─── Product Aggregation ───

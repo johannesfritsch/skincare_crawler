@@ -34,20 +34,6 @@ export const Videos: CollectionConfig = {
   fields: [
     // ── Sidebar ──
     {
-      name: 'processingStatus',
-      type: 'select',
-      label: 'Processing Status',
-      defaultValue: 'unprocessed',
-      options: [
-        { label: 'Unprocessed', value: 'unprocessed' },
-        { label: 'Processed', value: 'processed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
       name: 'channel',
       type: 'relationship',
       relationTo: 'channels',

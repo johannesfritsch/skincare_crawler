@@ -89,6 +89,11 @@ export class PayloadRestClient {
   private baseUrl: string
   private apiKey: string
 
+  /** The server base URL (e.g. http://localhost:3000), for constructing media download URLs */
+  get serverUrl(): string {
+    return this.baseUrl
+  }
+
   constructor(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
     this.apiKey = apiKey

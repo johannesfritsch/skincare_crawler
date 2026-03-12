@@ -16,7 +16,6 @@
 import 'dotenv/config'
 import fs from 'fs'
 import path from 'path'
-import os from 'os'
 import { PayloadRestClient } from '@/lib/payload-client'
 import { initLogger, createLogger } from '@/lib/logger'
 import { claimWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
@@ -27,22 +26,7 @@ import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY }
 
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
-import {
-  downloadVideo,
-  getVideoDuration,
-  detectSceneChanges,
-  extractScreenshots,
-  scanBarcode,
-  createThumbnailAndHash,
-  createRecognitionThumbnail,
-  hammingDistance,
-  formatTime,
-} from '@/lib/video-processing/process-video'
-import { classifyScreenshots, recognizeProduct } from '@/lib/video-processing/recognize-product'
-import { extractAudio, transcribeAudio, type TranscriptWord } from '@/lib/video-processing/transcribe-audio'
-import { correctTranscript } from '@/lib/video-processing/correct-transcript'
-import { splitTranscriptForSnippet } from '@/lib/video-processing/split-transcript'
-import { analyzeSentiment, type ProductQuoteResult } from '@/lib/video-processing/analyze-sentiment'
+import { STAGES, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
 import { aggregateSourceVariantsToVariant, aggregateVariantsToProduct, deduplicateDescriptions, deduplicateIngredients } from '@/lib/aggregate-product'
 import type { AggregationSource } from '@/lib/aggregate-product'
 import { classifyProduct } from '@/lib/classify-product'
@@ -466,552 +450,80 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
 async function handleVideoProcessing(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const jlog = log.forJob('video-processings', jobId)
-  const videos = work.videos as Array<{
+  const stageItems = work.stageItems as Array<{
     videoId: number
-    externalUrl: string
     title: string
+    stageName: string
   }>
-  const sceneThreshold = (work.sceneThreshold as number) ?? 0.4
-  const clusterThreshold = (work.clusterThreshold as number) ?? 25
-  const transcriptionEnabled = (work.transcriptionEnabled as boolean) ?? true
-  const transcriptionLanguage = (work.transcriptionLanguage as string) ?? 'de'
-  const transcriptionModel = (work.transcriptionModel as string) ?? 'nova-3'
+  const enabledStagesArr = work.enabledStages as string[]
+  const enabledStages = new Set(enabledStagesArr) as Set<StageName>
 
-  log.info('Video processing job', { jobId, videos: videos.length, transcription: transcriptionEnabled ? `${transcriptionLanguage}/${transcriptionModel}` : 'disabled' })
-  jlog.event('video_processing.started', { videos: videos.length, transcriptionEnabled, transcriptionLanguage, transcriptionModel })
+  const stageConfig: StageConfig = {
+    jobId,
+    sceneThreshold: (work.sceneThreshold as number) ?? 0.4,
+    clusterThreshold: (work.clusterThreshold as number) ?? 25,
+    transcriptionLanguage: (work.transcriptionLanguage as string) ?? 'de',
+    transcriptionModel: (work.transcriptionModel as string) ?? 'nova-3',
+  }
+
+  log.info('Video processing job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })
+  jlog.event('video_processing.started', { videos: stageItems.length, stages: enabledStagesArr.join(',') })
 
   const results: Array<Record<string, unknown>> = []
 
-  for (const video of videos) {
+  for (const item of stageItems) {
     log.info('════════════════════════════════════════════════════')
-    log.info('Processing video', { title: video.title, videoId: video.videoId })
-    log.info('Video URL', { url: video.externalUrl })
+    log.info('Processing stage', { title: item.title, videoId: item.videoId, stage: item.stageName })
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-video-'))
-    const videoPath = path.join(tmpDir, 'video.mp4')
-    const screenshotsDir = path.join(tmpDir, 'screenshots')
-    fs.mkdirSync(screenshotsDir)
+    // Find the stage definition
+    const stageDef = STAGES.find((s) => s.name === item.stageName)
+    if (!stageDef) {
+      log.error('Unknown stage', { stage: item.stageName })
+      results.push({ videoId: item.videoId, stageName: item.stageName, success: false, error: `Unknown stage: ${item.stageName}` })
+      continue
+    }
 
-    let totalTokensUsed = 0
+    const stageCtx: StageContext = {
+      payload: client,
+      config: stageConfig,
+      log,
+      uploadMedia,
+      heartbeat: () => heartbeat(jobId, 'video-processing'),
+    }
 
     try {
-      // Step 1: Download video
-      await downloadVideo(video.externalUrl, videoPath)
-      const fileSizeMB = (fs.statSync(videoPath).size / (1024 * 1024)).toFixed(1)
-      jlog.event('video_processing.downloaded', { title: video.title, sizeMB: Number(fileSizeMB) })
-      await heartbeat(jobId, 'video-processing')
+      const stageResult = await stageDef.execute(stageCtx, item.videoId)
 
-      // Step 2: Upload video mp4 as media
-      log.info('Uploading video to media')
-      const videoMediaId = await uploadMedia(videoPath, video.title || `Video ${video.videoId}`, 'video/mp4')
-      log.info('Uploaded video as media', { mediaId: videoMediaId })
-      await heartbeat(jobId, 'video-processing')
-
-      // Step 3: Get duration + scene detection
-      const duration = await getVideoDuration(videoPath)
-      const sceneChanges = await detectSceneChanges(videoPath, sceneThreshold)
-      await heartbeat(jobId, 'video-processing')
-
-      // Step 4: Build segments
-      const timestamps = [0, ...sceneChanges.map((s) => s.time), duration]
-      const segments: { start: number; end: number }[] = []
-      for (let i = 0; i < timestamps.length - 1; i++) {
-        const start = timestamps[i]
-        const end = timestamps[i + 1]
-        if (end - start >= 0.5) {
-          segments.push({ start, end })
-        }
-      }
-
-      log.info('Segments built', { segments: segments.length, sceneChanges: sceneChanges.length })
-      jlog.event('video_processing.scene_detected', { title: video.title, sceneChanges: sceneChanges.length, segments: segments.length })
-
-      // Step 5: Process each segment
-      const segmentResults: Array<Record<string, unknown>> = []
-
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i]
-        const segDuration = seg.end - seg.start
-        const segLabel = `Segment ${i + 1}/${segments.length}`
-        const segTime = `[${formatTime(seg.start)} – ${formatTime(seg.end)}]`
-
-        const eventLog: string[] = []
-        eventLog.push(`── ${segLabel} ${segTime} (${segDuration.toFixed(1)}s) ──`)
-
-        log.info('Processing segment', { segment: segLabel, startS: Number(seg.start.toFixed(1)), endS: Number(seg.end.toFixed(1)) })
-
-        // Extract screenshots
-        const prefix = `seg${String(i).padStart(3, '0')}`
-        const screenshotFiles = await extractScreenshots(videoPath, screenshotsDir, prefix, seg.start, segDuration)
-
-        eventLog.push(`Screenshots: ${screenshotFiles.length} extracted (1fps)`)
-
-        // First pass: scan for barcodes (stop at first hit)
-        log.info('Scanning screenshots for barcodes', { count: screenshotFiles.length })
-        let foundBarcode: string | null = null
-        let barcodeScreenshotIndex: number | null = null
-
-        for (let j = 0; j < screenshotFiles.length; j++) {
-          const barcode = await scanBarcode(screenshotFiles[j])
-          if (barcode) {
-            foundBarcode = barcode
-            barcodeScreenshotIndex = j
-            log.info('Barcode found, skipping remaining', { screenshot: j + 1, barcode })
-            break
-          }
-        }
-
-        if (foundBarcode) {
-          // ── Barcode path ──
-          log.info('Barcode path matched', { barcode: foundBarcode })
-          jlog.event('video_processing.barcode_found', { title: video.title, segment: i + 1, barcode: foundBarcode })
-          eventLog.push(``)
-          eventLog.push(`Path: BARCODE`)
-          eventLog.push(`Barcode scan: found ${foundBarcode} in screenshot ${barcodeScreenshotIndex! + 1}/${screenshotFiles.length}`)
-
-          const screenshots: Array<Record<string, unknown>> = []
-          for (let j = 0; j < screenshotFiles.length; j++) {
-            const ts = Math.floor(seg.start) + j
-            log.info('Uploading screenshot', { index: j + 1, total: screenshotFiles.length, timestampS: ts })
-            const imageMediaId = await uploadMedia(screenshotFiles[j], `${video.title} – ${ts}s`, 'image/jpeg')
-
-            const entry: Record<string, unknown> = { imageMediaId }
-            if (j === barcodeScreenshotIndex) {
-              entry.barcode = foundBarcode
-            }
-            screenshots.push(entry)
-          }
-
-          eventLog.push(``)
-          eventLog.push(`Uploaded ${screenshots.length} screenshots`)
-
-          segmentResults.push({
-            timestampStart: Math.round(seg.start),
-            timestampEnd: Math.round(seg.end),
-            matchingType: 'barcode',
-            barcode: foundBarcode,
-            screenshots,
-            eventLog: eventLog.join('\n'),
-          })
-        } else {
-          // ── Visual path ──
-          log.info('No barcode found, using visual recognition path')
-          eventLog.push(`Barcode scan: no barcode found (scanned ${screenshotFiles.length} screenshots)`)
-          eventLog.push(``)
-          eventLog.push(`Path: VISUAL`)
-
-          // Compute hashes and cluster
-          const hashResults: { thumbnailPath: string; hash: string; distance: number | null; screenshotGroup: number }[] = []
-          const clusterRepresentatives: { hash: string; group: number; screenshotIndex: number }[] = []
-
-          for (let j = 0; j < screenshotFiles.length; j++) {
-            const { thumbnailPath, hash } = await createThumbnailAndHash(screenshotFiles[j])
-
-            let bestDistance: number | null = null
-            let bestGroup = -1
-            for (const rep of clusterRepresentatives) {
-              const d = hammingDistance(hash, rep.hash)
-              if (bestDistance === null || d < bestDistance) {
-                bestDistance = d
-                bestGroup = rep.group
-              }
-            }
-
-            let assignedGroup: number
-            if (bestDistance !== null && bestDistance <= clusterThreshold) {
-              assignedGroup = bestGroup
-            } else {
-              assignedGroup = clusterRepresentatives.length
-              clusterRepresentatives.push({ hash, group: assignedGroup, screenshotIndex: j })
-            }
-
-            hashResults.push({ thumbnailPath, hash, distance: bestDistance, screenshotGroup: assignedGroup })
-          }
-
-          log.info('Clusters formed', { clusters: clusterRepresentatives.length })
-          jlog.event('video_processing.clustered', { title: video.title, segment: i + 1, clusters: clusterRepresentatives.length })
-
-          eventLog.push(``)
-          eventLog.push(`Clustering: ${clusterRepresentatives.length} clusters from ${screenshotFiles.length} screenshots`)
-          for (const rep of clusterRepresentatives) {
-            const memberCount = hashResults.filter((h) => h.screenshotGroup === rep.group).length
-            eventLog.push(`  Group ${rep.group}: ${memberCount} screenshot${memberCount !== 1 ? 's' : ''} (rep: screenshot ${rep.screenshotIndex + 1})`)
-          }
-
-          // Phase 1: Classify cluster reps
-          const recogThumbnails: { clusterGroup: number; imagePath: string; recogPath: string }[] = []
-          for (const rep of clusterRepresentatives) {
-            const recogPath = await createRecognitionThumbnail(screenshotFiles[rep.screenshotIndex])
-            recogThumbnails.push({ clusterGroup: rep.group, imagePath: recogPath, recogPath })
-          }
-
-          const classifyResult = await classifyScreenshots(
-            recogThumbnails.map((r) => ({ clusterGroup: r.clusterGroup, imagePath: r.imagePath })),
-          )
-          totalTokensUsed += classifyResult.tokensUsed.totalTokens
-          const candidateClusters = new Set(classifyResult.candidates)
-          log.info('Phase 1 classification complete', { productClusters: candidateClusters.size, totalClusters: clusterRepresentatives.length })
-          jlog.event('video_processing.candidates_identified', { title: video.title, segment: i + 1, candidates: candidateClusters.size })
-          await heartbeat(jobId, 'video-processing')
-
-          eventLog.push(``)
-          if (candidateClusters.size > 0) {
-            eventLog.push(`Phase 1 — Classification: ${candidateClusters.size} product cluster${candidateClusters.size !== 1 ? 's' : ''} [${classifyResult.candidates.join(', ')}] out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
-          } else {
-            eventLog.push(`Phase 1 — Classification: no product clusters detected out of ${clusterRepresentatives.length} (${classifyResult.tokensUsed.totalTokens} tokens)`)
-          }
-
-          // Phase 2: Recognize products in candidate clusters
-          const recognitionResults: Array<{ clusterGroup: number; brand: string | null; productName: string | null; searchTerms: string[] }> = []
-
-          if (candidateClusters.size > 0) {
-            eventLog.push(``)
-            eventLog.push(`Phase 2 — Recognition:`)
-          }
-
-          for (const clusterGroup of candidateClusters) {
-            const clusterScreenshots = screenshotFiles
-              .map((file, idx) => ({ file, idx }))
-              .filter((_, idx) => hashResults[idx].screenshotGroup === clusterGroup)
-
-            const selected: string[] = []
-            if (clusterScreenshots.length <= 4) {
-              selected.push(...clusterScreenshots.map((s) => s.file))
-            } else {
-              const step = (clusterScreenshots.length - 1) / 3
-              for (let k = 0; k < 4; k++) {
-                selected.push(clusterScreenshots[Math.round(k * step)].file)
-              }
-            }
-
-            log.info('Phase 2: recognizing product', { clusterGroup, screenshots: selected.length })
-            const recognition = await recognizeProduct(selected)
-            if (recognition) {
-              totalTokensUsed += recognition.tokensUsed.totalTokens
-              jlog.event('video_processing.product_recognized', { title: video.title, segment: i + 1, brand: recognition.brand ?? 'unknown', product: recognition.productName ?? 'unknown' })
-              recognitionResults.push({
-                clusterGroup,
-                brand: recognition.brand,
-                productName: recognition.productName,
-                searchTerms: recognition.searchTerms,
-              })
-              const brandStr = recognition.brand ? `"${recognition.brand}"` : 'unknown'
-              const productStr = recognition.productName ? `"${recognition.productName}"` : 'unknown'
-              const termsStr = recognition.searchTerms.length > 0 ? recognition.searchTerms.map((t: string) => `"${t}"`).join(', ') : 'none'
-              eventLog.push(`  Cluster ${clusterGroup}: brand=${brandStr}, product=${productStr}, terms=[${termsStr}] (${recognition.tokensUsed.totalTokens} tokens)`)
-            } else {
-              eventLog.push(`  Cluster ${clusterGroup}: recognition failed (${selected.length} screenshots sent)`)
-            }
-            await heartbeat(jobId, 'video-processing')
-          }
-
-          // Upload screenshots with metadata
-          const repScreenshotIndices = new Set(clusterRepresentatives.map((r) => r.screenshotIndex))
-          const recogPathByGroup = new Map<number, string>()
-          for (const rt of recogThumbnails) {
-            if (candidateClusters.has(rt.clusterGroup)) {
-              recogPathByGroup.set(rt.clusterGroup, rt.recogPath)
-            }
-          }
-
-          const screenshots: Array<Record<string, unknown>> = []
-          let recogThumbnailCount = 0
-
-          for (let j = 0; j < screenshotFiles.length; j++) {
-            const file = screenshotFiles[j]
-            const hr = hashResults[j]
-            const ts = Math.floor(seg.start) + j
-            log.info('Uploading screenshot', { index: j + 1, total: screenshotFiles.length, timestampS: ts })
-
-            const imageMediaId = await uploadMedia(file, `${video.title} – ${ts}s`, 'image/jpeg')
-            const thumbnailMediaId = await uploadMedia(hr.thumbnailPath, `${video.title} – ${ts}s thumb`, 'image/png')
-
-            const entry: Record<string, unknown> = {
-              imageMediaId,
-              thumbnailMediaId,
-              hash: hr.hash,
-              screenshotGroup: hr.screenshotGroup,
-            }
-            if (hr.distance !== null) {
-              entry.distance = hr.distance
-            }
-
-            if (repScreenshotIndices.has(j) && candidateClusters.has(hr.screenshotGroup)) {
-              entry.recognitionCandidate = true
-              const recogPath = recogPathByGroup.get(hr.screenshotGroup)
-              if (recogPath) {
-                entry.recognitionThumbnailMediaId = await uploadMedia(recogPath, `${video.title} – ${ts}s recog`, 'image/png')
-                recogThumbnailCount++
-              }
-            }
-
-            screenshots.push(entry)
-          }
-
-          eventLog.push(``)
-          eventLog.push(`Uploaded ${screenshots.length} screenshots${recogThumbnailCount > 0 ? ` (${recogThumbnailCount} with recognition thumbnails)` : ''}`)
-
-          segmentResults.push({
-            timestampStart: Math.round(seg.start),
-            timestampEnd: Math.round(seg.end),
-            matchingType: 'visual',
-            screenshots,
-            recognitionResults,
-            eventLog: eventLog.join('\n'),
-          })
-        }
-
-        await heartbeat(jobId, 'video-processing')
-      }
-
-      // ── Transcription & Sentiment Pipeline ──
-      let transcriptData: { transcript: string; transcriptWords: TranscriptWord[] } | undefined
-      let snippetTranscripts: Array<{ preTranscript: string; transcript: string; postTranscript: string }> | undefined
-      let snippetVideoQuotes: ProductQuoteResult[][] | undefined
-      let tokensTranscriptCorrection = 0
-      let tokensSentiment = 0
-
-      if (transcriptionEnabled) {
-        try {
-          // Step T1: Extract audio
-          const audioPath = path.join(tmpDir, 'audio.wav')
-          await extractAudio(videoPath, audioPath)
-          await heartbeat(jobId, 'video-processing')
-
-          // Collect all referenced product names + brands from segment results for keywords
-          const productKeywords: string[] = []
-          const referencedProductIds = new Set<number>()
-          for (const seg of segmentResults) {
-            const recogResults = seg.recognitionResults as Array<{ brand: string | null; productName: string | null }> | undefined
-            if (recogResults) {
-              for (const r of recogResults) {
-                if (r.brand) productKeywords.push(r.brand)
-                if (r.productName) productKeywords.push(r.productName)
-              }
-            }
-            // Also check barcode matches — we'll resolve product names later for sentiment
-          }
-          const uniqueKeywords = [...new Set(productKeywords)]
-
-          // Step T2: Transcribe with Deepgram
-          log.debug('DEEPGRAM_API_KEY check', { present: !!process.env.DEEPGRAM_API_KEY, length: process.env.DEEPGRAM_API_KEY?.length ?? 0 })
-          const rawTranscription = await transcribeAudio(audioPath, {
-            language: transcriptionLanguage,
-            model: transcriptionModel,
-            keywords: uniqueKeywords,
-          })
-          jlog.event('video_processing.transcribed', { title: video.title, words: rawTranscription.words.length })
-          await heartbeat(jobId, 'video-processing')
-
-          // Step T3: Fetch all brand names from DB for LLM correction context
-          const brandsResult = await client.find({ collection: 'brands', limit: 500 })
-          const allBrandNames = brandsResult.docs.map((b) => (b as { name: string }).name).filter(Boolean)
-
-          // Collect product names from recognition results for correction context
-          const recognizedProductNames = uniqueKeywords
-
-          // Step T4: Correct transcript via LLM
-          const correction = await correctTranscript(
-            rawTranscription.transcript,
-            rawTranscription.words,
-            allBrandNames,
-            recognizedProductNames,
-          )
-          tokensTranscriptCorrection = correction.tokensUsed.totalTokens
-          jlog.event('video_processing.transcript_corrected', { title: video.title, fixes: correction.corrections.length, tokens: tokensTranscriptCorrection })
-          await heartbeat(jobId, 'video-processing')
-
-          // Use corrected transcript text but keep original word timestamps
-          // (word-level corrections are tracked but timestamps come from Deepgram)
-          transcriptData = {
-            transcript: correction.correctedTranscript,
-            transcriptWords: rawTranscription.words,
-          }
-
-          // Step T5: Split transcript for each snippet
-          snippetTranscripts = segmentResults.map((seg) => {
-            return splitTranscriptForSnippet(
-              rawTranscription.words,
-              seg.timestampStart as number,
-              seg.timestampEnd as number,
-              5, // preSeconds
-              3, // postSeconds
-            )
-          })
-
-          // Step T6: Sentiment analysis per snippet
-          // First, resolve all product IDs to names for sentiment context
-          // Gather all unique product IDs from segment recognition results
-          for (const seg of segmentResults) {
-            if (seg.matchingType === 'barcode' && seg.barcode) {
-              const variants = await client.find({
-                collection: 'product-variants',
-                where: { gtin: { equals: seg.barcode as string } },
-                limit: 1,
-              })
-              if (variants.docs.length > 0) {
-                const variant = variants.docs[0] as Record<string, unknown>
-                const productRef = variant.product as number | Record<string, unknown>
-                const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
-                referencedProductIds.add(pid)
-              }
-            } else if (seg.recognitionResults) {
-              // Visual product IDs will be resolved in persist, but for sentiment
-              // we need to find them now
-              for (const recog of seg.recognitionResults as Array<{ brand: string | null; productName: string | null; searchTerms: string[] }>) {
-                if (recog.brand || recog.productName) {
-                  const searchTerms = recog.searchTerms ?? []
-                  // Quick search to find matching product
-                  for (const term of [recog.productName, ...searchTerms].filter(Boolean)) {
-                    const found = await client.find({
-                      collection: 'products',
-                      where: { name: { contains: term as string } },
-                      limit: 1,
-                    })
-                    if (found.docs.length > 0) {
-                      referencedProductIds.add((found.docs[0] as { id: number }).id)
-                      break
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // Build product info map for sentiment analysis
-          const productInfoMap = new Map<number, { brandName: string; productName: string }>()
-          for (const productId of referencedProductIds) {
-            try {
-              const product = await client.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
-              const brandRel = product.brand as Record<string, unknown> | number | null
-              let brandName = ''
-              if (brandRel && typeof brandRel === 'object' && 'name' in brandRel) {
-                brandName = brandRel.name as string
-              }
-              productInfoMap.set(productId, {
-                brandName,
-                productName: (product.name as string) ?? '',
-              })
-            } catch {
-              // Product not found, skip
-            }
-          }
-
-          // Run sentiment analysis for each snippet that has transcript and products
-          snippetVideoQuotes = []
-          for (let segIdx = 0; segIdx < segmentResults.length; segIdx++) {
-            const tx = snippetTranscripts[segIdx]
-
-            // Determine which products are referenced in this specific segment
-            const seg = segmentResults[segIdx]
-            const segProductIds: number[] = []
-
-            if (seg.matchingType === 'barcode' && seg.barcode) {
-              const variants = await client.find({
-                collection: 'product-variants',
-                where: { gtin: { equals: seg.barcode as string } },
-                limit: 1,
-              })
-              if (variants.docs.length > 0) {
-                const variant = variants.docs[0] as Record<string, unknown>
-                const productRef = variant.product as number | Record<string, unknown>
-                const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
-                segProductIds.push(pid)
-              }
-            } else if (seg.recognitionResults) {
-              for (const recog of seg.recognitionResults as Array<{ brand: string | null; productName: string | null; searchTerms: string[] }>) {
-                if (recog.brand || recog.productName) {
-                  for (const term of [recog.productName, ...(recog.searchTerms ?? [])].filter(Boolean)) {
-                    const found = await client.find({
-                      collection: 'products',
-                      where: { name: { contains: term as string } },
-                      limit: 1,
-                    })
-                    if (found.docs.length > 0) {
-                      segProductIds.push((found.docs[0] as { id: number }).id)
-                      break
-                    }
-                  }
-                }
-              }
-            }
-
-            const uniqueSegProductIds = [...new Set(segProductIds)]
-            const segProducts = uniqueSegProductIds
-              .filter((id) => productInfoMap.has(id))
-              .map((id) => ({
-                productId: id,
-                brandName: productInfoMap.get(id)!.brandName,
-                productName: productInfoMap.get(id)!.productName,
-              }))
-
-            if (tx.transcript.trim() && segProducts.length > 0) {
-              const sentimentResult = await analyzeSentiment(
-                tx.preTranscript,
-                tx.transcript,
-                tx.postTranscript,
-                segProducts,
-                transcriptData?.transcript,
-              )
-              tokensSentiment += sentimentResult.tokensUsed.totalTokens
-              snippetVideoQuotes.push(sentimentResult.products)
-            } else {
-              snippetVideoQuotes.push([])
-            }
-
-            await heartbeat(jobId, 'video-processing')
-          }
-
-          jlog.event('video_processing.sentiment_analyzed', { title: video.title, tokens: tokensSentiment })
-        } catch (transcriptionError) {
-          const msg = transcriptionError instanceof Error ? transcriptionError.message : String(transcriptionError)
-          log.error('Transcription pipeline failed', { videoId: video.videoId, error: msg })
-          jlog.event('video_processing.transcription_failed', { title: video.title, error: msg })
-          // Continue without transcription data — segments are still saved
-        }
-      }
-
-      const totalTokensAll = totalTokensUsed + tokensTranscriptCorrection + tokensSentiment
-      log.info('Done processing video', { videoId: video.videoId, segments: segmentResults.length, totalTokens: totalTokensAll, recognitionTokens: totalTokensUsed, correctionTokens: tokensTranscriptCorrection, sentimentTokens: tokensSentiment })
-      jlog.event('video_processing.complete', { title: video.title, segments: segmentResults.length, tokens: totalTokensAll })
+      jlog.event('video_processing.complete', { title: item.title, stage: item.stageName, tokens: stageResult.tokens?.total ?? 0 })
 
       results.push({
-        videoId: video.videoId,
-        success: true,
-        tokensUsed: totalTokensAll,
-        tokensRecognition: totalTokensUsed,
-        tokensTranscriptCorrection,
-        tokensSentiment,
-        videoMediaId,
-        segments: segmentResults,
-        transcriptData,
-        snippetTranscripts,
-        snippetVideoQuotes,
+        videoId: item.videoId,
+        stageName: item.stageName,
+        success: stageResult.success,
+        error: stageResult.error,
+        tokensUsed: stageResult.tokens?.total ?? 0,
+        tokensRecognition: stageResult.tokens?.recognition ?? 0,
+        tokensTranscriptCorrection: stageResult.tokens?.transcriptCorrection ?? 0,
+        tokensSentiment: stageResult.tokens?.sentiment ?? 0,
       })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      log.error('Video processing failed', { videoId: video.videoId, error: msg })
-      jlog.event('video_processing.failed', { title: video.title, error: msg })
+      log.error('Stage execution failed', { videoId: item.videoId, stage: item.stageName, error: msg })
+      jlog.event('video_processing.failed', { title: item.title, stage: item.stageName, error: msg })
       results.push({
-        videoId: video.videoId,
+        videoId: item.videoId,
+        stageName: item.stageName,
         success: false,
         error: msg,
-        tokensUsed: totalTokensUsed,
-        tokensRecognition: totalTokensUsed,
+        tokensUsed: 0,
+        tokensRecognition: 0,
         tokensTranscriptCorrection: 0,
         tokensSentiment: 0,
       })
-    } finally {
-      log.info('Cleaning up temp dir', { tmpDir })
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true })
-      } catch (e) {
-        log.warn('Cleanup failed', { error: e instanceof Error ? e.message : String(e) })
-      }
     }
   }
 
-  await submitWork(client, worker, { type: 'video-processing', jobId, results } as Parameters<typeof submitWork>[2])
+  await submitWork(client, worker, { type: 'video-processing', jobId, results, enabledStages: enabledStagesArr } as Parameters<typeof submitWork>[2])
   log.info('Submitted video processing results', { jobId })
 }
 

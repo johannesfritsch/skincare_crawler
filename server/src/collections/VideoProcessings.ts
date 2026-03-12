@@ -10,7 +10,7 @@ export const VideoProcessings: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'id',
-    defaultColumns: ['id', 'type', 'status', 'processed', 'errors', 'startedAt'],
+    defaultColumns: ['id', 'type', 'status', 'completed', 'errors', 'startedAt'],
     group: 'Videos',
   },
   hooks: {
@@ -109,76 +109,134 @@ export const VideoProcessings: CollectionConfig = {
           ],
         },
         {
-          label: 'Image Recognition',
+          label: 'Stages',
           fields: [
             {
-              name: 'sceneThreshold',
-              type: 'number',
-              label: 'Scene Threshold',
-              defaultValue: 0.4,
-              min: 0.01,
-              max: 1,
-              admin: {
-                description: 'Scene change detection threshold (0-1). Lower = more sensitive, more segments.',
-              },
-            },
-            {
-              name: 'clusterThreshold',
-              type: 'number',
-              label: 'Cluster Threshold',
-              defaultValue: 25,
-              min: 1,
-              max: 64,
-              admin: {
-                description: 'Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.',
-              },
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageDownload',
+                  type: 'checkbox',
+                  label: 'Download',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Download video via yt-dlp and upload to media.',
+                    width: '20%',
+                  },
+                },
+                {
+                  name: 'stageSceneDetection',
+                  type: 'checkbox',
+                  label: 'Scene Detection',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Detect scenes, extract screenshots, scan barcodes.',
+                    width: '20%',
+                  },
+                },
+                {
+                  name: 'stageProductRecognition',
+                  type: 'checkbox',
+                  label: 'Product Recognition',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM visual recognition and GTIN lookup.',
+                    width: '20%',
+                  },
+                },
+                {
+                  name: 'stageTranscription',
+                  type: 'checkbox',
+                  label: 'Transcription',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Speech-to-text via Deepgram with LLM correction.',
+                    width: '20%',
+                  },
+                },
+                {
+                  name: 'stageSentimentAnalysis',
+                  type: 'checkbox',
+                  label: 'Sentiment Analysis',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM quote extraction and sentiment scoring.',
+                    width: '20%',
+                  },
+                },
+              ],
             },
           ],
         },
         {
-          label: 'Transcription',
+          label: 'Stage Config',
           fields: [
             {
-              name: 'transcriptionEnabled',
-              type: 'checkbox',
-              label: 'Transcription Enabled',
-              defaultValue: true,
-              admin: {
-                description: 'Enable speech-to-text transcription via Deepgram and sentiment analysis.',
-              },
+              type: 'row',
+              fields: [
+                {
+                  name: 'sceneThreshold',
+                  type: 'number',
+                  label: 'Scene Threshold',
+                  defaultValue: 0.4,
+                  min: 0.01,
+                  max: 1,
+                  admin: {
+                    description: 'Scene change detection threshold (0-1). Lower = more sensitive, more segments.',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'clusterThreshold',
+                  type: 'number',
+                  label: 'Cluster Threshold',
+                  defaultValue: 25,
+                  min: 1,
+                  max: 64,
+                  admin: {
+                    description: 'Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.',
+                    width: '50%',
+                  },
+                },
+              ],
             },
             {
-              name: 'transcriptionLanguage',
-              type: 'select',
-              label: 'Transcription Language',
-              defaultValue: 'de',
-              options: [
-                { label: 'German', value: 'de' },
-                { label: 'English', value: 'en' },
-                { label: 'French', value: 'fr' },
-                { label: 'Spanish', value: 'es' },
-                { label: 'Italian', value: 'it' },
+              type: 'row',
+              fields: [
+                {
+                  name: 'transcriptionLanguage',
+                  type: 'select',
+                  label: 'Transcription Language',
+                  defaultValue: 'de',
+                  options: [
+                    { label: 'German', value: 'de' },
+                    { label: 'English', value: 'en' },
+                    { label: 'French', value: 'fr' },
+                    { label: 'Spanish', value: 'es' },
+                    { label: 'Italian', value: 'it' },
+                  ],
+                  admin: {
+                    description: 'Language for speech recognition.',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'transcriptionModel',
+                  type: 'select',
+                  label: 'Transcription Model',
+                  defaultValue: 'nova-3',
+                  options: [
+                    { label: 'Nova 3 (Latest)', value: 'nova-3' },
+                    { label: 'Nova 2', value: 'nova-2' },
+                    { label: 'Enhanced', value: 'enhanced' },
+                    { label: 'Base', value: 'base' },
+                  ],
+                  admin: {
+                    description: 'Deepgram model to use for speech recognition.',
+                    width: '50%',
+                  },
+                },
               ],
-              admin: {
-                description: 'Language for speech recognition.',
-                condition: (data) => data?.transcriptionEnabled === true,
-              },
-            },
-            {
-              name: 'transcriptionModel',
-              type: 'select',
-              label: 'Transcription Model',
-              defaultValue: 'nova-3',
-              options: [
-                { label: 'Nova 3 (Latest)', value: 'nova-3' },
-                { label: 'Nova 2', value: 'nova-2' },
-                { label: 'Enhanced', value: 'enhanced' },
-                { label: 'Base', value: 'base' },
-              ],
-              admin: {
-                description: 'Deepgram model to use for speech recognition.',
-                condition: (data) => data?.transcriptionEnabled === true,
-              },
             },
           ],
         },
@@ -194,18 +252,18 @@ export const VideoProcessings: CollectionConfig = {
                   label: 'Total',
                   admin: {
                     readOnly: true,
-                    description: 'Total videos to process',
+                    description: 'Total stage-executions to process',
                     width: '34%',
                   },
                 },
                 {
-                  name: 'processed',
+                  name: 'completed',
                   type: 'number',
-                  label: 'Processed',
+                  label: 'Completed',
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'Videos successfully processed',
+                    description: 'Stage-executions successfully completed',
                     width: '33%',
                   },
                 },
@@ -216,7 +274,7 @@ export const VideoProcessings: CollectionConfig = {
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'Videos that failed to process',
+                    description: 'Stage-executions that failed',
                     width: '33%',
                   },
                 },
@@ -279,6 +337,20 @@ export const VideoProcessings: CollectionConfig = {
           ],
         },
 
+        {
+          label: 'Video Progress',
+          fields: [
+            {
+              name: 'videoProgress',
+              type: 'json',
+              label: 'Video Progress',
+              admin: {
+                readOnly: true,
+                description: 'Maps video IDs to last completed stage name. Example: { "42": "download", "43": "scene_detection" }',
+              },
+            },
+          ],
+        },
         {
           label: 'Events',
           fields: [

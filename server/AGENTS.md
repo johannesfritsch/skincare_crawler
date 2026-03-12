@@ -1540,7 +1540,6 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 | Upload field | `image` | `image_id` | `image` → `image_id` |
 | Date field | `claimedAt` | `claimed_at` | `claimedAt` → `claimed_at` |
 | Boolean field | `crawlVariants` | `crawl_variants` | `crawlVariants` → `crawl_variants` |
-| Select (enum) | `processingStatus` | `processing_status` | `processingStatus` → `processing_status` |
 | Array field | `images` | **separate table** | `products.images` → `products_images` table |
 | hasMany select | `capabilities` | **separate table** | `workers.capabilities` → `workers_capabilities` table |
 
@@ -1551,7 +1550,7 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 - **Array fields** create a sub-table: `{collection}_{field}` (e.g. `products_images`, `source_variants_price_history`) with `_parent_id` (FK back to parent), `_order` (integer), and the array item's own fields
 - **hasMany select fields** create a sub-table: `{collection}_{field}` (e.g. `workers_capabilities`) with `parent_id`, `value` (the enum value), `order`
 - **hasMany relationships** create a `{collection}_rels` join table (e.g. `products_rels`, `events_rels`) with FK columns named `{related_collection_snake}_id` (e.g. `source_products_id`, `product_crawls_id`)
-- **Enum types** are named `enum_{table}_{column}` (e.g. `enum_source_products_source`, `enum_videos_processing_status`). Each table gets its own enum even if the values are identical (e.g. `status` columns) — this means `UNION` across tables with enum columns requires `::text` casts
+- **Enum types** are named `enum_{table}_{column}` (e.g. `enum_source_products_source`). Each table gets its own enum even if the values are identical (e.g. `status` columns) — this means `UNION` across tables with enum columns requires `::text` casts
 - **Timestamps** auto-added: `updated_at`, `created_at` (snake_case)
 
 #### Quick reference: commonly used columns
@@ -1572,7 +1571,6 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 | `source_variants` | `amountUnit` | `amount_unit` |
 | `source_variants` | `crawledAt` | `crawled_at` |
 | `source_variants` | `sourceArticleNumber` | `source_article_number` |
-| `videos` | `processingStatus` | `processing_status` |
 | `videos` | `channel` | `channel_id` |
 | `videos` | `transcriptWords` | `transcript_words` |
 | `video_snippets` | `matchingType` | `matching_type` |
@@ -1604,7 +1602,7 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 **IMPORTANT: Column naming differs between Drizzle ORM and raw SQL.** See the "PostgreSQL Column Naming Convention" section above for the full reference. Summary:
 
 - **Drizzle ORM** (`t.products.brand`, `eq(t.source_variants.sourceProduct, ...)`) — use **camelCase Payload field names**. Drizzle maps them to actual DB columns automatically.
-- **Raw SQL** (`db.execute(sql\`...\`)`) — use **actual snake_case DB column names** (`brand_id`, `source_product_id`, `processing_status`). Never use camelCase in raw SQL.
+- **Raw SQL** (`db.execute(sql\`...\`)`) — use **actual snake_case DB column names** (`brand_id`, `source_product_id`). Never use camelCase in raw SQL.
 
 ```typescript
 const payload = await getPayload({ config: await config })
@@ -1736,6 +1734,7 @@ interface SnapshotResponse {
   }>
   videoPipeline: {
     total, processed, unprocessed, withTranscript, totalSnippets,
+    // "processed" = has a non-null transcript; "unprocessed" = has no media (image_id IS NULL, i.e. no downloaded video file)
     snippetsByBarcode, snippetsByVisual, totalMentions,
     mentionsByPositive, mentionsByNeutral, mentionsByNegative, mentionsByMixed,
     productsWithMentions, channelsByPlatform: Array<{ platform, count }>
@@ -1769,7 +1768,7 @@ interface SnapshotResponse {
 | DatabaseOverview | `database-overview` | `DatabaseOverviewClient` | Grid of 11 entity count cards (products, variants, GTINs, source products/variants, brands, ingredients, videos, creators, channels, media) |
 | ProductQuality | `product-quality` | `ProductQualityClient` | Overall completeness percentage + 6 horizontal progress bars (image, brand, productType, ingredients, description, scoreHistory) |
 | SourceCoverage | `source-coverage` | `SourceCoverageClient` | Table with one row per store: products count, crawl progress bar with %, variants, GTINs, avg rating with review count |
-| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Processing progress bar, stats grid (snippets by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
+| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Processing progress bar (processed = has transcript, unprocessed = no media/image_id), stats grid (snippets by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
 | JobQueue | `job-queue` | `JobQueueClient` | Live workers section (name, status dot, last seen) + job queue table (pending/running/completed/failed/stale per collection, clickable links) |
 
 ### Key Files

@@ -6,6 +6,13 @@ import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-di
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { createLogger } from '@/lib/logger'
 import type { AggregationSource } from '@/lib/aggregate-product'
+import {
+  getNextStage,
+  getEnabledStages,
+  getVideoProgress,
+  videoNeedsWork,
+  type StageName,
+} from '@/lib/video-processing/stages'
 
 export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
@@ -517,29 +524,14 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
   jlog.info('Building video processing work', { jobId })
   const job = await payload.findByID({ collection: 'video-processings', id: jobId }) as Record<string, unknown>
 
-  // Initialize job if pending: count total videos and set in_progress
-  if (job.status === 'pending') {
-    jlog.info('Initializing video processing job', { jobId })
+  // Determine which stages are enabled and read progress map
+  const enabledStages = getEnabledStages(job)
+  const enabledStagesArr = [...enabledStages]
+  const progress = getVideoProgress(job)
 
-    let total = 0
-    if (job.type === 'single_video' && job.video) {
-      total = 1
-    } else if (job.type === 'selected_urls') {
-      const urls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
-      total = urls.length
-    } else {
-      // all_unprocessed — count all unprocessed videos
-      const count = await payload.count({
-        collection: 'videos',
-        where: {
-          and: [
-            { processingStatus: { equals: 'unprocessed' } },
-            { externalUrl: { exists: true } },
-          ],
-        },
-      })
-      total = count.totalDocs
-    }
+  // Initialize job if pending: set in_progress
+  if (job.status === 'pending') {
+    jlog.info('Initializing video processing job', { jobId, stages: enabledStagesArr.join(',') })
 
     await payload.update({
       collection: 'video-processings',
@@ -548,31 +540,34 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
         status: 'in_progress',
         startedAt: new Date().toISOString(),
         completedAt: null,
-        total,
-        processed: 0,
+        completed: 0,
         errors: 0,
         tokensUsed: 0,
         tokensRecognition: 0,
         tokensTranscriptCorrection: 0,
         tokensSentiment: 0,
+        videoProgress: {},
       },
     })
-    jlog.event('job.claimed', { collection: 'video-processings', jobId, total })
+    jlog.event('job.claimed', { collection: 'video-processings', jobId })
   }
 
-  // Find videos to process
-  const videos: Array<{ videoId: number; externalUrl: string; title: string }> = []
+  // Find videos that need their next stage
+  const stageItems: Array<{ videoId: number; title: string; stageName: string }> = []
   const itemsPerTick = (job.itemsPerTick as number) ?? 1
 
   if (job.type === 'single_video' && job.video) {
     const videoId = typeof job.video === 'number' ? job.video : (job.video as { id: number }).id
     const video = await payload.findByID({ collection: 'videos', id: videoId }) as Record<string, unknown>
-    if (video.externalUrl) {
-      videos.push({ videoId: video.id as number, externalUrl: video.externalUrl as string, title: video.title as string })
+    const lastCompleted = progress[String(videoId)] ?? null
+    const nextStage = getNextStage(lastCompleted, enabledStages)
+    if (nextStage) {
+      stageItems.push({ videoId: video.id as number, title: (video.title as string) ?? '', stageName: nextStage.name })
     }
   } else if (job.type === 'selected_urls') {
     const urls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
-    for (const url of urls.slice(0, itemsPerTick)) {
+    for (const url of urls) {
+      if (stageItems.length >= itemsPerTick) break
       const existing = await payload.find({
         collection: 'videos',
         where: { externalUrl: { equals: url } },
@@ -580,41 +575,62 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
       })
       if (existing.docs.length > 0) {
         const v = existing.docs[0] as Record<string, unknown>
-        if (v.externalUrl) {
-          videos.push({ videoId: v.id as number, externalUrl: v.externalUrl as string, title: v.title as string })
+        const vid = v.id as number
+        const lastCompleted = progress[String(vid)] ?? null
+        const nextStage = getNextStage(lastCompleted, enabledStages)
+        if (nextStage) {
+          stageItems.push({ videoId: vid, title: (v.title as string) ?? '', stageName: nextStage.name })
         }
       }
     }
   } else {
-    // all_unprocessed
+    // all_unprocessed — fetch videos with externalUrl, filter by job progress map.
+    // Progress is stored on the job, not the video, so we fetch a batch of videos
+    // and check the progress map to find ones that still need work.
     const result = await payload.find({
       collection: 'videos',
       where: {
-        and: [
-          { processingStatus: { equals: 'unprocessed' } },
-          { externalUrl: { exists: true } },
-        ],
+        externalUrl: { exists: true },
       },
-      limit: itemsPerTick,
+      limit: itemsPerTick * 5, // fetch extra to account for already-completed videos
       sort: 'createdAt',
     })
     for (const doc of result.docs) {
+      if (stageItems.length >= itemsPerTick) break
       const v = doc as Record<string, unknown>
-      if (v.externalUrl) {
-        videos.push({ videoId: v.id as number, externalUrl: v.externalUrl as string, title: v.title as string })
+      const vid = v.id as number
+      const lastCompleted = progress[String(vid)] ?? null
+      const nextStage = getNextStage(lastCompleted, enabledStages)
+      if (nextStage) {
+        stageItems.push({ videoId: vid, title: (v.title as string) ?? '', stageName: nextStage.name })
       }
     }
   }
 
-  jlog.info('Selected videos for processing', { jobId, count: videos.length, ...(videos.length > 0 ? { firstTitle: videos[0].title, firstUrl: videos[0].externalUrl } : {}) })
+  // If no work items found, the job is done
+  if (stageItems.length === 0) {
+    jlog.info('No remaining work, completing job', { jobId })
+    await payload.update({
+      collection: 'video-processings',
+      id: jobId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    jlog.event('job.completed_empty', { collection: 'video-processings', reason: 'No remaining videos needing stages' })
+    return { type: 'none' as const }
+  }
+
+  jlog.info('Selected stage items for processing', { jobId, count: stageItems.length, stages: stageItems.map((s) => s.stageName).join(',') })
 
   return {
     type: 'video-processing',
     jobId,
-    videos,
+    stageItems,
+    enabledStages: enabledStagesArr,
     sceneThreshold: (job.sceneThreshold as number) ?? 0.4,
     clusterThreshold: (job.clusterThreshold as number) ?? 25,
-    transcriptionEnabled: (job.transcriptionEnabled as boolean) ?? true,
     transcriptionLanguage: (job.transcriptionLanguage as string) ?? 'de',
     transcriptionModel: (job.transcriptionModel as string) ?? 'nova-3',
   }
