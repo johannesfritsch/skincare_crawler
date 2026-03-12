@@ -9,7 +9,9 @@
   "dependencies": {
     "@anyskin/shared": "workspace:*",
     "@deepgram/sdk": "^4.11.3",
+    "@huggingface/transformers": "^3.8.1",
     "dotenv": "16.4.7",
+    "onnxruntime-node": "^1.24.3",
     "openai": "^6.16.0",
     "playwright-core": "1.56.1",
     "playwright-extra": "^4.3.6",

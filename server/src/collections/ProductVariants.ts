@@ -81,6 +81,63 @@ export const ProductVariants: CollectionConfig = {
               ],
             },
             {
+              name: 'recognitionImages',
+              type: 'array',
+              label: 'Recognition Images',
+              admin: {
+                description: 'Cropped product packaging regions detected by Grounding DINO object detection',
+              },
+              fields: [
+                {
+                  name: 'image',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Cropped Image',
+                  required: true,
+                },
+                {
+                  name: 'score',
+                  type: 'number',
+                  label: 'Detection Score',
+                  min: 0,
+                  max: 1,
+                  admin: {
+                    description: 'Object detection confidence (0-1)',
+                    step: 0.001,
+                  },
+                },
+                {
+                  type: 'row',
+                  fields: [
+                    {
+                      name: 'boxXMin',
+                      type: 'number',
+                      label: 'X Min',
+                      admin: { width: '25%' },
+                    },
+                    {
+                      name: 'boxYMin',
+                      type: 'number',
+                      label: 'Y Min',
+                      admin: { width: '25%' },
+                    },
+                    {
+                      name: 'boxXMax',
+                      type: 'number',
+                      label: 'X Max',
+                      admin: { width: '25%' },
+                    },
+                    {
+                      name: 'boxYMax',
+                      type: 'number',
+                      label: 'Y Max',
+                      admin: { width: '25%' },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
               type: 'row',
               fields: [
                 {

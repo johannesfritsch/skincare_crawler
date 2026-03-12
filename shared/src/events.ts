@@ -446,6 +446,11 @@ export interface EventRegistry {
     attributeCount: number
     claimCount: number
   }
+  'aggregation.objects_detected': {
+    gtin: string
+    detections: number
+    scores: string
+  }
   'aggregation.batch_done': {
     aggregated: number
     errors: number
@@ -888,6 +893,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['classification', 'persistence'],
+  },
+  'aggregation.objects_detected': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'object-detection'],
   },
   'aggregation.batch_done': {
     type: 'info',

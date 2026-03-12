@@ -876,6 +876,10 @@ export interface ProductAggregation {
    */
   stageImages?: boolean | null;
   /**
+   * Grounding DINO detection of cosmetics packaging + crop per variant.
+   */
+  stageObjectDetection?: boolean | null;
+  /**
    * LLM consensus description + deduplicated labels per variant.
    */
   stageDescriptions?: boolean | null;
@@ -1007,6 +1011,23 @@ export interface ProductVariant {
   images?:
     | {
         image: number | Media;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Cropped product packaging regions detected by Grounding DINO object detection
+   */
+  recognitionImages?:
+    | {
+        image: number | Media;
+        /**
+         * Object detection confidence (0-1)
+         */
+        score?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
         id?: string | null;
       }[]
     | null;
@@ -2154,6 +2175,17 @@ export interface ProductVariantsSelect<T extends boolean = true> {
         image?: T;
         id?: T;
       };
+  recognitionImages?:
+    | T
+    | {
+        image?: T;
+        score?: T;
+        boxXMin?: T;
+        boxYMin?: T;
+        boxXMax?: T;
+        boxYMax?: T;
+        id?: T;
+      };
   amount?: T;
   amountUnit?: T;
   variantDimension?: T;
@@ -2383,6 +2415,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   stageMatchBrand?: T;
   stageIngredients?: T;
   stageImages?: T;
+  stageObjectDetection?: T;
   stageDescriptions?: T;
   stageScoreHistory?: T;
   total?: T;

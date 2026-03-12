@@ -5,7 +5,8 @@
     "onlyBuiltDependencies": [
       "sharp",
       "esbuild",
-      "unrs-resolver"
+      "unrs-resolver",
+      "onnxruntime-node"
     ],
     "overrides": {
       "@payloadcms/plugin-cloud-storage": "3.73.0",

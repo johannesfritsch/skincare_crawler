@@ -191,7 +191,17 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description: 'Download best image per variant and upload to media.',
-                    width: '33%',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'stageObjectDetection',
+                  type: 'checkbox',
+                  label: 'Object Detection',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Grounding DINO detection of cosmetics packaging + crop per variant.',
+                    width: '25%',
                   },
                 },
                 {
@@ -201,7 +211,7 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description: 'LLM consensus description + deduplicated labels per variant.',
-                    width: '33%',
+                    width: '25%',
                   },
                 },
                 {
@@ -211,7 +221,7 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description: 'Compute store + creator scores and prepend to score history.',
-                    width: '34%',
+                    width: '25%',
                   },
                 },
               ],

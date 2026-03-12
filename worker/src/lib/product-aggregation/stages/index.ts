@@ -11,8 +11,9 @@
  *   2. match_brand       — LLM brand matching
  *   3. ingredients       — LLM ingredient parsing + matching per variant
  *   4. images            — download + upload best image per variant
- *   5. descriptions      — LLM consensus description + deduplicated labels per variant
- *   6. score_history     — compute store + creator scores
+ *   5. object_detection  — Grounding DINO detection + crop per variant
+ *   6. descriptions      — LLM consensus description + deduplicated labels per variant
+ *   7. score_history     — compute store + creator scores
  */
 
 import type { PayloadRestClient } from '@/lib/payload-client'
@@ -21,13 +22,14 @@ import type { AggregationSource } from '@/lib/aggregate-product'
 
 // ─── Types ───
 
-/** The 7 stage names (match the checkbox field names on ProductAggregations minus 'stage' prefix, in camelCase→snake_case) */
+/** The 8 stage names (match the checkbox field names on ProductAggregations minus 'stage' prefix, in camelCase→snake_case) */
 export type StageName =
   | 'resolve'
   | 'classify'
   | 'match_brand'
   | 'ingredients'
   | 'images'
+  | 'object_detection'
   | 'descriptions'
   | 'score_history'
 
@@ -101,6 +103,7 @@ import { executeClassify } from './classify'
 import { executeMatchBrand } from './match-brand'
 import { executeIngredients } from './ingredients'
 import { executeImages } from './images'
+import { executeObjectDetection } from './object-detection'
 import { executeDescriptions } from './descriptions'
 import { executeScoreHistory } from './score-history'
 
@@ -137,14 +140,20 @@ export const STAGES: StageDefinition[] = [
     execute: executeImages,
   },
   {
-    name: 'descriptions',
+    name: 'object_detection',
     index: 5,
+    jobField: 'stageObjectDetection',
+    execute: executeObjectDetection,
+  },
+  {
+    name: 'descriptions',
+    index: 6,
     jobField: 'stageDescriptions',
     execute: executeDescriptions,
   },
   {
     name: 'score_history',
-    index: 6,
+    index: 7,
     jobField: 'stageScoreHistory',
     execute: executeScoreHistory,
   },
@@ -210,6 +219,7 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   if (job.stageMatchBrand !== false) stages.add('match_brand')
   if (job.stageIngredients !== false) stages.add('ingredients')
   if (job.stageImages !== false) stages.add('images')
+  if (job.stageObjectDetection !== false) stages.add('object_detection')
   if (job.stageDescriptions !== false) stages.add('descriptions')
   if (job.stageScoreHistory !== false) stages.add('score_history')
   return stages
