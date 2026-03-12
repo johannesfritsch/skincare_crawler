@@ -1057,6 +1057,10 @@ export async function persistVideoProcessingResult(
 }
 
 // ─── Product Aggregation ───
+// @deprecated — The monolithic persistProductAggregationResult() function is deprecated.
+// Logic has been split into 7 stage files in worker/src/lib/product-aggregation/stages/.
+// Each stage persists its own results inline. This function is kept for backward
+// compatibility but is no longer called by the stage-based pipeline.
 
 export interface PersistVariantInput {
   gtin: string
@@ -1101,6 +1105,12 @@ export interface PersistProductAggregationInput {
   scope: 'full' | 'partial'
 }
 
+/**
+ * @deprecated Use the stage-based pipeline in `worker/src/lib/product-aggregation/stages/` instead.
+ * This monolithic function is no longer called by the stage-based pipeline — each stage
+ * (resolve, classify, match_brand, ingredients, images, descriptions, score_history)
+ * persists its own results inline. Kept for backward compatibility only.
+ */
 export async function persistProductAggregationResult(
   payload: PayloadRestClient,
   jobId: number,

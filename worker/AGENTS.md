@@ -6,7 +6,7 @@ Standalone Node.js process that claims jobs from the server and processes them. 
 
 ```
 worker/src/
-├── worker.ts                         # Main loop + 8 job handlers (video-processing is ~80-line stage dispatcher)
+├── worker.ts                         # Main loop + 8 job handlers (video-processing + product-aggregation are ~80-line stage dispatchers)
 └── lib/
     ├── payload-client.ts             # REST client mirroring Payload's local API
     ├── logger.ts                     # Structured logger with event emission
@@ -64,6 +64,17 @@ worker/src/
     │       ├── product-recognition.ts # Stage 3: LLM classification + GTIN lookup
     │       ├── transcription.ts      # Stage 4: Deepgram STT + LLM correction
     │       └── sentiment-analysis.ts # Stage 5: LLM quote extraction + sentiment
+    │
+    ├── product-aggregation/
+    │   └── stages/                   # Stage-based pipeline
+    │       ├── index.ts              # Stage registry, types, ordering, AggregationProgress, getNextStage(), getAggregationProgress()
+    │       ├── resolve.ts            # Stage 0: Find/create product + variants, merge duplicates
+    │       ├── classify.ts           # Stage 1: classifyProduct() + cleanProductName()
+    │       ├── match-brand.ts        # Stage 2: matchBrand() → link brand
+    │       ├── ingredients.ts        # Stage 3: parseIngredients() + matchIngredients() per variant
+    │       ├── images.ts             # Stage 4: Download + upload best image per variant
+    │       ├── descriptions.ts       # Stage 5: consensusDescription() + deduplicateLabels() per variant
+    │       └── score-history.ts      # Stage 6: Compute store + creator scores
     │
     ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
     ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
@@ -188,7 +199,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.); adds `{ source: 'cosing', sourceUrl, fieldsProvided }` to the `sources` array on create/update — `fieldsProvided` lists which content fields were actually populated (only non-null fields from the CosIng data, e.g. `['name', 'casNumber', 'functions']`); deduplicates by checking if CosIng source already exists, backfills `fieldsProvided` on existing entries missing it |
 | `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
 | ~~`persistVideoProcessingResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `video-processing/stages/` persists its own results inline (video-snippets, video-mentions, transcripts, media uploads). |
-| `persistProductAggregationResult()` | Finds/creates `products` via `product-variants` GTIN lookup (no longer uses `products.gtin`); creates `product-variants` with GTIN + source-variant links for new products; [full only] runs matchBrand, parses raw ingredientsText via `parseIngredients()` LLM call then matchIngredients, uploads image, applies classification (productType, attributes, claims with evidence); [always] computes and prepends score history (store + creator scores on 0–10 scale, with `change` enum: drop/stable/increase) |
+| ~~`persistProductAggregationResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `product-aggregation/stages/` persists its own results inline (product creation/merging, classification, brand matching, ingredients, images, descriptions, score history). |
 
 ## 8 Job Types — Detailed
 
@@ -303,31 +314,32 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 
 ### 7. product-aggregation
 
-**Handler**: `handleProductAggregation()`
-**Flow per product group** (a product group = one or more sibling GTINs that share source-products):
+**Handler**: `handleProductAggregation()` — stage dispatcher (~80 lines in `worker.ts`)
 
-```
-1. For each GTIN in the group:
-   aggregateSourceVariantsToVariant(sources, { imageSourcePriority })  → per-variant data
-   - Name: longest string (from source-products)
-   - Ingredients: from source with longest raw text (from source-variants)
-   - Image: first image from highest-priority source (configurable, default: dm > rossmann > mueller > purish)
-   - Description, labels: collected from all sources for LLM consensus
+The product aggregation pipeline is a **stage-based architecture** (same pattern as video processing). Instead of a monolithic handler, the worker runs one stage per product group per tick. Each stage is a self-contained module in `product-aggregation/stages/` that reads its input from the database (prior stage's output) and persists its data outputs immediately. Progress is tracked on the job's `aggregationProgress` JSON field (`Record<string, StageName | null>` mapping product group keys to last completed stage names).
 
-2. aggregateVariantsToProduct(allSources)  → product-level data
-   - Uses ALL sources across ALL GTINs in the group
+**Stage dispatcher flow**:
+1. `claimWork()` calls `buildProductAggregationWork()` which keeps existing GTIN expansion/grouping logic (`findSourcesByGtin`, `expandSisterGtins`, `groupGtinsIntoProducts`), then reads `getAggregationProgress(job)` and uses `getNextStage()` + `productNeedsWork()` to find product groups needing their next enabled stage.
+2. Work unit contains `stageItems: Array<{ productId, stageName, workItem: AggregationWorkItem }>` where `AggregationWorkItem` carries `productId` (null for resolve), `gtins`, and `variants` (with per-GTIN sources).
+3. Handler iterates `stageItems`, dispatching each to the appropriate stage module via `AGGREGATION_STAGES.find(s => s.name === stageName)`.
+4. Each stage runs independently, persists its own data outputs inline.
+5. `submitProductAggregation()` updates the progress map entry for each product group (`progress[progressKey] = stageName`) after successful stage execution, stores the product ID for quick lookup (`progress[pid:${progressKey}] = productId`), and uses the progress map for remaining work checks.
 
-3. [full scope only] Per-variant LLM steps:
-   - consensusDescription() per variant
-   - deduplicateLabels() per variant
+**7 stages** (in order):
 
-4. [full scope only] Product-level LLM steps (once per group):
-   - classifyProduct() using deduplicated descriptions/ingredients from all sources
-   - cleanProductName() — strips variant-specific info (sizes, colors, shade numbers)
-     from the raw product name using variant labels as context
+| # | Stage name | Checkbox field | What it does | LLM? |
+|---|------------|---------------|--------------|------|
+| 0 | `resolve` | `stageResolve` | Find/create product + product-variants from GTINs, merge duplicates, aggregate basic data (name, variantLabel, amount, sourceVariants) | No |
+| 1 | `classify` | `stageClassify` | `classifyProduct()` + `cleanProductName()` → productType, attributes, claims, warnings, pH, usage | Yes |
+| 2 | `match_brand` | `stageMatchBrand` | `matchBrand()` → link brand to product | Yes |
+| 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
+| 4 | `images` | `stageImages` | Per variant: download best image, upload to media | No |
+| 5 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
+| 6 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
 
-5. Submit results (one result per product group, containing all variant data)
-```
+**Progress tracking**: Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys (sorted GTIN list joined by commas) to their last completed stage name. After resolve, the product ID is stored under `pid:<progressKey>` for quick lookup. `stages/index.ts` exports: `AggregationProgress` type, `stageIndex()`, `getFinalStage()`, `getAggregationProgress()`, `getNextStage(lastCompleted)`, `productNeedsWork(lastCompleted)`. `StageDefinition` has `index: number`.
+
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageResolve`, `stageClassify`, `stageMatchBrand`, `stageIngredients`, `stageImages`, `stageDescriptions`, `stageScoreHistory`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
 
 **Sister variant grouping** (`includeSisterVariants` field on job, default: true):
 - When enabled, the claim phase discovers all sibling GTINs that share a source-product. For example, if GTIN-A (50ml) and GTIN-B (100ml) both have source-variants under the same source-product, they are grouped into one work item and become variants of the same unified product.
@@ -335,20 +347,11 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 - When disabled, each GTIN is treated as its own product group (backward-compatible behavior).
 - Works for both `selected_gtins` and `all` aggregation types.
 
-**Scope** (`scope` field on job, passed through claim → handler → submit → persist):
-- `full`: Runs all LLM-heavy operations — `classifyProduct()`, `matchBrand()`, `matchIngredients()`, image download/upload, and score history computation.
-- `partial`: Skips all LLM calls and image operations. Only updates basic product data (name, GTIN, source product links) and computes score history. Use for cheap periodic score refreshes.
-
-**Persistence** (`persistProductAggregationResult`):
-- Accepts multiple GTINs (variant results) for one product group
-- **Phase 1 — Resolve/merge product**: Looks up existing product-variants for each GTIN. If some GTINs already have product-variants pointing to different products, **merges them**: keeps the first product as canonical, moves all product-variants and video-mentions from other products to it, merges source product IDs, then deletes the now-empty duplicate products. Creates new product + product-variant(s) for GTINs not yet in the database.
-- **Phase 2 — Per-variant data**: For each GTIN, updates its product-variant with aggregated data (description, labels, ingredients, images, classification). Ingredient matching, image upload, and classification application happen per variant (full scope only). Classification is computed once per product group and shared across all variants.
-- **Phase 3 — Product-level data**: Merges source product IDs, updates name, matches brand (full only), sets productType from classification (full only), computes score history (always).
-- Computes score history (always): fetches source-product ratings → store score (0–10), video-mention sentiments → creator score (0–10). Prepends new entry to `products.scoreHistory[]`. Sets `change` to `drop`/`stable`/`increase` based on score direction vs previous entry (compares store score first, then creator score; if both exist and store is `stable`, creator can override).
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates products, product-variants, media uploads, ingredients, scores) — the old monolithic `persistProductAggregationResult()` in `persist.ts` still exists for backward compatibility but is deprecated.
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
 
-**GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches both the crawled source-products (for product-level data: name, brandName) and the matching source-variants (for variant-level data: description, images, ingredientsText). When `includeSisterVariants` is enabled, it expands the GTIN set to include all sibling GTINs sharing any source-product, then groups them via union-find. Each work item carries a `variants` array of `{ gtin, sources: AggregationSource[] }`. At persist time, `persistProductAggregationResult()` resolves all GTINs to product-variants, merging existing products if needed.
+**GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches both the crawled source-products (for product-level data: name, brandName) and the matching source-variants (for variant-level data: description, images, ingredientsText). When `includeSisterVariants` is enabled, it expands the GTIN set to include all sibling GTINs sharing any source-product, then groups them via union-find. Each work item carries a `variants` array of `{ gtin, sources: AggregationSource[] }`. The resolve stage creates/finds the product and product-variants, merging existing products if needed.
 
 ### 8. ingredient-crawl
 
@@ -443,11 +446,11 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 
 | Function | Input | Output | Called by |
 |----------|-------|--------|-----------|
-| `matchBrand(client, brandName, logger)` | brand name string | `{ brandId, tokensUsed }` | `persistProductAggregationResult` |
-| `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `persistProductAggregationResult` |
-| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `persistVideoProcessingResult` |
-| `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, warnings, skinApplicability, phMin, phMax, usageInstructions, usageSchedule, productAttributes[], productClaims[], tokensUsed }` — detail fields extracted from descriptions by LLM; evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `handleProductAggregation` |
-| `cleanProductName(rawName, variantLabels, cache)` | raw product name + variant labels (e.g. "50ml", "Rose Gold") | `{ name, tokensUsed, cacheHit }` — strips variant-specific info (sizes, colors, shade numbers) to produce a clean generic product name | `handleProductAggregation` |
+| `matchBrand(client, brandName, logger)` | brand name string | `{ brandId, tokensUsed }` | `product-aggregation/stages/match-brand.ts` |
+| `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `product-aggregation/stages/ingredients.ts` |
+| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `video-processing/stages/product-recognition.ts` |
+| `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, warnings, skinApplicability, phMin, phMax, usageInstructions, usageSchedule, productAttributes[], productClaims[], tokensUsed }` — detail fields extracted from descriptions by LLM; evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `product-aggregation/stages/classify.ts` |
+| `cleanProductName(rawName, variantLabels, cache)` | raw product name + variant labels (e.g. "50ml", "Rose Gold") | `{ name, tokensUsed, cacheHit }` — strips variant-specific info (sizes, colors, shade numbers) to produce a clean generic product name | `product-aggregation/stages/classify.ts` |
 | `correctTranscript(rawTranscript, words, brands, products)` | raw STT transcript + brand/product names | `{ correctedTranscript, corrections[], tokensUsed }` | `handleVideoProcessing` |
 | `analyzeSentiment(pre, transcript, post, products)` | transcript segments + product info | `{ products[]: { quotes[], overallSentiment, score }, tokensUsed }` | `handleVideoProcessing` |
 

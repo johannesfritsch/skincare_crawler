@@ -36,23 +36,6 @@ export const ProductAggregations: CollectionConfig = {
     },
     ...jobClaimFields,
     {
-      name: 'scope',
-      type: 'select',
-      label: 'Scope',
-      defaultValue: 'full',
-      required: true,
-      options: [
-        { label: 'Full', value: 'full' },
-        { label: 'Partial', value: 'partial' },
-      ],
-      admin: {
-        position: 'sidebar',
-        description:
-          'Full: runs LLM classification (description, product type, attributes, claims), brand matching, ingredient matching, and image selection. ' +
-          'Partial: only updates score history and basic product data (name, sources) — no LLM calls, no image downloads.',
-      },
-    },
-    {
       name: 'itemsPerTick',
       type: 'number',
       label: 'Batch Size',
@@ -64,10 +47,34 @@ export const ProductAggregations: CollectionConfig = {
       },
     },
     {
+      name: 'startedAt',
+      type: 'date',
+      label: 'Started At',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
+      name: 'completedAt',
+      type: 'date',
+      label: 'Completed At',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        date: {
+          pickerAppearance: 'dayAndTime',
+        },
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
-          label: 'Configuration',
+          label: 'Source',
           fields: [
             {
               name: 'type',
@@ -127,6 +134,91 @@ export const ProductAggregations: CollectionConfig = {
           ],
         },
         {
+          label: 'Stages',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageResolve',
+                  type: 'checkbox',
+                  label: 'Resolve',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Find/create products + variants from GTINs, merge duplicates, aggregate basic data.',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'stageClassify',
+                  type: 'checkbox',
+                  label: 'Classify',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM classification: product type, attributes, claims, warnings, pH, usage.',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'stageMatchBrand',
+                  type: 'checkbox',
+                  label: 'Match Brand',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM brand matching to the brands collection.',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'stageIngredients',
+                  type: 'checkbox',
+                  label: 'Ingredients',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM ingredient parsing + matching per variant.',
+                    width: '25%',
+                  },
+                },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageImages',
+                  type: 'checkbox',
+                  label: 'Images',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Download best image per variant and upload to media.',
+                    width: '33%',
+                  },
+                },
+                {
+                  name: 'stageDescriptions',
+                  type: 'checkbox',
+                  label: 'Descriptions',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM consensus description + deduplicated labels per variant.',
+                    width: '33%',
+                  },
+                },
+                {
+                  name: 'stageScoreHistory',
+                  type: 'checkbox',
+                  label: 'Score History',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Compute store + creator scores and prepend to score history.',
+                    width: '34%',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
           label: 'Progress',
           fields: [
             {
@@ -148,7 +240,7 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'Products successfully aggregated',
+                    description: 'Stage-executions successfully completed',
                     width: '33%',
                   },
                 },
@@ -159,7 +251,7 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'Products that failed to aggregate',
+                    description: 'Stage-executions that failed',
                     width: '33%',
                   },
                 },
@@ -170,44 +262,28 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    description: 'Total LLM tokens spent on ingredient matching',
+                    description: 'Total LLM tokens consumed',
                     width: '33%',
-                  },
-                },
-              ],
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
                   },
                 },
               ],
             },
           ],
         },
-
+        {
+          label: 'Aggregation Progress',
+          fields: [
+            {
+              name: 'aggregationProgress',
+              type: 'json',
+              label: 'Aggregation Progress',
+              admin: {
+                readOnly: true,
+                description: 'Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }',
+              },
+            },
+          ],
+        },
         {
           label: 'Output',
           fields: [

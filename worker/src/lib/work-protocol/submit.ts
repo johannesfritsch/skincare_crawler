@@ -9,7 +9,6 @@ import {
   persistCrawlResult,
   persistIngredient,
   persistVideoDiscoveryResult,
-  persistProductAggregationResult,
 } from './persist'
 import { retryOrFail } from './job-failure'
 import {
@@ -17,6 +16,11 @@ import {
   videoNeedsWork,
   type StageName,
 } from '@/lib/video-processing/stages'
+import {
+  getAggregationProgress,
+  productNeedsWork,
+  type StageName as AggregationStageName,
+} from '@/lib/product-aggregation/stages'
 
 const log = createLogger('Submit')
 
@@ -169,47 +173,13 @@ interface SubmitProductAggregationBody {
   jobId: number
   lastCheckedSourceId: number
   aggregationType: string
-  scope: string
+  enabledStages: string[]
   results: Array<{
-    gtins: string[]
-    sourceProductIds: number[]
-    // Per-variant aggregated data (one per GTIN in the product group)
-    variantResults: Array<{
-      gtin: string
-      variantData: {
-        variantLabel?: string
-        variantDimension?: string
-        amount?: number
-        amountUnit?: string
-        selectedImageUrl?: string
-        selectedImageAlt?: string | null
-        ingredientsText?: string
-        sourceVariantIds: number[]
-        description?: string
-        labels?: string[]
-      }
-    }> | null
-    // Product-level aggregated data (shared across all variants in the group)
-    productData: {
-      name?: string
-      brandName?: string
-    } | null
-    // Classification results (full scope only) — shared across all variants
-    classification?: {
-      productType: string
-      warnings: string | null
-      skinApplicability: string | null
-      phMin: number | null
-      phMax: number | null
-      usageInstructions: string | null
-      usageSchedule: number[][] | null
-      productAttributes: Array<{ attribute: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
-      productClaims: Array<{ claim: string; sourceIndex: number; type: string; snippet?: string; ingredientNames?: string[] }>
-      tokensUsed: { promptTokens: number; completionTokens: number; totalTokens: number }
-    }
-    classifySourceProductIds?: number[]
-    tokensUsed: number
+    productId: number | null
+    stageName: string
+    success: boolean
     error?: string
+    tokensUsed: number
   }>
 }
 
@@ -832,10 +802,10 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
 }
 
 async function submitProductAggregation(payload: PayloadRestClient, body: SubmitProductAggregationBody) {
-  const { jobId, lastCheckedSourceId, aggregationType, scope, results } = body
+  const { jobId, lastCheckedSourceId, aggregationType, results, enabledStages } = body
   const jlog = log.forJob('product-aggregations', jobId)
   const batchStartMs = Date.now()
-  log.info('Product aggregation batch received', { jobId, results: results.length, aggregationType, scope })
+  log.info('Product aggregation batch received (stage-based)', { jobId, stageExecs: results.length })
 
   const job = await payload.findByID({ collection: 'product-aggregations', id: jobId }) as Record<string, unknown>
   let aggregated = (job.aggregated as number) ?? 0
@@ -848,83 +818,80 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
   )
   const productIds = new Set<number>(existingProductIds)
 
-  let batchSuccesses = 0
+  // Read current aggregationProgress map from the job and update it with results
+  const progress = getAggregationProgress(job)
+
   for (const result of results) {
-    const gtinLabels = (result.gtins as string[])?.join(', ') || 'unknown'
+    // Always accumulate tokens, regardless of success/failure
+    tokensUsed += result.tokensUsed ?? 0
 
-    if (result.error || !result.variantResults) {
-      errors++
-      log.info('Product aggregation error', { jobId, gtins: gtinLabels, error: result.error ?? 'no data' })
-      if (result.error) {
-        jlog.event('aggregation.error', { gtin: gtinLabels, error: result.error! })
-      }
-      continue
-    }
+    if (result.success) {
+      // Stage already persisted its own results — update progress map and count it
+      aggregated++
+      log.info('Stage execution complete', { jobId, productId: result.productId, stage: result.stageName, tokens: result.tokensUsed ?? 0 })
 
-    try {
-      const persistResult = await persistProductAggregationResult(payload, jobId, {
-        variantResults: result.variantResults,
-        sourceProductIds: result.sourceProductIds,
-        productData: result.productData,
-        classification: result.classification,
-        classifySourceProductIds: result.classifySourceProductIds,
-        scope: scope as 'full' | 'partial',
-      })
+      // For resolve stage, the result carries the newly created/found productId.
+      // We need to find which progress key this maps to — use the product's GTINs.
+      // The handler passes productId from the stage result.
+      if (result.productId) {
+        productIds.add(result.productId)
 
-      tokensUsed += persistResult.tokensUsed
-      tokensUsed += result.tokensUsed // classification tokens from worker
+        // Find the progress key for this product by looking up its product-variants' GTINs
+        const pvResult = await payload.find({
+          collection: 'product-variants',
+          where: { product: { equals: result.productId } },
+          limit: 100,
+        })
+        const gtins = (pvResult.docs as Array<Record<string, unknown>>)
+          .map((pv) => pv.gtin as string)
+          .filter(Boolean)
+          .sort()
+        const progressKey = gtins.join(',')
 
-      if (persistResult.error) {
-        errors++
-        log.info('Product aggregation persist error', { jobId, gtins: gtinLabels, productId: persistResult.productId, error: persistResult.error.slice(0, 100) })
-        jlog.event('aggregation.persist_error', { gtin: gtinLabels, error: persistResult.error })
-      } else {
-        aggregated++
-        batchSuccesses++
-        log.info('Product aggregation persisted', { jobId, gtins: gtinLabels, productId: persistResult.productId, variants: (result.variantResults as unknown[]).length, tokens: persistResult.tokensUsed, hasWarning: !!persistResult.warning })
-        if (persistResult.warning) {
-          jlog.event('aggregation.warning', { gtin: gtinLabels, warning: persistResult.warning! })
+        if (progressKey) {
+          progress[progressKey] = result.stageName as AggregationStageName
+          // Store the product ID for quick lookup by claim.ts
+          progress[`pid:${progressKey}`] = String(result.productId) as unknown as AggregationStageName
         }
       }
-
-      if (persistResult.productId) {
-        productIds.add(persistResult.productId)
-      }
-
-      // Update progress with accumulated products
-      await payload.update({
-        collection: 'product-aggregations',
-        id: jobId,
-        data: {
-          aggregated,
-          errors,
-          tokensUsed,
-          products: [...productIds],
-          ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
-        },
-      })
-    } catch (e) {
+    } else {
       errors++
-      const msg = e instanceof Error ? e.message : String(e)
-      jlog.event('aggregation.persist_failed', { gtin: gtinLabels, error: msg })
+      log.info('Stage execution failed', { jobId, productId: result.productId, stage: result.stageName, error: result.error })
+      jlog.event('aggregation.error', { error: result.error ?? 'Unknown error' })
     }
   }
 
-  // Completion check
-  const shouldComplete =
-    aggregationType === 'selected_gtins' ||
-    (aggregationType === 'all' && results.length === 0)
+  // Check if there's more work using the updated progress map
+  // For 'selected_gtins', the claim phase built work items from the GTIN list,
+  // so we check the progress map to see if all product groups are fully done.
+  // For 'all', the cursor-based approach means we need to check if there are more
+  // source-products beyond the cursor AND if current product groups are done.
+  const enabledSet = new Set(enabledStages) as Set<AggregationStageName>
 
-  const batchDurationMs = Date.now() - batchStartMs
-  log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: shouldComplete })
-
-  if (shouldComplete && batchSuccesses === 0 && results.length > 0) {
-    log.warn('Product aggregation batch was 100% errors, retrying or failing', { jobId, batchErrors: results.length })
-    await retryOrFail(payload, 'product-aggregations', jobId, `Batch of ${results.length} aggregations all failed`)
-    return { aggregated, errors, tokensUsed, done: shouldComplete }
+  // Count product groups still needing work from the progress map
+  let remainingWork = 0
+  for (const [key, lastCompleted] of Object.entries(progress)) {
+    if (key.startsWith('pid:')) continue // skip product ID entries
+    if (productNeedsWork(lastCompleted as AggregationStageName | null, enabledSet)) {
+      remainingWork++
+    }
   }
 
-  if (shouldComplete) {
+  // For 'all' type, there might be more source-products beyond the cursor
+  const allDone = aggregationType === 'selected_gtins'
+    ? remainingWork === 0
+    : remainingWork === 0 // For 'all', claim.ts already completes the job early when no more source-products exist
+
+  const batchDurationMs = Date.now() - batchStartMs
+  log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: allDone, remaining: remainingWork })
+
+  if (allDone && aggregated === 0 && errors > 0) {
+    log.warn('Product aggregation completed with zero successes, retrying or failing', { jobId, errors })
+    await retryOrFail(payload, 'product-aggregations', jobId, `All ${errors} stage-executions failed`)
+    return { aggregated, errors, tokensUsed, done: allDone }
+  }
+
+  if (allDone && aggregationType === 'selected_gtins') {
     await payload.update({
       collection: 'product-aggregations',
       id: jobId,
@@ -933,6 +900,8 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         aggregated,
         errors,
         tokensUsed,
+        products: [...productIds],
+        aggregationProgress: progress,
         completedAt: new Date().toISOString(),
       },
     })
@@ -940,6 +909,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
     jlog.event('aggregation.completed', { aggregated, errors, tokensUsed, durationMs: jobDurationMs })
   } else {
+    // Release claim for next batch (both 'all' cursor-based and 'selected_gtins' with remaining work)
     await payload.update({
       collection: 'product-aggregations',
       id: jobId,
@@ -947,6 +917,8 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         aggregated,
         errors,
         tokensUsed,
+        products: [...productIds],
+        aggregationProgress: progress,
         claimedBy: null,
         claimedAt: null,
         ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
@@ -955,7 +927,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     jlog.event('aggregation.batch_done', { aggregated, errors, batchSize: results.length, batchDurationMs })
   }
 
-  return { aggregated, errors, tokensUsed, done: shouldComplete }
+  return { aggregated, errors, tokensUsed, done: allDone }
 }
 
 // ─── Ingredient Crawl ───

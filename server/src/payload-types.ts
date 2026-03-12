@@ -825,13 +825,11 @@ export interface ProductAggregation {
    */
   failureReason?: string | null;
   /**
-   * Full: runs LLM classification (description, product type, attributes, claims), brand matching, ingredient matching, and image selection. Partial: only updates score history and basic product data (name, sources) — no LLM calls, no image downloads.
-   */
-  scope: 'full' | 'partial';
-  /**
    * Products to aggregate per batch.
    */
   itemsPerTick?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   type: 'all' | 'selected_gtins';
   /**
    * GTINs to aggregate, one per line
@@ -858,23 +856,61 @@ export interface ProductAggregation {
     | boolean
     | null;
   /**
+   * Find/create products + variants from GTINs, merge duplicates, aggregate basic data.
+   */
+  stageResolve?: boolean | null;
+  /**
+   * LLM classification: product type, attributes, claims, warnings, pH, usage.
+   */
+  stageClassify?: boolean | null;
+  /**
+   * LLM brand matching to the brands collection.
+   */
+  stageMatchBrand?: boolean | null;
+  /**
+   * LLM ingredient parsing + matching per variant.
+   */
+  stageIngredients?: boolean | null;
+  /**
+   * Download best image per variant and upload to media.
+   */
+  stageImages?: boolean | null;
+  /**
+   * LLM consensus description + deduplicated labels per variant.
+   */
+  stageDescriptions?: boolean | null;
+  /**
+   * Compute store + creator scores and prepend to score history.
+   */
+  stageScoreHistory?: boolean | null;
+  /**
    * Total products to aggregate
    */
   total?: number | null;
   /**
-   * Products successfully aggregated
+   * Stage-executions successfully completed
    */
   aggregated?: number | null;
   /**
-   * Products that failed to aggregate
+   * Stage-executions that failed
    */
   errors?: number | null;
   /**
-   * Total LLM tokens spent on ingredient matching
+   * Total LLM tokens consumed
    */
   tokensUsed?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
+  /**
+   * Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }
+   */
+  aggregationProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   /**
    * Products created or updated by this aggregation
    */
@@ -2334,19 +2370,26 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   maxRetries?: T;
   failedAt?: T;
   failureReason?: T;
-  scope?: T;
   itemsPerTick?: T;
+  startedAt?: T;
+  completedAt?: T;
   type?: T;
   gtins?: T;
   includeSisterVariants?: T;
   language?: T;
   imageSourcePriority?: T;
+  stageResolve?: T;
+  stageClassify?: T;
+  stageMatchBrand?: T;
+  stageIngredients?: T;
+  stageImages?: T;
+  stageDescriptions?: T;
+  stageScoreHistory?: T;
   total?: T;
   aggregated?: T;
   errors?: T;
   tokensUsed?: T;
-  startedAt?: T;
-  completedAt?: T;
+  aggregationProgress?: T;
   products?: T;
   events?: T;
   lastCheckedSourceId?: T;

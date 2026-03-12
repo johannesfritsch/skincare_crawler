@@ -136,7 +136,6 @@ export async function aggregateProduct(productId: number): Promise<JobResult> {
     collection: 'product-aggregations',
     data: {
       type: 'selected_gtins',
-      scope: 'full',
       gtins: gtins.join('\n'),
       language: 'de',
       status: 'pending',
@@ -272,7 +271,6 @@ export async function bulkAggregateProducts(ids: number[]): Promise<JobResult> {
     collection: 'product-aggregations',
     data: {
       type: 'selected_gtins',
-      scope: 'full',
       gtins: gtins.join('\n'),
       language: 'de',
       status: 'pending',

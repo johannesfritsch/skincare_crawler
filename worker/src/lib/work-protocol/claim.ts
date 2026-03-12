@@ -13,6 +13,14 @@ import {
   videoNeedsWork,
   type StageName,
 } from '@/lib/video-processing/stages'
+import {
+  getNextStage as getNextAggregationStage,
+  getEnabledStages as getEnabledAggregationStages,
+  getAggregationProgress,
+  productNeedsWork,
+  type StageName as AggregationStageName,
+  type AggregationWorkItem,
+} from '@/lib/product-aggregation/stages'
 
 export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
@@ -644,18 +652,21 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const itemsPerTick = (job.itemsPerTick as number) ?? 10
   const language = (job.language as string) || 'de'
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
-  const scope = ((job.scope as string) || 'full') as 'full' | 'partial'
   const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
   const includeSisterVariants = (job.includeSisterVariants as boolean) ?? true
-  jlog.info('Product aggregation job loaded', { jobId, type: aggregationType, scope, status: job.status as string, itemsPerTick, includeSisterVariants })
+
+  // Determine which stages are enabled and read progress map
+  const enabledStages = getEnabledAggregationStages(job)
+  const enabledStagesArr = [...enabledStages]
+  const progress = getAggregationProgress(job)
+
+  jlog.info('Product aggregation job loaded', { jobId, type: aggregationType, status: job.status as string, itemsPerTick, includeSisterVariants, stages: enabledStagesArr.join(',') })
 
   // Initialize if pending
   if (job.status === 'pending') {
     jlog.info('Initializing product aggregation job', { jobId })
     let total: number | undefined
     if (aggregationType === 'all') {
-      // Count source-products that have at least one source-variant (i.e. have been crawled)
-      // We use a rough count here — source-products without variants are skipped during cursor iteration
       const totalCount = await payload.count({
         collection: 'source-products',
       })
@@ -676,6 +687,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         errors: 0,
         tokensUsed: 0,
         lastCheckedSourceId: 0,
+        aggregationProgress: {},
         total,
       },
     })
@@ -857,6 +869,29 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     return [...groups.values()]
   }
 
+  // Helper: look up the product ID for a set of GTINs by querying product-variants.
+  // Returns the product ID if all GTINs in the group have product-variants pointing to the same product,
+  // or null if no product-variants exist yet (resolve hasn't run).
+  async function findProductIdForGtins(gtins: string[]): Promise<number | null> {
+    for (const gtin of gtins) {
+      const pvResult = await payload.find({
+        collection: 'product-variants',
+        where: { gtin: { equals: gtin } },
+        limit: 1,
+      })
+      if (pvResult.docs.length > 0) {
+        const pv = pvResult.docs[0] as Record<string, unknown>
+        const productRef = pv.product as number | Record<string, unknown>
+        return typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+      }
+    }
+    return null
+  }
+
+  // ── Build work items (product groups) — same logic as before ──
+
+  let lastId: number | undefined
+
   if (aggregationType === 'selected_gtins') {
     let gtinList = ((job.gtins as string) || '').split('\n').map((g: string) => g.trim()).filter(Boolean)
 
@@ -867,7 +902,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
       jlog.event('job.completed_empty', { collection: 'product-aggregations', reason: 'No GTINs specified' })
-      return { type: 'none' }
+      return { type: 'none' as const }
     }
 
     // Expand to include sister GTINs if enabled
@@ -915,12 +950,12 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         data: { status: 'completed', completedAt: new Date().toISOString() },
       })
       jlog.event('job.completed_empty', { collection: 'product-aggregations', reason: 'No more source products to aggregate' })
-      return { type: 'none' }
+      return { type: 'none' as const }
     }
 
     // For each source-product, look up GTINs from its variants and collect unique GTINs
     const seenGtins = new Set<string>()
-    let lastId = lastCheckedSourceId
+    lastId = lastCheckedSourceId
 
     for (const doc of sourceProducts.docs) {
       const sp = doc as Record<string, unknown>
@@ -974,35 +1009,93 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         workItems.push({ variants })
       }
     }
-
-    jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, totalGtins: allGtins.length, cursor: lastId })
-
-    // Return lastId for cursor tracking
-    return {
-      type: 'product-aggregation',
-      jobId,
-      language,
-      aggregationType,
-      scope,
-      imageSourcePriority,
-      includeSisterVariants,
-      lastCheckedSourceId: lastId,
-      workItems,
-    }
   }
 
-  jlog.info('Prepared aggregation work items', { jobId, count: workItems.length, totalGtins: workItems.reduce((sum, w) => sum + w.variants.length, 0) })
+  // ── Stage-based dispatch: determine next stage for each product group ──
+
+  const stageItems: Array<{
+    productId: number | null
+    stageName: string
+    workItem: AggregationWorkItem
+  }> = []
+
+  for (const item of workItems) {
+    if (stageItems.length >= itemsPerTick) break
+
+    const gtins = item.variants.map((v) => v.gtin)
+
+    // Build a progress key: use the canonical GTIN (first, sorted) as the key
+    // Once resolve runs, the progress map will also have the product ID
+    const progressKey = gtins.slice().sort().join(',')
+
+    // Check if we have a product ID in the progress map (resolve already ran)
+    // The progress map stores: progressKey → lastCompletedStageName
+    // and also: `pid:${progressKey}` → productId (set by submit after resolve)
+    const lastCompleted = (progress[progressKey] ?? null) as AggregationStageName | null
+    const nextStage = getNextAggregationStage(lastCompleted, enabledStages)
+
+    if (!nextStage) continue // all enabled stages done for this product group
+
+    // For post-resolve stages, look up the product ID
+    let productId: number | null = null
+    if (nextStage.name !== 'resolve') {
+      const pidKey = `pid:${progressKey}`
+      const storedPid = progress[pidKey]
+      if (storedPid != null) {
+        productId = Number(storedPid)
+      } else {
+        // Fallback: look up from product-variants in DB
+        productId = await findProductIdForGtins(gtins)
+      }
+      if (productId == null) {
+        jlog.warn('Cannot find product ID for post-resolve stage, skipping', { gtins: gtins.join(','), stage: nextStage.name })
+        continue
+      }
+    }
+
+    const workItemForStage: AggregationWorkItem = {
+      productId,
+      gtins,
+      variants: item.variants.map((v) => ({
+        gtin: v.gtin,
+        sources: v.sources,
+      })),
+    }
+
+    stageItems.push({
+      productId,
+      stageName: nextStage.name,
+      workItem: workItemForStage,
+    })
+  }
+
+  // If no work items found, the job is done
+  if (stageItems.length === 0) {
+    jlog.info('No remaining work, completing job', { jobId })
+    await payload.update({
+      collection: 'product-aggregations',
+      id: jobId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    jlog.event('job.completed_empty', { collection: 'product-aggregations', reason: 'No remaining product groups needing stages' })
+    return { type: 'none' as const }
+  }
+
+  jlog.info('Selected stage items for processing', { jobId, count: stageItems.length, stages: stageItems.map((s) => s.stageName).join(',') })
 
   return {
     type: 'product-aggregation',
     jobId,
     language,
     aggregationType,
-    scope,
     imageSourcePriority,
     includeSisterVariants,
-    lastCheckedSourceId: (job.lastCheckedSourceId as number) || 0,
-    workItems,
+    lastCheckedSourceId: lastId ?? ((job.lastCheckedSourceId as number) || 0),
+    stageItems,
+    enabledStages: enabledStagesArr,
   }
 }
 

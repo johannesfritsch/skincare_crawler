@@ -389,10 +389,31 @@ export interface EventRegistry {
   'aggregation.started': {
     items: number
     type: string
-    scope: string
     language: string
   }
-  'aggregation.error': { gtin: string; error: string }
+  'aggregation.resolved': {
+    productId: number
+    gtins: number
+    variants: number
+  }
+  'aggregation.classified': {
+    productId: number
+    productType: string
+    attributes: number
+    claims: number
+  }
+  'aggregation.stage_complete': {
+    gtins: string
+    stage: string
+    productId: number | null
+    tokens: number
+  }
+  'aggregation.stage_failed': {
+    gtins: string
+    stage: string
+    error: string
+  }
+  'aggregation.error': { error: string }
   'aggregation.persist_error': { gtin: string; error: string }
   'aggregation.persist_failed': { gtin: string; error: string }
   'aggregation.warning': { gtin: string; warning: string }
@@ -798,6 +819,26 @@ export const EVENT_META: Record<EventName, EventMeta> = {
   'aggregation.started': {
     type: 'start',
     level: 'info',
+    labels: ['aggregation'],
+  },
+  'aggregation.resolved': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'persistence'],
+  },
+  'aggregation.classified': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'classification'],
+  },
+  'aggregation.stage_complete': {
+    type: 'success',
+    level: 'info',
+    labels: ['aggregation'],
+  },
+  'aggregation.stage_failed': {
+    type: 'error',
+    level: 'error',
     labels: ['aggregation'],
   },
   'aggregation.error': { type: 'error', level: 'error' },

@@ -27,12 +27,13 @@ import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY }
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { STAGES, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
-import { aggregateSourceVariantsToVariant, aggregateVariantsToProduct, deduplicateDescriptions, deduplicateIngredients } from '@/lib/aggregate-product'
-import type { AggregationSource } from '@/lib/aggregate-product'
-import { classifyProduct } from '@/lib/classify-product'
-import { deduplicateLabels } from '@/lib/deduplicate-labels'
-import { consensusDescription } from '@/lib/consensus-description'
-import { cleanProductName } from '@/lib/clean-product-name'
+import {
+  STAGES as AGGREGATION_STAGES,
+  type StageName as AggregationStageName,
+  type StageConfig as AggregationStageConfig,
+  type StageContext as AggregationStageContext,
+  type AggregationWorkItem,
+} from '@/lib/product-aggregation/stages'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
 
 
@@ -529,252 +530,79 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
 
 async function handleProductAggregation(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
-  const language = work.language as string
-  const aggregationType = work.aggregationType as string
-  const scope = (work.scope as string) || 'full'
-  const lastCheckedSourceId = work.lastCheckedSourceId as number
-  const imageSourcePriority = (work.imageSourcePriority as string[] | undefined) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
-  const workItems = work.workItems as Array<{
-    variants: Array<{ gtin: string; sources: AggregationSource[] }>
-  }>
-
-  const totalGtins = workItems.reduce((sum, w) => sum + w.variants.length, 0)
-  log.info('Product aggregation job', { jobId, groups: workItems.length, totalGtins, type: aggregationType, scope })
   const jlog = log.forJob('product-aggregations', jobId)
-  jlog.event('aggregation.started', { items: totalGtins, type: aggregationType, scope, language })
+  const stageItems = work.stageItems as Array<{
+    productId: number | null
+    stageName: string
+    workItem: AggregationWorkItem
+  }>
+  const enabledStagesArr = work.enabledStages as string[]
 
-  if (workItems.length === 0) {
-    log.warn('No work items for aggregation job, releasing claim', { jobId })
-    await client.update({ collection: 'product-aggregations', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
-    return
+  const stageConfig: AggregationStageConfig = {
+    jobId,
+    language: (work.language as string) ?? 'de',
+    imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
   }
 
-  // Per-run LLM cache: avoids redundant calls when multiple GTINs have identical content
-  const llmCache = new Map<string, unknown>()
+  log.info('Product aggregation job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })
+  jlog.event('aggregation.started', { items: stageItems.length, type: (work.aggregationType as string) ?? 'all', language: stageConfig.language })
 
   const results: Array<Record<string, unknown>> = []
 
-  for (const item of workItems) {
-    const gtinLabels = item.variants.map((v) => v.gtin).join(', ')
-    log.info('Aggregating product group', { gtins: gtinLabels, variantCount: item.variants.length })
+  for (const item of stageItems) {
+    const gtinLabels = item.workItem.gtins.join(', ')
+    log.info('════════════════════════════════════════════════════')
+    log.info('Processing stage', { gtins: gtinLabels, productId: item.productId, stage: item.stageName })
 
-    try {
-      // ── Phase 1: Source-Variants → Product-Variants (per GTIN) ──
-      // Each GTIN in the group gets its own variant-level aggregation
-
-      const perVariantResults: Array<{
-        gtin: string
-        variantData: ReturnType<typeof aggregateSourceVariantsToVariant>
-        sources: AggregationSource[]
-        description?: string
-        labels?: string[]
-      }> = []
-
-      // Collect all sources across all GTINs for product-level aggregation
-      const allSources: AggregationSource[] = []
-
-      for (const v of item.variants) {
-        allSources.push(...v.sources)
-
-        const variantData = aggregateSourceVariantsToVariant(v.sources, { imageSourcePriority })
-        if (!variantData) {
-          log.warn('No variant data produced', { gtin: v.gtin })
-          continue
-        }
-
-        perVariantResults.push({ gtin: v.gtin, variantData, sources: v.sources })
-      }
-
-      if (perVariantResults.length === 0) {
-        results.push({
-          gtins: item.variants.map((v) => v.gtin),
-          sourceProductIds: allSources.map((s) => s.sourceProductId),
-          variantResults: null,
-          productData: null,
-          tokensUsed: 0,
-          error: 'No variant data produced from any GTIN in group',
-        })
-        continue
-      }
-
-      // ── Phase 2: Product-Variants → Product ──
-      // Product-level data aggregated from ALL sources across all GTINs
-
-      const productData = aggregateVariantsToProduct(allSources)
-
-      // ── LLM steps (full scope only) ──
-      // Run once per product group, shared across all variant GTINs
-
-      let classification: Record<string, unknown> | undefined
-      let classifySourceProductIds: number[] | undefined
-      let tokensUsed = 0
-
-      // Per-variant LLM steps: description consensus and label dedup
-      for (const pvr of perVariantResults) {
-        if (scope === 'full') {
-          // Step A: Consensus description from source-variant descriptions
-          if (pvr.variantData!.descriptions.length > 0) {
-            try {
-              const descResult = await consensusDescription(pvr.variantData!.descriptions, llmCache)
-              if (descResult.description) {
-                pvr.description = descResult.description
-              }
-              tokensUsed += descResult.tokensUsed.totalTokens
-              jlog.event('description.consensus', {
-                inputCount: pvr.variantData!.descriptions.length,
-                uniqueCount: new Set(pvr.variantData!.descriptions.map((d) => d.trim().toLowerCase())).size,
-                cacheHit: descResult.cacheHit,
-              })
-            } catch (e) {
-              const error = e instanceof Error ? e.message : String(e)
-              log.error('Description consensus error', { gtin: pvr.gtin, error })
-              pvr.description = pvr.variantData!.descriptions.reduce((a, b) => (b.length > a.length ? b : a), '')
-            }
-          }
-
-          // Step B: Deduplicate labels via LLM
-          if (pvr.variantData!.allLabels.length > 0) {
-            try {
-              const labelResult = await deduplicateLabels(pvr.variantData!.allLabels, llmCache)
-              pvr.labels = labelResult.labels
-              tokensUsed += labelResult.tokensUsed.totalTokens
-              jlog.event('labels.deduplicated', {
-                inputCount: pvr.variantData!.allLabels.length,
-                outputCount: labelResult.labels.length,
-                cacheHit: labelResult.cacheHit,
-              })
-            } catch (e) {
-              const error = e instanceof Error ? e.message : String(e)
-              log.error('Label deduplication error', { gtin: pvr.gtin, error })
-              pvr.labels = [...new Set(pvr.variantData!.allLabels)]
-            }
-          }
-        }
-      }
-
-      // Product-level LLM: classification (runs once for the whole group)
-      if (scope === 'full') {
-        const uniqueDescs = deduplicateDescriptions(allSources)
-        const uniqueIngr = deduplicateIngredients(allSources)
-
-        const classifyMap = new Map<number, { id: number; description?: string; ingredientsText?: string }>()
-        for (const d of uniqueDescs) {
-          if (!classifyMap.has(d.sourceProductId)) classifyMap.set(d.sourceProductId, { id: d.sourceProductId })
-          classifyMap.get(d.sourceProductId)!.description = d.description
-        }
-        for (const i of uniqueIngr) {
-          if (!classifyMap.has(i.sourceProductId)) classifyMap.set(i.sourceProductId, { id: i.sourceProductId })
-          classifyMap.get(i.sourceProductId)!.ingredientsText = i.ingredientsText
-        }
-        const classifySources = [...classifyMap.values()]
-
-        if (classifySources.length > 0) {
-          try {
-            const classifyResult = await classifyProduct(
-              classifySources.map((s) => ({ description: s.description, ingredientsText: s.ingredientsText })),
-              language,
-            )
-            tokensUsed += classifyResult.tokensUsed.totalTokens
-
-            classification = {
-              productType: classifyResult.productType,
-              warnings: classifyResult.warnings,
-              skinApplicability: classifyResult.skinApplicability,
-              phMin: classifyResult.phMin,
-              phMax: classifyResult.phMax,
-              usageInstructions: classifyResult.usageInstructions,
-              usageSchedule: classifyResult.usageSchedule,
-              productAttributes: classifyResult.productAttributes,
-              productClaims: classifyResult.productClaims,
-              tokensUsed: classifyResult.tokensUsed,
-            }
-
-            classifySourceProductIds = classifySources.map((s) => s.id)
-          } catch (e) {
-            const error = e instanceof Error ? e.message : String(e)
-            log.error('Classification error', { gtins: gtinLabels, error })
-          }
-        }
-        // Step D: Clean product name — remove variant-specific info (sizes, colors, etc.)
-        if (productData?.name) {
-          const allVariantLabels = perVariantResults
-            .map((pvr) => pvr.variantData!.variantLabel)
-            .filter((l): l is string => !!l)
-
-          if (allVariantLabels.length > 0) {
-            try {
-              const nameResult = await cleanProductName(productData.name, allVariantLabels, llmCache)
-              if (nameResult.name) {
-                productData.name = nameResult.name
-              }
-              tokensUsed += nameResult.tokensUsed.totalTokens
-              jlog.event('aggregation.name_cleaned', {
-                rawName: productData.name,
-                variantLabels: allVariantLabels.length,
-                cacheHit: nameResult.cacheHit,
-              })
-            } catch (e) {
-              const error = e instanceof Error ? e.message : String(e)
-              log.error('Product name cleaning error', { gtins: gtinLabels, error })
-              // Keep the raw name as fallback
-            }
-          }
-        }
-      } else {
-        log.info('Skipping LLM steps (partial scope)', { gtins: gtinLabels })
-      }
-
-      results.push({
-        gtins: item.variants.map((v) => v.gtin),
-        sourceProductIds: [...new Set(allSources.map((s) => s.sourceProductId))],
-        variantResults: perVariantResults.map((pvr) => ({
-          gtin: pvr.gtin,
-          variantData: {
-            variantLabel: pvr.variantData!.variantLabel,
-            variantDimension: pvr.variantData!.variantDimension,
-            amount: pvr.variantData!.amount,
-            amountUnit: pvr.variantData!.amountUnit,
-            selectedImageUrl: pvr.variantData!.selectedImageUrl,
-            selectedImageAlt: pvr.variantData!.selectedImageAlt,
-            ingredientsText: pvr.variantData!.ingredientsText,
-            sourceVariantIds: pvr.variantData!.sourceVariantIds,
-            description: pvr.description,
-            labels: pvr.labels,
-          },
-        })),
-        productData: productData ? {
-          name: productData.name,
-          brandName: productData.brandName,
-        } : null,
-        classification,
-        classifySourceProductIds,
-        tokensUsed,
-      })
-    } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
-      log.error('Error aggregating product group', { gtins: gtinLabels, error })
-      results.push({
-        gtins: item.variants.map((v) => v.gtin),
-        sourceProductIds: [...new Set(item.variants.flatMap((v) => v.sources.map((s) => s.sourceProductId)))],
-        variantResults: null,
-        productData: null,
-        tokensUsed: 0,
-        error,
-      })
+    // Find the stage definition
+    const stageDef = AGGREGATION_STAGES.find((s) => s.name === item.stageName)
+    if (!stageDef) {
+      log.error('Unknown stage', { stage: item.stageName })
+      results.push({ productId: item.productId, stageName: item.stageName, success: false, error: `Unknown stage: ${item.stageName}`, tokensUsed: 0 })
+      continue
     }
 
-    await heartbeat(jobId, 'product-aggregation')
-  }
+    const stageCtx: AggregationStageContext = {
+      payload: client,
+      config: stageConfig,
+      log,
+      uploadMedia,
+      heartbeat: () => heartbeat(jobId, 'product-aggregation'),
+    }
 
-  log.info('LLM cache stats', { cacheSize: llmCache.size })
+    try {
+      const stageResult = await stageDef.execute(stageCtx, item.workItem)
+
+      jlog.event('aggregation.stage_complete', { gtins: gtinLabels, stage: item.stageName, productId: stageResult.productId ?? item.productId, tokens: stageResult.tokensUsed ?? 0 })
+
+      results.push({
+        productId: stageResult.productId ?? item.productId,
+        stageName: item.stageName,
+        success: stageResult.success,
+        error: stageResult.error,
+        tokensUsed: stageResult.tokensUsed ?? 0,
+      })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      log.error('Stage execution failed', { gtins: gtinLabels, stage: item.stageName, error: msg })
+      jlog.event('aggregation.stage_failed', { gtins: gtinLabels, stage: item.stageName, error: msg })
+      results.push({
+        productId: item.productId,
+        stageName: item.stageName,
+        success: false,
+        error: msg,
+        tokensUsed: 0,
+      })
+    }
+  }
 
   await submitWork(client, worker, {
     type: 'product-aggregation',
     jobId,
-    lastCheckedSourceId,
-    aggregationType,
-    scope,
     results,
+    enabledStages: enabledStagesArr,
+    aggregationType: work.aggregationType as string,
+    lastCheckedSourceId: work.lastCheckedSourceId as number,
   } as Parameters<typeof submitWork>[2])
   log.info('Submitted aggregation results', { jobId, items: results.length })
 }

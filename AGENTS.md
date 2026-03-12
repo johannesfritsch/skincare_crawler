@@ -137,7 +137,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
 | `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), created/existing/discovered counts |
 | `video-processings` | type (all_unprocessed/single_video/selected_urls), stage checkboxes (stageDownload, stageSceneDetection, stageProductRecognition, stageTranscription, stageSentimentAnalysis), sceneThreshold, clusterThreshold, transcriptionLanguage, transcriptionModel, videoProgress (JSON map of videoId → last completed stage, e.g. `{ "42": "download", "43": "scene_detection" }`), progress (completed/errors/tokens) |
-| `product-aggregations` | type (all/selected_gtins), scope (full/partial), language, imageSourcePriority, includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), aggregated/errors/tokens |
+| `product-aggregations` | type (all/selected_gtins), stage checkboxes (stageResolve, stageClassify, stageMatchBrand, stageIngredients, stageImages, stageDescriptions, stageScoreHistory), language, imageSourcePriority, includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), aggregationProgress (JSON map of progressKey → last completed stage, e.g. `{ "4012345678901": "classify", "pid:4012345678901": "42" }`), aggregated/errors/tokens |
 | `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |
 
 ### System
@@ -157,7 +157,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 3. Worker runs handler (e.g. scrapes product pages via Playwright driver)
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
-6. Product aggregation resolves GTINs via source-variants → when includeSisterVariants is enabled (default), expands to find all sibling GTINs sharing any source-product and groups them via union-find → each group becomes one unified product with multiple product-variants (one per GTIN) → per-variant: selects best image (by source priority), downloads & uploads to media, parseIngredients + matchIngredients → per-product: matchBrand + classifyProduct (LLM, shared across variants) → if sibling GTINs previously had separate products, merges them (moves variants + video-mentions, deletes empty duplicates)
+6. Product aggregation runs as 7 independent stages (resolve → classify → match_brand → ingredients → images → descriptions → score_history), each persisting immediately. Progress is tracked per-product-group on the job's `aggregationProgress` JSON map (not on the product). Job selects which stages to run via checkboxes. Resolve creates/finds products and product-variants, merging duplicates if needed. Subsequent stages run LLM operations (classification, brand matching, ingredient parsing) and data operations (image download, score computation).
 7. Video processing runs as 5 independent stages (download → scene detection → product recognition → transcription → sentiment analysis), each persisting immediately. Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes.
 ```
 
