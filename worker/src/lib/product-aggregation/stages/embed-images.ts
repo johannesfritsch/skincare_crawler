@@ -67,7 +67,6 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
   log.info('CLIP model ready')
 
   let totalEmbedded = 0
-  let totalSkipped = 0
 
   for (const v of workItem.variants) {
     // Find the product-variant for this GTIN
@@ -92,23 +91,14 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
 
     if (!recognitionImages || recognitionImages.length === 0) {
       log.info('No recognition images on variant, skipping', { gtin: v.gtin })
-      totalSkipped++
       continue
     }
 
-    // Filter to only items without embeddings
-    const pending = recognitionImages.filter((ri) => !ri.hasEmbedding)
-    if (pending.length === 0) {
-      log.info('All recognition images already have embeddings', { gtin: v.gtin })
-      totalSkipped++
-      continue
-    }
-
-    log.info('Computing CLIP embeddings', { gtin: v.gtin, pending: pending.length, total: recognitionImages.length })
+    log.info('Computing CLIP embeddings', { gtin: v.gtin, count: recognitionImages.length })
 
     const writeItems: Array<{ id: string; embedding: number[] }> = []
 
-    for (const ri of pending) {
+    for (const ri of recognitionImages) {
       // Resolve the media URL for this crop
       const imageRef = ri.image
       let mediaUrl: string | undefined
@@ -168,7 +158,7 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
           ...ri,
           // Resolve image to just the ID for the update
           image: typeof ri.image === 'number' ? ri.image : ri.image.id,
-          hasEmbedding: ri.hasEmbedding || writtenIds.has(ri.id),
+          hasEmbedding: writtenIds.has(ri.id),
         }))
 
         await payload.update({
@@ -187,14 +177,14 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
     await ctx.heartbeat()
   }
 
-  if (totalEmbedded > 0 || totalSkipped > 0) {
+  if (totalEmbedded > 0) {
     jlog.event('aggregation.images_embedded', {
       gtin: workItem.gtins.join(', '),
       embedded: totalEmbedded,
-      skipped: totalSkipped,
+      skipped: 0,
     })
   }
 
-  log.info('Embed images stage complete', { productId, embedded: totalEmbedded, skipped: totalSkipped })
+  log.info('Embed images stage complete', { productId, embedded: totalEmbedded })
   return { success: true, productId }
 }
