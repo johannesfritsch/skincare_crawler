@@ -12,8 +12,10 @@
  *   0. download
  *   1. scene_detection
  *   2. product_recognition
- *   3. transcription
- *   4. sentiment_analysis
+ *   3. screenshot_detection    — Grounding DINO on screenshots
+ *   4. screenshot_search       — CLIP visual similarity search
+ *   5. transcription
+ *   6. sentiment_analysis
  */
 
 import type { PayloadRestClient } from '@/lib/payload-client'
@@ -21,11 +23,13 @@ import type { Logger } from '@/lib/logger'
 
 // ─── Types ───
 
-/** The 5 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
+/** The 7 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
 export type StageName =
   | 'download'
   | 'scene_detection'
   | 'product_recognition'
+  | 'screenshot_detection'
+  | 'screenshot_search'
   | 'transcription'
   | 'sentiment_analysis'
 
@@ -43,6 +47,8 @@ export interface StageConfig {
   clusterThreshold: number
   transcriptionLanguage: string
   transcriptionModel: string
+  /** Minimum detection box area as a fraction (0-1) of the screenshot area. Default: 0.25 (25%). */
+  minBoxArea: number
 }
 
 /** Context available to all stage functions */
@@ -86,6 +92,8 @@ export interface StageDefinition {
 import { executeDownload } from './download'
 import { executeSceneDetection } from './scene-detection'
 import { executeProductRecognition } from './product-recognition'
+import { executeScreenshotDetection } from './screenshot-detection'
+import { executeScreenshotSearch } from './screenshot-search'
 import { executeTranscription } from './transcription'
 import { executeSentimentAnalysis } from './sentiment-analysis'
 
@@ -110,14 +118,26 @@ export const STAGES: StageDefinition[] = [
     execute: executeProductRecognition,
   },
   {
-    name: 'transcription',
+    name: 'screenshot_detection',
     index: 3,
+    jobField: 'stageScreenshotDetection',
+    execute: executeScreenshotDetection,
+  },
+  {
+    name: 'screenshot_search',
+    index: 4,
+    jobField: 'stageScreenshotSearch',
+    execute: executeScreenshotSearch,
+  },
+  {
+    name: 'transcription',
+    index: 5,
     jobField: 'stageTranscription',
     execute: executeTranscription,
   },
   {
     name: 'sentiment_analysis',
-    index: 4,
+    index: 6,
     jobField: 'stageSentimentAnalysis',
     execute: executeSentimentAnalysis,
   },
@@ -186,6 +206,8 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   if (job.stageDownload !== false) stages.add('download')
   if (job.stageSceneDetection !== false) stages.add('scene_detection')
   if (job.stageProductRecognition !== false) stages.add('product_recognition')
+  if (job.stageScreenshotDetection !== false) stages.add('screenshot_detection')
+  if (job.stageScreenshotSearch !== false) stages.add('screenshot_search')
   if (job.stageTranscription !== false) stages.add('transcription')
   if (job.stageSentimentAnalysis !== false) stages.add('sentiment_analysis')
   return stages

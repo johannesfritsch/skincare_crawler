@@ -1,6 +1,6 @@
 # Video Processing — Stage Pipeline
 
-5-stage pipeline that processes YouTube videos into structured product mentions with sentiment scores. Each stage is a self-contained module that reads from the DB (prior stage's persisted output), does its work, and persists results immediately. Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to the last completed stage name.
+7-stage pipeline that processes YouTube videos into structured product mentions with sentiment scores. Each stage is a self-contained module that reads from the DB (prior stage's persisted output), does its work, and persists results immediately. Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to the last completed stage name.
 
 ## Architecture
 
@@ -8,13 +8,13 @@
 
 Central orchestration file. Exports:
 
-- **`StageName`** — union of all 5 stage names
+- **`StageName`** — union of all 7 stage names
 - **`VideoProgress`** — `Record<string, StageName | null>` progress map type
-- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`
+- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25)
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, tokens?: { recognition?, transcriptCorrection?, sentiment?, total? } }`
 - **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the VideoProcessings collection (e.g. `stageDownload`)
-- **`STAGES`** — ordered array of all 5 stage definitions
+- **`STAGES`** — ordered array of all 7 stage definitions
 - **`getNextStage(lastCompleted, enabledStages)`** — finds the next enabled stage after `lastCompleted`
 - **`getEnabledStages(job)`** — reads checkbox fields from the job document, returns `Set<StageName>`
 - **`videoNeedsWork(lastCompleted, enabledStages)`** — true if the video has more stages to run
@@ -42,6 +42,8 @@ All stages use CLI tools and external APIs — not bundled Node.js libraries:
 | `ffmpeg` | scene_detection, transcription | Scene change detection, audio extraction, screenshot extraction |
 | `ffprobe` | download, scene_detection | Video duration/metadata |
 | `zbarimg` | scene_detection | Barcode scanning in screenshots |
+| Grounding DINO (ONNX) | screenshot_detection | Zero-shot object detection on screenshots (shared singleton from `@/lib/models/grounding-dino`) |
+| CLIP ViT-B/32 (ONNX) | screenshot_search | Image embedding + cosine similarity search (shared singleton from `@/lib/models/clip`) |
 | Deepgram API | transcription | Speech-to-text |
 | OpenAI gpt-4.1-mini | product_recognition, transcription, sentiment_analysis | LLM classification, correction, sentiment |
 
@@ -137,7 +139,65 @@ Reads existing video-snippets. For barcode snippets, looks up products by GTIN. 
 
 ---
 
-### Stage 3: `transcription` — Deepgram STT + LLM Correction + Per-Snippet Splitting
+### Stage 3: `screenshot_detection` — Grounding DINO Detection on Screenshot Crops
+
+**File**: `screenshot-detection.ts`
+**Checkbox**: `stageScreenshotDetection`
+**LLM**: No (ML inference via ONNX)
+**External**: None (local ONNX inference)
+**Event**: `video_processing.screenshots_detected`
+**Model**: Grounding DINO (shared singleton from `@/lib/models/grounding-dino`)
+
+Runs zero-shot object detection on cluster representative screenshots from visual snippets. Crops detections, uploads to media, and stores in the snippet's `detections` array.
+
+**Scope**: Only `matchingType: 'visual'` snippets, only cluster representative screenshots.
+
+**Thresholds**: `box_threshold=0.3` (confidence), `minBoxArea` from job config (default 25% of screenshot area — only keeps foreground products, discards background detections)
+
+**Flow**:
+1. Fetch all snippets for the video
+2. Filter to visual snippets with cluster representatives
+3. Per snippet, per representative screenshot:
+   - Download screenshot from media
+   - Run Grounding DINO detector (prompt: "cosmetics packaging")
+   - For each detection above confidence threshold AND minimum box area:
+     - Crop the detected region via `sharp`
+     - Upload crop to media collection
+     - Store in snippet's `detections` array: `{ image (media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
+4. Update snippet with `detections` array
+
+**Writes to**: `video-snippets` (detections array), `media`
+
+---
+
+### Stage 4: `screenshot_search` — CLIP Visual Similarity Search
+
+**File**: `screenshot-search.ts`
+**Checkbox**: `stageScreenshotSearch`
+**LLM**: No (ML inference via ONNX)
+**External**: None (local ONNX inference + embeddings API)
+**Event**: `video_processing.screenshots_searched`
+**Model**: CLIP ViT-B/32 (shared singleton from `@/lib/models/clip`)
+
+Computes transient CLIP embeddings for detection crops and searches against stored product recognition image embeddings to match products.
+
+**Scope**: All snippets with detections from Stage 3.
+
+**Flow**:
+1. Fetch all snippets with detections
+2. Per detection:
+   - Download detection crop from media
+   - Compute transient CLIP ViT-B/32 embedding (512-dim, not persisted)
+   - Search `recognition-images` embedding namespace via cosine similarity
+   - If match found above threshold, resolve product-variant → product
+3. Merge matched product IDs into snippet's `referencedProducts` (alongside any existing barcode/LLM matches)
+4. Update detection entries with match info (matched product-variant ID, similarity score)
+
+**Writes to**: `video-snippets` (detections with match info, referencedProducts)
+
+---
+
+### Stage 5: `transcription` — Deepgram STT + LLM Correction + Per-Snippet Splitting
 
 **File**: `transcription.ts` (~163 lines)
 **Checkbox**: `stageTranscription`
@@ -163,7 +223,7 @@ Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/pr
 
 ---
 
-### Stage 4: `sentiment_analysis` — LLM Quote Extraction + Sentiment Scoring
+### Stage 6: `sentiment_analysis` — LLM Quote Extraction + Sentiment Scoring
 
 **File**: `sentiment-analysis.ts` (~137 lines)
 **Checkbox**: `stageSentimentAnalysis`
@@ -190,7 +250,8 @@ Reads snippets with referenced products and transcript data, runs LLM sentiment 
 
 ## Shared Patterns
 
-- **Temp directories**: Stages that need local files (download, scene_detection, product_recognition, transcription) create temp dirs via `fs.mkdtempSync()` with `try/finally` cleanup via `fs.rmSync()`
+- **Shared ML model singletons**: `screenshot_detection` and `screenshot_search` use shared model singletons from `@/lib/models/` (Grounding DINO and CLIP respectively). These are the same singletons used by the product aggregation pipeline's `object_detection` and `embed_images` stages — models are loaded once and shared across both pipelines.
+- **Temp directories**: Stages that need local files (download, scene_detection, product_recognition, screenshot_detection, screenshot_search, transcription) create temp dirs via `fs.mkdtempSync()` with `try/finally` cleanup via `fs.rmSync()`
 - **Media URL resolution**: Stages that read from media construct full URLs via `payload.serverUrl` + relative path (or use the URL directly if already absolute)
 - **Heartbeat**: all stages call `ctx.heartbeat()` after heavy operations (downloads, per-segment loops, LLM calls) to keep the job claim alive
 - **Token tracking**: LLM stages return categorized token counts in `StageResult.tokens`; the dispatcher accumulates these
@@ -207,7 +268,13 @@ scene_detection (reads videos.image)
   └─ video-snippets (timestamps, screenshots, barcodes/hashes/clusters)
        │
 product_recognition (reads video-snippets)
-  └─ video-snippets.referencedProducts (product IDs)
+  └─ video-snippets.referencedProducts (product IDs from barcode/LLM)
+       │
+screenshot_detection (reads video-snippets, visual snippets only)
+  └─ video-snippets.detections (Grounding DINO crops as media, bounding boxes)
+       │
+screenshot_search (reads video-snippets.detections)
+  └─ video-snippets.detections (match info) + video-snippets.referencedProducts (merged)
        │
 transcription (reads videos.image + video-snippets.referencedProducts for keywords)
   └─ videos.transcript + videos.transcriptWords

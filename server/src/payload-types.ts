@@ -856,6 +856,10 @@ export interface ProductAggregation {
     | boolean
     | null;
   /**
+   * Minimum detection box area as a percentage of the source image area. Detections smaller than this are discarded as background noise. Default: 5%.
+   */
+  minBoxArea?: number | null;
+  /**
    * Find/create products + variants from GTINs, merge duplicates, aggregate basic data.
    */
   stageResolve?: boolean | null;
@@ -1348,6 +1352,43 @@ export interface VideoSnippet {
    * 3 seconds of spoken context after this snippet
    */
   postTranscript?: string | null;
+  /**
+   * Object detections from Grounding DINO on video screenshots. Each entry is a cropped region with bounding box, optional CLIP match, and debug info.
+   */
+  detections?:
+    | {
+        image: number | Media;
+        /**
+         * Grounding DINO detection confidence (0-1)
+         */
+        score?: number | null;
+        /**
+         * 0-based index into the screenshots array
+         */
+        screenshotIndex?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
+        /**
+         * Whether a CLIP embedding was computed for this crop.
+         */
+        hasEmbedding?: boolean | null;
+        /**
+         * Product matched by CLIP visual similarity search.
+         */
+        matchedProduct?: (number | null) | Product;
+        /**
+         * Cosine distance from CLIP search (lower = better match, 0 = identical).
+         */
+        matchDistance?: number | null;
+        /**
+         * GTIN of the matched product-variant (for quick debugging).
+         */
+        matchedGtin?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   screenshots?:
     | {
         image: number | Media;
@@ -1642,6 +1683,14 @@ export interface VideoProcessing {
    */
   stageProductRecognition?: boolean | null;
   /**
+   * Grounding DINO object detection on video screenshots.
+   */
+  stageScreenshotDetection?: boolean | null;
+  /**
+   * CLIP visual similarity search against product embeddings.
+   */
+  stageScreenshotSearch?: boolean | null;
+  /**
    * Speech-to-text via Deepgram with LLM correction.
    */
   stageTranscription?: boolean | null;
@@ -1657,6 +1706,10 @@ export interface VideoProcessing {
    * Hamming distance threshold for screenshot clustering (1-64). Lower = stricter grouping, more clusters.
    */
   clusterThreshold?: number | null;
+  /**
+   * Minimum detection box area as a percentage of the screenshot area. Detections smaller than this are discarded as background noise. Default: 25% (foreground products only).
+   */
+  minBoxArea?: number | null;
   /**
    * Language for speech recognition.
    */
@@ -2419,6 +2472,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   includeSisterVariants?: T;
   language?: T;
   imageSourcePriority?: T;
+  minBoxArea?: T;
   stageResolve?: T;
   stageClassify?: T;
   stageMatchBrand?: T;
@@ -2519,6 +2573,22 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
   preTranscript?: T;
   transcript?: T;
   postTranscript?: T;
+  detections?:
+    | T
+    | {
+        image?: T;
+        score?: T;
+        screenshotIndex?: T;
+        boxXMin?: T;
+        boxYMin?: T;
+        boxXMax?: T;
+        boxYMax?: T;
+        hasEmbedding?: T;
+        matchedProduct?: T;
+        matchDistance?: T;
+        matchedGtin?: T;
+        id?: T;
+      };
   screenshots?:
     | T
     | {
@@ -2602,10 +2672,13 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   stageDownload?: T;
   stageSceneDetection?: T;
   stageProductRecognition?: T;
+  stageScreenshotDetection?: T;
+  stageScreenshotSearch?: T;
   stageTranscription?: T;
   stageSentimentAnalysis?: T;
   sceneThreshold?: T;
   clusterThreshold?: T;
+  minBoxArea?: T;
   transcriptionLanguage?: T;
   transcriptionModel?: T;
   total?: T;

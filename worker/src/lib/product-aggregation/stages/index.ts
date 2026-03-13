@@ -47,6 +47,8 @@ export interface StageConfig {
   jobId: number
   language: string
   imageSourcePriority: string[]
+  /** Minimum detection box area as a fraction (0-1) of the source image area. Default: 0.05 (5%). */
+  minBoxArea: number
 }
 
 /** Context available to all stage functions */

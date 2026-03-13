@@ -12,52 +12,16 @@
  */
 
 import sharp from 'sharp'
+import { getDetector } from '@/lib/models/grounding-dino'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
-// ─── Grounding DINO singleton ───
-
-const MODEL_ID = 'onnx-community/grounding-dino-tiny-ONNX'
 const DETECTION_PROMPT = 'cosmetics packaging.'
 const BOX_THRESHOLD = 0.3
-const TEXT_THRESHOLD = 0.3
-
-// Lazy-loaded pipeline singleton — created once per worker process
-let detectorPromise: Promise<ObjectDetectionPipeline> | null = null
-
-// We need dynamic import since @huggingface/transformers is ESM-only
-interface DetectionResult {
-  score: number
-  label: string
-  box: { xmin: number; ymin: number; xmax: number; ymax: number }
-}
-
-interface ObjectDetectionPipeline {
-  (image: unknown, labels: string[], options?: { threshold?: number }): Promise<DetectionResult[]>
-}
-
-async function getDetector(): Promise<ObjectDetectionPipeline> {
-  if (!detectorPromise) {
-    detectorPromise = (async () => {
-      // Dynamic import — @huggingface/transformers is ESM
-      const { pipeline, env } = await import('@huggingface/transformers')
-
-      // Prefer local cache dir for models
-      env.cacheDir = './.cache/huggingface'
-
-      const detector = await pipeline('zero-shot-object-detection', MODEL_ID, {
-        dtype: 'fp32',
-      })
-      return detector as unknown as ObjectDetectionPipeline
-    })()
-  }
-  return detectorPromise
-}
-
-// ─── Stage Implementation ───
 
 export async function executeObjectDetection(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, config, log } = ctx
   const jlog = log.forJob('product-aggregations', config.jobId)
+  const minBoxArea = config.minBoxArea ?? 0.05
   const productId = workItem.productId
 
   if (!productId) {
@@ -176,6 +140,13 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
 
         if (cropWidth <= 0 || cropHeight <= 0) {
           jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Invalid detection box dimensions: ${det.box.xmin},${det.box.ymin},${det.box.xmax},${det.box.ymax}` })
+          continue
+        }
+
+        // Filter by minimum relative box area
+        const boxAreaRatio = (cropWidth * cropHeight) / (imgWidth * imgHeight)
+        if (boxAreaRatio < minBoxArea) {
+          log.info('Detection too small, skipping', { gtin: v.gtin, boxAreaPct: (boxAreaRatio * 100).toFixed(1), minPct: (minBoxArea * 100).toFixed(1) })
           continue
         }
 

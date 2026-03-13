@@ -143,6 +143,19 @@ export const ProductAggregations: CollectionConfig = {
                   'Ordered list of source slugs to prefer when selecting a product image. First source with images wins.',
               },
             },
+            {
+              name: 'minBoxArea',
+              type: 'number',
+              label: 'Min Detection Box Area (%)',
+              defaultValue: 5,
+              min: 0,
+              max: 100,
+              admin: {
+                description:
+                  'Minimum detection box area as a percentage of the source image area. ' +
+                  'Detections smaller than this are discarded as background noise. Default: 5%.',
+              },
+            },
           ],
         },
         {

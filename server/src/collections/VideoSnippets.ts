@@ -135,6 +135,113 @@ export const VideoSnippets: CollectionConfig = {
           ],
         },
         {
+          label: 'Detections',
+          fields: [
+            {
+              name: 'detections',
+              type: 'array',
+              label: 'Detections',
+              admin: {
+                description:
+                  'Object detections from Grounding DINO on video screenshots. Each entry is a cropped region with bounding box, optional CLIP match, and debug info.',
+              },
+              fields: [
+                {
+                  name: 'image',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Detection Crop',
+                  required: true,
+                },
+                {
+                  name: 'score',
+                  type: 'number',
+                  label: 'Detection Score',
+                  min: 0,
+                  max: 1,
+                  admin: {
+                    step: 0.001,
+                    description: 'Grounding DINO detection confidence (0-1)',
+                  },
+                },
+                {
+                  name: 'screenshotIndex',
+                  type: 'number',
+                  label: 'Screenshot Index',
+                  admin: {
+                    description: '0-based index into the screenshots array',
+                  },
+                },
+                {
+                  type: 'row',
+                  fields: [
+                    {
+                      name: 'boxXMin',
+                      type: 'number',
+                      label: 'Box X Min',
+                      admin: { width: '25%' },
+                    },
+                    {
+                      name: 'boxYMin',
+                      type: 'number',
+                      label: 'Box Y Min',
+                      admin: { width: '25%' },
+                    },
+                    {
+                      name: 'boxXMax',
+                      type: 'number',
+                      label: 'Box X Max',
+                      admin: { width: '25%' },
+                    },
+                    {
+                      name: 'boxYMax',
+                      type: 'number',
+                      label: 'Box Y Max',
+                      admin: { width: '25%' },
+                    },
+                  ],
+                },
+                {
+                  name: 'hasEmbedding',
+                  type: 'checkbox',
+                  label: 'Has Embedding',
+                  defaultValue: false,
+                  admin: {
+                    readOnly: true,
+                    description: 'Whether a CLIP embedding was computed for this crop.',
+                  },
+                },
+                {
+                  name: 'matchedProduct',
+                  type: 'relationship',
+                  relationTo: 'products',
+                  label: 'Matched Product',
+                  admin: {
+                    description: 'Product matched by CLIP visual similarity search.',
+                  },
+                },
+                {
+                  name: 'matchDistance',
+                  type: 'number',
+                  label: 'Match Distance',
+                  admin: {
+                    step: 0.001,
+                    description: 'Cosine distance from CLIP search (lower = better match, 0 = identical).',
+                  },
+                },
+                {
+                  name: 'matchedGtin',
+                  type: 'text',
+                  label: 'Matched GTIN',
+                  admin: {
+                    description: 'GTIN of the matched product-variant (for quick debugging).',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
           label: 'Screenshots',
           fields: [
             {

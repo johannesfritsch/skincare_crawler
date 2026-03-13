@@ -692,6 +692,7 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
     clusterThreshold: (job.clusterThreshold as number) ?? 25,
     transcriptionLanguage: (job.transcriptionLanguage as string) ?? 'de',
     transcriptionModel: (job.transcriptionModel as string) ?? 'nova-3',
+    minBoxArea: (job.minBoxArea as number) ?? 25,
   }
 }
 
@@ -1147,6 +1148,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     lastCheckedSourceId: lastId ?? ((job.lastCheckedSourceId as number) || 0),
     stageItems,
     enabledStages: enabledStagesArr,
+    minBoxArea: (job.minBoxArea as number) ?? 5,
   }
 }
 

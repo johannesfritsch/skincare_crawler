@@ -374,6 +374,18 @@ export interface EventRegistry {
     brand: string
     product: string
   }
+  'video_processing.screenshots_detected': {
+    title: string
+    snippets: number
+    detections: number
+  }
+  'video_processing.screenshots_searched': {
+    title: string
+    searched: number
+    matched: number
+    productsFound: number
+  }
+  'video_processing.warning': { title: string; warning: string }
   'video_processing.transcribed': { title: string; words: number }
   'video_processing.transcript_corrected': {
     title: string
@@ -797,6 +809,21 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['video-processing', 'recognition'],
+  },
+  'video_processing.screenshots_detected': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'object-detection'],
+  },
+  'video_processing.screenshots_searched': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'embedding'],
+  },
+  'video_processing.warning': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['video-processing'],
   },
   'video_processing.transcribed': {
     type: 'info',

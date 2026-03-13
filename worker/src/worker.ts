@@ -465,6 +465,7 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
     clusterThreshold: (work.clusterThreshold as number) ?? 25,
     transcriptionLanguage: (work.transcriptionLanguage as string) ?? 'de',
     transcriptionModel: (work.transcriptionModel as string) ?? 'nova-3',
+    minBoxArea: ((work.minBoxArea as number) ?? 25) / 100,
   }
 
   log.info('Video processing job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })
@@ -552,6 +553,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     jobId,
     language: (work.language as string) ?? 'de',
     imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
+    minBoxArea: ((work.minBoxArea as number) ?? 5) / 100,
   }
 
   log.info('Product aggregation job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })

@@ -14,43 +14,10 @@
  * .cache/huggingface alongside the Grounding DINO model).
  */
 
+import { computeClipEmbedding } from '@/lib/models/clip'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
-// ─── CLIP singleton ───
-
-const CLIP_MODEL_ID = 'Xenova/clip-vit-base-patch32'
 const EMBEDDING_NAMESPACE = 'recognition-images'
-const EMBEDDING_DIMENSIONS = 512
-
-// Lazy-loaded pipeline singleton — created once per worker process
-let extractorPromise: Promise<CLIPFeatureExtractor> | null = null
-
-interface CLIPFeatureExtractor {
-  (images: string | string[], options?: { pool?: boolean | null }): Promise<{
-    data: Float32Array
-    dims: number[]
-  }>
-}
-
-async function getExtractor(): Promise<CLIPFeatureExtractor> {
-  if (!extractorPromise) {
-    extractorPromise = (async () => {
-      // Dynamic import — @huggingface/transformers is ESM
-      const { pipeline, env } = await import('@huggingface/transformers')
-
-      // Prefer local cache dir for models
-      env.cacheDir = './.cache/huggingface'
-
-      const extractor = await pipeline('image-feature-extraction', CLIP_MODEL_ID, {
-        dtype: 'fp32',
-      })
-      return extractor as unknown as CLIPFeatureExtractor
-    })()
-  }
-  return extractorPromise
-}
-
-// ─── Stage Implementation ───
 
 export async function executeEmbedImages(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, config, log } = ctx
@@ -60,11 +27,6 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
   if (!productId) {
     return { success: false, error: 'No productId — resolve stage must run first' }
   }
-
-  // Lazily load the CLIP model
-  log.info('Loading CLIP model (first call may download ~350MB)')
-  const extractor = await getExtractor()
-  log.info('CLIP model ready')
 
   let totalEmbedded = 0
 
@@ -119,24 +81,11 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
       const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${payload.serverUrl}${mediaUrl}`
 
       try {
-        // Run CLIP image feature extraction
-        // image-feature-extraction pipeline accepts URLs, file paths, or RawImage objects
-        // For CLIP, returns image_embeds directly (512-dim projected vector)
-        const output = await extractor(fullUrl)
-
-        // Extract and L2-normalize the 512-dim embedding vector
-        // Normalization ensures cosine similarity via pgvector's <=> operator
-        const raw = output.data.slice(0, EMBEDDING_DIMENSIONS)
-        const norm = Math.sqrt(raw.reduce((sum, v) => sum + v * v, 0))
-        const embedding = norm > 0
-          ? Array.from(raw, (v) => v / norm)
-          : Array.from(raw)
-
-        if (embedding.length !== EMBEDDING_DIMENSIONS) {
-          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Unexpected embedding dimensions: got ${embedding.length}, expected ${EMBEDDING_DIMENSIONS}` })
+        const embedding = await computeClipEmbedding(fullUrl)
+        if (!embedding) {
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Unexpected embedding dimensions for recognition image ${ri.id}` })
           continue
         }
-
         writeItems.push({ id: ri.id, embedding })
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)

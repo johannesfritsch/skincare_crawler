@@ -158,6 +158,26 @@ export const VideoProcessings: CollectionConfig = {
                   },
                 },
                 {
+                  name: 'stageScreenshotDetection',
+                  type: 'checkbox',
+                  label: 'Screenshot Detection',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Grounding DINO object detection on video screenshots.',
+                    width: '20%',
+                  },
+                },
+                {
+                  name: 'stageScreenshotSearch',
+                  type: 'checkbox',
+                  label: 'Screenshot Search',
+                  defaultValue: true,
+                  admin: {
+                    description: 'CLIP visual similarity search against product embeddings.',
+                    width: '20%',
+                  },
+                },
+                {
                   name: 'stageTranscription',
                   type: 'checkbox',
                   label: 'Transcription',
@@ -212,6 +232,19 @@ export const VideoProcessings: CollectionConfig = {
                   },
                 },
               ],
+            },
+            {
+              name: 'minBoxArea',
+              type: 'number',
+              label: 'Min Detection Box Area (%)',
+              defaultValue: 25,
+              min: 0,
+              max: 100,
+              admin: {
+                description:
+                  'Minimum detection box area as a percentage of the screenshot area. ' +
+                  'Detections smaller than this are discarded as background noise. Default: 25% (foreground products only).',
+              },
             },
             {
               type: 'row',

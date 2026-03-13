@@ -1,6 +1,8 @@
 import * as migration_20260313_051511_initial from './20260313_051511_initial';
 import * as migration_20260313_055754_add_embed_images_stage from './20260313_055754_add_embed_images_stage';
 import * as migration_20260313_055830_add_vectors_to_recognition_images from './20260313_055830_add_vectors_to_recognition_images';
+import * as migration_20260313_085035 from './20260313_085035';
+import * as migration_20260313_091615 from './20260313_091615';
 
 export const migrations = [
   {
@@ -16,6 +18,16 @@ export const migrations = [
   {
     up: migration_20260313_055830_add_vectors_to_recognition_images.up,
     down: migration_20260313_055830_add_vectors_to_recognition_images.down,
-    name: '20260313_055830_add_vectors_to_recognition_images'
+    name: '20260313_055830_add_vectors_to_recognition_images',
+  },
+  {
+    up: migration_20260313_085035.up,
+    down: migration_20260313_085035.down,
+    name: '20260313_085035',
+  },
+  {
+    up: migration_20260313_091615.up,
+    down: migration_20260313_091615.down,
+    name: '20260313_091615'
   },
 ];

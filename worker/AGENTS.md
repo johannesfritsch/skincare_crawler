@@ -63,8 +63,14 @@ worker/src/
     │       ├── download.ts           # Stage 0: Download video, upload to media
     │       ├── scene-detection.ts    # Stage 1: Scene detection, screenshots, barcodes
     │       ├── product-recognition.ts # Stage 2: LLM classification + GTIN lookup
-    │       ├── transcription.ts      # Stage 3: Deepgram STT + LLM correction
-    │       └── sentiment-analysis.ts # Stage 4: LLM quote extraction + sentiment
+    │       ├── screenshot-detection.ts # Stage 3: Grounding DINO detection on screenshot crops
+    │       ├── screenshot-search.ts  # Stage 4: CLIP visual similarity search against product embeddings
+    │       ├── transcription.ts      # Stage 5: Deepgram STT + LLM correction
+    │       └── sentiment-analysis.ts # Stage 6: LLM quote extraction + sentiment
+    │
+    ├── models/
+    │   ├── grounding-dino.ts         # Shared Grounding DINO singleton (zero-shot object detection)
+    │   └── clip.ts                   # Shared CLIP ViT-B/32 singleton (image embeddings + search helper)
     │
     ├── product-aggregation/
     │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
@@ -291,19 +297,21 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 4. Each stage runs independently, persists its own data outputs inline (media links, snippets, transcripts, mentions — no `processingStatus` writes)
 5. `submitVideoProcessing()` updates the progress map entry for each video (`progress[videoId] = stageName`) after successful stage execution, persists the updated `videoProgress` to the job on every update (both batch release and completion), and uses the progress map for remaining work checks
 
-**5 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
+**7 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
 
 | # | Stage name | What it does | Data outputs |
 |---|------------|--------------|-------------|
 | 0 | `download` | Downloads video via yt-dlp, uploads to media collection | `videos.image` (media upload) |
 | 1 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
 | 2 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
-| 3 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
-| 4 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
+| 3 | `screenshot_detection` | Per snippet: Grounding DINO detection on cluster representative screenshots, crop + upload to media, store in `detections` array. Filters by `minBoxArea` (default 25% of screenshot area — foreground only). | `video-snippets.detections` (crops as media, bounding boxes) |
+| 4 | `screenshot_search` | Per snippet: CLIP ViT-B/32 transient embeddings for detection crops → cosine search vs product embeddings → match products | `video-snippets.detections` (match info), `video-snippets.referencedProducts` |
+| 5 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
+| 6 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
 
 **Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). This replaces the old `processingStatus` field on videos. `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
 
-**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageDownload`, `stageSceneDetection`, `stageProductRecognition`, `stageTranscription`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageDownload`, `stageSceneDetection`, `stageProductRecognition`, `stageScreenshotDetection`, `stageScreenshotSearch`, `stageTranscription`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
 
 **Processing types**: `all_unprocessed`, `single_video`, `selected_urls`
 
@@ -339,7 +347,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 2 | `match_brand` | `stageMatchBrand` | `matchBrand()` → link brand to product | Yes |
 | 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
 | 4 | `images` | `stageImages` | Per variant: download best image, upload to media | No |
-| 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection of "cosmetics packaging" + sharp crop + upload crops as `recognitionImages` on product-variants | No (ML) |
+| 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection of "cosmetics packaging" + sharp crop + upload crops as `recognitionImages` on product-variants. Filters by `minBoxArea` (default 5% of image area). | No (ML) |
 | 6 | `embed_images` | `stageEmbedImages` | Per variant: CLIP ViT-B/32 embedding vectors for recognition image crops → pgvector via embeddings API | No (ML) |
 | 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
 | 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
@@ -655,7 +663,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)
-- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB) for zero-shot object detection in product images. (2) CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`, ~350MB) for computing 512-dim embedding vectors of detection crops — stored in pgvector for visual similarity search. Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
+- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`screenshot_detection` stage). (2) CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`, ~350MB, `lib/models/clip.ts`) for computing 512-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`screenshot_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
 
 ## Per-Driver Documentation
 
