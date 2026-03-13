@@ -135,7 +135,8 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: DEFAULT_MAX_RETRIES,
                   admin: {
                     width: '50%',
-                    description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
+                    description:
+                      'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
                   },
                 },
               ],
@@ -167,13 +168,13 @@ export const ProductAggregations: CollectionConfig = {
               name: 'detectionThreshold',
               type: 'number',
               label: 'Detection Confidence Threshold',
-              defaultValue: 0.3,
+              defaultValue: 0.15,
               min: 0,
               max: 1,
               admin: {
                 step: 0.05,
                 description:
-                  'Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.3.',
+                  'Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.15.',
               },
             },
             {
@@ -203,7 +204,8 @@ export const ProductAggregations: CollectionConfig = {
                   label: 'Resolve',
                   defaultValue: true,
                   admin: {
-                    description: 'Find/create products + variants from GTINs, merge duplicates, aggregate basic data.',
+                    description:
+                      'Find/create products + variants from GTINs, merge duplicates, aggregate basic data.',
                     width: '25%',
                   },
                 },
@@ -213,7 +215,8 @@ export const ProductAggregations: CollectionConfig = {
                   label: 'Classify',
                   defaultValue: true,
                   admin: {
-                    description: 'LLM classification: product type, attributes, claims, warnings, pH, usage.',
+                    description:
+                      'LLM classification: product type, attributes, claims, warnings, pH, usage.',
                     width: '25%',
                   },
                 },
@@ -258,7 +261,8 @@ export const ProductAggregations: CollectionConfig = {
                   label: 'Object Detection',
                   defaultValue: true,
                   admin: {
-                    description: 'Grounding DINO detection of cosmetics packaging + crop per variant.',
+                    description:
+                      'Grounding DINO detection of cosmetics packaging + crop per variant.',
                     width: '25%',
                   },
                 },
@@ -268,7 +272,8 @@ export const ProductAggregations: CollectionConfig = {
                   label: 'Embed Images',
                   defaultValue: true,
                   admin: {
-                    description: 'CLIP embedding vectors for recognition image crops (for visual similarity search).',
+                    description:
+                      'CLIP embedding vectors for recognition image crops (for visual similarity search).',
                     width: '25%',
                   },
                 },
@@ -352,7 +357,8 @@ export const ProductAggregations: CollectionConfig = {
               label: 'Aggregation Progress',
               admin: {
                 readOnly: true,
-                description: 'Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }',
+                description:
+                  'Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }',
               },
             },
           ],

@@ -826,7 +826,7 @@ export interface ProductAggregation {
     | boolean
     | null;
   /**
-   * Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.3.
+   * Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.15.
    */
   detectionThreshold?: number | null;
   /**
