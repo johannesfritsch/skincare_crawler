@@ -121,7 +121,7 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
       }
 
       if (!mediaUrl) {
-        log.warn('No media URL for recognition image, skipping', { gtin: v.gtin, riId: ri.id })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `No media URL for recognition image ${ri.id}` })
         continue
       }
 
@@ -143,18 +143,14 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
           : Array.from(raw)
 
         if (embedding.length !== EMBEDDING_DIMENSIONS) {
-          log.warn('Unexpected embedding dimensions', {
-            gtin: v.gtin,
-            expected: EMBEDDING_DIMENSIONS,
-            got: embedding.length,
-          })
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Unexpected embedding dimensions: got ${embedding.length}, expected ${EMBEDDING_DIMENSIONS}` })
           continue
         }
 
         writeItems.push({ id: ri.id, embedding })
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        log.warn('CLIP embedding failed for recognition image', { gtin: v.gtin, riId: ri.id, error: msg })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `CLIP embedding failed for recognition image ${ri.id}: ${msg}` })
       }
     }
 
@@ -184,7 +180,7 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
         totalEmbedded += result.written
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        log.warn('Failed to write embeddings batch', { gtin: v.gtin, error: msg })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Failed to write embeddings batch: ${msg}` })
       }
     }
 

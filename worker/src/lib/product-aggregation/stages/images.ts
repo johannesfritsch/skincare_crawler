@@ -41,7 +41,7 @@ export async function executeImages(ctx: StageContext, workItem: AggregationWork
       log.info('Downloading image for variant', { gtin: v.gtin, url: vd.selectedImageUrl })
       const imageRes = await fetch(vd.selectedImageUrl)
       if (!imageRes.ok) {
-        log.warn('Image download failed', { gtin: v.gtin, status: imageRes.status })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Image download failed (status=${imageRes.status})` })
         continue
       }
 
@@ -66,7 +66,7 @@ export async function executeImages(ctx: StageContext, workItem: AggregationWork
       jlog.event('aggregation.image_uploaded', { mediaId })
       log.info('Image uploaded for variant', { gtin: v.gtin, mediaId })
     } catch (error) {
-      log.warn('Image upload failed', { gtin: v.gtin, error: error instanceof Error ? error.message : String(error) })
+      jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Image upload failed: ${error instanceof Error ? error.message : String(error)}` })
     }
 
     await ctx.heartbeat()

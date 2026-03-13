@@ -132,7 +132,7 @@ export async function executeResolve(ctx: StageContext, workItem: AggregationWor
             })
           }
         } catch (e) {
-          log.warn('Failed to move video-mentions during merge', { from: otherId, to: productId, error: e instanceof Error ? e.message : String(e) })
+          jlog.event('aggregation.warning', { gtin: gtinLabels, warning: `Failed to move video-mentions during merge from product ${otherId} to ${productId}: ${e instanceof Error ? e.message : String(e)}` })
         }
 
         // Delete empty product
@@ -142,7 +142,7 @@ export async function executeResolve(ctx: StageContext, workItem: AggregationWor
             where: { id: { equals: otherId } },
           })
         } catch (e) {
-          log.warn('Failed to delete merged product', { deletedProductId: otherId, error: e instanceof Error ? e.message : String(e) })
+          jlog.event('aggregation.warning', { gtin: gtinLabels, warning: `Failed to delete merged product ${otherId}: ${e instanceof Error ? e.message : String(e)}` })
         }
       }
     }

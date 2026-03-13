@@ -104,7 +104,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
     }
 
     if (!mediaUrl) {
-      log.warn('No media URL found for variant image', { gtin: v.gtin, mediaId })
+      jlog.event('aggregation.warning', { gtin: v.gtin, warning: `No media URL found for variant image (mediaId=${mediaId})` })
       continue
     }
 
@@ -119,7 +119,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
       // Download the image for processing
       const imageRes = await fetch(fullImageUrl)
       if (!imageRes.ok) {
-        log.warn('Failed to download image for detection', { gtin: v.gtin, status: imageRes.status })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Failed to download image for detection (status=${imageRes.status})` })
         continue
       }
       const imageBuffer = Buffer.from(await imageRes.arrayBuffer())
@@ -129,7 +129,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
       const imgWidth = metadata.width ?? 0
       const imgHeight = metadata.height ?? 0
       if (imgWidth === 0 || imgHeight === 0) {
-        log.warn('Could not get image dimensions', { gtin: v.gtin })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: 'Could not get image dimensions' })
         continue
       }
 
@@ -175,7 +175,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         const cropHeight = ymax - ymin
 
         if (cropWidth <= 0 || cropHeight <= 0) {
-          log.warn('Invalid detection box dimensions', { gtin: v.gtin, box: `${det.box.xmin},${det.box.ymin},${det.box.xmax},${det.box.ymax}` })
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Invalid detection box dimensions: ${det.box.xmin},${det.box.ymin},${det.box.xmax},${det.box.ymax}` })
           continue
         }
 
@@ -226,7 +226,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
       log.info('Recognition images saved', { gtin: v.gtin, count: recognitionImages.length })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      log.warn('Object detection failed for variant', { gtin: v.gtin, error: msg })
+      jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Object detection failed: ${msg}` })
     }
 
     await ctx.heartbeat()
