@@ -3,6 +3,8 @@ import * as migration_20260313_055754_add_embed_images_stage from './20260313_05
 import * as migration_20260313_055830_add_vectors_to_recognition_images from './20260313_055830_add_vectors_to_recognition_images';
 import * as migration_20260313_085035 from './20260313_085035';
 import * as migration_20260313_091615 from './20260313_091615';
+import * as migration_20260313_110500_video_crawl_pipeline from './20260313_110500_video_crawl_pipeline';
+import * as migration_20260313_170000_add_detection_threshold from './20260313_170000_add_detection_threshold';
 
 export const migrations = [
   {
@@ -28,6 +30,16 @@ export const migrations = [
   {
     up: migration_20260313_091615.up,
     down: migration_20260313_091615.down,
-    name: '20260313_091615'
+    name: '20260313_091615',
+  },
+  {
+    up: migration_20260313_110500_video_crawl_pipeline.up,
+    down: migration_20260313_110500_video_crawl_pipeline.down,
+    name: '20260313_110500_video_crawl_pipeline',
+  },
+  {
+    up: migration_20260313_170000_add_detection_threshold.up,
+    down: migration_20260313_170000_add_detection_threshold.down,
+    name: '20260313_170000_add_detection_threshold',
   },
 ];

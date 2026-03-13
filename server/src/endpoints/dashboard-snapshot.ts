@@ -48,6 +48,7 @@ export interface SnapshotResponse {
   /** Video pipeline stats */
   videoPipeline: {
     total: number
+    crawled: number
     processed: number
     unprocessed: number
     withTranscript: number
@@ -177,12 +178,13 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       GROUP BY sp.source
     `),
 
-    // 6. Video pipeline stats
+    // 6. Video pipeline stats (uses status field: discovered → crawled → processed)
     db.execute(sql`
       SELECT
         count(*)::int AS total,
-        count(*) FILTER (WHERE transcript IS NOT NULL AND transcript != '')::int AS processed,
-        count(*) FILTER (WHERE image_id IS NULL)::int AS unprocessed,
+        count(*) FILTER (WHERE status = 'crawled')::int AS crawled,
+        count(*) FILTER (WHERE status = 'processed')::int AS processed,
+        count(*) FILTER (WHERE status != 'processed')::int AS unprocessed,
         count(*) FILTER (WHERE transcript IS NOT NULL AND transcript != '')::int AS "withTranscript"
       FROM videos
     `),
@@ -242,6 +244,8 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
         SELECT 'ingredients-discoveries', status::text, claimed_by_id, claimed_at FROM ingredients_discoveries
         UNION ALL
         SELECT 'ingredient-crawls', status::text, claimed_by_id, claimed_at FROM ingredient_crawls
+        UNION ALL
+        SELECT 'video-crawls', status::text, claimed_by_id, claimed_at FROM video_crawls
         UNION ALL
         SELECT 'video-discoveries', status::text, claimed_by_id, claimed_at FROM video_discoveries
         UNION ALL
@@ -353,6 +357,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
 
     videoPipeline: {
       total: Number(videoStats.total ?? 0),
+      crawled: Number(videoStats.crawled ?? 0),
       processed: Number(videoStats.processed ?? 0),
       unprocessed: Number(videoStats.unprocessed ?? 0),
       withTranscript: Number(videoStats.withTranscript ?? 0),

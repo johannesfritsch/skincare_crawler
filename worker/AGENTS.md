@@ -6,7 +6,7 @@ Standalone Node.js process that claims jobs from the server and processes them. 
 
 ```
 worker/src/
-├── worker.ts                         # Main loop + 8 job handlers (video-processing + product-aggregation are ~80-line stage dispatchers)
+├── worker.ts                         # Main loop + 9 job handlers (video-processing + product-aggregation are ~80-line stage dispatchers)
 └── lib/
     ├── payload-client.ts             # REST client mirroring Payload's local API
     ├── logger.ts                     # Structured logger with event emission
@@ -60,13 +60,13 @@ worker/src/
     │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
     │       ├── AGENTS.md             # Detailed stage pipeline documentation
     │       ├── index.ts              # Stage registry, types, ordering, VideoProgress, getNextStage(), getVideoProgress()
-    │       ├── download.ts           # Stage 0: Download video, upload to media
-    │       ├── scene-detection.ts    # Stage 1: Scene detection, screenshots, barcodes
-    │       ├── product-recognition.ts # Stage 2: LLM classification + GTIN lookup
-    │       ├── screenshot-detection.ts # Stage 3: Grounding DINO detection on screenshot crops
-    │       ├── screenshot-search.ts  # Stage 4: CLIP visual similarity search against product embeddings
-    │       ├── transcription.ts      # Stage 5: Deepgram STT + LLM correction
-    │       └── sentiment-analysis.ts # Stage 6: LLM quote extraction + sentiment
+    │       ├── download.ts           # (Legacy) Download video — moved to video-crawl handler, no longer in pipeline
+    │       ├── scene-detection.ts    # Stage 0: Scene detection, screenshots, barcodes
+    │       ├── product-recognition.ts # Stage 1: LLM classification + GTIN lookup
+    │       ├── screenshot-detection.ts # Stage 2: Grounding DINO detection on screenshot crops
+    │       ├── screenshot-search.ts  # Stage 3: CLIP visual similarity search against product embeddings
+    │       ├── transcription.ts      # Stage 4: Deepgram STT + LLM correction
+    │       └── sentiment-analysis.ts # Stage 5: LLM quote extraction + sentiment
     │
     ├── models/
     │   ├── grounding-dino.ts         # Shared Grounding DINO singleton (zero-shot object detection)
@@ -207,11 +207,11 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 | ~~`persistDiscoveredProduct()`~~ | **Removed** — discovery/search no longer create source-product stubs; they only accumulate URLs |
 
 | `persistIngredient()` | Creates/updates `ingredients` (fills in missing CAS#, EC#, functions, etc.); adds `{ source: 'cosing', sourceUrl, fieldsProvided }` to the `sources` array on create/update — `fieldsProvided` lists which content fields were actually populated (only non-null fields from the CosIng data, e.g. `['name', 'casNumber', 'functions']`); deduplicates by checking if CosIng source already exists, backfills `fieldsProvided` on existing entries missing it |
-| `persistVideoDiscoveryResult()` | Creates/updates `channels`, `creators`, `videos`; downloads thumbnails; always updates channel avatar image |
+| ~~`persistVideoDiscoveryResult()`~~ | **Dead code** — video discovery now just accumulates URLs; the crawl handler (`handleVideoCrawl`) handles all DB record creation (channels, creators, videos) |
 | ~~`persistVideoProcessingResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `video-processing/stages/` persists its own results inline (video-snippets, video-mentions, transcripts, media uploads). |
 | ~~`persistProductAggregationResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `product-aggregation/stages/` persists its own results inline (product creation/merging, classification, brand matching, ingredients, images, descriptions, score history). |
 
-## 8 Job Types — Detailed
+## 9 Job Types — Detailed
 
 ### 1. product-crawl
 
@@ -282,38 +282,59 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 
 **Key params**: `itemsPerTick` (videos per batch, default 50), `maxVideos` (stop after this many, unlimited if empty)
 
-**Persistence**: Creates `creators` → `channels` → `videos` chain. Downloads and uploads video thumbnails. Fetches the channel avatar (from YouTube `og:image` meta tag) and always updates the `channels.image` field — both for new and existing channels.
+**Persistence**: Accumulates discovered video URLs in the job's `videoUrls` textarea field (deduplicated). No video/channel/creator records are created during discovery — URLs are stored for later use by `from_discovery` crawl jobs.
 
-### 6. video-processing
+### 6. video-crawl
+
+**Handler**: `handleVideoCrawl()` (~180 lines in `worker.ts`)
+**Flow**: For each work item (video URL) → get metadata via `yt-dlp --dump-json` → resolve/create channel + creator → download MP4 + thumbnail → upload to media → create/update video record with `status: 'crawled'`
+
+**Crawl types**:
+- `all` — all videos with `status: 'discovered'`
+- `selected_urls` — specific URLs from the job's `urls` field
+- `from_discovery` — crawl URLs from a linked video-discovery job's `videoUrls` field
+
+**Scope**: `uncrawled_only` (default) only crawls videos with `status: 'discovered'`; `recrawl` crawls all matching videos regardless of status
+
+**What it does**:
+1. Fetches video metadata via `yt-dlp --dump-json` (title, duration, view count, like count, channel info, thumbnail URL)
+2. Resolves or creates the channel (by canonical URL) and creator
+3. Downloads the video MP4 via `yt-dlp` and uploads to media collection
+4. Downloads the thumbnail image and uploads to media collection
+5. Creates or updates the video record with `videoFile`, `thumbnail`, `status: 'crawled'`, and all metadata
+6. Emits `video_crawl.video_crawled` event per video
+
+**Events**: `video_crawl.started`, `video_crawl.video_crawled`, `video_crawl.batch_done`, `video_crawl.completed`, `video_crawl.error`
+
+### 7. video-processing
 
 **Handler**: `handleVideoProcessing()` — stage dispatcher (~80 lines in `worker.ts`)
 
-The video processing pipeline is a **stage-based architecture**. Instead of a monolithic handler, the worker runs one stage per video per tick. Each stage is a self-contained module in `video-processing/stages/` that reads its input from the database (prior stage's output) and persists its data outputs immediately. Videos are pure data records with no processing state — progress is tracked on the job's `videoProgress` JSON field (`Record<string, StageName | null>` mapping video IDs to last completed stage names).
+The video processing pipeline is a **stage-based architecture**. Instead of a monolithic handler, the worker runs one stage per video per tick. Each stage is a self-contained module in `video-processing/stages/` that reads its input from the database (prior stage's output) and persists its data outputs immediately. Videos have a `status` field (discovered/crawled/processed) managed by the worker — `all_unprocessed` processing selects videos with `status: 'crawled'` only. Progress is tracked on the job's `videoProgress` JSON field (`Record<string, StageName | null>` mapping video IDs to last completed stage names).
 
 **Stage dispatcher flow**:
-1. `claimWork()` calls `buildVideoProcessingWork()` which uses `getVideoProgress(job)` to read the progress map, then `getNextStage()` + `videoNeedsWork()` to find videos needing work for the next enabled stage. For `all_unprocessed`, queries all videos with `externalUrl` and filters by progress map. For `single_video`/`selected_urls`, checks progress map instead of video status.
+1. `claimWork()` calls `buildVideoProcessingWork()` which uses `getVideoProgress(job)` to read the progress map, then `getNextStage()` + `videoNeedsWork()` to find videos needing work for the next enabled stage. For `all_unprocessed`, queries videos with `status: 'crawled'` and filters by progress map. For `from_crawl`, uses URLs from a linked video-crawl job. For `single_video`/`selected_urls`, checks progress map instead of video status.
 2. Work unit contains `stageItems: Array<{ videoId, title, stageName }>`
 3. Handler iterates `stageItems`, dispatching each to the appropriate stage module
-4. Each stage runs independently, persists its own data outputs inline (media links, snippets, transcripts, mentions — no `processingStatus` writes)
+4. Each stage runs independently, persists its own data outputs inline (media links, snippets, transcripts, mentions)
 5. `submitVideoProcessing()` updates the progress map entry for each video (`progress[videoId] = stageName`) after successful stage execution, persists the updated `videoProgress` to the job on every update (both batch release and completion), and uses the progress map for remaining work checks
 
-**7 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
+**6 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
 
 | # | Stage name | What it does | Data outputs |
 |---|------------|--------------|-------------|
-| 0 | `download` | Downloads video via yt-dlp, uploads to media collection | `videos.image` (media upload) |
-| 1 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
-| 2 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
-| 3 | `screenshot_detection` | Per snippet: Grounding DINO detection on cluster representative screenshots, crop + upload to media, store in `detections` array. Filters by `minBoxArea` (default 25% of screenshot area — foreground only). | `video-snippets.detections` (crops as media, bounding boxes) |
-| 4 | `screenshot_search` | Per snippet: CLIP ViT-B/32 transient embeddings for detection crops → cosine search vs product embeddings → match products | `video-snippets.detections` (match info), `video-snippets.referencedProducts` |
-| 5 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
-| 6 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
+| 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
+| 1 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
+| 2 | `screenshot_detection` | Per snippet: Grounding DINO detection on cluster representative screenshots, crop + upload to media, store in `detections` array. Filters by `minBoxArea` (default 25% of screenshot area — foreground only). | `video-snippets.detections` (crops as media, bounding boxes) |
+| 3 | `screenshot_search` | Per snippet: CLIP ViT-B/32 transient embeddings for detection crops → cosine search vs product embeddings → match products | `video-snippets.detections` (match info), `video-snippets.referencedProducts` |
+| 4 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
+| 5 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
 
-**Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). This replaces the old `processingStatus` field on videos. `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
+**Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
 
-**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageDownload`, `stageSceneDetection`, `stageProductRecognition`, `stageScreenshotDetection`, `stageScreenshotSearch`, `stageTranscription`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageSceneDetection`, `stageProductRecognition`, `stageScreenshotDetection`, `stageScreenshotSearch`, `stageTranscription`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
 
-**Processing types**: `all_unprocessed`, `single_video`, `selected_urls`
+**Processing types**: `all_unprocessed`, `single_video`, `selected_urls`, `from_crawl`
 
 **Transcription config** (Stage Config tab on the job):
 - `transcriptionLanguage` (default: 'de', options: de/en/fr/es/it)
@@ -325,7 +346,7 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 
 **Persistence**: Each stage file persists its own data outputs inline (creates/updates video-snippets, video-mentions, media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches, calls `matchProduct()` to find/create product records.
 
-### 7. product-aggregation
+### 8. product-aggregation
 
 **Handler**: `handleProductAggregation()` — stage dispatcher (~80 lines in `worker.ts`)
 
@@ -368,7 +389,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 
 **GTIN resolution**: `buildProductAggregationWork()` resolves GTINs via `source-variants` — it queries variants by GTIN to find parent source-product IDs, then fetches both the crawled source-products (for product-level data: name, brandName) and the matching source-variants (for variant-level data: description, images, ingredientsText). When `includeSisterVariants` is enabled, it expands the GTIN set to include all sibling GTINs sharing any source-product, then groups them via union-find. Each work item carries a `variants` array of `{ gtin, sources: AggregationSource[] }`. The resolve stage creates/finds the product and product-variants, merging existing products if needed.
 
-### 8. ingredient-crawl
+### 9. ingredient-crawl
 
 **Handler**: `handleIngredientCrawl()`
 **Flow per ingredient**:
@@ -575,7 +596,7 @@ Source drivers accept an optional `logger` in their options (`scrapeProduct`, `d
 
 ### Job collections
 
-The `JobCollection` type (imported from `@anyskin/shared`) covers all 8 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-discoveries`, `video-processings`, `ingredient-crawls`.
+The `JobCollection` type (imported from `@anyskin/shared`) covers all 9 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-crawls`, `video-discoveries`, `video-processings`, `ingredient-crawls`.
 
 ### Configuration
 

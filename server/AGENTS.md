@@ -918,8 +918,8 @@ fields: [
 |---|---|---|---|
 | `source-products` | `SourceProductSaveButton` | `SourceProductJobStatus` | `product-crawls` |
 | `products` | `ProductSaveButton` | `ProductJobStatus` | `product-aggregations` |
-| `videos` | `VideoSaveButton` | `VideoJobStatus` | `video-processings` |
-| `channels` | `ChannelSaveButton` | `ChannelJobStatus` | `video-discoveries` |
+| `videos` | `VideoSaveButton` | `VideoJobStatus` | `video-crawls` + `video-processings` |
+| `channels` | `ChannelSaveButton` | `ChannelJobStatus` | `video-discoveries` + `video-crawls` |
 | `ingredients` | `IngredientSaveButton` | `IngredientJobStatus` | `ingredient-crawls` |
 
 ### Field Components
@@ -1721,7 +1721,7 @@ interface DashboardResponse {
   recentErrors: Array<{ id, name, message, data, jobCollection, jobId, createdAt }>  // limit 10
   highlights: {
     productsCrawled, productsDiscovered, productsAggregated, productsSearched,
-    ingredientsCrawled, ingredientsDiscovered, videosProcessed, videosDiscovered,
+    ingredientsCrawled, ingredientsDiscovered, videosCrawled, videosProcessed, videosDiscovered,
     priceChanges, priceDrops, priceIncreases, variantsDisappeared, botChecks,
     tokensUsed, avgBatchDurationMs
   }
@@ -1746,8 +1746,8 @@ interface SnapshotResponse {
     source, total, crawled, uncrawled, withGtin, variants, avgRating, avgRatingCount
   }>
   videoPipeline: {
-    total, processed, unprocessed, withTranscript, totalSnippets,
-    // "processed" = has a non-null transcript; "unprocessed" = has no media (image_id IS NULL, i.e. no downloaded video file)
+    total, crawled, processed, unprocessed, withTranscript, totalSnippets,
+    // Uses status field: "processed" = status='processed', "crawled" = status='crawled', "unprocessed" = status != 'processed'
     snippetsByBarcode, snippetsByVisual, totalMentions,
     mentionsByPositive, mentionsByNeutral, mentionsByNegative, mentionsByMixed,
     productsWithMentions, channelsByPlatform: Array<{ platform, count }>
@@ -1781,7 +1781,7 @@ interface SnapshotResponse {
 | DatabaseOverview | `database-overview` | `DatabaseOverviewClient` | Grid of 11 entity count cards (products, variants, GTINs, source products/variants, brands, ingredients, videos, creators, channels, media) |
 | ProductQuality | `product-quality` | `ProductQualityClient` | Overall completeness percentage + 6 horizontal progress bars (image, brand, productType, ingredients, description, scoreHistory) |
 | SourceCoverage | `source-coverage` | `SourceCoverageClient` | Table with one row per store: products count, crawl progress bar with %, variants, GTINs, avg rating with review count |
-| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Processing progress bar (processed = has transcript, unprocessed = no media/image_id), stats grid (snippets by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
+| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Pipeline progress bar (discovered/crawled/processed via status field), stats grid (snippets by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
 | JobQueue | `job-queue` | `JobQueueClient` | Live workers section (name, status dot, last seen) + job queue table (pending/running/completed/failed/stale per collection, clickable links) |
 
 ### Key Files
@@ -1878,7 +1878,7 @@ To add a new metric to the Highlights widget (e.g. "Ingredients Crawled"):
 
 The `avgBatchDurationMs` highlight uses `LIKE '%.batch_done'` — `dashboard-events.ts:281`. This auto-matches any event named `<domain>.batch_done`. If your new job type emits `<domain>.batch_done` with `batchDurationMs` in its data, it's automatically included. No changes needed.
 
-Current matches: `crawl.batch_done`, `video_processing.batch_done`, `aggregation.batch_done`, `ingredient_crawl.batch_done`.
+Current matches: `crawl.batch_done`, `video_crawl.batch_done`, `video_processing.batch_done`, `aggregation.batch_done`, `ingredient_crawl.batch_done`.
 
 Events ending in `.batch_persisted` (discovery, search, ingredients_discovery, video_discovery) are **not** matched — they use a different naming convention because they persist discovered items rather than processing batches.
 
@@ -1907,6 +1907,7 @@ Events ending in `.batch_persisted` (discovery, search, ingredients_discovery, v
 | `search.batch_persisted` | #7 | Products searched (persisted) |
 | `ingredient_crawl.batch_done` | #7 | Ingredients crawled |
 | `ingredients_discovery.batch_persisted` | #7 | Ingredients discovered |
+| `video_crawl.batch_done` | #7 | Videos crawled (batchSuccesses) |
 | `video_processing.batch_done` | #7 | Videos processed |
 | `video_discovery.batch_persisted` | #7 | Videos discovered |
 | `persist.price_changed` | #7 | Price changes (total, drops, increases) |
@@ -1929,6 +1930,7 @@ Both queries #5 (line 213) and #6 (line 250) have identical CASE WHEN subqueries
 | `product_searches_id` | `product-searches` |
 | `ingredients_discoveries_id` | `ingredients-discoveries` |
 | `product_aggregations_id` | `product-aggregations` |
+| `video_crawls_id` | `video-crawls` |
 | `video_discoveries_id` | `video-discoveries` |
 | `video_processings_id` | `video-processings` |
 | `ingredient_crawls_id` | `ingredient-crawls` |

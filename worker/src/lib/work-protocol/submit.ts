@@ -8,7 +8,6 @@ import { createLogger } from '@/lib/logger'
 import {
   persistCrawlResult,
   persistIngredient,
-  persistVideoDiscoveryResult,
 } from './persist'
 import { retryOrFail } from './job-failure'
 import {
@@ -152,6 +151,17 @@ interface SubmitVideoDiscoveryBody {
   maxVideos?: number
 }
 
+interface SubmitVideoCrawlBody {
+  type: 'video-crawl'
+  jobId: number
+  results: Array<{
+    videoId: number
+    externalUrl: string
+    success: boolean
+    error?: string
+  }>
+}
+
 interface SubmitVideoProcessingBody {
   type: 'video-processing'
   jobId: number
@@ -206,6 +216,7 @@ type SubmitBody =
   | SubmitProductSearchBody
   | SubmitIngredientsDiscoveryBody
   | SubmitVideoDiscoveryBody
+  | SubmitVideoCrawlBody
   | SubmitVideoProcessingBody
   | SubmitProductAggregationBody
   | SubmitIngredientCrawlBody
@@ -227,6 +238,8 @@ export async function submitWork(
       return submitIngredientsDiscovery(payload, body)
     case 'video-discovery':
       return submitVideoDiscovery(payload, body)
+    case 'video-crawl':
+      return submitVideoCrawl(payload, body)
     case 'video-processing':
       return submitVideoProcessing(payload, body)
     case 'product-aggregation':
@@ -613,19 +626,26 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
 }
 
 async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVideoDiscoveryBody) {
-  const { jobId, channelUrl, videos, reachedEnd, nextOffset, maxVideos } = body
+  const { jobId, videos, reachedEnd, nextOffset, maxVideos } = body
   const jlog = log.forJob('video-discoveries', jobId)
   const batchStartMs = Date.now()
   log.info('Video discovery batch received', { jobId, videos: videos.length, reachedEnd, nextOffset })
 
   const job = await payload.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
 
-  const result = await persistVideoDiscoveryResult(payload, jobId, channelUrl, videos)
+  // Accumulate discovered video URLs — no DB record creation during discovery
+  const existingUrls: string[] = ((job.videoUrls as string) ?? '').split('\n').filter(Boolean)
+  const seenUrls = new Set<string>(existingUrls)
 
-  const batchPersisted = result.created + result.existing
-  const totalDiscovered = ((job.discovered as number) ?? 0) + videos.length
-  const totalCreated = ((job.created as number) ?? 0) + result.created
-  const totalExisting = ((job.existing as number) ?? 0) + result.existing
+  let batchNew = 0
+  for (const video of videos) {
+    if (seenUrls.has(video.externalUrl)) continue
+    seenUrls.add(video.externalUrl)
+    existingUrls.push(video.externalUrl)
+    batchNew++
+  }
+
+  const totalDiscovered = ((job.discovered as number) ?? 0) + batchNew
 
   // Done if: yt-dlp returned fewer videos than requested (end of channel),
   // or we've hit the maxVideos limit
@@ -633,14 +653,8 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
   const allDone = reachedEnd || hitMaxVideos
 
   const batchDurationMs = Date.now() - batchStartMs
-  log.info('Video discovery progress', { jobId, batchCreated: result.created, batchExisting: result.existing, totalCreated, totalExisting, totalDiscovered, done: allDone })
-  jlog.event('video_discovery.batch_persisted', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting, batchSize: videos.length, batchDurationMs })
-
-  if (allDone && batchPersisted === 0 && videos.length > 0) {
-    log.warn('Video discovery batch had zero successful persists, retrying or failing', { jobId, videos: videos.length })
-    await retryOrFail(payload, 'video-discoveries', jobId, `Batch of ${videos.length} videos all failed to persist`)
-    return { created: result.created, existing: result.existing, done: allDone }
-  }
+  log.info('Video discovery progress', { jobId, batchNew, totalDiscovered, done: allDone })
+  jlog.event('video_discovery.batch_persisted', { discovered: totalDiscovered, batchSize: videos.length, batchDurationMs })
 
   if (allDone) {
     await payload.update({
@@ -649,23 +663,21 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
       data: {
         status: 'completed',
         discovered: totalDiscovered,
-        created: totalCreated,
-        existing: totalExisting,
+        videoUrls: existingUrls.join('\n'),
         progress: null,
         completedAt: new Date().toISOString(),
       },
     })
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
-    jlog.event('video_discovery.completed', { discovered: totalDiscovered, created: totalCreated, existing: totalExisting, durationMs: jobDurationMs })
+    jlog.event('video_discovery.completed', { discovered: totalDiscovered, durationMs: jobDurationMs })
   } else {
     await payload.update({
       collection: 'video-discoveries',
       id: jobId,
       data: {
         discovered: totalDiscovered,
-        created: totalCreated,
-        existing: totalExisting,
+        videoUrls: existingUrls.join('\n'),
         progress: { currentOffset: nextOffset },
         claimedBy: null,
         claimedAt: null,
@@ -673,7 +685,123 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
     })
   }
 
-  return { created: result.created, existing: result.existing, done: allDone }
+  return { discovered: totalDiscovered, done: allDone }
+}
+
+async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCrawlBody) {
+  const { jobId, results } = body
+  const jlog = log.forJob('video-crawls', jobId)
+  const batchStartMs = Date.now()
+  log.info('Video crawl batch received', { jobId, results: results.length })
+
+  const job = await payload.findByID({ collection: 'video-crawls', id: jobId }) as Record<string, unknown>
+  let crawled = (job.crawled as number) ?? 0
+  let errors = (job.errors as number) ?? 0
+
+  // Accumulate crawled video URLs
+  const existingCrawledUrls = ((job.crawledVideoUrls as string) ?? '').trim()
+  const crawledUrlSet = new Set<string>(existingCrawledUrls ? existingCrawledUrls.split('\n') : [])
+  const newCrawledUrls: string[] = []
+
+  for (const result of results) {
+    if (result.success) {
+      crawled++
+      if (!crawledUrlSet.has(result.externalUrl)) {
+        crawledUrlSet.add(result.externalUrl)
+        newCrawledUrls.push(result.externalUrl)
+      }
+    } else {
+      errors++
+    }
+  }
+
+  // Update crawled URLs on the job
+  const updatedCrawledUrls = newCrawledUrls.length > 0
+    ? (existingCrawledUrls ? existingCrawledUrls + '\n' + newCrawledUrls.join('\n') : newCrawledUrls.join('\n'))
+    : existingCrawledUrls
+
+  // Check remaining work
+  let totalRemaining = 0
+  if (job.type === 'all') {
+    const scope = (job.scope as string) ?? 'uncrawled_only'
+    const where = scope === 'recrawl'
+      ? { externalUrl: { exists: true } }
+      : { status: { equals: 'discovered' } }
+    const count = await payload.count({ collection: 'videos', where })
+    totalRemaining = count.totalDocs
+  } else {
+    // For selected_urls/from_discovery, count how many of the target URLs are still not crawled
+    let targetUrls: string[] = []
+    if (job.type === 'selected_urls') {
+      targetUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    } else if (job.type === 'from_discovery' && job.discovery) {
+      const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
+      const discovery = await payload.findByID({ collection: 'video-discoveries', id: discoveryId }) as Record<string, unknown>
+      targetUrls = ((discovery.videoUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    }
+
+    // Count target URLs whose video is still not crawled
+    for (const url of targetUrls) {
+      if (crawledUrlSet.has(url)) continue
+      const existing = await payload.find({
+        collection: 'videos',
+        where: { externalUrl: { equals: url } },
+        limit: 1,
+      })
+      if (existing.docs.length > 0) {
+        const v = existing.docs[0] as Record<string, unknown>
+        if ((v.status as string) !== 'crawled') totalRemaining++
+      } else {
+        totalRemaining++ // URL not yet created as video record
+      }
+    }
+  }
+
+  const batchErrors = results.filter((r) => !r.success).length
+  const batchDurationMs = Date.now() - batchStartMs
+
+  if (totalRemaining === 0) {
+    if (batchErrors === results.length && results.length > 0) {
+      log.warn('Video crawl batch was 100% errors, retrying or failing', { jobId, batchErrors })
+      await retryOrFail(payload, 'video-crawls', jobId, `Batch of ${batchErrors} items all failed`)
+      return { crawled, errors, remaining: totalRemaining }
+    }
+
+    const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+    const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+
+    log.info('Video crawl completing', { jobId, crawled, errors })
+    await payload.update({
+      collection: 'video-crawls',
+      id: jobId,
+      data: {
+        status: 'completed',
+        crawled,
+        errors,
+        crawledVideoUrls: updatedCrawledUrls,
+        completedAt: new Date().toISOString(),
+      },
+    })
+    jlog.event('video_crawl.completed', { crawled, errors, durationMs: jobDurationMs })
+  } else {
+    log.info('Video crawl batch done', { jobId, remaining: totalRemaining, crawled, errors })
+    await payload.update({
+      collection: 'video-crawls',
+      id: jobId,
+      data: { crawled, errors, crawledVideoUrls: updatedCrawledUrls, claimedBy: null, claimedAt: null },
+    })
+    jlog.event('video_crawl.batch_done', {
+      crawled,
+      errors,
+      remaining: totalRemaining,
+      batchSize: results.length,
+      batchSuccesses: results.length - batchErrors,
+      batchErrors,
+      batchDurationMs,
+    })
+  }
+
+  return { crawled, errors, remaining: totalRemaining }
 }
 
 async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVideoProcessingBody) {
@@ -738,12 +866,31 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
         }
       }
     }
+  } else if (job.type === 'from_crawl' && job.crawl) {
+    // from_crawl — check progress for videos from the linked crawl job
+    const crawlId = typeof job.crawl === 'number' ? job.crawl : (job.crawl as Record<string, number>).id
+    const crawlJob = await payload.findByID({ collection: 'video-crawls', id: crawlId }) as Record<string, unknown>
+    const crawlUrls = ((crawlJob.crawledVideoUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    for (const url of crawlUrls) {
+      const existing = await payload.find({
+        collection: 'videos',
+        where: { externalUrl: { equals: url } },
+        limit: 1,
+      })
+      if (existing.docs.length > 0) {
+        const vid = (existing.docs[0] as Record<string, unknown>).id as number
+        const lastCompleted = progress[String(vid)] ?? null
+        if (videoNeedsWork(lastCompleted, enabledSet)) {
+          remainingWork++
+        }
+      }
+    }
   } else {
-    // all_unprocessed — fetch videos with externalUrl, check against progress map.
+    // all_unprocessed — fetch videos with status='crawled', check against progress map.
     // Progress lives on the job, not the video, so we check the map in code.
     const result = await payload.find({
       collection: 'videos',
-      where: { externalUrl: { exists: true } },
+      where: { status: { equals: 'crawled' } },
       limit: 100,
       sort: 'createdAt',
     })

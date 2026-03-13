@@ -34,6 +34,23 @@ export const Videos: CollectionConfig = {
   fields: [
     // ── Sidebar ──
     {
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      defaultValue: 'discovered',
+      options: [
+        { label: 'Discovered', value: 'discovered' },
+        { label: 'Crawled', value: 'crawled' },
+        { label: 'Processed', value: 'processed' },
+      ],
+      index: true,
+      admin: {
+        position: 'sidebar',
+        readOnly: true,
+        description: 'Lifecycle status: discovered → crawled → processed. Managed by the worker.',
+      },
+    },
+    {
       name: 'channel',
       type: 'relationship',
       relationTo: 'channels',
@@ -120,10 +137,22 @@ export const Videos: CollectionConfig = {
               required: true,
             },
             {
-              name: 'image',
+              name: 'thumbnail',
               type: 'upload',
               relationTo: 'media',
-              label: 'Image',
+              label: 'Thumbnail',
+              admin: {
+                description: 'Video thumbnail image (set during crawl).',
+              },
+            },
+            {
+              name: 'videoFile',
+              type: 'upload',
+              relationTo: 'media',
+              label: 'Video File',
+              admin: {
+                description: 'Downloaded MP4 file (set during crawl).',
+              },
             },
           ],
         },

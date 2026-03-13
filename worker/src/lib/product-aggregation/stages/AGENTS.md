@@ -10,7 +10,7 @@ Central orchestration file. Exports:
 
 - **`StageName`** — union of all 9 stage names
 - **`AggregationProgress`** — `Record<string, StageName | null>` progress map type
-- **`StageConfig`** — job-level config: `jobId`, `language`, `imageSourcePriority`, `minBoxArea` (fraction, default 0.05)
+- **`StageConfig`** — job-level config: `jobId`, `language`, `imageSourcePriority`, `detectionThreshold` (0-1, default 0.3), `minBoxArea` (fraction, default 0.05)
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, productId?, tokensUsed? }`
 - **`AggregationWorkItem`** — `{ productId: number | null, gtins: string[], variants: Array<{ gtin, sources }> }`
@@ -153,7 +153,7 @@ Per variant: takes the uploaded product image (from stage 4), runs Grounding DIN
 
 **Model**: `onnx-community/grounding-dino-tiny-ONNX` via `@huggingface/transformers` pipeline API. Lazy-loaded singleton — first call downloads ~700MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only.
 
-**Thresholds**: `box_threshold=0.3` (confidence), `minBoxArea` from job config (default 5% of image area — detections occupying less than this fraction of the source image are discarded as background noise)
+**Thresholds**: `detectionThreshold` from job config (default 0.3 — Grounding DINO box confidence threshold), `minBoxArea` from job config (default 5% of image area — detections occupying less than this fraction of the source image are discarded as background noise)
 
 **Flow** (per variant):
 1. Find the `product-variant` by GTIN

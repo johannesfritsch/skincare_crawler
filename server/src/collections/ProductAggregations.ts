@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { DEFAULT_IMAGE_SOURCE_PRIORITY } from './shared/store-fields'
 
 export const ProductAggregations: CollectionConfig = {
@@ -46,18 +46,7 @@ export const ProductAggregations: CollectionConfig = {
         position: 'sidebar',
       },
     },
-    ...jobClaimFields,
-    {
-      name: 'itemsPerTick',
-      type: 'number',
-      label: 'Batch Size',
-      defaultValue: 10,
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Products to aggregate per batch.',
-      },
-    },
+    ...jobClaimFieldsNoRetries,
     {
       name: 'startedAt',
       type: 'date',
@@ -120,6 +109,37 @@ export const ProductAggregations: CollectionConfig = {
                   'and both will become variants of the same unified product.',
               },
             },
+          ],
+        },
+        {
+          label: 'Configuration',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'itemsPerTick',
+                  type: 'number',
+                  label: 'Batch Size',
+                  defaultValue: 10,
+                  min: 1,
+                  admin: {
+                    width: '50%',
+                    description: 'Products to aggregate per batch.',
+                  },
+                },
+                {
+                  name: 'maxRetries',
+                  type: 'number',
+                  label: 'Max Retries',
+                  defaultValue: DEFAULT_MAX_RETRIES,
+                  admin: {
+                    width: '50%',
+                    description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
+                  },
+                },
+              ],
+            },
             {
               name: 'language',
               type: 'select',
@@ -141,6 +161,19 @@ export const ProductAggregations: CollectionConfig = {
               admin: {
                 description:
                   'Ordered list of source slugs to prefer when selecting a product image. First source with images wins.',
+              },
+            },
+            {
+              name: 'detectionThreshold',
+              type: 'number',
+              label: 'Detection Confidence Threshold',
+              defaultValue: 0.3,
+              min: 0,
+              max: 1,
+              admin: {
+                step: 0.05,
+                description:
+                  'Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.3.',
               },
             },
             {
@@ -313,11 +346,6 @@ export const ProductAggregations: CollectionConfig = {
                 },
               ],
             },
-          ],
-        },
-        {
-          label: 'Aggregation Progress',
-          fields: [
             {
               name: 'aggregationProgress',
               type: 'json',

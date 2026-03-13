@@ -8,14 +8,16 @@
  * `{ [videoId]: lastCompletedStageName }`. Videos have no processing status;
  * they are pure data records. The job owns all state.
  *
+ * Video download is handled by the separate video-crawl job type — the
+ * processing pipeline assumes videos already have their MP4 downloaded.
+ *
  * Stage ordering (by index in STAGES array):
- *   0. download
- *   1. scene_detection
- *   2. product_recognition
- *   3. screenshot_detection    — Grounding DINO on screenshots
- *   4. screenshot_search       — CLIP visual similarity search
- *   5. transcription
- *   6. sentiment_analysis
+ *   0. scene_detection
+ *   1. product_recognition
+ *   2. screenshot_detection    — Grounding DINO on screenshots
+ *   3. screenshot_search       — CLIP visual similarity search
+ *   4. transcription
+ *   5. sentiment_analysis
  */
 
 import type { PayloadRestClient } from '@/lib/payload-client'
@@ -23,9 +25,8 @@ import type { Logger } from '@/lib/logger'
 
 // ─── Types ───
 
-/** The 7 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
+/** The 6 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
 export type StageName =
-  | 'download'
   | 'scene_detection'
   | 'product_recognition'
   | 'screenshot_detection'
@@ -89,7 +90,6 @@ export interface StageDefinition {
 // ─── Stage Registry ───
 
 // Import stage executors (lazy — each file exports a single execute function)
-import { executeDownload } from './download'
 import { executeSceneDetection } from './scene-detection'
 import { executeProductRecognition } from './product-recognition'
 import { executeScreenshotDetection } from './screenshot-detection'
@@ -100,44 +100,38 @@ import { executeSentimentAnalysis } from './sentiment-analysis'
 /** All stages in pipeline order */
 export const STAGES: StageDefinition[] = [
   {
-    name: 'download',
-    index: 0,
-    jobField: 'stageDownload',
-    execute: executeDownload,
-  },
-  {
     name: 'scene_detection',
-    index: 1,
+    index: 0,
     jobField: 'stageSceneDetection',
     execute: executeSceneDetection,
   },
   {
     name: 'product_recognition',
-    index: 2,
+    index: 1,
     jobField: 'stageProductRecognition',
     execute: executeProductRecognition,
   },
   {
     name: 'screenshot_detection',
-    index: 3,
+    index: 2,
     jobField: 'stageScreenshotDetection',
     execute: executeScreenshotDetection,
   },
   {
     name: 'screenshot_search',
-    index: 4,
+    index: 3,
     jobField: 'stageScreenshotSearch',
     execute: executeScreenshotSearch,
   },
   {
     name: 'transcription',
-    index: 5,
+    index: 4,
     jobField: 'stageTranscription',
     execute: executeTranscription,
   },
   {
     name: 'sentiment_analysis',
-    index: 6,
+    index: 5,
     jobField: 'stageSentimentAnalysis',
     execute: executeSentimentAnalysis,
   },
@@ -203,7 +197,6 @@ export function getFinalStage(enabledStages: Set<StageName>): StageName | null {
  */
 export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   const stages = new Set<StageName>()
-  if (job.stageDownload !== false) stages.add('download')
   if (job.stageSceneDetection !== false) stages.add('scene_detection')
   if (job.stageProductRecognition !== false) stages.add('product_recognition')
   if (job.stageScreenshotDetection !== false) stages.add('screenshot_detection')

@@ -29,6 +29,7 @@ import { Videos } from './collections/Videos'
 import { VideoSnippets } from './collections/VideoSnippets'
 import { VideoMentions } from './collections/VideoMentions'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
+import { VideoCrawls } from './collections/VideoCrawls'
 import { VideoProcessings } from './collections/VideoProcessings'
 
 import { Workers } from './collections/Workers'
@@ -213,6 +214,7 @@ export default buildConfig({
     VideoSnippets,
     VideoMentions,
     VideoDiscoveries,
+    VideoCrawls,
     VideoProcessings,
     Workers,
   ],

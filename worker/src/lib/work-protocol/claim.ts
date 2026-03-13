@@ -22,7 +22,7 @@ import {
   type AggregationWorkItem,
 } from '@/lib/product-aggregation/stages'
 
-export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
+export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
 interface ActiveJob {
   type: JobType
@@ -38,6 +38,7 @@ export const JOB_TYPE_TO_COLLECTION = {
   'product-search': 'product-searches',
   'ingredients-discovery': 'ingredients-discoveries',
   'video-discovery': 'video-discoveries',
+  'video-crawl': 'video-crawls',
   'video-processing': 'video-processings',
   'product-aggregation': 'product-aggregations',
   'ingredient-crawl': 'ingredient-crawls',
@@ -49,6 +50,7 @@ const JOB_TYPE_TO_CAPABILITY = {
   'product-search': 'product-search',
   'ingredients-discovery': 'ingredients-discovery',
   'video-discovery': 'video-discovery',
+  'video-crawl': 'video-crawl',
   'video-processing': 'video-processing',
   'product-aggregation': 'product-aggregation',
   'ingredient-crawl': 'ingredient-crawl',
@@ -175,6 +177,8 @@ export async function claimWork(
           return buildIngredientsDiscoveryWork(payload, candidate.id)
         case 'video-discovery':
           return buildVideoDiscoveryWork(payload, candidate.id)
+        case 'video-crawl':
+          return buildVideoCrawlWork(payload, candidate.id)
         case 'video-processing':
           return buildVideoProcessingWork(payload, candidate.id)
         case 'product-aggregation':
@@ -560,8 +564,7 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
         startedAt: new Date().toISOString(),
         completedAt: null,
         discovered: 0,
-        created: 0,
-        existing: 0,
+        videoUrls: '',
         progress: null,
       },
     })
@@ -575,6 +578,134 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
     currentOffset,
     batchSize,
     maxVideos,
+  }
+}
+
+async function buildVideoCrawlWork(payload: PayloadRestClient, jobId: number) {
+  const jlog = log.forJob('video-crawls', jobId)
+  jlog.info('Building video crawl work', { jobId })
+  const job = await payload.findByID({ collection: 'video-crawls', id: jobId }) as Record<string, unknown>
+
+  const itemsPerTick = (job.itemsPerTick as number) ?? 5
+
+  // Build URL list based on type
+  let videoUrls: string[] = []
+  if (job.type === 'selected_urls') {
+    videoUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+  } else if (job.type === 'from_discovery' && job.discovery) {
+    const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
+    const discovery = await payload.findByID({ collection: 'video-discoveries', id: discoveryId }) as Record<string, unknown>
+    videoUrls = ((discovery.videoUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+  }
+
+  // Initialize job if pending
+  if (job.status === 'pending') {
+    jlog.info('Initializing video crawl job', { jobId, type: job.type as string })
+
+    let total: number
+    if (job.type === 'all') {
+      // Count videos with status='discovered' (or all if scope=recrawl)
+      const scope = (job.scope as string) ?? 'uncrawled_only'
+      const where = scope === 'recrawl'
+        ? { externalUrl: { exists: true } }
+        : { status: { equals: 'discovered' } }
+      const count = await payload.count({ collection: 'videos', where })
+      total = count.totalDocs
+    } else {
+      total = videoUrls.length
+    }
+
+    await payload.update({
+      collection: 'video-crawls',
+      id: jobId,
+      data: {
+        status: 'in_progress',
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        total,
+        crawled: 0,
+        errors: 0,
+        crawledVideoUrls: '',
+      },
+    })
+    jlog.event('job.claimed', { collection: 'video-crawls', jobId, total })
+  }
+
+  // Find videos to crawl
+  // Work items may have a videoId (existing DB record) or just an externalUrl (new URL, no record yet)
+  const workItems: Array<{ videoId?: number; externalUrl: string; title: string }> = []
+
+  if (job.type === 'all') {
+    // Crawl all discovered videos (or all if recrawl)
+    const scope = (job.scope as string) ?? 'uncrawled_only'
+    const where = scope === 'recrawl'
+      ? { externalUrl: { exists: true } }
+      : { status: { equals: 'discovered' } }
+    const result = await payload.find({
+      collection: 'videos',
+      where,
+      limit: itemsPerTick,
+      sort: 'createdAt',
+    })
+    for (const doc of result.docs) {
+      const v = doc as Record<string, unknown>
+      workItems.push({
+        videoId: v.id as number,
+        externalUrl: v.externalUrl as string,
+        title: (v.title as string) ?? '',
+      })
+    }
+  } else {
+    // selected_urls or from_discovery — find videos by URL
+    for (const url of videoUrls) {
+      if (workItems.length >= itemsPerTick) break
+      const existing = await payload.find({
+        collection: 'videos',
+        where: { externalUrl: { equals: url } },
+        limit: 1,
+      })
+      if (existing.docs.length > 0) {
+        const v = existing.docs[0] as Record<string, unknown>
+        // Skip if already crawled (unless recrawl scope)
+        if ((job.scope as string) !== 'recrawl' && (v.status as string) === 'crawled') continue
+        workItems.push({
+          videoId: v.id as number,
+          externalUrl: v.externalUrl as string,
+          title: (v.title as string) ?? '',
+        })
+      } else {
+        // Video doesn't exist in DB yet — the handler will resolve channel+creator
+        // and create the video record during crawl
+        workItems.push({
+          externalUrl: url,
+          title: url,
+        })
+      }
+    }
+  }
+
+  // No work items — complete the job
+  if (workItems.length === 0) {
+    jlog.info('No remaining work, completing job', { jobId })
+    await payload.update({
+      collection: 'video-crawls',
+      id: jobId,
+      data: {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+    })
+    jlog.event('job.completed_empty', { collection: 'video-crawls', reason: 'No remaining videos to crawl' })
+    return { type: 'none' }
+  }
+
+  jlog.info('Prepared video crawl work items', { jobId, count: workItems.length })
+
+  return {
+    type: 'video-crawl',
+    jobId,
+    workItems,
+    itemsPerTick,
   }
 }
 
@@ -642,14 +773,36 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
         }
       }
     }
+  } else if (job.type === 'from_crawl' && job.crawl) {
+    // from_crawl — process videos from a specific video-crawl job's crawledVideoUrls
+    const crawlId = typeof job.crawl === 'number' ? job.crawl : (job.crawl as Record<string, number>).id
+    const crawlJob = await payload.findByID({ collection: 'video-crawls', id: crawlId }) as Record<string, unknown>
+    const crawlUrls = ((crawlJob.crawledVideoUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    for (const url of crawlUrls) {
+      if (stageItems.length >= itemsPerTick) break
+      const existing = await payload.find({
+        collection: 'videos',
+        where: { externalUrl: { equals: url } },
+        limit: 1,
+      })
+      if (existing.docs.length > 0) {
+        const v = existing.docs[0] as Record<string, unknown>
+        const vid = v.id as number
+        const lastCompleted = progress[String(vid)] ?? null
+        const nextStage = getNextStage(lastCompleted, enabledStages)
+        if (nextStage) {
+          stageItems.push({ videoId: vid, title: (v.title as string) ?? '', stageName: nextStage.name })
+        }
+      }
+    }
   } else {
-    // all_unprocessed — fetch videos with externalUrl, filter by job progress map.
+    // all_unprocessed — fetch videos with status='crawled', filter by job progress map.
     // Progress is stored on the job, not the video, so we fetch a batch of videos
     // and check the progress map to find ones that still need work.
     const result = await payload.find({
       collection: 'videos',
       where: {
-        externalUrl: { exists: true },
+        status: { equals: 'crawled' },
       },
       limit: itemsPerTick * 5, // fetch extra to account for already-completed videos
       sort: 'createdAt',
@@ -1149,6 +1302,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     stageItems,
     enabledStages: enabledStagesArr,
     minBoxArea: (job.minBoxArea as number) ?? 5,
+    detectionThreshold: (job.detectionThreshold as number) ?? 0.3,
   }
 }
 

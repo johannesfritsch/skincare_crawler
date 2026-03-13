@@ -32,6 +32,7 @@ export const Workers: CollectionConfig = {
         { label: 'Product Search', value: 'product-search' },
         { label: 'Ingredients Discovery', value: 'ingredients-discovery' },
         { label: 'Video Discovery', value: 'video-discovery' },
+        { label: 'Video Crawl', value: 'video-crawl' },
         { label: 'Video Processing', value: 'video-processing' },
         { label: 'Product Aggregation', value: 'product-aggregation' },
         { label: 'Ingredient Crawl', value: 'ingredient-crawl' },

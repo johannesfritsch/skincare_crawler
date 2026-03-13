@@ -99,7 +99,7 @@ OPENAI_API_KEY=sk-...            # for LLM tasks
 DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 ```
 
-## Database Schema (24 Collections)
+## Database Schema (25 Collections)
 
 ### Core Data
 
@@ -117,7 +117,7 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 | Collection | Purpose |
 |------------|---------|
-| `videos` | YouTube/social videos — pure data records with no processing state (title, image (upload → media, stores video MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoSnippets (join)) |
+| `videos` | YouTube/social videos with lifecycle status (status: discovered/crawled/processed, title, thumbnail (upload → media, video thumbnail image), videoFile (upload → media, downloaded MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoSnippets (join)). Status is managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
 | `video-snippets` | Video segments (timestamps, matchingType: barcode/visual, screenshots, referencedProducts, preTranscript/transcript/postTranscript, detections array — Grounding DINO detection crops with bounding boxes and CLIP match results) |
 | `video-mentions` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
 | `creators` | Social media creators |
@@ -135,9 +135,10 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `product-discoveries` | sourceUrls, progress, discovered count, productUrls (hidden, accumulated URLs) |
 | `product-searches` | query, sources (dm/mueller/rossmann), maxResults, discovered count, productUrls (hidden, accumulated URLs) |
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
-| `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), created/existing/discovered counts |
-| `video-processings` | type (all_unprocessed/single_video/selected_urls), stage checkboxes (stageDownload, stageSceneDetection, stageProductRecognition, stageScreenshotDetection, stageScreenshotSearch, stageTranscription, stageSentimentAnalysis), sceneThreshold, clusterThreshold, minBoxArea (default 25% — minimum detection box area as percentage of screenshot area, foreground-only), transcriptionLanguage, transcriptionModel, videoProgress (JSON map of videoId → last completed stage, e.g. `{ "42": "download", "43": "scene_detection" }`), progress (completed/errors/tokens) |
-| `product-aggregations` | type (all/selected_gtins), stage checkboxes (stageResolve, stageClassify, stageMatchBrand, stageIngredients, stageImages, stageObjectDetection, stageEmbedImages, stageDescriptions, stageScoreHistory), language, imageSourcePriority, includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), minBoxArea (default 5% — minimum detection box area as percentage of image area), aggregationProgress (JSON map of progressKey → last completed stage, e.g. `{ "4012345678901": "classify", "pid:4012345678901": "42" }`), aggregated/errors/tokens |
+| `video-discoveries` | channelUrl, itemsPerTick (videos per batch, default 50), maxVideos, progress (currentOffset), discovered count, videoUrls (hidden, accumulated URLs) |
+| `video-crawls` | type (all/selected_urls/from_discovery), scope (uncrawled_only/recrawl), urls, discovery (relationship → video-discoveries), progress (crawled/errors), crawledVideoUrls (hidden, accumulated URLs) |
+| `video-processings` | type (all_unprocessed/single_video/selected_urls/from_crawl), stage checkboxes (stageSceneDetection, stageProductRecognition, stageScreenshotDetection, stageScreenshotSearch, stageTranscription, stageSentimentAnalysis), crawl (relationship → video-crawls), sceneThreshold, clusterThreshold, minBoxArea (default 25% — minimum detection box area as percentage of screenshot area, foreground-only), transcriptionLanguage, transcriptionModel, videoProgress (JSON map of videoId → last completed stage, e.g. `{ "42": "scene_detection", "43": "transcription" }`), progress (completed/errors/tokens) |
+| `product-aggregations` | type (all/selected_gtins), stage checkboxes (stageResolve, stageClassify, stageMatchBrand, stageIngredients, stageImages, stageObjectDetection, stageEmbedImages, stageDescriptions, stageScoreHistory), language, imageSourcePriority, detectionThreshold (default 0.3 — Grounding DINO box confidence threshold), includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), minBoxArea (default 5% — minimum detection box area as percentage of image area), aggregationProgress (JSON map of progressKey → last completed stage, e.g. `{ "4012345678901": "classify", "pid:4012345678901": "42" }`), aggregated/errors/tokens |
 | `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |
 
 ### System
@@ -158,7 +159,8 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
 6. Product aggregation runs as 9 independent stages (resolve → classify → match_brand → ingredients → images → object_detection → embed_images → descriptions → score_history), each persisting immediately. Progress is tracked per-product-group on the job's `aggregationProgress` JSON map (not on the product). Job selects which stages to run via checkboxes. Resolve creates/finds products and product-variants, merging duplicates if needed. Subsequent stages run LLM operations (classification, brand matching, ingredient parsing), data operations (image download, score computation), and ML operations (Grounding DINO object detection on product images, CLIP embedding generation for visual similarity search).
-7. Video processing runs as 7 independent stages (download → scene detection → product recognition → screenshot detection → screenshot search → transcription → sentiment analysis), each persisting immediately. Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes.
+7. Video crawl downloads video metadata via yt-dlp, resolves/creates channel+creator records, downloads MP4 + thumbnail, uploads to media, and sets video status to `crawled`.
+8. Video processing runs as 6 independent stages (scene detection → product recognition → screenshot detection → screenshot search → transcription → sentiment analysis), each persisting immediately. Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes. The download stage has been moved to the video crawl step.
 ```
 
 ## Keeping AGENTS.md Up to Date

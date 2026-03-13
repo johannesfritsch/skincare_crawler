@@ -63,6 +63,15 @@ export const VideoDiscoveries: CollectionConfig = {
         description: 'Stop after this many videos. Empty = unlimited (all videos on channel).',
       },
     },
+    // Worker accumulates discovered video URLs here; shown read-only on the Output tab
+    {
+      name: 'videoUrls',
+      type: 'textarea',
+      validate: () => true,
+      admin: {
+        hidden: true,
+      },
+    },
     {
       type: 'tabs',
       tabs: [
@@ -70,42 +79,14 @@ export const VideoDiscoveries: CollectionConfig = {
           label: 'Progress',
           fields: [
             {
-              type: 'row',
-              fields: [
-                {
-                  name: 'discovered',
-                  type: 'number',
-                  label: 'Discovered',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Videos found on the channel',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'created',
-                  type: 'number',
-                  label: 'Created',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'New videos created',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'existing',
-                  type: 'number',
-                  label: 'Existing',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Videos already in database',
-                    width: '33%',
-                  },
-                },
-              ],
+              name: 'discovered',
+              type: 'number',
+              label: 'Discovered',
+              defaultValue: 0,
+              admin: {
+                readOnly: true,
+                description: 'Video URLs found on the channel',
+              },
             },
             {
               name: 'progress',
@@ -147,7 +128,27 @@ export const VideoDiscoveries: CollectionConfig = {
             },
           ],
         },
-
+        {
+          label: 'Output',
+          fields: [
+            {
+              name: 'videoUrlsDisplay',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: {
+                    path: '@/components/JobOutputField',
+                    clientProps: {
+                      fieldName: 'videoUrls',
+                      label: 'Discovered Video URLs',
+                      description: 'One URL per line, accumulated during discovery.',
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
         {
           label: 'Events',
           fields: [

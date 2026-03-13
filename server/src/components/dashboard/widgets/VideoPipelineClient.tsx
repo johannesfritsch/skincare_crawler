@@ -67,8 +67,11 @@ export default function VideoPipelineClient() {
     )
   }
 
+  const crawledPct =
+    v.total > 0 ? Math.round((v.crawled / v.total) * 100) : 0
   const processedPct =
     v.total > 0 ? Math.round((v.processed / v.total) * 100) : 0
+  const discovered = v.total - v.crawled - v.processed
 
   return (
     <div
@@ -78,7 +81,7 @@ export default function VideoPipelineClient() {
         backgroundColor: 'var(--theme-elevation-0)',
       }}
     >
-      {/* Processing progress */}
+      {/* Pipeline progress: discovered → crawled → processed */}
       <div style={{ marginBottom: '16px' }}>
         <div
           style={{
@@ -97,7 +100,7 @@ export default function VideoPipelineClient() {
               letterSpacing: '0.04em',
             }}
           >
-            Processing
+            Pipeline
           </span>
           <span
             style={{
@@ -106,7 +109,7 @@ export default function VideoPipelineClient() {
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {v.processed.toLocaleString()} / {v.total.toLocaleString()} ({processedPct}%)
+            {discovered.toLocaleString()} disc. / {v.crawled.toLocaleString()} crawled / {v.processed.toLocaleString()} proc.
           </span>
         </div>
         <div
@@ -114,13 +117,22 @@ export default function VideoPipelineClient() {
             height: '6px',
             backgroundColor: 'var(--theme-elevation-100)',
             overflow: 'hidden',
+            display: 'flex',
           }}
         >
           <div
             style={{
               height: '100%',
               width: `${processedPct}%`,
-              backgroundColor: processedPct === 100 ? '#22c55e' : '#f59e0b',
+              backgroundColor: '#22c55e',
+              transition: 'width 0.3s ease',
+            }}
+          />
+          <div
+            style={{
+              height: '100%',
+              width: `${crawledPct}%`,
+              backgroundColor: '#f59e0b',
               transition: 'width 0.3s ease',
             }}
           />

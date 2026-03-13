@@ -22,9 +22,9 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
   const title = (video.title as string) || `Video ${videoId}`
 
   // Get the video media to download
-  const imageRef = video.image as number | Record<string, unknown> | null
+  const imageRef = video.videoFile as number | Record<string, unknown> | null
   if (!imageRef) {
-    return { success: false, error: 'Video has no media file (download stage must run first)' }
+    return { success: false, error: 'Video has no media file (video must be crawled first)' }
   }
 
   const mediaId = typeof imageRef === 'number' ? imageRef : (imageRef as { id: number }).id

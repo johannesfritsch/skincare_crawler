@@ -16,11 +16,11 @@ import { getDetector } from '@/lib/models/grounding-dino'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
 const DETECTION_PROMPT = 'cosmetics packaging.'
-const BOX_THRESHOLD = 0.3
 
 export async function executeObjectDetection(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, config, log } = ctx
   const jlog = log.forJob('product-aggregations', config.jobId)
+  const detectionThreshold = config.detectionThreshold ?? 0.3
   const minBoxArea = config.minBoxArea ?? 0.05
   const productId = workItem.productId
 
@@ -101,7 +101,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
       // The pipeline accepts URLs, file paths, or RawImage objects
       // We pass the URL directly since the model handles loading
       const detections = await detector(fullImageUrl, [DETECTION_PROMPT], {
-        threshold: BOX_THRESHOLD,
+        threshold: detectionThreshold,
       })
 
       if (!detections || detections.length === 0) {

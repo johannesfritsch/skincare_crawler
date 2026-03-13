@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 
 export const VideoProcessings: CollectionConfig = {
   slug: 'video-processings',
@@ -46,18 +46,7 @@ export const VideoProcessings: CollectionConfig = {
         position: 'sidebar',
       },
     },
-    ...jobClaimFields,
-    {
-      name: 'itemsPerTick',
-      type: 'number',
-      label: 'Batch Size',
-      defaultValue: 1,
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Videos to process per batch.',
-      },
-    },
+    ...jobClaimFieldsNoRetries,
     {
       name: 'startedAt',
       type: 'date',
@@ -98,6 +87,7 @@ export const VideoProcessings: CollectionConfig = {
                 { label: 'All Unprocessed', value: 'all_unprocessed' },
                 { label: 'Single Video', value: 'single_video' },
                 { label: 'Selected URLs', value: 'selected_urls' },
+                { label: 'From Crawl Job', value: 'from_crawl' },
               ],
             },
             {
@@ -119,6 +109,16 @@ export const VideoProcessings: CollectionConfig = {
                 condition: (data) => data?.type === 'selected_urls',
               },
             },
+            {
+              name: 'crawl',
+              type: 'relationship',
+              relationTo: 'video-crawls',
+              label: 'Crawl Job',
+              admin: {
+                description: 'Process the videos crawled by this crawl job.',
+                condition: (data) => data?.type === 'from_crawl',
+              },
+            },
           ],
         },
         {
@@ -127,16 +127,6 @@ export const VideoProcessings: CollectionConfig = {
             {
               type: 'row',
               fields: [
-                {
-                  name: 'stageDownload',
-                  type: 'checkbox',
-                  label: 'Download',
-                  defaultValue: true,
-                  admin: {
-                    description: 'Download video via yt-dlp and upload to media.',
-                    width: '20%',
-                  },
-                },
                 {
                   name: 'stageSceneDetection',
                   type: 'checkbox',
@@ -202,8 +192,34 @@ export const VideoProcessings: CollectionConfig = {
           ],
         },
         {
-          label: 'Stage Config',
+          label: 'Configuration',
           fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'itemsPerTick',
+                  type: 'number',
+                  label: 'Batch Size',
+                  defaultValue: 1,
+                  min: 1,
+                  admin: {
+                    width: '50%',
+                    description: 'Videos to process per batch.',
+                  },
+                },
+                {
+                  name: 'maxRetries',
+                  type: 'number',
+                  label: 'Max Retries',
+                  defaultValue: DEFAULT_MAX_RETRIES,
+                  admin: {
+                    width: '50%',
+                    description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
+                  },
+                },
+              ],
+            },
             {
               type: 'row',
               fields: [
@@ -380,19 +396,13 @@ export const VideoProcessings: CollectionConfig = {
                 },
               ],
             },
-          ],
-        },
-
-        {
-          label: 'Video Progress',
-          fields: [
             {
               name: 'videoProgress',
               type: 'json',
               label: 'Video Progress',
               admin: {
                 readOnly: true,
-                description: 'Maps video IDs to last completed stage name. Example: { "42": "download", "43": "scene_detection" }',
+                description: 'Maps video IDs to last completed stage name. Example: { "42": "scene_detection", "43": "transcription" }',
               },
             },
           ],

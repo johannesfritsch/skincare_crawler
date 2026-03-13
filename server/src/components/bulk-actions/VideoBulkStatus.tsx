@@ -4,5 +4,10 @@ import React from 'react'
 import { BulkJobStatusBar } from '@/components/BulkJobBar'
 
 export default function VideoBulkStatus() {
-  return <BulkJobStatusBar runningLabel="Processing..." jobCollection="video-processings" />
+  return (
+    <>
+      <BulkJobStatusBar runningLabel="Crawling..." jobCollection="video-crawls" />
+      <BulkJobStatusBar runningLabel="Processing..." jobCollection="video-processings" />
+    </>
+  )
 }

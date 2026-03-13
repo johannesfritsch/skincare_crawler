@@ -52,6 +52,7 @@ export type JobCollection =
   | 'ingredients-discoveries'
   | 'product-aggregations'
   | 'video-discoveries'
+  | 'video-crawls'
   | 'video-processings'
   | 'ingredient-crawls'
 
@@ -303,15 +304,39 @@ export interface EventRegistry {
   }
   'video_discovery.batch_persisted': {
     discovered: number
-    created: number
-    existing: number
     batchSize: number
     batchDurationMs: number
   }
   'video_discovery.completed': {
     discovered: number
-    created: number
-    existing: number
+    durationMs: number
+  }
+
+  // ─── Video Crawl ───────────────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch done, completed
+
+  'video_crawl.started': {
+    items: number
+  }
+  'video_crawl.video_crawled': {
+    videoId: number
+    title: string
+    durationMs: number
+  }
+  'video_crawl.error': { url: string; error: string }
+  'video_crawl.batch_done': {
+    crawled: number
+    errors: number
+    remaining: number
+    batchSize: number
+    batchSuccesses: number
+    batchErrors: number
+    batchDurationMs: number
+  }
+  'video_crawl.completed': {
+    crawled: number
+    errors: number
     durationMs: number
   }
 
@@ -755,6 +780,33 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'success',
     level: 'info',
     labels: ['discovery'],
+  },
+
+  // Video crawl
+  'video_crawl.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['video-crawl'],
+  },
+  'video_crawl.video_crawled': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-crawl'],
+  },
+  'video_crawl.error': {
+    type: 'error',
+    level: 'error',
+    labels: ['video-crawl'],
+  },
+  'video_crawl.batch_done': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-crawl'],
+  },
+  'video_crawl.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['video-crawl'],
   },
 
   // Stage lifecycle (shared by video-processing & product-aggregation)

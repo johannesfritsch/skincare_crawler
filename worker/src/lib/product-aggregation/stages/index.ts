@@ -47,6 +47,8 @@ export interface StageConfig {
   jobId: number
   language: string
   imageSourcePriority: string[]
+  /** Grounding DINO box confidence threshold (0-1). Detections below this are discarded. Default: 0.3. */
+  detectionThreshold: number
   /** Minimum detection box area as a fraction (0-1) of the source image area. Default: 0.05 (5%). */
   minBoxArea: number
 }

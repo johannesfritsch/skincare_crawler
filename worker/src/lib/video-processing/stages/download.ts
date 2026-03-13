@@ -48,7 +48,7 @@ export async function executeDownload(ctx: StageContext, videoId: number): Promi
       collection: 'videos',
       id: videoId,
       data: {
-        image: videoMediaId,
+        videoFile: videoMediaId,
         duration,
       },
     })

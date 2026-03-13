@@ -1,6 +1,6 @@
 # Video Processing — Stage Pipeline
 
-7-stage pipeline that processes YouTube videos into structured product mentions with sentiment scores. Each stage is a self-contained module that reads from the DB (prior stage's persisted output), does its work, and persists results immediately. Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to the last completed stage name.
+6-stage pipeline that processes YouTube videos into structured product mentions with sentiment scores. Each stage is a self-contained module that reads from the DB (prior stage's persisted output), does its work, and persists results immediately. Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to the last completed stage name.
 
 ## Architecture
 
@@ -8,13 +8,13 @@
 
 Central orchestration file. Exports:
 
-- **`StageName`** — union of all 7 stage names
+- **`StageName`** — union of all 6 stage names
 - **`VideoProgress`** — `Record<string, StageName | null>` progress map type
 - **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25)
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, tokens?: { recognition?, transcriptCorrection?, sentiment?, total? } }`
-- **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the VideoProcessings collection (e.g. `stageDownload`)
-- **`STAGES`** — ordered array of all 7 stage definitions
+- **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the VideoProcessings collection (e.g. `stageSceneDetection`)
+- **`STAGES`** — ordered array of all 6 stage definitions
 - **`getNextStage(lastCompleted, enabledStages)`** — finds the next enabled stage after `lastCompleted`
 - **`getEnabledStages(job)`** — reads checkbox fields from the job document, returns `Set<StageName>`
 - **`videoNeedsWork(lastCompleted, enabledStages)`** — true if the video has more stages to run
@@ -30,7 +30,7 @@ Progress keys are video ID strings (e.g. `"42"`). The progress map is persisted 
 
 ### Stage Selection
 
-Each stage has a checkbox field on the job (all default `true`). `getEnabledStages()` checks `job.stageDownload !== false`, etc. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
+Each stage has a checkbox field on the job (all default `true`). `getEnabledStages()` checks `job.stageSceneDetection !== false`, etc. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
 
 ### External Dependencies
 
@@ -38,45 +38,21 @@ All stages use CLI tools and external APIs — not bundled Node.js libraries:
 
 | Tool | Used by | Purpose |
 |------|---------|---------|
-| `yt-dlp` | download | Video download from YouTube |
 | `ffmpeg` | scene_detection, transcription | Scene change detection, audio extraction, screenshot extraction |
-| `ffprobe` | download, scene_detection | Video duration/metadata |
+| `ffprobe` | scene_detection | Video duration/metadata |
 | `zbarimg` | scene_detection | Barcode scanning in screenshots |
 | Grounding DINO (ONNX) | screenshot_detection | Zero-shot object detection on screenshots (shared singleton from `@/lib/models/grounding-dino`) |
 | CLIP ViT-B/32 (ONNX) | screenshot_search | Image embedding + cosine similarity search (shared singleton from `@/lib/models/clip`) |
 | Deepgram API | transcription | Speech-to-text |
 | OpenAI gpt-4.1-mini | product_recognition, transcription, sentiment_analysis | LLM classification, correction, sentiment |
 
+**Note**: Video download (`yt-dlp`) has been moved to the **video-crawl** handler — it is no longer part of the processing pipeline.
+
 ---
 
 ## Stages
 
-### Stage 0: `download` — Download Video + Upload to Media
-
-**File**: `download.ts` (~66 lines)
-**Checkbox**: `stageDownload`
-**LLM**: No
-**External**: `yt-dlp`, `ffprobe`
-**Event**: `video_processing.downloaded`
-
-Downloads the video from YouTube, uploads the MP4 to the media collection, and links it to the video record.
-
-**Flow**:
-1. Fetch video document to get `externalUrl`
-2. Create temp directory
-3. Download video via `yt-dlp` → `video.mp4`
-4. Get duration via `ffprobe`
-5. Upload MP4 to media collection via `ctx.uploadMedia()`
-6. Update video: `image` (media relationship — stores the video MP4), `duration`
-7. Clean up temp directory
-
-**Writes to**: `videos`, `media`
-
-**Note**: The `image` field on `videos` is an upload to `media` that stores the video MP4 file (not a thumbnail). The media collection handles the actual file storage (local or S3).
-
----
-
-### Stage 1: `scene_detection` — Detect Scenes, Extract Screenshots, Scan Barcodes
+### Stage 0: `scene_detection` — Detect Scenes, Extract Screenshots, Scan Barcodes
 
 **File**: `scene-detection.ts` (~266 lines)
 **Checkbox**: `stageSceneDetection`
@@ -87,7 +63,7 @@ Downloads the video from YouTube, uploads the MP4 to the media collection, and l
 Detects scene changes in the video, extracts screenshots per segment, scans for barcodes, clusters visually similar screenshots, and creates video-snippet records.
 
 **Flow**:
-1. Download video media from server to temp directory
+1. Download video media from server to temp directory (reads `videos.videoFile`)
 2. Detect scene changes via `ffmpeg` with `sceneThreshold` (default 0.4)
 3. Build segments from scene change timestamps (minimum 0.5s duration)
 4. **Delete existing snippets** + video-mentions for this video (idempotent re-run)
@@ -109,7 +85,7 @@ Detects scene changes in the video, extracts screenshots per segment, scans for 
 
 ---
 
-### Stage 2: `product_recognition` — LLM Classification + Product Matching
+### Stage 1: `product_recognition` — LLM Classification + Product Matching
 
 **File**: `product-recognition.ts` (~233 lines)
 **Checkbox**: `stageProductRecognition`
@@ -139,7 +115,7 @@ Reads existing video-snippets. For barcode snippets, looks up products by GTIN. 
 
 ---
 
-### Stage 3: `screenshot_detection` — Grounding DINO Detection on Screenshot Crops
+### Stage 2: `screenshot_detection` — Grounding DINO Detection on Screenshot Crops
 
 **File**: `screenshot-detection.ts`
 **Checkbox**: `stageScreenshotDetection`
@@ -170,7 +146,7 @@ Runs zero-shot object detection on cluster representative screenshots from visua
 
 ---
 
-### Stage 4: `screenshot_search` — CLIP Visual Similarity Search
+### Stage 3: `screenshot_search` — CLIP Visual Similarity Search
 
 **File**: `screenshot-search.ts`
 **Checkbox**: `stageScreenshotSearch`
@@ -181,7 +157,7 @@ Runs zero-shot object detection on cluster representative screenshots from visua
 
 Computes transient CLIP embeddings for detection crops and searches against stored product recognition image embeddings to match products.
 
-**Scope**: All snippets with detections from Stage 3.
+**Scope**: All snippets with detections from Stage 2.
 
 **Flow**:
 1. Fetch all snippets with detections
@@ -197,7 +173,7 @@ Computes transient CLIP embeddings for detection crops and searches against stor
 
 ---
 
-### Stage 5: `transcription` — Deepgram STT + LLM Correction + Per-Snippet Splitting
+### Stage 4: `transcription` — Deepgram STT + LLM Correction + Per-Snippet Splitting
 
 **File**: `transcription.ts` (~163 lines)
 **Checkbox**: `stageTranscription`
@@ -208,7 +184,7 @@ Computes transient CLIP embeddings for detection crops and searches against stor
 Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/product names via LLM, and splits the transcript per snippet.
 
 **Flow**:
-1. Download video media to temp directory
+1. Download video media to temp directory (reads `videos.videoFile`)
 2. Extract audio via `ffmpeg` → WAV
 3. Collect product/brand names from snippets' `referencedProducts` for keyword boosting
 4. Transcribe via `transcribeAudio(audioPath, { language, model, keywords })` using Deepgram
@@ -223,7 +199,7 @@ Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/pr
 
 ---
 
-### Stage 6: `sentiment_analysis` — LLM Quote Extraction + Sentiment Scoring
+### Stage 5: `sentiment_analysis` — LLM Quote Extraction + Sentiment Scoring
 
 **File**: `sentiment-analysis.ts` (~137 lines)
 **Checkbox**: `stageSentimentAnalysis`
@@ -251,7 +227,7 @@ Reads snippets with referenced products and transcript data, runs LLM sentiment 
 ## Shared Patterns
 
 - **Shared ML model singletons**: `screenshot_detection` and `screenshot_search` use shared model singletons from `@/lib/models/` (Grounding DINO and CLIP respectively). These are the same singletons used by the product aggregation pipeline's `object_detection` and `embed_images` stages — models are loaded once and shared across both pipelines.
-- **Temp directories**: Stages that need local files (download, scene_detection, product_recognition, screenshot_detection, screenshot_search, transcription) create temp dirs via `fs.mkdtempSync()` with `try/finally` cleanup via `fs.rmSync()`
+- **Temp directories**: Stages that need local files (scene_detection, product_recognition, screenshot_detection, screenshot_search, transcription) create temp dirs via `fs.mkdtempSync()` with `try/finally` cleanup via `fs.rmSync()`
 - **Media URL resolution**: Stages that read from media construct full URLs via `payload.serverUrl` + relative path (or use the URL directly if already absolute)
 - **Heartbeat**: all stages call `ctx.heartbeat()` after heavy operations (downloads, per-segment loops, LLM calls) to keep the job claim alive
 - **Token tracking**: LLM stages return categorized token counts in `StageResult.tokens`; the dispatcher accumulates these
@@ -261,10 +237,9 @@ Reads snippets with referenced products and transcript data, runs LLM sentiment 
 ## Data Flow Between Stages
 
 ```
-download
-  └─ videos.image (media MP4)
-       │
-scene_detection (reads videos.image)
+[video-crawl handler sets videos.videoFile + videos.thumbnail + status='crawled']
+       |
+scene_detection (reads videos.videoFile)
   └─ video-snippets (timestamps, screenshots, barcodes/hashes/clusters)
        │
 product_recognition (reads video-snippets)
@@ -276,7 +251,7 @@ screenshot_detection (reads video-snippets, visual snippets only)
 screenshot_search (reads video-snippets.detections)
   └─ video-snippets.detections (match info) + video-snippets.referencedProducts (merged)
        │
-transcription (reads videos.image + video-snippets.referencedProducts for keywords)
+transcription (reads videos.videoFile + video-snippets.referencedProducts for keywords)
   └─ videos.transcript + videos.transcriptWords
   └─ video-snippets.preTranscript / transcript / postTranscript
        │

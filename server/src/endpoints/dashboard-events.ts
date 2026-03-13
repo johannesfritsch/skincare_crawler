@@ -67,6 +67,7 @@ export interface DashboardResponse {
     productsSearched: number
     ingredientsCrawled: number
     ingredientsDiscovered: number
+    videosCrawled: number
     videosProcessed: number
     videosDiscovered: number
     priceChanges: number
@@ -225,13 +226,14 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
               WHEN product_searches_id IS NOT NULL THEN 'product-searches'
               WHEN ingredients_discoveries_id IS NOT NULL THEN 'ingredients-discoveries'
               WHEN product_aggregations_id IS NOT NULL THEN 'product-aggregations'
+              WHEN video_crawls_id IS NOT NULL THEN 'video-crawls'
               WHEN video_discoveries_id IS NOT NULL THEN 'video-discoveries'
               WHEN video_processings_id IS NOT NULL THEN 'video-processings'
               WHEN ingredient_crawls_id IS NOT NULL THEN 'ingredient-crawls'
             END AS collection,
             coalesce(product_crawls_id, product_discoveries_id, product_searches_id,
-              ingredients_discoveries_id, product_aggregations_id, video_discoveries_id,
-              video_processings_id, ingredient_crawls_id) AS job_id
+              ingredients_discoveries_id, product_aggregations_id, video_crawls_id,
+              video_discoveries_id, video_processings_id, ingredient_crawls_id) AS job_id
           FROM events_rels
           WHERE path = 'job'
         ) r ON r.parent_id = e.id
@@ -262,13 +264,14 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
               WHEN product_searches_id IS NOT NULL THEN 'product-searches'
               WHEN ingredients_discoveries_id IS NOT NULL THEN 'ingredients-discoveries'
               WHEN product_aggregations_id IS NOT NULL THEN 'product-aggregations'
+              WHEN video_crawls_id IS NOT NULL THEN 'video-crawls'
               WHEN video_discoveries_id IS NOT NULL THEN 'video-discoveries'
               WHEN video_processings_id IS NOT NULL THEN 'video-processings'
               WHEN ingredient_crawls_id IS NOT NULL THEN 'ingredient-crawls'
             END AS collection,
             coalesce(product_crawls_id, product_discoveries_id, product_searches_id,
-              ingredients_discoveries_id, product_aggregations_id, video_discoveries_id,
-              video_processings_id, ingredient_crawls_id) AS job_id
+              ingredients_discoveries_id, product_aggregations_id, video_crawls_id,
+              video_discoveries_id, video_processings_id, ingredient_crawls_id) AS job_id
           FROM events_rels
           WHERE path = 'job'
         ) r ON r.parent_id = e.id
@@ -286,6 +289,7 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
           coalesce(sum((data->>'persisted')::int) FILTER (WHERE name = 'search.batch_persisted'), 0)::int AS "productsSearched",
           coalesce(sum((data->>'crawled')::int) FILTER (WHERE name = 'ingredient_crawl.batch_done'), 0)::int AS "ingredientsCrawled",
           coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'ingredients_discovery.batch_persisted'), 0)::int AS "ingredientsDiscovered",
+          coalesce(sum((data->>'batchSuccesses')::int) FILTER (WHERE name = 'video_crawl.batch_done'), 0)::int AS "videosCrawled",
           coalesce(sum((data->>'completed')::int) FILTER (WHERE name = 'video_processing.batch_done'), 0)::int AS "videosProcessed",
           coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'video_discovery.batch_persisted'), 0)::int AS "videosDiscovered",
           count(*) FILTER (WHERE name = 'persist.price_changed')::int AS "priceChanges",
@@ -395,6 +399,7 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
       productsSearched: Number(highlights.productsSearched ?? 0),
       ingredientsCrawled: Number(highlights.ingredientsCrawled ?? 0),
       ingredientsDiscovered: Number(highlights.ingredientsDiscovered ?? 0),
+      videosCrawled: Number(highlights.videosCrawled ?? 0),
       videosProcessed: Number(highlights.videosProcessed ?? 0),
       videosDiscovered: Number(highlights.videosDiscovered ?? 0),
       priceChanges: Number(highlights.priceChanges ?? 0),

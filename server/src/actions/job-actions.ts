@@ -14,6 +14,7 @@ const JOB_COLLECTIONS = [
   'product-discoveries',
   'product-searches',
   'product-aggregations',
+  'video-crawls',
   'video-discoveries',
   'video-processings',
   'ingredient-crawls',
@@ -145,6 +146,33 @@ export async function aggregateProduct(productId: number): Promise<JobResult> {
   return { success: true, jobId: job.id }
 }
 
+// ---------- Video → Crawl ----------
+
+export async function crawlVideo(videoId: number): Promise<JobResult> {
+  const payload = await getPayload({ config })
+
+  const video = await payload.findByID({
+    collection: 'videos',
+    id: videoId,
+    depth: 0,
+  })
+
+  if (!video.externalUrl) {
+    return { success: false, error: 'Video has no external URL' }
+  }
+
+  const job = await payload.create({
+    collection: 'video-crawls',
+    data: {
+      type: 'selected_urls',
+      urls: video.externalUrl,
+      status: 'pending',
+    },
+  })
+
+  return { success: true, jobId: job.id }
+}
+
 // ---------- Video → Process ----------
 
 export async function processVideo(videoId: number): Promise<JobResult> {
@@ -179,6 +207,51 @@ export async function discoverChannelVideos(channelId: number): Promise<JobResul
     collection: 'video-discoveries',
     data: {
       channelUrl: channel.externalUrl,
+      status: 'pending',
+    },
+  })
+
+  return { success: true, jobId: job.id }
+}
+
+// ---------- Channel → Crawl Videos ----------
+
+export async function crawlChannelVideos(channelId: number): Promise<JobResult> {
+  const payload = await getPayload({ config })
+
+  const channel = await payload.findByID({
+    collection: 'channels',
+    id: channelId,
+    depth: 0,
+  })
+
+  if (!channel.externalUrl) {
+    return { success: false, error: 'Channel has no external URL' }
+  }
+
+  // Find all discovered (uncrawled) videos for this channel
+  const videos = await payload.find({
+    collection: 'videos',
+    where: {
+      and: [
+        { channel: { equals: channelId } },
+        { status: { equals: 'discovered' } },
+      ],
+    },
+    limit: 1000,
+    depth: 0,
+  })
+
+  const urls = videos.docs.map((v) => v.externalUrl).filter(Boolean)
+  if (urls.length === 0) {
+    return { success: false, error: 'No uncrawled videos found for this channel' }
+  }
+
+  const job = await payload.create({
+    collection: 'video-crawls',
+    data: {
+      type: 'selected_urls',
+      urls: urls.join('\n'),
       status: 'pending',
     },
   })
@@ -299,6 +372,35 @@ export async function bulkProcessVideos(ids: number[]): Promise<JobResult> {
 
   const job = await payload.create({
     collection: 'video-processings',
+    data: {
+      type: 'selected_urls',
+      urls: urls.join('\n'),
+      status: 'pending',
+    },
+  })
+
+  return { success: true, jobId: job.id }
+}
+
+// ---------- Bulk: Videos → Crawl ----------
+
+export async function bulkCrawlVideos(ids: number[]): Promise<JobResult> {
+  const payload = await getPayload({ config })
+
+  const videos = await payload.find({
+    collection: 'videos',
+    where: { id: { in: ids } },
+    limit: ids.length,
+    depth: 0,
+  })
+
+  const urls = videos.docs.map((v) => v.externalUrl).filter(Boolean)
+  if (urls.length === 0) {
+    return { success: false, error: 'No video URLs found in selection' }
+  }
+
+  const job = await payload.create({
+    collection: 'video-crawls',
     data: {
       type: 'selected_urls',
       urls: urls.join('\n'),

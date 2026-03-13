@@ -86,6 +86,8 @@ export default function EventHighlightsClient() {
     metrics.push({ icon: '\uD83E\uDDEA', label: 'Ingredients Crawled', value: fmt(h.ingredientsCrawled) })
   if (h.ingredientsDiscovered > 0)
     metrics.push({ icon: '\uD83E\uDDEC', label: 'Ingredients Disc.', value: fmt(h.ingredientsDiscovered) })
+  if (h.videosCrawled > 0)
+    metrics.push({ icon: '\uD83D\uDCE5', label: 'Videos Crawled', value: fmt(h.videosCrawled) })
   if (h.videosProcessed > 0)
     metrics.push({ icon: '\uD83C\uDFAC', label: 'Videos Processed', value: fmt(h.videosProcessed) })
   if (h.videosDiscovered > 0)

@@ -53,12 +53,55 @@ export const jobClaimFields: Field[] = [
       description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
     },
   },
+]
+
+/**
+ * Max retries field for placement in a Configuration tab instead of the sidebar.
+ * Use this when a job collection has a dedicated Configuration tab.
+ */
+export const maxRetriesField: Field = {
+  name: 'maxRetries',
+  type: 'number',
+  label: 'Max Retries',
+  defaultValue: DEFAULT_MAX_RETRIES,
+  admin: {
+    description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
+  },
+}
+
+/**
+ * Batch size field for placement in a Configuration tab.
+ * Use this when a job collection has a dedicated Configuration tab.
+ */
+export const batchSizeField: Field = {
+  name: 'itemsPerTick',
+  type: 'number',
+  label: 'Batch Size',
+  defaultValue: 10,
+  min: 1,
+  admin: {
+    description: 'Items to process per batch.',
+  },
+}
+
+/**
+ * Job claim fields WITHOUT maxRetries — use when maxRetries is placed
+ * in a Configuration tab via `maxRetriesField` instead of the sidebar.
+ */
+export const jobClaimFieldsNoRetries: Field[] = jobClaimFields.filter(
+  (f) => !('name' in f && f.name === 'maxRetries'),
+)
+
+/**
+ * Failure fields for job collections. Place these inside the Output tab
+ * so failure info is visible alongside job results.
+ */
+export const jobFailureFields: Field[] = [
   {
     name: 'failedAt',
     type: 'date',
     label: 'Failed At',
     admin: {
-      position: 'sidebar',
       readOnly: true,
       date: {
         pickerAppearance: 'dayAndTime',
@@ -71,7 +114,6 @@ export const jobClaimFields: Field[] = [
     type: 'textarea',
     label: 'Failure Reason',
     admin: {
-      position: 'sidebar',
       readOnly: true,
       description: 'Why the job was marked as failed',
     },

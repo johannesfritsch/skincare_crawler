@@ -90,6 +90,7 @@ export interface Config {
     'video-snippets': VideoSnippet;
     'video-mentions': VideoMention;
     'video-discoveries': VideoDiscovery;
+    'video-crawls': VideoCrawl;
     'video-processings': VideoProcessing;
     workers: Worker;
     'payload-kv': PayloadKv;
@@ -140,6 +141,9 @@ export interface Config {
     'video-discoveries': {
       events: 'events';
     };
+    'video-crawls': {
+      events: 'events';
+    };
     'video-processings': {
       events: 'events';
     };
@@ -167,6 +171,7 @@ export interface Config {
     'video-snippets': VideoSnippetsSelect<false> | VideoSnippetsSelect<true>;
     'video-mentions': VideoMentionsSelect<false> | VideoMentionsSelect<true>;
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
+    'video-crawls': VideoCrawlsSelect<false> | VideoCrawlsSelect<true>;
     'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
     workers: WorkersSelect<false> | WorkersSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -424,14 +429,6 @@ export interface IngredientsDiscovery {
    */
   maxRetries?: number | null;
   /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
-  /**
    * Max pages per batch (default: 10).
    */
   pagesPerTick?: number | null;
@@ -477,6 +474,7 @@ export interface Worker {
     | 'product-search'
     | 'ingredients-discovery'
     | 'video-discovery'
+    | 'video-crawl'
     | 'video-processing'
     | 'product-aggregation'
     | 'ingredient-crawl'
@@ -548,6 +546,10 @@ export interface Event {
         value: number | VideoDiscovery;
       } | null)
     | ({
+        relationTo: 'video-crawls';
+        value: number | VideoCrawl;
+      } | null)
+    | ({
         relationTo: 'video-processings';
         value: number | VideoProcessing;
       } | null)
@@ -585,14 +587,6 @@ export interface ProductDiscovery {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
-  /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
   /**
    * Max pages per batch. Empty = unlimited.
    */
@@ -672,14 +666,6 @@ export interface ProductSearch {
    */
   maxRetries?: number | null;
   /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
-  /**
    * Keep browser visible (non-headless).
    */
   debug?: boolean | null;
@@ -721,14 +707,6 @@ export interface ProductCrawl {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
-  /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
   /**
    * Products to crawl per batch.
    */
@@ -812,22 +790,6 @@ export interface ProductAggregation {
    * Number of times this job has been retried after failures
    */
   retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
-  /**
-   * Products to aggregate per batch.
-   */
-  itemsPerTick?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
   type: 'all' | 'selected_gtins';
@@ -839,6 +801,14 @@ export interface ProductAggregation {
    * When enabled, automatically discovers and groups all sibling GTINs that share a source-product. For example, if you enter the GTIN for a 50ml moisturizer, the 100ml variant will also be included and both will become variants of the same unified product.
    */
   includeSisterVariants?: boolean | null;
+  /**
+   * Products to aggregate per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
   /**
    * Language for the generated product description.
    */
@@ -855,6 +825,10 @@ export interface ProductAggregation {
     | number
     | boolean
     | null;
+  /**
+   * Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.3.
+   */
+  detectionThreshold?: number | null;
   /**
    * Minimum detection box area as a percentage of the source image area. Detections smaller than this are discarded as background noise. Default: 5%.
    */
@@ -1432,6 +1406,10 @@ export interface VideoSnippet {
  */
 export interface Video {
   id: number;
+  /**
+   * Lifecycle status: discovered → crawled → processed. Managed by the worker.
+   */
+  status?: ('discovered' | 'crawled' | 'processed') | null;
   channel: number | Channel;
   externalUrl?: string | null;
   publishedAt?: string | null;
@@ -1442,7 +1420,14 @@ export interface Video {
   viewCount?: number | null;
   likeCount?: number | null;
   title: string;
-  image?: (number | null) | Media;
+  /**
+   * Video thumbnail image (set during crawl).
+   */
+  thumbnail?: (number | null) | Media;
+  /**
+   * Downloaded MP4 file (set during crawl).
+   */
+  videoFile?: (number | null) | Media;
   videoSnippets?: {
     docs?: (number | VideoSnippet)[];
     hasNextPage?: boolean;
@@ -1575,14 +1560,6 @@ export interface VideoDiscovery {
    */
   maxRetries?: number | null;
   /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
-  /**
    * Videos fetched per claim cycle. Default: 50. Empty = 50.
    */
   itemsPerTick?: number | null;
@@ -1590,18 +1567,11 @@ export interface VideoDiscovery {
    * Stop after this many videos. Empty = unlimited (all videos on channel).
    */
   maxVideos?: number | null;
+  videoUrls?: string | null;
   /**
-   * Videos found on the channel
+   * Video URLs found on the channel
    */
   discovered?: number | null;
-  /**
-   * New videos created
-   */
-  created?: number | null;
-  /**
-   * Videos already in database
-   */
-  existing?: number | null;
   /**
    * Internal state for resumable discovery (currentOffset)
    */
@@ -1616,6 +1586,72 @@ export interface VideoDiscovery {
     | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  events?: {
+    docs?: (number | Event)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-crawls".
+ */
+export interface VideoCrawl {
+  id: number;
+  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Videos to crawl per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * "All Uncrawled" finds videos with status=discovered. "From Discovery" uses URLs accumulated by a discovery job.
+   */
+  type: 'all' | 'selected_urls' | 'from_discovery';
+  /**
+   * "Only Uncrawled" skips videos already crawled. "Re-crawl All" re-downloads everything.
+   */
+  scope?: ('uncrawled_only' | 'recrawl') | null;
+  /**
+   * One YouTube video URL per line.
+   */
+  urls?: string | null;
+  /**
+   * Crawl the video URLs found by this discovery job.
+   */
+  discovery?: (number | null) | VideoDiscovery;
+  /**
+   * Total videos to crawl
+   */
+  total?: number | null;
+  /**
+   * Videos successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Videos that failed to crawl
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  crawledVideoUrls?: string | null;
   events?: {
     docs?: (number | Event)[];
     hasNextPage?: boolean;
@@ -1643,25 +1679,9 @@ export interface VideoProcessing {
    * Number of times this job has been retried after failures
    */
   retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
-  /**
-   * Videos to process per batch.
-   */
-  itemsPerTick?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  type: 'all_unprocessed' | 'single_video' | 'selected_urls';
+  type: 'all_unprocessed' | 'single_video' | 'selected_urls' | 'from_crawl';
   /**
    * The video to process
    */
@@ -1671,9 +1691,9 @@ export interface VideoProcessing {
    */
   urls?: string | null;
   /**
-   * Download video via yt-dlp and upload to media.
+   * Process the videos crawled by this crawl job.
    */
-  stageDownload?: boolean | null;
+  crawl?: (number | null) | VideoCrawl;
   /**
    * Detect scenes, extract screenshots, scan barcodes.
    */
@@ -1698,6 +1718,14 @@ export interface VideoProcessing {
    * LLM quote extraction and sentiment scoring.
    */
   stageSentimentAnalysis?: boolean | null;
+  /**
+   * Videos to process per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
   /**
    * Scene change detection threshold (0-1). Lower = more sensitive, more segments.
    */
@@ -1747,7 +1775,7 @@ export interface VideoProcessing {
    */
   tokensSentiment?: number | null;
   /**
-   * Maps video IDs to last completed stage name. Example: { "42": "download", "43": "scene_detection" }
+   * Maps video IDs to last completed stage name. Example: { "42": "scene_detection", "43": "transcription" }
    */
   videoProgress?:
     | {
@@ -1789,14 +1817,6 @@ export interface IngredientCrawl {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
-  /**
-   * When the job was marked as failed
-   */
-  failedAt?: string | null;
-  /**
-   * Why the job was marked as failed
-   */
-  failureReason?: string | null;
   /**
    * Ingredients to process per batch.
    */
@@ -1948,6 +1968,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'video-discoveries';
         value: number | VideoDiscovery;
+      } | null)
+    | ({
+        relationTo: 'video-crawls';
+        value: number | VideoCrawl;
       } | null)
     | ({
         relationTo: 'video-processings';
@@ -2151,8 +2175,6 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
   pagesPerTick?: T;
   discovered?: T;
   created?: T;
@@ -2178,8 +2200,6 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
   itemsPerTick?: T;
   type?: T;
   ingredientIds?: T;
@@ -2380,8 +2400,6 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
   itemsPerTick?: T;
   delay?: T;
   debug?: T;
@@ -2408,8 +2426,6 @@ export interface ProductSearchesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
   debug?: T;
   productUrls?: T;
   discovered?: T;
@@ -2429,8 +2445,6 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
   itemsPerTick?: T;
   crawlVariants?: T;
   debug?: T;
@@ -2461,17 +2475,16 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
-  maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
-  itemsPerTick?: T;
   startedAt?: T;
   completedAt?: T;
   type?: T;
   gtins?: T;
   includeSisterVariants?: T;
+  itemsPerTick?: T;
+  maxRetries?: T;
   language?: T;
   imageSourcePriority?: T;
+  detectionThreshold?: T;
   minBoxArea?: T;
   stageResolve?: T;
   stageClassify?: T;
@@ -2544,6 +2557,7 @@ export interface ChannelsSelect<T extends boolean = true> {
  * via the `definition` "videos_select".
  */
 export interface VideosSelect<T extends boolean = true> {
+  status?: T;
   channel?: T;
   externalUrl?: T;
   publishedAt?: T;
@@ -2551,7 +2565,8 @@ export interface VideosSelect<T extends boolean = true> {
   viewCount?: T;
   likeCount?: T;
   title?: T;
-  image?: T;
+  thumbnail?: T;
+  videoFile?: T;
   videoSnippets?: T;
   transcript?: T;
   transcriptWords?: T;
@@ -2637,16 +2652,38 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
   itemsPerTick?: T;
   maxVideos?: T;
+  videoUrls?: T;
   discovered?: T;
-  created?: T;
-  existing?: T;
   progress?: T;
   startedAt?: T;
   completedAt?: T;
+  events?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-crawls_select".
+ */
+export interface VideoCrawlsSelect<T extends boolean = true> {
+  status?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  retryCount?: T;
+  itemsPerTick?: T;
+  maxRetries?: T;
+  type?: T;
+  scope?: T;
+  urls?: T;
+  discovery?: T;
+  total?: T;
+  crawled?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
+  crawledVideoUrls?: T;
   events?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2660,22 +2697,20 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
-  maxRetries?: T;
-  failedAt?: T;
-  failureReason?: T;
-  itemsPerTick?: T;
   startedAt?: T;
   completedAt?: T;
   type?: T;
   video?: T;
   urls?: T;
-  stageDownload?: T;
+  crawl?: T;
   stageSceneDetection?: T;
   stageProductRecognition?: T;
   stageScreenshotDetection?: T;
   stageScreenshotSearch?: T;
   stageTranscription?: T;
   stageSentimentAnalysis?: T;
+  itemsPerTick?: T;
+  maxRetries?: T;
   sceneThreshold?: T;
   clusterThreshold?: T;
   minBoxArea?: T;
