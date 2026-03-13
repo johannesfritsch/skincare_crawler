@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
 
 export const VideoProcessings: CollectionConfig = {
@@ -14,7 +15,19 @@ export const VideoProcessings: CollectionConfig = {
     group: 'Videos',
   },
   hooks: {
-    beforeChange: [enforceJobClaim],
+    beforeChange: [
+      enforceJobClaim,
+      createResetJobOnPending({
+        total: null,
+        completed: 0,
+        errors: 0,
+        tokensUsed: 0,
+        tokensRecognition: 0,
+        tokensTranscriptCorrection: 0,
+        tokensSentiment: 0,
+        videoProgress: null,
+      }),
+    ],
   },
   fields: [
     {

@@ -194,4 +194,28 @@ export class PayloadRestClient {
   async me(): Promise<{ user: Record<string, unknown> | null }> {
     return this.request('GET', '/workers/me') as Promise<{ user: Record<string, unknown> | null }>
   }
+
+  // ─── Embeddings API ───
+
+  /** The embeddings sub-client for vector operations */
+  readonly embeddings = {
+    /** Write embedding vectors for items in a namespace */
+    write: async (namespace: string, items: Array<{ id: string; embedding: number[] }>): Promise<{ written: number }> => {
+      return this.request('POST', `/embeddings/${namespace}/write`, { items }) as Promise<{ written: number }>
+    },
+
+    /** Search for nearest neighbors by cosine similarity */
+    search: async (
+      namespace: string,
+      vector: number[],
+      options?: { limit?: number; threshold?: number },
+    ): Promise<{ results: Array<Record<string, unknown>> }> => {
+      const parts = [`vector=${encodeURIComponent(JSON.stringify(vector))}`]
+      if (options?.limit) parts.push(`limit=${options.limit}`)
+      if (options?.threshold !== undefined) parts.push(`threshold=${options.threshold}`)
+      return this.request('GET', `/embeddings/${namespace}/search?${parts.join('&')}`) as Promise<{
+        results: Array<Record<string, unknown>>
+      }>
+    },
+  }
 }

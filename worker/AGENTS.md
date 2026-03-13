@@ -76,8 +76,9 @@ worker/src/
     │       ├── ingredients.ts        # Stage 3: parseIngredients() + matchIngredients() per variant
     │       ├── images.ts             # Stage 4: Download + upload best image per variant
     │       ├── object-detection.ts   # Stage 5: Grounding DINO detection + crop per variant
-    │       ├── descriptions.ts       # Stage 6: consensusDescription() + deduplicateLabels() per variant
-    │       └── score-history.ts      # Stage 7: Compute store + creator scores
+    │       ├── embed-images.ts       # Stage 6: CLIP ViT-B/32 embedding vectors for recognition image crops
+    │       ├── descriptions.ts       # Stage 7: consensusDescription() + deduplicateLabels() per variant
+    │       └── score-history.ts      # Stage 8: Compute store + creator scores
     │
     ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
     ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
@@ -329,7 +330,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 4. Each stage runs independently, persists its own data outputs inline.
 5. `submitProductAggregation()` updates the progress map entry for each product group (`progress[progressKey] = stageName`) after successful stage execution, stores the product ID for quick lookup (`progress[pid:${progressKey}] = productId`), and uses the progress map for remaining work checks.
 
-**8 stages** (in order):
+**9 stages** (in order):
 
 | # | Stage name | Checkbox field | What it does | LLM? |
 |---|------------|---------------|--------------|------|
@@ -339,12 +340,13 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
 | 4 | `images` | `stageImages` | Per variant: download best image, upload to media | No |
 | 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection of "cosmetics packaging" + sharp crop + upload crops as `recognitionImages` on product-variants | No (ML) |
-| 6 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
-| 7 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
+| 6 | `embed_images` | `stageEmbedImages` | Per variant: CLIP ViT-B/32 embedding vectors for recognition image crops → pgvector via embeddings API | No (ML) |
+| 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
+| 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
 
 **Progress tracking**: Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys (sorted GTIN list joined by commas) to their last completed stage name. After resolve, the product ID is stored under `pid:<progressKey>` for quick lookup. `stages/index.ts` exports: `AggregationProgress` type, `stageIndex()`, `getFinalStage()`, `getAggregationProgress()`, `getNextStage(lastCompleted)`, `productNeedsWork(lastCompleted)`. `StageDefinition` has `index: number`.
 
-**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageResolve`, `stageClassify`, `stageMatchBrand`, `stageIngredients`, `stageImages`, `stageObjectDetection`, `stageDescriptions`, `stageScoreHistory`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageResolve`, `stageClassify`, `stageMatchBrand`, `stageIngredients`, `stageImages`, `stageObjectDetection`, `stageEmbedImages`, `stageDescriptions`, `stageScoreHistory`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
 
 **Sister variant grouping** (`includeSisterVariants` field on job, default: true):
 - When enabled, the claim phase discovers all sibling GTINs that share a source-product. For example, if GTIN-A (50ml) and GTIN-B (100ml) both have source-variants under the same source-product, they are grouped into one work item and become variants of the same unified product.
@@ -653,7 +655,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)
-- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local Grounding DINO inference (`onnx-community/grounding-dino-tiny-ONNX`). Model is lazy-loaded once per worker process on first object detection call (~700MB download cached in `.cache/huggingface`). `sharp` (already installed for video processing) handles image cropping.
+- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB) for zero-shot object detection in product images. (2) CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`, ~350MB) for computing 512-dim embedding vectors of detection crops — stored in pgvector for visual similarity search. Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
 
 ## Per-Driver Documentation
 

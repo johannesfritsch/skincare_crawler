@@ -451,6 +451,11 @@ export interface EventRegistry {
     detections: number
     scores: string
   }
+  'aggregation.images_embedded': {
+    gtin: string
+    embedded: number
+    skipped: number
+  }
   'aggregation.batch_done': {
     aggregated: number
     errors: number
@@ -898,6 +903,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['aggregation', 'object-detection'],
+  },
+  'aggregation.images_embedded': {
+    type: 'info',
+    level: 'info',
+    labels: ['aggregation', 'embedding'],
   },
   'aggregation.batch_done': {
     type: 'info',

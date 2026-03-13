@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
 import { DEFAULT_IMAGE_SOURCE_PRIORITY } from './shared/store-fields'
 
@@ -15,7 +16,18 @@ export const ProductAggregations: CollectionConfig = {
     group: 'Products',
   },
   hooks: {
-    beforeChange: [enforceJobClaim],
+    beforeChange: [
+      enforceJobClaim,
+      createResetJobOnPending({
+        total: null,
+        aggregated: 0,
+        errors: 0,
+        tokensUsed: 0,
+        aggregationProgress: null,
+        products: [],
+        lastCheckedSourceId: 0,
+      }),
+    ],
   },
   fields: [
     {
@@ -201,6 +213,16 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description: 'Grounding DINO detection of cosmetics packaging + crop per variant.',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'stageEmbedImages',
+                  type: 'checkbox',
+                  label: 'Embed Images',
+                  defaultValue: true,
+                  admin: {
+                    description: 'CLIP embedding vectors for recognition image crops (for visual similarity search).',
                     width: '25%',
                   },
                 },

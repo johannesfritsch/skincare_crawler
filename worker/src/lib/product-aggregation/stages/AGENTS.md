@@ -1,6 +1,6 @@
 # Product Aggregation — Stage Pipeline
 
-8-stage pipeline that transforms crawled source data into unified products. Each stage is a self-contained module that reads from the DB, does its work, and persists results immediately. Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys to the last completed stage name.
+9-stage pipeline that transforms crawled source data into unified products. Each stage is a self-contained module that reads from the DB, does its work, and persists results immediately. Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys to the last completed stage name.
 
 ## Architecture
 
@@ -8,7 +8,7 @@
 
 Central orchestration file. Exports:
 
-- **`StageName`** — union of all 8 stage names
+- **`StageName`** — union of all 9 stage names
 - **`AggregationProgress`** — `Record<string, StageName | null>` progress map type
 - **`StageConfig`** — job-level config: `jobId`, `language`, `imageSourcePriority`
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
@@ -171,7 +171,34 @@ Per variant: takes the uploaded product image (from stage 4), runs Grounding DIN
 
 ---
 
-### Stage 6: `descriptions` — LLM Consensus Description + Label Dedup
+### Stage 6: `embed_images` — CLIP Embedding Vectors
+
+**File**: `embed-images.ts` (~170 lines)
+**Checkbox**: `stageEmbedImages`
+**LLM**: No (ML inference via ONNX)
+**Event**: `aggregation.images_embedded`
+
+Per variant: takes the recognition image crops (from stage 5 object detection), computes CLIP ViT-B/32 embedding vectors (512-dim), and writes them to pgvector via the server's generic embeddings API.
+
+**Model**: `Xenova/clip-vit-base-patch32` (ONNX version of OpenAI's CLIP ViT-B/32). Lazy-loaded singleton — first call downloads ~350MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only. Same pattern as the Grounding DINO singleton.
+
+**Flow** (per variant):
+1. Find the `product-variant` by GTIN
+2. Get `recognitionImages` array — filter to items where `hasEmbedding` is false
+3. For each pending recognition image:
+   a. Resolve the media URL
+   b. Run CLIP feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
+   c. Extract the 512-dim embedding vector
+4. Batch write embeddings via `POST /api/embeddings/recognition-images/write`
+5. Update product-variant `recognitionImages` array with `hasEmbedding: true` for processed items
+
+**Writes to**: `product_variants_recognition_images.embedding` (raw pgvector column via embeddings API), `product-variants` (hasEmbedding flag via Payload REST)
+
+**Note**: The `embedding vector(512)` column is NOT managed by Payload — it was added via a manual migration. Only the `hasEmbedding` boolean is a Payload field. The embeddings API (`/api/embeddings/:namespace/write`) handles writing both the vector and the flag in a single transaction.
+
+---
+
+### Stage 7: `descriptions` — LLM Consensus Description + Label Dedup
 
 **File**: `descriptions.ts` (~93 lines)
 **Checkbox**: `stageDescriptions`
@@ -191,7 +218,7 @@ Per variant: synthesizes a single description from multiple source descriptions,
 
 ---
 
-### Stage 7: `score_history` — Compute Store + Creator Scores
+### Stage 8: `score_history` — Compute Store + Creator Scores
 
 **File**: `score-history.ts` (~103 lines)
 **Checkbox**: `stageScoreHistory`
@@ -215,7 +242,7 @@ Computes store scores (from retailer ratings) and creator scores (from video men
 ## Shared Patterns
 
 - **Every stage except resolve** checks `productId` at entry and returns `{ success: false }` if null
-- **Per-variant stages** (ingredients, images, object_detection, descriptions) look up `product-variant` by GTIN, skip if not found
+- **Per-variant stages** (ingredients, images, object_detection, embed_images, descriptions) look up `product-variant` by GTIN, skip if not found
 - **Heartbeat**: long-running per-variant loops call `ctx.heartbeat()` after each variant to keep the job claim alive
 - **Token tracking**: LLM stages return `tokensUsed` in `StageResult`; the dispatcher accumulates these
 - **Events**: each stage emits typed events via `jlog.event()` for visibility in the admin dashboard

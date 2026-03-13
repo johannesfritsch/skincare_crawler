@@ -880,6 +880,10 @@ export interface ProductAggregation {
    */
   stageObjectDetection?: boolean | null;
   /**
+   * CLIP embedding vectors for recognition image crops (for visual similarity search).
+   */
+  stageEmbedImages?: boolean | null;
+  /**
    * LLM consensus description + deduplicated labels per variant.
    */
   stageDescriptions?: boolean | null;
@@ -1028,6 +1032,10 @@ export interface ProductVariant {
         boxYMin?: number | null;
         boxXMax?: number | null;
         boxYMax?: number | null;
+        /**
+         * Whether a CLIP embedding vector has been computed for this crop.
+         */
+        hasEmbedding?: boolean | null;
         id?: string | null;
       }[]
     | null;
@@ -2184,6 +2192,7 @@ export interface ProductVariantsSelect<T extends boolean = true> {
         boxYMin?: T;
         boxXMax?: T;
         boxYMax?: T;
+        hasEmbedding?: T;
         id?: T;
       };
   amount?: T;
@@ -2416,6 +2425,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   stageIngredients?: T;
   stageImages?: T;
   stageObjectDetection?: T;
+  stageEmbedImages?: T;
   stageDescriptions?: T;
   stageScoreHistory?: T;
   total?: T;

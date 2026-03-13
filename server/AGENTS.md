@@ -75,6 +75,7 @@ src/
 │   └── barcode-detector.d.ts    # BarcodeDetector Web API types
 ├── hooks/
 │   ├── enforceJobClaim.ts       # beforeChange hook: distributed job locking via claimedBy/claimedAt
+│   ├── resetJobOnPending.ts     # beforeChange hook factory: resets progress/counters when status → pending
 │   └── jobClaimFields.ts        # Shared claimedBy + claimedAt field definitions for job collections
 ├── access/                      # Access control functions
 └── payload.config.ts            # Main config
@@ -1933,6 +1934,46 @@ Both queries #5 (line 213) and #6 (line 250) have identical CASE WHEN subqueries
 | `ingredient_crawls_id` | `ingredient-crawls` |
 
 When adding a new job collection, add a new WHEN clause to **both** CASE blocks and add the new FK column to **both** `coalesce(...)` expressions.
+
+## Embeddings API (pgvector)
+
+Generic API for storing and searching embedding vectors in pgvector columns. The API uses a **namespace** abstraction — each namespace maps to a specific database table and vector column configuration. Adding new embedding targets only requires a new namespace entry + a migration.
+
+### File
+
+`src/endpoints/embeddings.ts` — namespace registry + handlers
+
+### Namespace Registry
+
+```typescript
+const NAMESPACES: Record<string, EmbeddingNamespace> = {
+  'recognition-images': {
+    table: 'product_variants_recognition_images',
+    embeddingColumn: 'embedding',        // vector(512) — manual migration, NOT managed by Payload
+    flagColumn: 'has_embedding',         // boolean — managed by Payload (on ProductVariants.recognitionImages)
+    dimensions: 512,                     // CLIP ViT-B/32
+    idColumn: 'id',
+    returnColumns: ['_parent_id', 'score'],
+    join: { table: 'product_variants', on: ['_parent_id', 'id'], columns: ['gtin'] },
+  },
+}
+```
+
+To add a new embedding target: add a namespace entry + create a migration that adds `embedding vector(N)` and an HNSW index to the target table. The `flagColumn` (boolean) should be a Payload-managed field so it's visible in the admin UI.
+
+### Endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/api/embeddings/:namespace/write` | `req.user` required | Batch write embedding vectors. Body: `{ items: Array<{ id, embedding: number[] }> }`. Validates dimensions match namespace config. Sets both `embedding` and `flagColumn` in a single UPDATE per item. |
+| `GET` | `/api/embeddings/:namespace/search` | `req.user` required | Cosine similarity search. Query params: `vector` (JSON array), `limit` (default 10, max 100), `threshold` (max cosine distance, optional). Returns `{ results: Array<{ id, distance, ...returnColumns, ...joinColumns }> }`. Uses pgvector `<=>` operator (cosine distance). |
+
+### Key Details
+
+- **Vector columns are NOT managed by Payload** — they are added via manual migrations (`ALTER TABLE ... ADD COLUMN embedding vector(N)`). Payload ignores them; the embeddings endpoint handles all reads/writes via raw SQL.
+- **Flag columns ARE managed by Payload** — the `hasEmbedding` boolean on `recognitionImages` is a normal Payload checkbox field, visible in the admin UI (read-only). The `write` endpoint sets this flag alongside the vector in the same SQL UPDATE.
+- **HNSW index** on the vector column for fast approximate nearest neighbor search. Created in the migration.
+- **pgvector extension** is enabled via `extensions: ['vector']` on the postgresAdapter in `payload.config.ts`.
 
 ## Keeping This File Up to Date
 

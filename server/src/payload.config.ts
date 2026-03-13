@@ -35,6 +35,7 @@ import { Workers } from './collections/Workers'
 
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
+import { embeddingsWriteHandler, embeddingsSearchHandler } from './endpoints/embeddings'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -225,6 +226,16 @@ export default buildConfig({
       path: '/dashboard/snapshot',
       method: 'get',
       handler: dashboardSnapshotHandler,
+    },
+    {
+      path: '/embeddings/:namespace/write',
+      method: 'post',
+      handler: embeddingsWriteHandler,
+    },
+    {
+      path: '/embeddings/:namespace/search',
+      method: 'get',
+      handler: embeddingsSearchHandler,
     },
   ],
   editor: lexicalEditor(),

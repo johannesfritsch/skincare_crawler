@@ -135,6 +135,16 @@ export const ProductVariants: CollectionConfig = {
                     },
                   ],
                 },
+                {
+                  name: 'hasEmbedding',
+                  type: 'checkbox',
+                  label: 'Has Embedding',
+                  defaultValue: false,
+                  admin: {
+                    readOnly: true,
+                    description: 'Whether a CLIP embedding vector has been computed for this crop.',
+                  },
+                },
               ],
             },
             {
