@@ -79,7 +79,7 @@ export const VideoSnippets: CollectionConfig = {
             {
               name: 'image',
               type: 'upload',
-              relationTo: 'media',
+              relationTo: 'video-media',
               label: 'Image',
             },
           ],
@@ -149,7 +149,7 @@ export const VideoSnippets: CollectionConfig = {
                 {
                   name: 'image',
                   type: 'upload',
-                  relationTo: 'media',
+                  relationTo: 'detection-media',
                   label: 'Detection Crop',
                   required: true,
                 },
@@ -252,14 +252,14 @@ export const VideoSnippets: CollectionConfig = {
                 {
                   name: 'image',
                   type: 'upload',
-                  relationTo: 'media',
+                  relationTo: 'video-media',
                   label: 'Image',
                   required: true,
                 },
                 {
                   name: 'thumbnail',
                   type: 'upload',
-                  relationTo: 'media',
+                  relationTo: 'video-media',
                   label: 'Thumbnail',
                   admin: {
                     description: '64x64 grayscale thumbnail used for image hashing',
@@ -315,7 +315,7 @@ export const VideoSnippets: CollectionConfig = {
                 {
                   name: 'recognitionThumbnail',
                   type: 'upload',
-                  relationTo: 'media',
+                  relationTo: 'video-media',
                   label: 'Recognition Thumbnail',
                   admin: {
                     description: '128x128 color thumbnail used for product classification',

@@ -7,7 +7,10 @@ import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
 import { Users } from './collections/Users'
-import { Media } from './collections/Media'
+import { ProductMedia } from './collections/ProductMedia'
+import { VideoMedia } from './collections/VideoMedia'
+import { ProfileMedia } from './collections/ProfileMedia'
+import { DetectionMedia } from './collections/DetectionMedia'
 import { Brands } from './collections/Brands'
 import { ProductTypes } from './collections/ProductTypes'
 import { Ingredients } from './collections/Ingredients'
@@ -50,7 +53,12 @@ const plugins: Plugin[] = []
 if (process.env.STORAGE_ADAPTER === 's3') {
   plugins.push(
     s3Storage({
-      collections: { media: true },
+      collections: {
+        'product-media': true,
+        'video-media': true,
+        'profile-media': true,
+        'detection-media': true,
+      },
       bucket: process.env.S3_BUCKET || '',
       config: {
         credentials: {
@@ -193,7 +201,10 @@ export default buildConfig({
   },
   collections: [
     Users,
-    Media,
+    ProductMedia,
+    VideoMedia,
+    ProfileMedia,
+    DetectionMedia,
     Brands,
     ProductTypes,
     Ingredients,

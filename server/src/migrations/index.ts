@@ -5,6 +5,7 @@ import * as migration_20260313_085035 from './20260313_085035';
 import * as migration_20260313_091615 from './20260313_091615';
 import * as migration_20260313_110500_video_crawl_pipeline from './20260313_110500_video_crawl_pipeline';
 import * as migration_20260313_170000_add_detection_threshold from './20260313_170000_add_detection_threshold';
+import * as migration_20260313_180000_split_media_collections from './20260313_180000_split_media_collections';
 
 export const migrations = [
   {
@@ -41,5 +42,10 @@ export const migrations = [
     up: migration_20260313_170000_add_detection_threshold.up,
     down: migration_20260313_170000_add_detection_threshold.down,
     name: '20260313_170000_add_detection_threshold',
+  },
+  {
+    up: migration_20260313_180000_split_media_collections.up,
+    down: migration_20260313_180000_split_media_collections.down,
+    name: '20260313_180000_split_media_collections',
   },
 ];

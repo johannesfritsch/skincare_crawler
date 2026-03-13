@@ -74,7 +74,7 @@ export const ProductVariants: CollectionConfig = {
                 {
                   name: 'image',
                   type: 'upload',
-                  relationTo: 'media',
+                  relationTo: 'product-media',
                   label: 'Image',
                   required: true,
                 },
@@ -91,7 +91,7 @@ export const ProductVariants: CollectionConfig = {
                 {
                   name: 'image',
                   type: 'upload',
-                  relationTo: 'media',
+                  relationTo: 'detection-media',
                   label: 'Cropped Image',
                   required: true,
                 },

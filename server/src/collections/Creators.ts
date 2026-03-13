@@ -33,7 +33,7 @@ export const Creators: CollectionConfig = {
     {
       name: 'image',
       type: 'upload',
-      relationTo: 'media',
+      relationTo: 'profile-media',
       label: 'Image',
     },
     {

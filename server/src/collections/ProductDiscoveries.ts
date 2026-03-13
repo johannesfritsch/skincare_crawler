@@ -11,7 +11,7 @@ export const ProductDiscoveries: CollectionConfig = {
   admin: {
     useAsTitle: 'sourceUrls',
     defaultColumns: ['sourceUrls', 'status', 'discovered', 'startedAt'],
-    group: 'Discovery & Search',
+    group: 'Source Products',
   },
   hooks: {
     beforeChange: [enforceJobClaim],
@@ -24,7 +24,8 @@ export const ProductDiscoveries: CollectionConfig = {
       label: 'Source URLs',
       required: true,
       admin: {
-        description: 'Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.',
+        description:
+          'Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.',
       },
     },
     {

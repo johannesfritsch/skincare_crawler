@@ -129,16 +129,16 @@ Per variant: parses raw INCI text into individual ingredient names, then matches
 **LLM**: No
 **Event**: `aggregation.image_uploaded`
 
-Per variant: selects the best image from source data (by store priority order), downloads it, uploads to the media collection, and sets it on the product-variant.
+Per variant: selects the best image from source data (by store priority order), downloads it, uploads to the product-media collection, and sets it on the product-variant.
 
 **Flow** (per variant):
 1. Aggregate source variant data — `aggregateSourceVariantsToVariant()` selects `selectedImageUrl` based on `imageSourcePriority` config (e.g. `['dm', 'rossmann', 'mueller', 'purish']`)
 2. Find the `product-variant` by GTIN
 3. Download the image via `fetch()`
-4. Upload to `media` collection via `payload.create()` with multipart file data
+4. Upload to `product-media` collection via `payload.create()` with multipart file data
 5. Update product-variant: `images: [{ image: mediaId }]`
 
-**Writes to**: `product-variants`, `media`
+**Writes to**: `product-variants`, `product-media`
 
 ---
 
@@ -149,7 +149,7 @@ Per variant: selects the best image from source data (by store priority order), 
 **LLM**: No (ML inference via ONNX)
 **Event**: `aggregation.objects_detected`
 
-Per variant: takes the uploaded product image (from stage 4), runs Grounding DINO zero-shot object detection with the prompt `"cosmetics packaging."`, crops each detected region using sharp, uploads the crops as media, and stores them in `recognitionImages`.
+Per variant: takes the uploaded product image (from stage 4), runs Grounding DINO zero-shot object detection with the prompt `"cosmetics packaging."`, crops each detected region using sharp, uploads the crops to detection-media, and stores them in `recognitionImages`.
 
 **Model**: `onnx-community/grounding-dino-tiny-ONNX` via `@huggingface/transformers` pipeline API. Lazy-loaded singleton — first call downloads ~700MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only.
 
@@ -157,15 +157,15 @@ Per variant: takes the uploaded product image (from stage 4), runs Grounding DIN
 
 **Flow** (per variant):
 1. Find the `product-variant` by GTIN
-2. Get `images[0].image` — resolve to media ID and URL
+2. Get `images[0].image` — resolve to product-media ID and URL
 3. Download the image buffer via `fetch()`
 4. Get image dimensions via `sharp(buffer).metadata()`
 5. Run detection: `detector(imageUrl, ["cosmetics packaging."], { threshold: 0.3 })`
-6. For each detection: clamp box coordinates to image bounds, crop via `sharp().extract().png().toBuffer()`, upload crop to `media`
+6. For each detection: clamp box coordinates to image bounds, crop via `sharp().extract().png().toBuffer()`, upload crop to `detection-media`
 7. Update product-variant: `recognitionImages` array of `{ image, score, boxXMin, boxYMin, boxXMax, boxYMax }`
 8. If no detections found, clear `recognitionImages: []`
 
-**Writes to**: `product-variants`, `media`
+**Writes to**: `product-variants`, `detection-media`
 
 **Note**: Field names use `boxXMin`/`boxYMin`/`boxXMax`/`boxYMax` (not `xmin`/`xmax`) because PostgreSQL reserves `xmin`/`xmax` as system column names.
 
@@ -186,7 +186,7 @@ Per variant: takes the recognition image crops (from stage 5 object detection), 
 1. Find the `product-variant` by GTIN
 2. Get `recognitionImages` array — filter to items where `hasEmbedding` is false
 3. For each pending recognition image:
-   a. Resolve the media URL
+   a. Resolve the detection-media URL
    b. Run CLIP feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
    c. Extract the 512-dim embedding vector
 4. Batch write embeddings via `POST /api/embeddings/recognition-images/write`

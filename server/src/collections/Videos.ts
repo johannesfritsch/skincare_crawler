@@ -139,7 +139,7 @@ export const Videos: CollectionConfig = {
             {
               name: 'thumbnail',
               type: 'upload',
-              relationTo: 'media',
+              relationTo: 'video-media',
               label: 'Thumbnail',
               admin: {
                 description: 'Video thumbnail image (set during crawl).',
@@ -148,7 +148,7 @@ export const Videos: CollectionConfig = {
             {
               name: 'videoFile',
               type: 'upload',
-              relationTo: 'media',
+              relationTo: 'video-media',
               label: 'Video File',
               admin: {
                 description: 'Downloaded MP4 file (set during crawl).',

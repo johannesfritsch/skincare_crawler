@@ -93,14 +93,14 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
         productId: t.video_mentions.product,
         productName: t.products.name,
         productGtin: sql<string | null>`(SELECT min(pv.gtin) FROM ${t.product_variants} pv WHERE pv.product_id = ${t.products.id})`,
-        productImageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
+        productImageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_thumbnail_url, ${t.product_media}.url)`,
         brandName: t.brands.name,
         overallSentiment: t.video_mentions.overallSentiment,
       })
       .from(t.video_mentions)
       .leftJoin(t.products, eq(t.video_mentions.product, t.products.id))
       .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-      .leftJoin(t.media, eq(t.products_images.image, t.media.id))
+      .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
       .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
       .where(inArray(t.video_mentions.videoSnippet, snippetIds))
   }

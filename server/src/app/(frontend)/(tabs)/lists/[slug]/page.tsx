@@ -41,7 +41,7 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
       avgRating: sql<number>`round(avg(${t.source_products.rating})::numeric, 1)`,
       totalReviews: sql<number>`sum(${t.source_products.ratingNum})::int`,
       creatorScore: creatorScoreSub,
-      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
+      imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_thumbnail_url, ${t.product_media}.url)`,
     })
     .from(t.products)
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
@@ -49,9 +49,9 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
     .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-    .leftJoin(t.media, eq(t.products_images.image, t.media.id))
+    .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .where(sql`${t.products.productType} = ${productType.id}`)
-    .groupBy(t.products.id, t.products.name, t.brands.name, sql`${t.media}.sizes_thumbnail_url`, t.media.url)
+    .groupBy(t.products.id, t.products.name, t.brands.name, sql`${t.product_media}.sizes_thumbnail_url`, t.product_media.url)
     .orderBy(desc(sql`avg(${t.source_products.rating})`))
     .limit(50)
 

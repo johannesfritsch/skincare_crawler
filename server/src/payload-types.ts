@@ -69,7 +69,10 @@ export interface Config {
   blocks: {};
   collections: {
     users: User;
-    media: Media;
+    'product-media': ProductMedia;
+    'video-media': VideoMedia;
+    'profile-media': ProfileMedia;
+    'detection-media': DetectionMedia;
     brands: Brand;
     'product-types': ProductType;
     ingredients: Ingredient;
@@ -150,7 +153,10 @@ export interface Config {
   };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
-    media: MediaSelect<false> | MediaSelect<true>;
+    'product-media': ProductMediaSelect<false> | ProductMediaSelect<true>;
+    'video-media': VideoMediaSelect<false> | VideoMediaSelect<true>;
+    'profile-media': ProfileMediaSelect<false> | ProfileMediaSelect<true>;
+    'detection-media': DetectionMediaSelect<false> | DetectionMediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
     'product-types': ProductTypesSelect<false> | ProductTypesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
@@ -259,10 +265,12 @@ export interface User {
   password?: string | null;
 }
 /**
+ * Product variant images (main photos from retailers)
+ *
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "media".
+ * via the `definition` "product-media".
  */
-export interface Media {
+export interface ProductMedia {
   id: number;
   alt: string;
   updatedAt: string;
@@ -304,6 +312,121 @@ export interface Media {
   };
 }
 /**
+ * Video files (MP4), thumbnails, and screenshots
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-media".
+ */
+export interface VideoMedia {
+  id: number;
+  alt: string;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    detail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
+ * Channel avatars, creator images, and ingredient images
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "profile-media".
+ */
+export interface ProfileMedia {
+  id: number;
+  alt: string;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    avatar?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
+ * Grounding DINO detection crops (product and video)
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "detection-media".
+ */
+export interface DetectionMedia {
+  id: number;
+  alt: string;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "brands".
  */
@@ -336,7 +459,7 @@ export interface Ingredient {
   /**
    * Molecular structure or visual reference for this ingredient
    */
-  image?: (number | null) | Media;
+  image?: (number | null) | ProfileMedia;
   status?: ('crawled' | 'uncrawled') | null;
   /**
    * LLM-generated concise but entertaining summary of the ingredient
@@ -992,7 +1115,7 @@ export interface ProductVariant {
    */
   images?:
     | {
-        image: number | Media;
+        image: number | ProductMedia;
         id?: string | null;
       }[]
     | null;
@@ -1001,7 +1124,7 @@ export interface ProductVariant {
    */
   recognitionImages?:
     | {
-        image: number | Media;
+        image: number | DetectionMedia;
         /**
          * Object detection confidence (0-1)
          */
@@ -1307,7 +1430,7 @@ export interface VideoSnippet {
    */
   timestampEnd?: number | null;
   video: number | Video;
-  image?: (number | null) | Media;
+  image?: (number | null) | VideoMedia;
   referencedProducts?: (number | Product)[] | null;
   videoMentions?: {
     docs?: (number | VideoMention)[];
@@ -1331,7 +1454,7 @@ export interface VideoSnippet {
    */
   detections?:
     | {
-        image: number | Media;
+        image: number | DetectionMedia;
         /**
          * Grounding DINO detection confidence (0-1)
          */
@@ -1365,11 +1488,11 @@ export interface VideoSnippet {
     | null;
   screenshots?:
     | {
-        image: number | Media;
+        image: number | VideoMedia;
         /**
          * 64x64 grayscale thumbnail used for image hashing
          */
-        thumbnail?: (number | null) | Media;
+        thumbnail?: (number | null) | VideoMedia;
         /**
          * Perceptual hash of the thumbnail
          */
@@ -1393,7 +1516,7 @@ export interface VideoSnippet {
         /**
          * 128x128 color thumbnail used for product classification
          */
-        recognitionThumbnail?: (number | null) | Media;
+        recognitionThumbnail?: (number | null) | VideoMedia;
         id?: string | null;
       }[]
     | null;
@@ -1423,11 +1546,11 @@ export interface Video {
   /**
    * Video thumbnail image (set during crawl).
    */
-  thumbnail?: (number | null) | Media;
+  thumbnail?: (number | null) | VideoMedia;
   /**
    * Downloaded MP4 file (set during crawl).
    */
-  videoFile?: (number | null) | Media;
+  videoFile?: (number | null) | VideoMedia;
   videoSnippets?: {
     docs?: (number | VideoSnippet)[];
     hasNextPage?: boolean;
@@ -1459,7 +1582,7 @@ export interface Video {
 export interface Channel {
   id: number;
   creator: number | Creator;
-  image?: (number | null) | Media;
+  image?: (number | null) | ProfileMedia;
   platform: 'youtube' | 'instagram' | 'tiktok';
   externalUrl?: string | null;
   /**
@@ -1481,7 +1604,7 @@ export interface Channel {
 export interface Creator {
   id: number;
   name: string;
-  image?: (number | null) | Media;
+  image?: (number | null) | ProfileMedia;
   channels?: {
     docs?: (number | Channel)[];
     hasNextPage?: boolean;
@@ -1614,14 +1737,6 @@ export interface VideoCrawl {
    */
   retryCount?: number | null;
   /**
-   * Videos to crawl per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  /**
    * "All Uncrawled" finds videos with status=discovered. "From Discovery" uses URLs accumulated by a discovery job.
    */
   type: 'all' | 'selected_urls' | 'from_discovery';
@@ -1637,6 +1752,14 @@ export interface VideoCrawl {
    * Crawl the video URLs found by this discovery job.
    */
   discovery?: (number | null) | VideoDiscovery;
+  /**
+   * Videos to crawl per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
   /**
    * Total videos to crawl
    */
@@ -1886,8 +2009,20 @@ export interface PayloadLockedDocument {
         value: number | User;
       } | null)
     | ({
-        relationTo: 'media';
-        value: number | Media;
+        relationTo: 'product-media';
+        value: number | ProductMedia;
+      } | null)
+    | ({
+        relationTo: 'video-media';
+        value: number | VideoMedia;
+      } | null)
+    | ({
+        relationTo: 'profile-media';
+        value: number | ProfileMedia;
+      } | null)
+    | ({
+        relationTo: 'detection-media';
+        value: number | DetectionMedia;
       } | null)
     | ({
         relationTo: 'brands';
@@ -2057,9 +2192,9 @@ export interface UsersSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "media_select".
+ * via the `definition` "product-media_select".
  */
-export interface MediaSelect<T extends boolean = true> {
+export interface ProductMediaSelect<T extends boolean = true> {
   alt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2106,6 +2241,128 @@ export interface MediaSelect<T extends boolean = true> {
               filename?: T;
             };
       };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-media_select".
+ */
+export interface VideoMediaSelect<T extends boolean = true> {
+  alt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+  sizes?:
+    | T
+    | {
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        detail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "profile-media_select".
+ */
+export interface ProfileMediaSelect<T extends boolean = true> {
+  alt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+  sizes?:
+    | T
+    | {
+        avatar?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "detection-media_select".
+ */
+export interface DetectionMediaSelect<T extends boolean = true> {
+  alt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -2672,12 +2929,12 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
-  itemsPerTick?: T;
-  maxRetries?: T;
   type?: T;
   scope?: T;
   urls?: T;
   discovery?: T;
+  itemsPerTick?: T;
+  maxRetries?: T;
   total?: T;
   crawled?: T;
   errors?: T;

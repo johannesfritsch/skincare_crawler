@@ -124,7 +124,12 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
         (SELECT count(*)::int FROM videos) AS videos,
         (SELECT count(*)::int FROM creators) AS creators,
         (SELECT count(*)::int FROM channels) AS channels,
-        (SELECT count(*)::int FROM media) AS "mediaFiles"
+        (
+          (SELECT count(*) FROM product_media) +
+          (SELECT count(*) FROM video_media) +
+          (SELECT count(*) FROM profile_media) +
+          (SELECT count(*) FROM detection_media)
+        )::int AS "mediaFiles"
     `),
 
     // 2. Product data quality

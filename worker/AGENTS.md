@@ -287,7 +287,7 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 ### 6. video-crawl
 
 **Handler**: `handleVideoCrawl()` (~180 lines in `worker.ts`)
-**Flow**: For each work item (video URL) → get metadata via `yt-dlp --dump-json` → resolve/create channel + creator → download MP4 + thumbnail → upload to media → create/update video record with `status: 'crawled'`
+**Flow**: For each work item (video URL) → get metadata via `yt-dlp --dump-json` → resolve/create channel + creator → download MP4 + thumbnail → upload to video-media/profile-media → create/update video record with `status: 'crawled'`
 
 **Crawl types**:
 - `all` — all videos with `status: 'discovered'`
@@ -299,8 +299,8 @@ Each batch fetches `itemsPerTick` (default 10) uncrawled items.
 **What it does**:
 1. Fetches video metadata via `yt-dlp --dump-json` (title, duration, view count, like count, channel info, thumbnail URL)
 2. Resolves or creates the channel (by canonical URL) and creator
-3. Downloads the video MP4 via `yt-dlp` and uploads to media collection
-4. Downloads the thumbnail image and uploads to media collection
+3. Downloads the video MP4 via `yt-dlp` and uploads to video-media collection
+4. Downloads the thumbnail image and uploads to video-media collection
 5. Creates or updates the video record with `videoFile`, `thumbnail`, `status: 'crawled'`, and all metadata
 6. Emits `video_crawl.video_crawled` event per video
 
@@ -323,9 +323,9 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 
 | # | Stage name | What it does | Data outputs |
 |---|------------|--------------|-------------|
-| 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
+| 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads to video-media, scans barcodes | `video-snippets` (timestamps, screenshots as video-media, barcodes) |
 | 1 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
-| 2 | `screenshot_detection` | Per snippet: Grounding DINO detection on cluster representative screenshots, crop + upload to media, store in `detections` array. Filters by `minBoxArea` (default 25% of screenshot area — foreground only). | `video-snippets.detections` (crops as media, bounding boxes) |
+| 2 | `screenshot_detection` | Per snippet: Grounding DINO detection on cluster representative screenshots, crop + upload to detection-media, store in `detections` array. Filters by `minBoxArea` (default 25% of screenshot area — foreground only). | `video-snippets.detections` (crops as detection-media, bounding boxes) |
 | 3 | `screenshot_search` | Per snippet: CLIP ViT-B/32 transient embeddings for detection crops → cosine search vs product embeddings → match products | `video-snippets.detections` (match info), `video-snippets.referencedProducts` |
 | 4 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
 | 5 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
@@ -344,7 +344,7 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 
 **Counters**: `completed` and `errors` counters on the job's progress field are incremented per stage execution.
 
-**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-snippets, video-mentions, media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches, calls `matchProduct()` to find/create product records.
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-snippets, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches, calls `matchProduct()` to find/create product records.
 
 ### 8. product-aggregation
 
@@ -367,8 +367,8 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 1 | `classify` | `stageClassify` | `classifyProduct()` + `cleanProductName()` → productType, attributes, claims, warnings, pH, usage | Yes |
 | 2 | `match_brand` | `stageMatchBrand` | `matchBrand()` → link brand to product | Yes |
 | 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
-| 4 | `images` | `stageImages` | Per variant: download best image, upload to media | No |
-| 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection of "cosmetics packaging" + sharp crop + upload crops as `recognitionImages` on product-variants. Filters by `minBoxArea` (default 5% of image area). | No (ML) |
+| 4 | `images` | `stageImages` | Per variant: download best image, upload to product-media | No |
+| 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection of "cosmetics packaging" + sharp crop + upload crops to detection-media as `recognitionImages` on product-variants. Filters by `minBoxArea` (default 5% of image area). | No (ML) |
 | 6 | `embed_images` | `stageEmbedImages` | Per variant: CLIP ViT-B/32 embedding vectors for recognition image crops → pgvector via embeddings API | No (ML) |
 | 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
 | 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
@@ -383,7 +383,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 - When disabled, each GTIN is treated as its own product group (backward-compatible behavior).
 - Works for both `selected_gtins` and `all` aggregation types.
 
-**Persistence**: Each stage file persists its own data outputs inline (creates/updates products, product-variants, media uploads, ingredients, scores) — the old monolithic `persistProductAggregationResult()` in `persist.ts` still exists for backward compatibility but is deprecated.
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates products, product-variants, product-media/detection-media uploads, ingredients, scores) — the old monolithic `persistProductAggregationResult()` in `persist.ts` still exists for backward compatibility but is deprecated.
 
 **Aggregation types**: `all` (cursor-based via `lastCheckedSourceId`), `selected_gtins`
 
@@ -668,7 +668,7 @@ All events below are emitted to the server's `events` collection (visible in adm
   `claimWork()` PATCHes `claimedBy` + `claimedAt` to claim a job. A server-side `enforceJobClaim` hook rejects the PATCH if the job is already claimed by a different worker with a fresh `claimedAt`. Workers pass `X-Job-Timeout-Minutes` header so the server knows the timeout (default 30m). When a batch finishes but the job is not done, `submitWork()` releases the claim (`claimedBy: null, claimedAt: null`), making it immediately available for any worker. Workers are fully stateless — all progress lives on the server.
 - **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and refresh `claimedAt` on the job (keeping the claim alive during long batches)
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
-- **Media uploads**: Worker uploads files to `/api/media` via multipart `FormData` with API key auth
+- **Media uploads**: Worker uploads files to `/api/{collection}` (product-media, video-media, profile-media, detection-media) via multipart `FormData` with API key auth. The `uploadMedia()` helper accepts a `collection` parameter (default: `'video-media'`). Stage files use `payload.create({ collection: '...' })` directly for the correct media collection.
 - **URL normalization**: Two normalization functions exist in `source-product-queries.ts`:
   - `normalizeProductUrl()` — strips all query parameters, trailing slashes, hash fragments, and lowercases. Used for base product URLs on source-products (applied in source drivers, persist.ts, claim.ts).
   - `normalizeVariantUrl()` — strips hash fragments and trailing slashes but preserves ALL query parameters. Drivers are the source of truth for which query params to include when constructing variant URLs (Mueller: `?itemId=`, PURISH: `?variant=`, DM/Rossmann: path-based, no params). Applied to all variant URLs from all drivers in persist.ts.

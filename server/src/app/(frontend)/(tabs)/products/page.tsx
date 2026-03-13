@@ -41,7 +41,7 @@ export default async function ProductsPage({ searchParams }: Props) {
       productTypeName: t.product_types.name,
       avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
       creatorScore: creatorScoreSub,
-      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`,
+      imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_card_url, ${t.product_media}.url)`,
     })
     .from(t.products)
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
@@ -50,14 +50,14 @@ export default async function ProductsPage({ searchParams }: Props) {
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-    .leftJoin(t.media, eq(t.products_images.image, t.media.id))
+    .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .groupBy(
       t.products.id,
       t.products.name,
       t.brands.name,
       t.product_types.name,
-      sql`${t.media}.sizes_card_url`,
-      t.media.url,
+      sql`${t.product_media}.sizes_card_url`,
+      t.product_media.url,
     )
     .orderBy(desc(t.products.createdAt))
     .limit(60)

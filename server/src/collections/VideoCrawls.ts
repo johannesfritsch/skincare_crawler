@@ -47,34 +47,8 @@ export const VideoCrawls: CollectionConfig = {
       type: 'tabs',
       tabs: [
         {
-          label: 'Configuration',
+          label: 'Source',
           fields: [
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'itemsPerTick',
-                  type: 'number',
-                  label: 'Batch Size',
-                  defaultValue: 5,
-                  min: 1,
-                  admin: {
-                    width: '50%',
-                    description: 'Videos to crawl per batch.',
-                  },
-                },
-                {
-                  name: 'maxRetries',
-                  type: 'number',
-                  label: 'Max Retries',
-                  defaultValue: DEFAULT_MAX_RETRIES,
-                  admin: {
-                    width: '50%',
-                    description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
-                  },
-                },
-              ],
-            },
             {
               name: 'type',
               type: 'select',
@@ -127,6 +101,37 @@ export const VideoCrawls: CollectionConfig = {
                   'Crawl the video URLs found by this discovery job.',
                 condition: (data) => data?.type === 'from_discovery',
               },
+            },
+          ],
+        },
+        {
+          label: 'Configuration',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'itemsPerTick',
+                  type: 'number',
+                  label: 'Batch Size',
+                  defaultValue: 5,
+                  min: 1,
+                  admin: {
+                    width: '50%',
+                    description: 'Videos to crawl per batch.',
+                  },
+                },
+                {
+                  name: 'maxRetries',
+                  type: 'number',
+                  label: 'Max Retries',
+                  defaultValue: DEFAULT_MAX_RETRIES,
+                  admin: {
+                    width: '50%',
+                    description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
+                  },
+                },
+              ],
             },
           ],
         },

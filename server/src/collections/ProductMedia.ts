@@ -1,9 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const Media: CollectionConfig = {
-  slug: 'media',
+export const ProductMedia: CollectionConfig = {
+  slug: 'product-media',
   admin: {
-    group: 'System',
+    group: 'Media',
+    description: 'Product variant images (main photos from retailers)',
   },
   access: {
     read: () => true,

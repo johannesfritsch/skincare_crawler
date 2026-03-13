@@ -120,7 +120,7 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
 
         for (const [group, rep] of repsByGroup.entries()) {
           if (rep.recogThumbnailMediaId) {
-            const mediaDoc = await payload.findByID({ collection: 'media', id: rep.recogThumbnailMediaId }) as Record<string, unknown>
+            const mediaDoc = await payload.findByID({ collection: 'video-media', id: rep.recogThumbnailMediaId }) as Record<string, unknown>
             const mediaUrl = mediaDoc.url as string
             if (mediaUrl) {
               const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
@@ -159,7 +159,7 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
           // Download screenshots for recognition
           const downloadedPaths: string[] = []
           for (const mid of screenshotMediaIds.slice(0, 4)) {
-            const mediaDoc = await payload.findByID({ collection: 'media', id: mid }) as Record<string, unknown>
+             const mediaDoc = await payload.findByID({ collection: 'video-media', id: mid }) as Record<string, unknown>
             const mediaUrl = mediaDoc.url as string
             if (mediaUrl) {
               const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`

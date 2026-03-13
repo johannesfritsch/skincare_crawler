@@ -99,14 +99,14 @@ OPENAI_API_KEY=sk-...            # for LLM tasks
 DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 ```
 
-## Database Schema (25 Collections)
+## Database Schema (28 Collections)
 
 ### Core Data
 
 | Collection | Purpose |
 |------------|---------|
 | `products` | Unified product records (name, brand, productType, image, ingredients, attributes, claims, warnings, skinApplicability, phMin/phMax, usageInstructions, usageSchedule, scoreHistory with change: drop/stable/increase). No longer has `gtin` — GTINs live on `product-variants`. Has a `variants` join to product-variants collection. |
-| `product-variants` | Per-variant records for unified products. Each has: `product` (required relationship → products, indexed), `gtin` (unique, indexed), `label`, `image` (upload → media), `sourceVariants` (hasMany relationship → source-variants), `recognitionImages` (array of {image: upload → media, score: number, boxXMin/boxYMin/boxXMax/boxYMax: number, hasEmbedding: boolean} — Grounding DINO detection crops with optional CLIP embedding vectors stored in pgvector). Aggregation pipeline creates these when creating/updating products. Frontend routes via `/products/[gtin]` look up product-variants first. Frontend list queries use `min(gtin)` + `GROUP BY product.id` to deduplicate (one row per product). |
+| `product-variants` | Per-variant records for unified products. Each has: `product` (required relationship → products, indexed), `gtin` (unique, indexed), `label`, `images` (array of {image: upload → product-media}), `sourceVariants` (hasMany relationship → source-variants), `recognitionImages` (array of {image: upload → detection-media, score: number, boxXMin/boxYMin/boxXMax/boxYMax: number, hasEmbedding: boolean} — Grounding DINO detection crops with optional CLIP embedding vectors stored in pgvector). Aggregation pipeline creates these when creating/updating products. Frontend routes via `/products/[gtin]` look up product-variants first. Frontend list queries use `min(gtin)` + `GROUP BY product.id` to deduplicate (one row per product). |
 | `source-products` | Product-level data per retailer (source: dm/mueller/rossmann/purish, sourceUrl: unique product page URL — the dedup key, name, brandName, categoryBreadcrumb text, rating, ratingNum). No `status` field — "crawled" is determined by having at least one source-variant. No longer has `gtin`, `priceHistory`, `description`, `images`, `ingredientsText`, `amount`, `amountUnit`, or `labels` — these all live on `source-variants`. Has a `sourceVariants` join to source-variants collection. Source-products are only created during crawl (persist finds-or-creates by normalized URL). Discovery/search only accumulate URLs — they do not create source-product records. |
 | `source-variants` | Per-variant records for retailer products. Each has: `sourceProduct` (required relationship → source-products, indexed), `sourceUrl` (unique, indexed), `gtin` (indexed), `variantLabel`, `variantDimension`, `sourceArticleNumber` (store-specific article number/SKU — DM DAN, Mueller code, PURISH Shopify SKU, Rossmann DAN), `description` (textarea), `images` (array of {url, alt}), `ingredientsText` (raw INCI text), `amount`/`amountUnit` (e.g. 100/ml), `labels` (array of {label} — retailer tags like "Neu", "Limitiert", "dm-Marke"), `priceHistory` (array of timestamped price entries with amount in cents, currency, per-unit pricing, availability: available/unavailable/unknown, and change: drop/stable/increase — availability is tracked per price entry giving full availability history), `crawledAt` (date, tracks when this specific variant was last crawled). No top-level `availability` field — availability is always the most recent priceHistory entry's availability value. Created only during product crawl (not during discovery/search). For DM/Rossmann, the crawled product URL itself becomes a variant. For Mueller, only `?itemId=` URLs are variants (the base URL lives on source-products.sourceUrl, not as a variant). For PURISH, only `?variant=ID` URLs are variants. |
 | `brands` | Brand names |
@@ -117,11 +117,11 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 | Collection | Purpose |
 |------------|---------|
-| `videos` | YouTube/social videos with lifecycle status (status: discovered/crawled/processed, title, thumbnail (upload → media, video thumbnail image), videoFile (upload → media, downloaded MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoSnippets (join)). Status is managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
-| `video-snippets` | Video segments (timestamps, matchingType: barcode/visual, screenshots, referencedProducts, preTranscript/transcript/postTranscript, detections array — Grounding DINO detection crops with bounding boxes and CLIP match results) |
+| `videos` | YouTube/social videos with lifecycle status (status: discovered/crawled/processed, title, thumbnail (upload → video-media, video thumbnail image), videoFile (upload → video-media, downloaded MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoSnippets (join)). Status is managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
+| `video-snippets` | Video segments (timestamps, image (upload → video-media), matchingType: barcode/visual, screenshots (array with image/thumbnail/recognitionThumbnail uploads → video-media), referencedProducts, preTranscript/transcript/postTranscript, detections array (image upload → detection-media, Grounding DINO detection crops with bounding boxes and CLIP match results)) |
 | `video-mentions` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
 | `creators` | Social media creators |
-| `channels` | Creator channels (platform: youtube/instagram/tiktok, image, canonicalUrl for dedup) |
+| `channels` | Creator channels (platform: youtube/instagram/tiktok, image (upload → profile-media), canonicalUrl for dedup) |
 
 ### Job Collections
 
@@ -148,7 +148,10 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `users` | Admin users (Payload auth) |
 | `workers` | Worker processes (API key auth, capabilities list, lastSeenAt) |
 | `events` | Structured audit log (type, name (typed event name e.g. `crawl.started`), level, component, message, data JSON for structured metadata, job polymorphic relation, labels) |
-| `media` | File uploads |
+| `product-media` | Product variant images (thumbnail 96x96, card 320x240, detail 780x780) |
+| `video-media` | Video files (MP4), thumbnails, screenshots (thumbnail 96x96, card 320x240, detail 780x780) |
+| `profile-media` | Channel avatars, creator images, ingredient images (avatar 128x128, thumbnail 96x96, card 320x240) |
+| `detection-media` | Grounding DINO detection crops — product and video (no image sizes, raw crops only) |
 
 ## End-to-End Data Flow
 
@@ -159,7 +162,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 4. Worker calls submitWork() → persist functions create/update DB records
 5. Worker loops back, claims next batch until job completes
 6. Product aggregation runs as 9 independent stages (resolve → classify → match_brand → ingredients → images → object_detection → embed_images → descriptions → score_history), each persisting immediately. Progress is tracked per-product-group on the job's `aggregationProgress` JSON map (not on the product). Job selects which stages to run via checkboxes. Resolve creates/finds products and product-variants, merging duplicates if needed. Subsequent stages run LLM operations (classification, brand matching, ingredient parsing), data operations (image download, score computation), and ML operations (Grounding DINO object detection on product images, CLIP embedding generation for visual similarity search).
-7. Video crawl downloads video metadata via yt-dlp, resolves/creates channel+creator records, downloads MP4 + thumbnail, uploads to media, and sets video status to `crawled`.
+7. Video crawl downloads video metadata via yt-dlp, resolves/creates channel+creator records, downloads MP4 + thumbnail, uploads to video-media/profile-media, and sets video status to `crawled`.
 8. Video processing runs as 6 independent stages (scene detection → product recognition → screenshot detection → screenshot search → transcription → sentiment analysis), each persisting immediately. Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes. The download stage has been moved to the video crawl step.
 ```
 

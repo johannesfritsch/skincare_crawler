@@ -1626,7 +1626,7 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 // Drizzle property names are camelCase: t.source_products.ratingNum → actual DB column: rating_num
 // Payload array fields → separate tables: products_ingredients, products_product_claims
 // hasMany relationships → {collection}_rels join table (e.g. products_rels)
-// product_variants has: product (FK → products), gtin (unique), label, image (FK → media)
+// product_variants has: product (FK → products), gtin (unique), label, images (→ product_variants_images sub-table with image FK → product_media)
 // source_variants has: sourceProduct (FK → source_products), sourceUrl (unique), gtin, variantLabel, variantDimension
 // GTINs live on product_variants (unified) and source_variants (per-retailer), NOT on products or source_products
 //
@@ -1637,10 +1637,12 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 // Use leftJoin instead of innerJoin when products without source data should still appear.
 // When listing products (one row per product), use min(gtin) in select + GROUP BY product.id to deduplicate.
 
-// Image sizes (from Media collection upload config) are flattened DB columns:
+// Image sizes are flattened DB columns on each media table:
 // sizes_thumbnail_url, sizes_card_url, sizes_detail_url — access via sql template:
-//   sql`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`
-// Join: .leftJoin(t.media, eq(t.products.image, t.media.id))
+//   sql`coalesce(${t.product_media}.sizes_card_url, ${t.product_media}.url)`
+// Join product images: .leftJoin(t.product_variants_images, ...).leftJoin(t.product_media, eq(t.product_variants_images.image, t.product_media.id))
+// Join video thumbnails: .leftJoin(t.video_media, eq(t.videos.thumbnail, t.video_media.id))
+// Join channel avatars: .leftJoin(t.profile_media, eq(t.channels.image, t.profile_media.id))
 
 // Raw SQL example (use snake_case column names, NOT camelCase):
 // db.execute(sql`SELECT source_product_id, rating_num FROM source_products WHERE rating_num > 0`)
@@ -1649,13 +1651,33 @@ const t = payload.db.tables  // e.g. t.products, t.brands, t.source_products, t.
 
 ### Media Image Sizes
 
-The `media` collection defines three image variants generated on upload via sharp:
+Four specialized media collections replace the old single `media` collection:
+
+**`product-media`** — Product variant images:
 
 | Size | Dimensions | Fit | Used For |
 |------|-----------|-----|----------|
 | `thumbnail` | 96x96 | inside (no enlarge) | List items (search, ranked lists) |
 | `card` | 320x240 | inside (no enlarge) | ProductCard carousels (160px CSS @ 2x) |
 | `detail` | 780x780 | inside (no enlarge) | Product detail page hero image |
+
+**`video-media`** — Video files (MP4), thumbnails, screenshots:
+
+| Size | Dimensions | Fit | Used For |
+|------|-----------|-----|----------|
+| `thumbnail` | 96x96 | inside (no enlarge) | Video list thumbnails |
+| `card` | 320x240 | inside (no enlarge) | Video cards |
+| `detail` | 780x780 | inside (no enlarge) | Video detail page |
+
+**`profile-media`** — Channel avatars, creator images, ingredient images:
+
+| Size | Dimensions | Fit | Used For |
+|------|-----------|-----|----------|
+| `avatar` | 128x128 | inside (no enlarge) | Channel/creator avatars |
+| `thumbnail` | 96x96 | inside (no enlarge) | List items |
+| `card` | 320x240 | inside (no enlarge) | Cards |
+
+**`detection-media`** — Grounding DINO detection crops (no image sizes, raw crops only).
 
 All sizes use `fit: 'inside'` to preserve the full image (no cropping). Frontend uses `object-contain` + inner padding on containers so the image is fully visible with breathing room. All pages use `coalesce(sized_url, original_url)` so the original image is used as fallback when no sized variant exists (e.g. non-image media or pre-existing uploads).
 

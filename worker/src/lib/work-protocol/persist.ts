@@ -705,7 +705,7 @@ export async function persistVideoDiscoveryResult(
         // Derive a stable filename from the channel URL
         const channelSlug = channelUrl.replace(/[^a-zA-Z0-9@_-]/g, '_').slice(-60)
         const media = await payload.create({
-          collection: 'media',
+          collection: 'profile-media',
           data: { alt: videos[0]?.channelName ?? 'Channel avatar' },
           file: {
             data: buffer,
@@ -801,7 +801,7 @@ export async function persistVideoDiscoveryResult(
           const contentType = res.headers.get('content-type') || 'image/jpeg'
           const ext = contentType.includes('png') ? 'png' : 'jpg'
           const media = await payload.create({
-            collection: 'media',
+            collection: 'video-media',
             data: { alt: video.title },
             file: {
               data: buffer,
@@ -1358,7 +1358,7 @@ export async function persistProductAggregationResult(
             const filename = urlPath.split('/').pop() || `variant-${variantId}.jpg`
 
             const mediaDoc = await payload.create({
-              collection: 'media',
+              collection: 'product-media',
               data: { alt: vd.selectedImageAlt || productData?.name || `Variant ${vr.gtin}` },
               file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
             })

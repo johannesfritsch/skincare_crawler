@@ -60,7 +60,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
     if (typeof imageRef === 'number') {
       mediaId = imageRef
       // Fetch the media document to get the URL
-      const mediaDoc = await payload.findByID({ collection: 'media', id: mediaId }) as Record<string, unknown>
+      const mediaDoc = await payload.findByID({ collection: 'product-media', id: mediaId }) as Record<string, unknown>
       mediaUrl = mediaDoc.url as string | undefined
     } else {
       mediaId = imageRef.id
@@ -158,7 +158,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
 
         // Upload cropped image to media
         const cropMediaDoc = await payload.create({
-          collection: 'media',
+          collection: 'detection-media',
           data: { alt: `Product detection ${i + 1} (${det.score.toFixed(2)}) — ${v.gtin}` },
           file: {
             data: croppedBuffer,

@@ -51,7 +51,7 @@ export async function executeImages(ctx: StageContext, workItem: AggregationWork
       const filename = urlPath.split('/').pop() || `variant-${variantId}.jpg`
 
       const mediaDoc = await payload.create({
-        collection: 'media',
+        collection: 'product-media',
         data: { alt: vd.selectedImageAlt || productName || `Variant ${v.gtin}` },
         file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
       })

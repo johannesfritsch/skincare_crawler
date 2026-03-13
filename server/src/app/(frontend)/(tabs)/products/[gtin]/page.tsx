@@ -55,16 +55,16 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       productTypeName: t.product_types.name,
       createdAt: t.products.createdAt,
       updatedAt: t.products.updatedAt,
-      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_detail_url, ${t.media}.url)`,
-      imageAlt: t.media.alt,
-      imageWidth: sql<number | null>`coalesce(${t.media}.sizes_detail_width, ${t.media}.width)::int`,
-      imageHeight: sql<number | null>`coalesce(${t.media}.sizes_detail_height, ${t.media}.height)::int`,
+      imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_detail_url, ${t.product_media}.url)`,
+      imageAlt: t.product_media.alt,
+      imageWidth: sql<number | null>`coalesce(${t.product_media}.sizes_detail_width, ${t.product_media}.width)::int`,
+      imageHeight: sql<number | null>`coalesce(${t.product_media}.sizes_detail_height, ${t.product_media}.height)::int`,
     })
     .from(t.products)
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-    .leftJoin(t.media, eq(t.products_images.image, t.media.id))
+    .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
     .where(eq(t.product_variants.gtin, gtin))
     .limit(1)
@@ -143,13 +143,13 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       videoDuration: t.videos.duration,
       videoThumbnailUrl: sql<string | null>`(
         SELECT coalesce(m.sizes_thumbnail_url, m.url)
-        FROM media m WHERE m.id = ${t.videos}.image_id LIMIT 1
+        FROM video_media m WHERE m.id = ${t.videos}.image_id LIMIT 1
       )`,
       channelId: t.channels.id,
       channelPlatform: t.channels.platform,
       channelImageUrl: sql<string | null>`(
         SELECT coalesce(m.sizes_thumbnail_url, m.url)
-        FROM media m WHERE m.id = ${t.channels}.image_id LIMIT 1
+        FROM profile_media m WHERE m.id = ${t.channels}.image_id LIMIT 1
       )`,
       creatorName: t.creators.name,
     }).from(t.video_mentions)
@@ -169,7 +169,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       channelExternalUrl: t.channels.externalUrl,
       channelImageUrl: sql<string | null>`(
         SELECT coalesce(m.sizes_thumbnail_url, m.url)
-        FROM media m WHERE m.id = ${t.channels}.image_id LIMIT 1
+        FROM profile_media m WHERE m.id = ${t.channels}.image_id LIMIT 1
       )`,
       mentionCount: sql<number>`count(${t.video_mentions.id})::int`,
       avgSentimentScore: sql<number | null>`round(avg(${t.video_mentions.overallSentimentScore})::numeric, 2)`,

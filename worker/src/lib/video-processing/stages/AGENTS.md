@@ -70,18 +70,18 @@ Detects scene changes in the video, extracts screenshots per segment, scans for 
 5. For each segment:
    - Extract screenshots at 1fps via `ffmpeg`
    - Scan each screenshot for barcodes via `zbarimg`
-   - **Barcode path**: If a barcode is found, upload all screenshots as media, create a `video-snippet` with `matchingType: 'barcode'` and the barcode value on the relevant screenshot entry
+   - **Barcode path**: If a barcode is found, upload all screenshots to video-media, create a `video-snippet` with `matchingType: 'barcode'` and the barcode value on the relevant screenshot entry
    - **Visual path**: If no barcode found:
      - Compute perceptual hashes via `sharp` thumbnail + hash
      - Cluster screenshots by hamming distance (threshold from `clusterThreshold` config)
      - Create recognition thumbnails for cluster representatives
-     - Upload all screenshots, thumbnails, and recognition thumbnails as media
+      - Upload all screenshots, thumbnails, and recognition thumbnails to video-media
      - Create a `video-snippet` with `matchingType: 'visual'`, screenshot entries include `hash`, `screenshotGroup`, `distance`, `recognitionCandidate`, `recognitionThumbnail`
 6. Clean up temp directory
 
-**Writes to**: `video-snippets`, `media`
+**Writes to**: `video-snippets`, `video-media`
 
-**Screenshot entry fields**: `image` (media), `thumbnail` (media, visual only), `hash` (string, visual only), `screenshotGroup` (number), `distance` (number, distance to cluster representative), `recognitionCandidate` (boolean), `recognitionThumbnail` (media, visual only), `barcode` (string, barcode path only)
+**Screenshot entry fields**: `image` (video-media), `thumbnail` (video-media, visual only), `hash` (string, visual only), `screenshotGroup` (number), `distance` (number, distance to cluster representative), `recognitionCandidate` (boolean), `recognitionThumbnail` (video-media, visual only), `barcode` (string, barcode path only)
 
 ---
 
@@ -124,7 +124,7 @@ Reads existing video-snippets. For barcode snippets, looks up products by GTIN. 
 **Event**: `video_processing.screenshots_detected`
 **Model**: Grounding DINO (shared singleton from `@/lib/models/grounding-dino`)
 
-Runs zero-shot object detection on cluster representative screenshots from visual snippets. Crops detections, uploads to media, and stores in the snippet's `detections` array.
+Runs zero-shot object detection on cluster representative screenshots from visual snippets. Crops detections, uploads to detection-media, and stores in the snippet's `detections` array.
 
 **Scope**: Only `matchingType: 'visual'` snippets, only cluster representative screenshots.
 
@@ -134,15 +134,15 @@ Runs zero-shot object detection on cluster representative screenshots from visua
 1. Fetch all snippets for the video
 2. Filter to visual snippets with cluster representatives
 3. Per snippet, per representative screenshot:
-   - Download screenshot from media
+   - Download screenshot from video-media
    - Run Grounding DINO detector (prompt: "cosmetics packaging")
    - For each detection above confidence threshold AND minimum box area:
      - Crop the detected region via `sharp`
-     - Upload crop to media collection
-     - Store in snippet's `detections` array: `{ image (media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
+      - Upload crop to detection-media collection
+      - Store in snippet's `detections` array: `{ image (detection-media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
 4. Update snippet with `detections` array
 
-**Writes to**: `video-snippets` (detections array), `media`
+**Writes to**: `video-snippets` (detections array), `detection-media`
 
 ---
 
@@ -162,7 +162,7 @@ Computes transient CLIP embeddings for detection crops and searches against stor
 **Flow**:
 1. Fetch all snippets with detections
 2. Per detection:
-   - Download detection crop from media
+   - Download detection crop from detection-media
    - Compute transient CLIP ViT-B/32 embedding (512-dim, not persisted)
    - Search `recognition-images` embedding namespace via cosine similarity
    - If match found above threshold, resolve product-variant → product
@@ -184,7 +184,7 @@ Computes transient CLIP embeddings for detection crops and searches against stor
 Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/product names via LLM, and splits the transcript per snippet.
 
 **Flow**:
-1. Download video media to temp directory (reads `videos.videoFile`)
+1. Download video from video-media to temp directory (reads `videos.videoFile`)
 2. Extract audio via `ffmpeg` → WAV
 3. Collect product/brand names from snippets' `referencedProducts` for keyword boosting
 4. Transcribe via `transcribeAudio(audioPath, { language, model, keywords })` using Deepgram
@@ -228,7 +228,7 @@ Reads snippets with referenced products and transcript data, runs LLM sentiment 
 
 - **Shared ML model singletons**: `screenshot_detection` and `screenshot_search` use shared model singletons from `@/lib/models/` (Grounding DINO and CLIP respectively). These are the same singletons used by the product aggregation pipeline's `object_detection` and `embed_images` stages — models are loaded once and shared across both pipelines.
 - **Temp directories**: Stages that need local files (scene_detection, product_recognition, screenshot_detection, screenshot_search, transcription) create temp dirs via `fs.mkdtempSync()` with `try/finally` cleanup via `fs.rmSync()`
-- **Media URL resolution**: Stages that read from media construct full URLs via `payload.serverUrl` + relative path (or use the URL directly if already absolute)
+- **Media URL resolution**: Stages that read from media collections (video-media, detection-media) construct full URLs via `payload.serverUrl` + relative path (or use the URL directly if already absolute)
 - **Heartbeat**: all stages call `ctx.heartbeat()` after heavy operations (downloads, per-segment loops, LLM calls) to keep the job claim alive
 - **Token tracking**: LLM stages return categorized token counts in `StageResult.tokens`; the dispatcher accumulates these
 - **Idempotency**: scene_detection and sentiment_analysis delete existing snippets/mentions before re-creating them, making re-runs safe
@@ -246,7 +246,7 @@ product_recognition (reads video-snippets)
   └─ video-snippets.referencedProducts (product IDs from barcode/LLM)
        │
 screenshot_detection (reads video-snippets, visual snippets only)
-  └─ video-snippets.detections (Grounding DINO crops as media, bounding boxes)
+   └─ video-snippets.detections (Grounding DINO crops as detection-media, bounding boxes)
        │
 screenshot_search (reads video-snippets.detections)
   └─ video-snippets.detections (match info) + video-snippets.referencedProducts (merged)

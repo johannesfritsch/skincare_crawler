@@ -70,7 +70,7 @@ export async function executeScreenshotDetection(ctx: StageContext, videoId: num
 
       if (typeof imageRef === 'number') {
         mediaId = imageRef
-        const mediaDoc = (await payload.findByID({ collection: 'media', id: mediaId })) as Record<string, unknown>
+        const mediaDoc = (await payload.findByID({ collection: 'video-media', id: mediaId })) as Record<string, unknown>
         mediaUrl = mediaDoc.url as string | undefined
       } else {
         mediaId = (imageRef as { id: number }).id
@@ -143,7 +143,7 @@ export async function executeScreenshotDetection(ctx: StageContext, videoId: num
 
           // Upload cropped image to media
           const cropMediaDoc = await payload.create({
-            collection: 'media',
+            collection: 'detection-media',
             data: { alt: `${title} – detection ss${ssIndex} (${det.score.toFixed(2)})` },
             file: {
               data: croppedBuffer,

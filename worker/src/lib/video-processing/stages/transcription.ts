@@ -28,7 +28,7 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
   }
 
   const mediaId = typeof imageRef === 'number' ? imageRef : (imageRef as { id: number }).id
-  const mediaDoc = await payload.findByID({ collection: 'media', id: mediaId }) as Record<string, unknown>
+  const mediaDoc = await payload.findByID({ collection: 'video-media', id: mediaId }) as Record<string, unknown>
   const mediaUrl = mediaDoc.url as string
   if (!mediaUrl) {
     return { success: false, error: 'Video media record has no URL' }

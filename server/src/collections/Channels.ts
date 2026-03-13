@@ -48,7 +48,7 @@ export const Channels: CollectionConfig = {
     {
       name: 'image',
       type: 'upload',
-      relationTo: 'media',
+      relationTo: 'profile-media',
       label: 'Image',
     },
     {

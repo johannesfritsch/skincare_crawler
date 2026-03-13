@@ -12,7 +12,7 @@ export const ProductSearches: CollectionConfig = {
   admin: {
     useAsTitle: 'query',
     defaultColumns: ['query', 'sources', 'status', 'discovered', 'startedAt'],
-    group: 'Discovery & Search',
+    group: 'Source Products',
   },
   hooks: {
     beforeChange: [enforceJobClaim],
@@ -34,7 +34,8 @@ export const ProductSearches: CollectionConfig = {
       label: 'Search Queries',
       required: true,
       admin: {
-        description: 'One query per line. Each line is searched independently across all selected stores.',
+        description:
+          'One query per line. Each line is searched independently across all selected stores.',
       },
     },
     {

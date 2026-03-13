@@ -30,7 +30,7 @@ export default async function DiscoverPage() {
     productTypeName: t.product_types.name,
     avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
     creatorScore: creatorScoreSub,
-    imageUrl: sql<string | null>`coalesce(${t.media}.sizes_card_url, ${t.media}.url)`,
+    imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_card_url, ${t.product_media}.url)`,
   }
 
   // Shared groupBy columns
@@ -39,8 +39,8 @@ export default async function DiscoverPage() {
     t.products.name,
     t.brands.name,
     t.product_types.name,
-    sql`${t.media}.sizes_card_url`,
-    t.media.url,
+    sql`${t.product_media}.sizes_card_url`,
+    t.product_media.url,
   ] as const
 
   // Top-rated products: only those with store ratings
@@ -53,7 +53,7 @@ export default async function DiscoverPage() {
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-    .leftJoin(t.media, eq(t.products_images.image, t.media.id))
+    .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .where(sql`${t.source_products.rating} > 0`)
     .groupBy(...groupCols)
     .orderBy(desc(sql`avg(${t.source_products.rating})`))
@@ -80,7 +80,7 @@ export default async function DiscoverPage() {
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-    .leftJoin(t.media, eq(t.products_images.image, t.media.id))
+    .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .where(sql`${t.products.name} IS NOT NULL`)
     .groupBy(...groupCols)
     .orderBy(desc(t.products.createdAt))

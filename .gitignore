@@ -36,7 +36,10 @@ yarn-error.log*
 next-env.d.ts
 
 # media uploads
-server/media/
+server/product-media/
+server/video-media/
+server/profile-media/
+server/detection-media/
 
 # Hugging Face model cache
 .cache/

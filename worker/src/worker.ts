@@ -86,17 +86,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function uploadMedia(filePath: string, alt: string, mimetype: string): Promise<number> {
+async function uploadMedia(filePath: string, alt: string, mimetype: string, collection: string = 'video-media'): Promise<number> {
   const buffer = fs.readFileSync(filePath)
   const sizeKB = (buffer.length / 1024).toFixed(1)
-  log.debug('Uploading media', { file: path.basename(filePath), sizeKB: Number(sizeKB), mimetype })
+  log.debug('Uploading media', { file: path.basename(filePath), sizeKB: Number(sizeKB), mimetype, collection })
 
   const blob = new Blob([buffer], { type: mimetype })
   const formData = new FormData()
   formData.append('file', blob, path.basename(filePath))
   formData.append('_payload', JSON.stringify({ alt }))
 
-  const url = `${SERVER_URL}/api/media`
+  const url = `${SERVER_URL}/api/${collection}`
   const start = Date.now()
   const res = await fetch(url, {
     method: 'POST',
@@ -110,12 +110,12 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string): Pro
 
   if (!res.ok) {
     const text = await res.text()
-    log.error('Media upload failed', { elapsedMs: elapsed, status: res.status, response: text.slice(0, 200) })
+    log.error('Media upload failed', { elapsedMs: elapsed, status: res.status, collection, response: text.slice(0, 200) })
     throw new Error(`Media upload failed (${res.status}): ${text}`)
   }
 
   const data = (await res.json()) as { doc: { id: number } }
-  log.debug('Media uploaded', { elapsedMs: elapsed, mediaId: data.doc.id })
+  log.debug('Media uploaded', { elapsedMs: elapsed, mediaId: data.doc.id, collection })
   return data.doc.id
 }
 
@@ -546,7 +546,7 @@ async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
                 const ext = contentType.includes('png') ? 'png' : 'jpg'
                 const avatarPath = path.join(tmpDir, `avatar.${ext}`)
                 fs.writeFileSync(avatarPath, buffer)
-                channelImageId = await uploadMedia(avatarPath, channelName ?? 'Channel avatar', contentType)
+                channelImageId = await uploadMedia(avatarPath, channelName ?? 'Channel avatar', contentType, 'profile-media')
               }
             } catch (e) {
               log.warn('Failed to download channel avatar', { error: String(e) })
@@ -589,7 +589,7 @@ async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
       await heartbeat(jobId, 'video-crawl')
 
       // Step 4: Upload video MP4 as media (videoFile)
-      const videoMediaId = await uploadMedia(videoPath, title, 'video/mp4')
+      const videoMediaId = await uploadMedia(videoPath, title, 'video/mp4', 'video-media')
 
       // Step 5: Download and upload thumbnail
       let thumbnailMediaId: number | undefined
@@ -602,7 +602,7 @@ async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
             const ext = contentType.includes('png') ? 'png' : 'jpg'
             const thumbPath = path.join(tmpDir, `thumbnail.${ext}`)
             fs.writeFileSync(thumbPath, buffer)
-            thumbnailMediaId = await uploadMedia(thumbPath, `${title} thumbnail`, contentType)
+            thumbnailMediaId = await uploadMedia(thumbPath, `${title} thumbnail`, contentType, 'video-media')
           }
         } catch (e) {
           log.warn('Failed to download thumbnail', { url: thumbnailUrl, error: String(e) })
@@ -1010,7 +1010,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
               const filename = urlPath.split('/').pop() || `${slug}.jpg`
 
               const mediaDoc = await client.create({
-                collection: 'media',
+                collection: 'profile-media',
                 data: { alt: item.ingredientName },
                 file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
               })

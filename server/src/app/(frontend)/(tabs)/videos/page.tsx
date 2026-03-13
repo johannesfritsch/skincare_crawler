@@ -42,14 +42,14 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
       id: t.channels.id,
       creatorName: t.creators.name,
       platform: t.channels.platform,
-      imageUrl: sql<string | null>`coalesce(${t.media}.sizes_thumbnail_url, ${t.media}.url)`,
+      imageUrl: sql<string | null>`coalesce(${t.profile_media}.sizes_thumbnail_url, ${t.profile_media}.url)`,
       videoCount: sql<number>`count(${t.videos.id})::int`,
     })
     .from(t.channels)
     .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
-    .leftJoin(t.media, eq(t.channels.image, t.media.id))
+    .leftJoin(t.profile_media, eq(t.channels.image, t.profile_media.id))
     .leftJoin(t.videos, eq(t.videos.channel, t.channels.id))
-    .groupBy(t.channels.id, t.creators.name, t.channels.platform, t.media.id)
+    .groupBy(t.channels.id, t.creators.name, t.channels.platform, t.profile_media.id)
     .having(sql`count(${t.videos.id}) > 0`)
     .orderBy(sql`count(${t.videos.id}) desc`)
 
@@ -72,7 +72,7 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
   // Channel image URL via correlated subquery to avoid double-joining media
   const channelImageSql = sql<string | null>`(
     SELECT coalesce(m.sizes_thumbnail_url, m.url)
-    FROM media m
+    FROM profile_media m
     WHERE m.id = ${t.channels.image}
     LIMIT 1
   )`
@@ -86,8 +86,8 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
       viewCount: t.videos.viewCount,
       likeCount: t.videos.likeCount,
       externalUrl: t.videos.externalUrl,
-      thumbnailUrl: t.media.url,
-      thumbnailFilename: t.media.filename,
+      thumbnailUrl: t.video_media.url,
+      thumbnailFilename: t.video_media.filename,
       channelId: t.channels.id,
       channelPlatform: t.channels.platform,
       channelImageUrl: channelImageSql,
@@ -100,7 +100,7 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
       )::int`,
     })
     .from(t.videos)
-    .leftJoin(t.media, eq(t.videos.image, t.media.id))
+    .leftJoin(t.video_media, eq(t.videos.image, t.video_media.id))
     .leftJoin(t.channels, eq(t.videos.channel, t.channels.id))
     .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
     .where(whereClause)
@@ -118,7 +118,7 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
       <div className="flex flex-col gap-3">
         {videos.map((v) => {
           const thumbnailSrc =
-            v.thumbnailUrl || (v.thumbnailFilename ? `/media/${v.thumbnailFilename}` : null)
+            v.thumbnailUrl || (v.thumbnailFilename ? `/video-media/${v.thumbnailFilename}` : null)
 
           const formattedDate = v.publishedAt
             ? new Date(v.publishedAt).toLocaleDateString('de-DE', {

@@ -75,7 +75,7 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
       let mediaUrl: string | undefined
 
       if (typeof imageRef === 'number') {
-        const mediaDoc = (await payload.findByID({ collection: 'media', id: imageRef })) as Record<string, unknown>
+        const mediaDoc = (await payload.findByID({ collection: 'detection-media', id: imageRef })) as Record<string, unknown>
         mediaUrl = mediaDoc.url as string | undefined
       } else {
         mediaUrl = imageRef.url
