@@ -57,16 +57,18 @@ worker/src/
     │   ├── correct-transcript.ts     # LLM transcript correction (unchanged)
     │   ├── split-transcript.ts       # Pre/main/post by timestamps (unchanged)
     │   ├── analyze-sentiment.ts      # LLM sentiment analysis (unchanged)
-    │   └── stages/                   # Stage-based pipeline (NEW)
+    │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
+    │       ├── AGENTS.md             # Detailed stage pipeline documentation
     │       ├── index.ts              # Stage registry, types, ordering, VideoProgress, getNextStage(), getVideoProgress()
-    │       ├── download.ts           # Stage 1: Download video, upload to media
-    │       ├── scene-detection.ts    # Stage 2: Scene detection, screenshots, barcodes
-    │       ├── product-recognition.ts # Stage 3: LLM classification + GTIN lookup
-    │       ├── transcription.ts      # Stage 4: Deepgram STT + LLM correction
-    │       └── sentiment-analysis.ts # Stage 5: LLM quote extraction + sentiment
+    │       ├── download.ts           # Stage 0: Download video, upload to media
+    │       ├── scene-detection.ts    # Stage 1: Scene detection, screenshots, barcodes
+    │       ├── product-recognition.ts # Stage 2: LLM classification + GTIN lookup
+    │       ├── transcription.ts      # Stage 3: Deepgram STT + LLM correction
+    │       └── sentiment-analysis.ts # Stage 4: LLM quote extraction + sentiment
     │
     ├── product-aggregation/
-    │   └── stages/                   # Stage-based pipeline
+    │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
+    │       ├── AGENTS.md             # Detailed stage pipeline documentation
     │       ├── index.ts              # Stage registry, types, ordering, AggregationProgress, getNextStage(), getAggregationProgress()
     │       ├── resolve.ts            # Stage 0: Find/create product + variants, merge duplicates
     │       ├── classify.ts           # Stage 1: classifyProduct() + cleanProductName()
@@ -288,15 +290,15 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 4. Each stage runs independently, persists its own data outputs inline (media links, snippets, transcripts, mentions — no `processingStatus` writes)
 5. `submitVideoProcessing()` updates the progress map entry for each video (`progress[videoId] = stageName`) after successful stage execution, persists the updated `videoProgress` to the job on every update (both batch release and completion), and uses the progress map for remaining work checks
 
-**5 stages** (in order):
+**5 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
 
 | # | Stage name | What it does | Data outputs |
 |---|------------|--------------|-------------|
-| 1 | `download` | Downloads video via yt-dlp, uploads to media collection | `videos.image` (media upload) |
-| 2 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
-| 3 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
-| 4 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
-| 5 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
+| 0 | `download` | Downloads video via yt-dlp, uploads to media collection | `videos.image` (media upload) |
+| 1 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads as media, scans barcodes | `video-snippets` (timestamps, screenshots as media, barcodes) |
+| 2 | `product_recognition` | Clusters screenshots by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-snippets.referencedProducts`, `video-snippets.matchingType` |
+| 3 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per snippet | `videos.transcript`, `videos.transcriptWords`, `video-snippets.preTranscript`/`transcript`/`postTranscript` |
+| 4 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per snippet, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
 
 **Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). This replaces the old `processingStatus` field on videos. `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
 

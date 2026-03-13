@@ -1,0 +1,222 @@
+# Product Aggregation — Stage Pipeline
+
+8-stage pipeline that transforms crawled source data into unified products. Each stage is a self-contained module that reads from the DB, does its work, and persists results immediately. Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys to the last completed stage name.
+
+## Architecture
+
+### Registry (`index.ts`)
+
+Central orchestration file. Exports:
+
+- **`StageName`** — union of all 8 stage names
+- **`AggregationProgress`** — `Record<string, StageName | null>` progress map type
+- **`StageConfig`** — job-level config: `jobId`, `language`, `imageSourcePriority`
+- **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
+- **`StageResult`** — `{ success, error?, productId?, tokensUsed? }`
+- **`AggregationWorkItem`** — `{ productId: number | null, gtins: string[], variants: Array<{ gtin, sources }> }`
+- **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the ProductAggregations collection (e.g. `stageResolve`)
+- **`STAGES`** — ordered array of all 8 stage definitions
+- **`getNextStage(lastCompleted, enabledStages)`** — finds the next enabled stage after `lastCompleted`
+- **`getEnabledStages(job)`** — reads checkbox fields from the job document, returns `Set<StageName>`
+- **`productNeedsWork(lastCompleted, enabledStages)`** — true if the product has more stages to run
+- **`getAggregationProgress(job)`** — parses the JSON progress map from the job document
+
+### Dispatcher (in `worker.ts`)
+
+The handler in `worker.ts` is ~80 lines. It receives `stageItems: Array<{ productId, stageName, workItem }>` from `claimWork()`, iterates each item, dispatches to `STAGES.find(s => s.name === stageName).execute(ctx, workItem)`, and reports results to `submitWork()`.
+
+### Progress Tracking
+
+Progress keys are sorted GTIN lists joined by commas (e.g. `"4012345678901,4012345678902"`). After the resolve stage creates/finds the product, the product ID is stored under `pid:<progressKey>` for quick lookup by subsequent stages. The progress map is persisted to the job after every stage execution.
+
+### Stage Selection
+
+Each stage has a checkbox field on the job (all default `true`). `getEnabledStages()` checks `job.stageResolve !== false`, etc. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
+
+---
+
+## Stages
+
+### Stage 0: `resolve` — Find/Create Product + Variants
+
+**File**: `resolve.ts` (~217 lines)
+**Checkbox**: `stageResolve`
+**LLM**: No
+**Event**: `aggregation.resolved`
+
+Takes a work item with GTINs and per-GTIN source data. Produces the unified product and product-variant records.
+
+**Flow**:
+1. Aggregate source data via `aggregateSourceVariantsToVariant()` and `aggregateVariantsToProduct()` (pure logic, no LLM)
+2. Look up existing `product-variants` by GTIN — collect all referenced product IDs
+3. If multiple GTINs point to different products, **merge** them: move all product-variants and video-mentions to the canonical product, merge source-product links, delete the empty duplicate product
+4. If no existing product found, create a new one
+5. Create `product-variants` for any new GTINs
+6. Write basic variant data: `label`, `variantDimension`, `amount`, `amountUnit`, `sourceVariants` (linked IDs)
+7. Update product: `name`, `sourceProducts` (linked IDs)
+
+**Writes to**: `products`, `product-variants`, `video-mentions` (during merge)
+
+**Key detail**: This is the only stage that can run with `productId: null` on the work item. All subsequent stages require a `productId` and will fail with an error if resolve hasn't run.
+
+---
+
+### Stage 1: `classify` — LLM Classification + Clean Name
+
+**File**: `classify.ts` (~162 lines)
+**Checkbox**: `stageClassify`
+**LLM**: Yes — `classifyProduct()` + `cleanProductName()`
+**Event**: `aggregation.classified`, `aggregation.name_cleaned`
+
+Classifies the product from its source descriptions and ingredients. Also cleans the product name by stripping variant-specific info (sizes, colors).
+
+**Flow**:
+1. Deduplicate descriptions and ingredients across sources via `deduplicateDescriptions()` / `deduplicateIngredients()`
+2. Call `classifyProduct(sources, language)` — returns productType, attributes, claims, warnings, skinApplicability, pH range, usage instructions/schedule, with evidence entries referencing source-product indices
+3. Call `cleanProductName(rawName, variantLabels)` — strips variant-specific text (e.g. "50ml", "Rose Gold") to produce a generic product name
+4. Look up `product-types` by slug to get the ID
+5. Update product: `name` (cleaned), `productType`
+6. Update all product-variants: `warnings`, `skinApplicability`, `phMin`, `phMax`, `usageInstructions`, `usageSchedule`, `productAttributes` (with evidence → source-product link), `productClaims` (with evidence)
+
+**Evidence mapping**: Each attribute/claim carries `sourceProduct` (relationship), `evidenceType` (ingredient or descriptionSnippet), and type-specific fields (`snippet`/`start`/`end` for description snippets, `ingredientNames` array for ingredient evidence).
+
+**Writes to**: `products`, `product-variants`
+
+---
+
+### Stage 2: `match_brand` — LLM Brand Matching
+
+**File**: `match-brand.ts` (~43 lines)
+**Checkbox**: `stageMatchBrand`
+**LLM**: Yes — `matchBrand()`
+**Event**: `aggregation.brand_matched`
+
+Matches the brand name from source data to the `brands` collection (find or create via LLM fuzzy matching).
+
+**Flow**:
+1. Aggregate source data to get `brandName` via `aggregateVariantsToProduct()`
+2. Call `matchBrand(payload, brandName, logger)` — finds existing brand or creates new one
+3. Update product: `brand` (relationship to brands collection)
+
+**Writes to**: `products`, `brands` (may create)
+
+---
+
+### Stage 3: `ingredients` — LLM Ingredient Parsing + Matching
+
+**File**: `ingredients.ts` (~77 lines)
+**Checkbox**: `stageIngredients`
+**LLM**: Yes — `parseIngredients()` + `matchIngredients()`
+**Event**: `aggregation.ingredients_matched`
+
+Per variant: parses raw INCI text into individual ingredient names, then matches each to the `ingredients` collection.
+
+**Flow** (per variant):
+1. Aggregate source variant data to get `ingredientsText`
+2. Find the `product-variant` by GTIN
+3. Call `parseIngredients(ingredientsText)` — extracts ordered name list from raw INCI text (handles footnotes, asterisks, nested brackets)
+4. Call `matchIngredients(payload, names, logger)` — matches each name to the `ingredients` collection via LLM fuzzy matching
+5. Update product-variant: `ingredients` array of `{ name, ingredient: ingredientId | null }`
+
+**Writes to**: `product-variants`
+
+---
+
+### Stage 4: `images` — Download + Upload Best Image
+
+**File**: `images.ts` (~77 lines)
+**Checkbox**: `stageImages`
+**LLM**: No
+**Event**: `aggregation.image_uploaded`
+
+Per variant: selects the best image from source data (by store priority order), downloads it, uploads to the media collection, and sets it on the product-variant.
+
+**Flow** (per variant):
+1. Aggregate source variant data — `aggregateSourceVariantsToVariant()` selects `selectedImageUrl` based on `imageSourcePriority` config (e.g. `['dm', 'rossmann', 'mueller', 'purish']`)
+2. Find the `product-variant` by GTIN
+3. Download the image via `fetch()`
+4. Upload to `media` collection via `payload.create()` with multipart file data
+5. Update product-variant: `images: [{ image: mediaId }]`
+
+**Writes to**: `product-variants`, `media`
+
+---
+
+### Stage 5: `object_detection` — Grounding DINO Detection + Crop
+
+**File**: `object-detection.ts` (~237 lines)
+**Checkbox**: `stageObjectDetection`
+**LLM**: No (ML inference via ONNX)
+**Event**: `aggregation.objects_detected`
+
+Per variant: takes the uploaded product image (from stage 4), runs Grounding DINO zero-shot object detection with the prompt `"cosmetics packaging."`, crops each detected region using sharp, uploads the crops as media, and stores them in `recognitionImages`.
+
+**Model**: `onnx-community/grounding-dino-tiny-ONNX` via `@huggingface/transformers` pipeline API. Lazy-loaded singleton — first call downloads ~700MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only.
+
+**Thresholds**: `box_threshold=0.3`, `text_threshold=0.3`
+
+**Flow** (per variant):
+1. Find the `product-variant` by GTIN
+2. Get `images[0].image` — resolve to media ID and URL
+3. Download the image buffer via `fetch()`
+4. Get image dimensions via `sharp(buffer).metadata()`
+5. Run detection: `detector(imageUrl, ["cosmetics packaging."], { threshold: 0.3 })`
+6. For each detection: clamp box coordinates to image bounds, crop via `sharp().extract().png().toBuffer()`, upload crop to `media`
+7. Update product-variant: `recognitionImages` array of `{ image, score, boxXMin, boxYMin, boxXMax, boxYMax }`
+8. If no detections found, clear `recognitionImages: []`
+
+**Writes to**: `product-variants`, `media`
+
+**Note**: Field names use `boxXMin`/`boxYMin`/`boxXMax`/`boxYMax` (not `xmin`/`xmax`) because PostgreSQL reserves `xmin`/`xmax` as system column names.
+
+---
+
+### Stage 6: `descriptions` — LLM Consensus Description + Label Dedup
+
+**File**: `descriptions.ts` (~93 lines)
+**Checkbox**: `stageDescriptions`
+**LLM**: Yes — `consensusDescription()` + `deduplicateLabels()`
+**Event**: `description.consensus`, `labels.deduplicated`
+
+Per variant: synthesizes a single description from multiple source descriptions, and normalizes/deduplicates retailer labels.
+
+**Flow** (per variant):
+1. Aggregate source variant data — collects `descriptions[]` and `allLabels[]`
+2. Find the `product-variant` by GTIN
+3. Call `consensusDescription(descriptions)` — LLM synthesizes one description from multiple sources. Falls back to longest description on error.
+4. Call `deduplicateLabels(allLabels)` — LLM normalizes to canonical German labels, removes store-specific ones (e.g. "dm-Marke", "Neu"). Falls back to unique raw labels on error.
+5. Update product-variant: `description`, `labels` array of `{ label }`
+
+**Writes to**: `product-variants`
+
+---
+
+### Stage 7: `score_history` — Compute Store + Creator Scores
+
+**File**: `score-history.ts` (~103 lines)
+**Checkbox**: `stageScoreHistory`
+**LLM**: No
+**Event**: None (logs only)
+
+Computes store scores (from retailer ratings) and creator scores (from video mention sentiments), prepends a new entry to the product's `scoreHistory` array.
+
+**Flow**:
+1. Fetch all `source-products` for this product group — compute weighted average of `rating` fields (0–5 stars → 0–10 score via `avgRating * 2`)
+2. Fetch all `video-mentions` for this product — compute average `overallSentimentScore` (-1 to +1 → 0–10 score via `(avg + 1) * 5`)
+3. If neither score is available, skip
+4. Read existing `scoreHistory` from the product
+5. Compute `change` direction by comparing with the previous entry: `drop` (≥5% decrease), `increase` (≥5% increase), or `stable`
+6. Prepend new entry: `{ recordedAt, storeScore, creatorScore, change }`
+
+**Writes to**: `products`
+
+---
+
+## Shared Patterns
+
+- **Every stage except resolve** checks `productId` at entry and returns `{ success: false }` if null
+- **Per-variant stages** (ingredients, images, object_detection, descriptions) look up `product-variant` by GTIN, skip if not found
+- **Heartbeat**: long-running per-variant loops call `ctx.heartbeat()` after each variant to keep the job claim alive
+- **Token tracking**: LLM stages return `tokensUsed` in `StageResult`; the dispatcher accumulates these
+- **Events**: each stage emits typed events via `jlog.event()` for visibility in the admin dashboard
+- **Idempotency**: stages overwrite previous results (e.g. `images: [{ image: newId }]` replaces old images). Object detection clears `recognitionImages` when no detections are found.
