@@ -18,7 +18,19 @@ You are an expert Payload CMS developer. When working with Payload projects, fol
 
 ### Migrations
 
-- **Do NOT create database migrations.** The developer handles migrations manually. Only modify collection configs and let the developer run migrations themselves.
+The project uses **migration-based schema management** (not `push`). `push: false` is set on the Postgres adapter — all schema changes require a migration, even in dev.
+
+**Workflow after modifying collection configs:**
+
+1. Run `pnpm payload migrate:create` in the server directory to generate a migration file
+2. Review the generated migration in `src/migrations/` — verify the SQL is correct
+3. Include the migration file in commits (the developer will apply it with `pnpm payload migrate`)
+
+**Rules:**
+- Always run `pnpm payload migrate:create` after changing collection fields, adding/removing collections, or modifying indexes
+- Do NOT run `pnpm payload migrate` yourself — applying migrations is the developer's responsibility
+- For complex cases (enum value additions, data transformations, column renames), note in the migration file what manual SQL may be needed and flag it to the developer
+- Migrations live in `server/src/migrations/` — the `index.ts` barrel file is auto-generated
 
 ## Project Structure
 
@@ -1522,7 +1534,7 @@ psql "postgres://anyskin_crawler:anyskin_crawler@127.0.0.1:35432/anyskin_crawler
 \dT+ <enum_name>       # show enum values (e.g. \dT+ enum_source_products_source)
 ```
 
-Always verify column names against the actual database before writing raw SQL (`db.execute(sql\`...\`)`). The migration file (`server/src/migrations/20260222_145149.ts`) may be stale — the database is managed via `payload db push` during development, so the live schema is the source of truth.
+Always verify column names against the actual database before writing raw SQL (`db.execute(sql\`...\`)`). Migrations in `server/src/migrations/` are the source of truth for schema — the project uses migration-based schema management (`push: false`), not `payload db push`.
 
 ### PostgreSQL Column Naming Convention
 

@@ -11,8 +11,9 @@ Monorepo with two packages:
 
 ```bash
 cd server
-cp .env.example .env   # fill in MONGODB_URL etc.
+cp .env.example .env   # fill in DATABASE_URL, PAYLOAD_SECRET etc.
 pnpm install
+pnpm payload migrate   # apply pending migrations
 pnpm dev               # http://localhost:3000
 ```
 

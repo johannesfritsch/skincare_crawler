@@ -234,4 +234,5 @@ The server registry is a simple static list (server and worker are separate proc
 - **`@anyskin/shared`** — consumed as raw TypeScript (no build step). Server uses `transpilePackages: ['@anyskin/shared']` in `next.config.mjs`. Worker uses `tsx` which handles TS imports natively. Contains the `EventRegistry` (typed event names → data shapes), `EVENT_META` (default type/level/labels per event), and shared types (`SourceSlug`, `JobCollection`, `EventType`, `LogLevel`).
 - **No build step** for worker in dev — runs via `tsx`
 - **Server types**: Run `pnpm generate:types` after collection schema changes
+- **Migrations**: The project uses migration-based schema management (`push: false` on the Postgres adapter). After modifying collection configs, run `pnpm payload migrate:create` in the server directory to generate a migration. Do NOT run `pnpm payload migrate` — the developer applies migrations themselves. Migrations live in `server/src/migrations/`.
 - **Tests**: Server has Vitest (integration) + Playwright (e2e) in `server/tests/`
