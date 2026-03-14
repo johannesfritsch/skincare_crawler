@@ -1,9 +1,9 @@
 /**
- * Stage 4: Transcription
+ * Stage 5: Transcription
  *
  * Downloads the video media, extracts audio, runs Deepgram STT,
- * corrects transcript via LLM, splits per snippet, saves transcript
- * data on the video and on each snippet.
+ * corrects transcript via LLM, splits per scene, saves transcript
+ * data on the video and on each scene.
  */
 
 import fs from 'fs'
@@ -34,8 +34,8 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
     return { success: false, error: 'Video media record has no URL' }
   }
 
-  // Fetch snippets for transcript splitting
-  const snippetsResult = await payload.find({
+  // Fetch scenes for transcript splitting and keyword collection
+  const scenesResult = await payload.find({
     collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
@@ -64,27 +64,59 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
     await extractAudio(videoPath, audioPath)
     await ctx.heartbeat()
 
-    // Collect product names/brands from snippets for keyword boosting
+    // Collect product names/brands from scenes for keyword boosting
+    // Gather product IDs from all detection sources: barcodes, recognitions, llmMatches
+    const productIds = new Set<number>()
     const productKeywords: string[] = []
-    for (const snippetDoc of snippetsResult.docs) {
-      const snippet = snippetDoc as Record<string, unknown>
-      const refs = snippet.referencedProducts as Array<number | Record<string, unknown>> | undefined
-      if (refs) {
-        for (const ref of refs) {
-          const productId = typeof ref === 'number' ? ref : (ref as { id: number }).id
-          try {
-            const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
-            if (product.name) productKeywords.push(product.name as string)
-            const brandRel = product.brand as Record<string, unknown> | number | null
-            if (brandRel && typeof brandRel === 'object' && 'name' in brandRel) {
-              productKeywords.push(brandRel.name as string)
-            }
-          } catch {
-            // Product not found, skip
-          }
+
+    for (const sceneDoc of scenesResult.docs) {
+      const scene = sceneDoc as Record<string, unknown>
+
+      // From barcodes (stage 1)
+      const barcodes = scene.barcodes as Array<Record<string, unknown>> | undefined
+      if (barcodes) {
+        for (const bc of barcodes) {
+          const pid = bc.product as number | Record<string, unknown> | null
+          if (pid) productIds.add(typeof pid === 'number' ? pid : (pid as { id: number }).id)
+        }
+      }
+
+      // From recognitions (stage 3)
+      const recognitions = scene.recognitions as Array<Record<string, unknown>> | undefined
+      if (recognitions) {
+        for (const rec of recognitions) {
+          const pid = rec.product as number | Record<string, unknown> | null
+          if (pid) productIds.add(typeof pid === 'number' ? pid : (pid as { id: number }).id)
+        }
+      }
+
+      // From LLM matches (stage 4)
+      const llmMatches = scene.llmMatches as Array<Record<string, unknown>> | undefined
+      if (llmMatches) {
+        for (const lm of llmMatches) {
+          // Add LLM-extracted brand/product names directly as keywords
+          if (lm.brand) productKeywords.push(lm.brand as string)
+          if (lm.productName) productKeywords.push(lm.productName as string)
+          const pid = lm.product as number | Record<string, unknown> | null
+          if (pid) productIds.add(typeof pid === 'number' ? pid : (pid as { id: number }).id)
         }
       }
     }
+
+    // Fetch product names and brands for keyword boosting
+    for (const productId of productIds) {
+      try {
+        const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
+        if (product.name) productKeywords.push(product.name as string)
+        const brandRel = product.brand as Record<string, unknown> | number | null
+        if (brandRel && typeof brandRel === 'object' && 'name' in brandRel) {
+          productKeywords.push(brandRel.name as string)
+        }
+      } catch {
+        // Product not found, skip
+      }
+    }
+
     const uniqueKeywords = [...new Set(productKeywords)]
 
     // Transcribe with Deepgram
@@ -122,12 +154,12 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       },
     })
 
-    // Split transcript per snippet and update each
-    for (const snippetDoc of snippetsResult.docs) {
-      const snippet = snippetDoc as Record<string, unknown>
-      const snippetId = snippet.id as number
-      const start = snippet.timestampStart as number
-      const end = snippet.timestampEnd as number
+    // Split transcript per scene and update each
+    for (const sceneDoc of scenesResult.docs) {
+      const scene = sceneDoc as Record<string, unknown>
+      const sceneId = scene.id as number
+      const start = scene.timestampStart as number
+      const end = scene.timestampEnd as number
 
       const tx = splitTranscriptForScene(
         rawTranscription.words,
@@ -139,7 +171,7 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
 
       await payload.update({
         collection: 'video-scenes',
-        id: snippetId,
+        id: sceneId,
         data: {
           preTranscript: tx.preTranscript,
           transcript: tx.transcript,

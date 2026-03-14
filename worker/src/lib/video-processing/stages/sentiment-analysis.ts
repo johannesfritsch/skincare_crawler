@@ -1,8 +1,9 @@
 /**
- * Stage 5: Sentiment Analysis
+ * Stage 7: Sentiment Analysis
  *
- * Reads snippets with referencedProducts and transcript data,
- * runs LLM sentiment analysis per snippet, creates video-mentions.
+ * Reads scenes with compiled detections and transcript data,
+ * runs LLM sentiment analysis per scene, creates video-mentions
+ * as the final compiled output with full detection provenance.
  */
 
 import { analyzeSentiment } from '@/lib/video-processing/analyze-sentiment'
@@ -16,8 +17,8 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
   const title = (video.title as string) || `Video ${videoId}`
   const fullTranscript = (video.transcript as string) ?? ''
 
-  // Fetch all snippets
-  const snippetsResult = await payload.find({
+  // Fetch all scenes
+  const scenesResult = await payload.find({
     collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
@@ -26,15 +27,18 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
 
   let tokensSentiment = 0
 
-  // Build product info map for all referenced products across snippets
+  // Build product info map for all detected products across scenes
   const allProductIds = new Set<number>()
-  for (const snippetDoc of snippetsResult.docs) {
-    const snippet = snippetDoc as Record<string, unknown>
-    const refs = snippet.referencedProducts as Array<number | Record<string, unknown>> | undefined
-    if (refs) {
-      for (const ref of refs) {
-        const pid = typeof ref === 'number' ? ref : (ref as { id: number }).id
-        allProductIds.add(pid)
+  for (const sceneDoc of scenesResult.docs) {
+    const scene = sceneDoc as Record<string, unknown>
+    const detections = scene.detections as Array<Record<string, unknown>> | undefined
+    if (detections) {
+      for (const det of detections) {
+        const productRef = det.product as number | Record<string, unknown> | null
+        if (productRef) {
+          const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+          allProductIds.add(pid)
+        }
       }
     }
   }
@@ -57,34 +61,41 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
     }
   }
 
-  // Delete existing video-mentions for this video's snippets (idempotent re-run)
-  for (const snippetDoc of snippetsResult.docs) {
-    const snippetId = (snippetDoc as { id: number }).id
+  // Delete existing video-mentions for this video's scenes (idempotent re-run)
+  for (const sceneDoc of scenesResult.docs) {
+    const sceneId = (sceneDoc as { id: number }).id
     await payload.delete({
       collection: 'video-mentions',
-      where: { videoScene: { equals: snippetId } },
+      where: { videoScene: { equals: sceneId } },
     })
   }
 
-  // Run sentiment analysis per snippet
-  for (const snippetDoc of snippetsResult.docs) {
-    const snippet = snippetDoc as Record<string, unknown>
-    const snippetId = snippet.id as number
-    const preTranscript = (snippet.preTranscript as string) ?? ''
-    const transcript = (snippet.transcript as string) ?? ''
-    const postTranscript = (snippet.postTranscript as string) ?? ''
+  // Run sentiment analysis per scene
+  for (const sceneDoc of scenesResult.docs) {
+    const scene = sceneDoc as Record<string, unknown>
+    const sceneId = scene.id as number
+    const preTranscript = (scene.preTranscript as string) ?? ''
+    const transcript = (scene.transcript as string) ?? ''
+    const postTranscript = (scene.postTranscript as string) ?? ''
 
-    // Get product IDs for this snippet
-    const refs = snippet.referencedProducts as Array<number | Record<string, unknown>> | undefined
-    if (!refs || refs.length === 0 || !transcript.trim()) {
+    // Get compiled detections for this scene
+    const detections = scene.detections as Array<Record<string, unknown>> | undefined
+    if (!detections || detections.length === 0 || !transcript.trim()) {
       continue
     }
 
-    const segProductIds = refs.map((ref) =>
-      typeof ref === 'number' ? ref : (ref as { id: number }).id,
-    )
+    // Build product list from compiled detections
+    const detectionByProduct = new Map<number, Record<string, unknown>>()
+    for (const det of detections) {
+      const productRef = det.product as number | Record<string, unknown> | null
+      if (!productRef) continue
+      const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+      if (!detectionByProduct.has(pid)) {
+        detectionByProduct.set(pid, det)
+      }
+    }
 
-    const segProducts = [...new Set(segProductIds)]
+    const segProducts = [...detectionByProduct.keys()]
       .filter((id) => productInfoMap.has(id))
       .map((id) => ({
         productId: id,
@@ -105,13 +116,21 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
     )
     tokensSentiment += sentimentResult.tokensUsed.totalTokens
 
-    // Create video-mentions
+    // Create video-mentions with detection provenance
     for (const productResult of sentimentResult.products) {
+      const det = detectionByProduct.get(productResult.productId)
+
       await payload.create({
         collection: 'video-mentions',
         data: {
-          videoScene: snippetId,
+          videoScene: sceneId,
           product: productResult.productId,
+          // Detection provenance (from compiled detections)
+          confidence: det?.confidence ?? null,
+          sources: det?.sources ?? [],
+          barcodeValue: det?.barcodeValue ?? null,
+          clipDistance: det?.clipDistance ?? null,
+          // Sentiment
           quotes: productResult.quotes.map((q) => ({
             text: q.text,
             summary: q.summary ?? [],
@@ -122,7 +141,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
           overallSentimentScore: productResult.overallSentimentScore,
         },
       })
-      log.info('Created video-mention', { snippetId, productId: productResult.productId, quoteCount: productResult.quotes.length, sentiment: productResult.overallSentiment })
+      log.info('Created video-mention', { sceneId, productId: productResult.productId, quoteCount: productResult.quotes.length, sentiment: productResult.overallSentiment })
     }
 
     await ctx.heartbeat()

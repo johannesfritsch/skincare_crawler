@@ -61,12 +61,14 @@ worker/src/
     │       ├── AGENTS.md             # Detailed stage pipeline documentation
     │       ├── index.ts              # Stage registry, types, ordering, VideoProgress, getNextStage(), getVideoProgress()
     │       ├── download.ts           # (Legacy) Download video — moved to video-crawl handler, no longer in pipeline
-    │       ├── scene-detection.ts    # Stage 0: Scene detection, screenshots, barcodes
-    │       ├── product-recognition.ts # Stage 1: LLM classification + GTIN lookup
-    │       ├── screenshot-detection.ts # Stage 2: Grounding DINO detection on screenshot crops
-    │       ├── screenshot-search.ts  # Stage 3: CLIP visual similarity search against product embeddings
-    │       ├── transcription.ts      # Stage 4: Deepgram STT + LLM correction
-    │       └── sentiment-analysis.ts # Stage 5: LLM quote extraction + sentiment
+    │       ├── scene-detection.ts    # Stage 0: Scene detection, screenshots, clustering (no barcode scanning)
+    │       ├── barcode-scan.ts       # Stage 1: Barcode scanning on frame images → scene.barcodes[]
+    │       ├── object-detection.ts   # Stage 2: Grounding DINO detection on cluster reps → scene.objects[]
+    │       ├── visual-search.ts      # Stage 3: CLIP visual similarity search → scene.recognitions[]
+    │       ├── llm-recognition.ts    # Stage 4: LLM classification + product matching → scene.llmMatches[]
+    │       ├── transcription.ts      # Stage 5: Deepgram STT + LLM correction
+    │       ├── compile-detections.ts # Stage 6: Synthesize all detection sources → scene.detections[]
+    │       └── sentiment-analysis.ts # Stage 7: LLM quote extraction + sentiment → video-mentions
     │
     ├── models/
     │   ├── grounding-dino.ts         # Shared Grounding DINO singleton (zero-shot object detection)
@@ -319,20 +321,22 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 4. Each stage runs independently, persists its own data outputs inline (media links, scenes, transcripts, mentions)
 5. `submitVideoProcessing()` updates the progress map entry for each video (`progress[videoId] = stageName`) after successful stage execution, persists the updated `videoProgress` to the job on every update (both batch release and completion), and uses the progress map for remaining work checks
 
-**6 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
+**8 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
 
 | # | Stage name | What it does | Data outputs |
 |---|------------|--------------|-------------|
-| 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, uploads to video-media, scans barcodes | `video-scenes` (timestamps), `video-frames` (image, barcode, recognitionCandidate, recognitionThumbnail) |
-| 1 | `product_recognition` | Reads `video-frames` per scene, clusters by perceptual hash, classifies via LLM, recognizes products via LLM, looks up GTINs via product-variants | `video-scenes.referencedProducts`, `video-scenes.matchingType` |
-| 2 | `screenshot_detection` | Per scene: Grounding DINO detection on cluster representative screenshots (via `video-frames`), crop + upload to detection-media, store in `detections` array on video-frames. Configurable: `detectionPrompt` (default "cosmetics packaging."), `detectionThreshold` (default 0.3), `minBoxArea` (default 25%). Emits per-candidate detail events for full observability. | `video-frames.detections` (crops as detection-media, bounding boxes) |
-| 3 | `screenshot_search` | Per scene: CLIP ViT-B/32 transient embeddings for detection crops (from `video-frames`) → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). Emits per-detection detail events with top-N distances for threshold calibration. | `video-frames.detections` (match info), `video-scenes.referencedProducts` |
-| 4 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per scene | `videos.transcript`, `videos.transcriptWords`, `video-scenes.preTranscript`/`transcript`/`postTranscript` |
-| 5 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per scene, creates video-mentions | `video-mentions` (quotes with sentiment scores) |
+| 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, clusters by perceptual hash, uploads to video-media | `video-scenes` (timestamps), `video-frames` (image, isClusterRepresentative, clusterThumbnail) |
+| 1 | `barcode_scan` | Scans frame images for barcodes via `zbarimg`, looks up product-variants by GTIN | `video-scenes.barcodes[]` |
+| 2 | `object_detection` | Per scene: Grounding DINO detection on cluster representative frames, crop + upload to detection-media. Configurable: `detectionPrompt` (default "cosmetics packaging."), `detectionThreshold` (default 0.3), `minBoxArea` (default 25%). Emits per-candidate detail events. | `video-scenes.objects[]` (crops as detection-media, bounding boxes) |
+| 3 | `visual_search` | Per scene: CLIP ViT-B/32 transient embeddings for object detection crops → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). | `video-scenes.recognitions[]` |
+| 4 | `llm_recognition` | Per scene: LLM classification of cluster rep frames + product matching via `recognizeProduct()` + `matchProduct()` | `video-scenes.llmMatches[]` |
+| 5 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per scene. Reads keywords from barcodes/recognitions/llmMatches. | `videos.transcript`, `videos.transcriptWords`, `video-scenes.preTranscript`/`transcript`/`postTranscript` |
+| 6 | `compile_detections` | Synthesizes all detection sources (barcodes, objects+recognitions, llmMatches) into unified detections[] with confidence scores. Barcode: 1.0, CLIP: 1.0-distance, LLM: 0.6, multi-source bonus: +0.1 per additional source (capped at 1.0). | `video-scenes.detections[]` |
+| 7 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per scene, creates video-mentions with detection provenance | `video-mentions` (quotes, sentiment, confidence, sources, barcodeValue, clipDistance) |
 
 **Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
 
-**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageSceneDetection`, `stageProductRecognition`, `stageScreenshotDetection`, `stageScreenshotSearch`, `stageTranscription`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageSceneDetection`, `stageBarcodeScan`, `stageObjectDetection`, `stageVisualSearch`, `stageLlmRecognition`, `stageTranscription`, `stageCompileDetections`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
 
 **Processing types**: `all_unprocessed`, `single_video`, `selected_urls`, `from_crawl`
 
@@ -344,7 +348,7 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 
 **Counters**: `completed` and `errors` counters on the job's progress field are incremented per stage execution.
 
-**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-scenes, video-frames, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches, calls `matchProduct()` to find/create product records.
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-scenes, video-frames, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Detection data is stored on video-scenes in tabbed arrays (barcodes[], objects[], recognitions[], llmMatches[], detections[]). Video-frames are pure frame records with no detection data. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches via CLIP, products are resolved from product-variants. For LLM matches, calls `matchProduct()` to find/create product records. The compile_detections stage synthesizes all sources into a unified detections[] array with confidence scores. The sentiment_analysis stage creates video-mentions with full detection provenance (confidence, sources, barcodeValue, clipDistance).
 
 ### 8. product-aggregation
 
@@ -484,7 +488,7 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 |----------|-------|--------|-----------|
 | `matchBrand(client, brandName, logger)` | brand name string | `{ brandId, tokensUsed }` | `product-aggregation/stages/match-brand.ts` |
 | `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `product-aggregation/stages/ingredients.ts` |
-| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `video-processing/stages/product-recognition.ts` |
+| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `video-processing/stages/llm-recognition.ts` |
 | `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, warnings, skinApplicability, phMin, phMax, usageInstructions, usageSchedule, productAttributes[], productClaims[], tokensUsed }` — detail fields extracted from descriptions by LLM; evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `product-aggregation/stages/classify.ts` |
 | `cleanProductName(rawName, variantLabels, cache)` | raw product name + variant labels (e.g. "50ml", "Rose Gold") | `{ name, tokensUsed, cacheHit }` — strips variant-specific info (sizes, colors, shade numbers) to produce a clean generic product name | `product-aggregation/stages/classify.ts` |
 | `correctTranscript(rawTranscript, words, brands, products)` | raw STT transcript + brand/product names | `{ correctedTranscript, corrections[], tokensUsed }` | `handleVideoProcessing` |
@@ -668,7 +672,7 @@ All events below are emitted to the server's `events` collection (visible in adm
   `claimWork()` PATCHes `claimedBy` + `claimedAt` to claim a job. A server-side `enforceJobClaim` hook rejects the PATCH if the job is already claimed by a different worker with a fresh `claimedAt`. Workers pass `X-Job-Timeout-Minutes` header so the server knows the timeout (default 30m). When a batch finishes but the job is not done, `submitWork()` releases the claim (`claimedBy: null, claimedAt: null`), making it immediately available for any worker. Workers are fully stateless — all progress lives on the server.
 - **Heartbeat**: Long-running operations call `heartbeat(jobId, type, progress?)` to update `workers.lastSeenAt` and refresh `claimedAt` on the job (keeping the claim alive during long batches)
 - **Resumable jobs**: Progress state stored in job's JSON fields, allowing pause/resume across worker restarts
-- **Media uploads**: Worker uploads files to `/api/{collection}` (product-media, video-media, profile-media, detection-media) via multipart `FormData` with API key auth. The `uploadMedia()` helper accepts a `collection` parameter (default: `'video-media'`). Stage files use `payload.create({ collection: '...' })` directly for the correct media collection. Video processing stages create `video-frames` records (with image uploads to video-media and detection crops to detection-media) in addition to video-scenes and video-mentions.
+- **Media uploads**: Worker uploads files to `/api/{collection}` (product-media, video-media, profile-media, detection-media) via multipart `FormData` with API key auth. The `uploadMedia()` helper accepts a `collection` parameter (default: `'video-media'`). Stage files use `payload.create({ collection: '...' })` directly for the correct media collection. Video processing stages create `video-frames` records (with image uploads to video-media) and `video-scenes` with detection arrays (object detection crops go to detection-media), plus video-mentions.
 - **URL normalization**: Two normalization functions exist in `source-product-queries.ts`:
   - `normalizeProductUrl()` — strips all query parameters, trailing slashes, hash fragments, and lowercases. Used for base product URLs on source-products (applied in source drivers, persist.ts, claim.ts).
   - `normalizeVariantUrl()` — strips hash fragments and trailing slashes but preserves ALL query parameters. Drivers are the source of truth for which query params to include when constructing variant URLs (Mueller: `?itemId=`, PURISH: `?variant=`, DM/Rossmann: path-based, no params). Applied to all variant URLs from all drivers in persist.ts.
@@ -684,7 +688,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)
-- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`screenshot_detection` stage). (2) CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`, ~350MB, `lib/models/clip.ts`) for computing 512-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`screenshot_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
+- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`object_detection` stage). (2) CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`, ~350MB, `lib/models/clip.ts`) for computing 512-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`visual_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
 
 ## Per-Driver Documentation
 

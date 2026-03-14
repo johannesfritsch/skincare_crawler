@@ -111,7 +111,6 @@ export interface Config {
     };
     products: {
       variants: 'product-variants';
-      videoScenes: 'video-scenes';
       videoMentions: 'video-mentions';
       aggregations: 'product-aggregations';
     };
@@ -140,8 +139,8 @@ export interface Config {
       videoScenes: 'video-scenes';
     };
     'video-scenes': {
-      videoMentions: 'video-mentions';
       frames: 'video-frames';
+      videoMentions: 'video-mentions';
     };
     'video-discoveries': {
       events: 'events';
@@ -1053,11 +1052,6 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  videoScenes?: {
-    docs?: (number | VideoScene)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   videoMentions?: {
     docs?: (number | VideoMention)[];
     hasNextPage?: boolean;
@@ -1427,11 +1421,68 @@ export interface SourceProduct {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-mentions".
+ */
+export interface VideoMention {
+  id: number;
+  videoScene: number | VideoScene;
+  product: number | Product;
+  /**
+   * Synthesized detection confidence (0-1)
+   */
+  confidence?: number | null;
+  /**
+   * Which detection methods identified this product
+   */
+  sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
+  /**
+   * EAN barcode if detected via barcode source
+   */
+  barcodeValue?: string | null;
+  /**
+   * Best CLIP cosine distance if detected via object detection
+   */
+  clipDistance?: number | null;
+  /**
+   * Spoken quotes about this product extracted from the scene transcript
+   */
+  quotes?:
+    | {
+        text: string;
+        /**
+         * Short key takeaways from the quote, true to original wording
+         */
+        summary?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
+        /**
+         * Score from -1 (very negative) to 1 (very positive)
+         */
+        sentimentScore?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
+  /**
+   * Aggregate score from -1 (very negative) to 1 (very positive)
+   */
+  overallSentimentScore?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "video-scenes".
  */
 export interface VideoScene {
   id: number;
-  matchingType?: ('barcode' | 'visual') | null;
   /**
    * Start time in seconds
    */
@@ -1442,12 +1493,108 @@ export interface VideoScene {
   timestampEnd?: number | null;
   video: number | Video;
   image?: (number | null) | VideoMedia;
-  referencedProducts?: (number | Product)[] | null;
-  videoMentions?: {
-    docs?: (number | VideoMention)[];
+  frames?: {
+    docs?: (number | VideoFrame)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  /**
+   * Barcodes found in this scene by zbarimg scanning. Each entry is a barcode detection with optional product resolution.
+   */
+  barcodes?:
+    | {
+        /**
+         * EAN-13/EAN-8 barcode value
+         */
+        barcode: string;
+        /**
+         * The frame where this barcode was detected
+         */
+        frame?: (number | null) | VideoFrame;
+        /**
+         * Resolved product-variant by GTIN lookup
+         */
+        productVariant?: (number | null) | ProductVariant;
+        /**
+         * Resolved product from the product-variant
+         */
+        product?: (number | null) | Product;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box and confidence score.
+   */
+  objects?:
+    | {
+        frame?: (number | null) | VideoFrame;
+        crop: number | DetectionMedia;
+        /**
+         * Grounding DINO detection confidence (0-1)
+         */
+        score?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * CLIP visual similarity search results. Each entry matches a detected object to a product via embedding cosine distance.
+   */
+  recognitions?:
+    | {
+        /**
+         * Index into the objects[] array on this scene
+         */
+        objectIndex?: number | null;
+        product?: (number | null) | Product;
+        productVariant?: (number | null) | ProductVariant;
+        /**
+         * GTIN of the matched product-variant
+         */
+        gtin?: string | null;
+        /**
+         * CLIP cosine distance (lower = better, 0 = identical)
+         */
+        distance?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Products identified by LLM visual recognition. The LLM classifies screenshots and extracts brand/product info.
+   */
+  llmMatches?:
+    | {
+        frame?: (number | null) | VideoFrame;
+        /**
+         * Brand name identified by the LLM
+         */
+        brand?: string | null;
+        /**
+         * Product name identified by the LLM
+         */
+        productName?: string | null;
+        /**
+         * Search terms extracted by the LLM for product matching
+         */
+        searchTerms?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        /**
+         * Product found/created via LLM + DB matching
+         */
+        product?: (number | null) | Product;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * 5 seconds of spoken context before this scene
    */
@@ -1460,8 +1607,41 @@ export interface VideoScene {
    * 3 seconds of spoken context after this scene
    */
   postTranscript?: string | null;
-  frames?: {
-    docs?: (number | VideoFrame)[];
+  /**
+   * Unified product detections synthesized from all sources (barcode, object detection + CLIP, LLM vision). One entry per unique product.
+   */
+  detections?:
+    | {
+        product: number | Product;
+        /**
+         * Synthesized confidence score (0-1) combining all detection sources
+         */
+        confidence?: number | null;
+        /**
+         * Which detection methods identified this product
+         */
+        sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
+        /**
+         * EAN barcode if detected via barcode source
+         */
+        barcodeValue?: string | null;
+        /**
+         * Best CLIP cosine distance if detected via object detection
+         */
+        clipDistance?: number | null;
+        /**
+         * Brand name from LLM recognition
+         */
+        llmBrand?: string | null;
+        /**
+         * Product name from LLM recognition
+         */
+        llmProductName?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  videoMentions?: {
+    docs?: (number | VideoMention)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -1560,48 +1740,6 @@ export interface Creator {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-mentions".
- */
-export interface VideoMention {
-  id: number;
-  videoScene: number | VideoScene;
-  product: number | Product;
-  /**
-   * Spoken quotes about this product extracted from the video scene
-   */
-  quotes?:
-    | {
-        text: string;
-        /**
-         * Short key takeaways from the quote, true to original wording
-         */
-        summary?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
-        /**
-         * Score from -1 (very negative) to 1 (very positive)
-         */
-        sentimentScore?: number | null;
-        id?: string | null;
-      }[]
-    | null;
-  overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
-  /**
-   * Aggregate score from -1 (very negative) to 1 (very positive)
-   */
-  overallSentimentScore?: number | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "video-frames".
  */
 export interface VideoFrame {
@@ -1609,50 +1747,13 @@ export interface VideoFrame {
   scene: number | VideoScene;
   image: number | VideoMedia;
   /**
-   * EAN-13/EAN-8 barcode detected in this frame
+   * Whether this frame was selected as a cluster representative for product recognition and object detection
    */
-  barcode?: string | null;
+  isClusterRepresentative?: boolean | null;
   /**
-   * Whether this frame was selected as a cluster representative for product recognition
+   * 128x128 color thumbnail used for LLM product classification
    */
-  recognitionCandidate?: boolean | null;
-  /**
-   * 128x128 color thumbnail used for product classification
-   */
-  recognitionThumbnail?: (number | null) | VideoMedia;
-  /**
-   * Object detections from Grounding DINO. Each entry is a cropped region with bounding box, optional CLIP match, and debug info.
-   */
-  detections?:
-    | {
-        image: number | DetectionMedia;
-        /**
-         * Grounding DINO detection confidence (0-1)
-         */
-        score?: number | null;
-        boxXMin?: number | null;
-        boxYMin?: number | null;
-        boxXMax?: number | null;
-        boxYMax?: number | null;
-        /**
-         * Whether a CLIP embedding was computed for this crop.
-         */
-        hasEmbedding?: boolean | null;
-        /**
-         * Product matched by CLIP visual similarity search.
-         */
-        matchedProduct?: (number | null) | Product;
-        /**
-         * Cosine distance from CLIP search (lower = better match, 0 = identical).
-         */
-        matchDistance?: number | null;
-        /**
-         * GTIN of the matched product-variant (for quick debugging).
-         */
-        matchedGtin?: string | null;
-        id?: string | null;
-      }[]
-    | null;
+  clusterThumbnail?: (number | null) | VideoMedia;
   updatedAt: string;
   createdAt: string;
 }
@@ -1819,25 +1920,33 @@ export interface VideoProcessing {
    */
   crawl?: (number | null) | VideoCrawl;
   /**
-   * Detect scenes, extract screenshots, scan barcodes.
+   * Detect scenes, extract screenshots, cluster frames.
    */
   stageSceneDetection?: boolean | null;
   /**
-   * LLM visual recognition and GTIN lookup.
+   * Scan frames for EAN barcodes, resolve to products.
    */
-  stageProductRecognition?: boolean | null;
+  stageBarcodeScan?: boolean | null;
   /**
-   * Grounding DINO object detection on video screenshots.
+   * Grounding DINO zero-shot object detection on frames.
    */
-  stageScreenshotDetection?: boolean | null;
+  stageObjectDetection?: boolean | null;
   /**
    * CLIP visual similarity search against product embeddings.
    */
-  stageScreenshotSearch?: boolean | null;
+  stageVisualSearch?: boolean | null;
+  /**
+   * LLM visual classification and product matching.
+   */
+  stageLlmRecognition?: boolean | null;
   /**
    * Speech-to-text via Deepgram with LLM correction.
    */
   stageTranscription?: boolean | null;
+  /**
+   * Synthesize all detection sources into unified detections.
+   */
+  stageCompileDetections?: boolean | null;
   /**
    * LLM quote extraction and sentiment scoring.
    */
@@ -2502,7 +2611,6 @@ export interface ProductsSelect<T extends boolean = true> {
   productType?: T;
   name?: T;
   variants?: T;
-  videoScenes?: T;
   videoMentions?: T;
   scoreHistory?:
     | T
@@ -2858,17 +2966,68 @@ export interface VideosSelect<T extends boolean = true> {
  * via the `definition` "video-scenes_select".
  */
 export interface VideoScenesSelect<T extends boolean = true> {
-  matchingType?: T;
   timestampStart?: T;
   timestampEnd?: T;
   video?: T;
   image?: T;
-  referencedProducts?: T;
-  videoMentions?: T;
+  frames?: T;
+  barcodes?:
+    | T
+    | {
+        barcode?: T;
+        frame?: T;
+        productVariant?: T;
+        product?: T;
+        id?: T;
+      };
+  objects?:
+    | T
+    | {
+        frame?: T;
+        crop?: T;
+        score?: T;
+        boxXMin?: T;
+        boxYMin?: T;
+        boxXMax?: T;
+        boxYMax?: T;
+        id?: T;
+      };
+  recognitions?:
+    | T
+    | {
+        objectIndex?: T;
+        product?: T;
+        productVariant?: T;
+        gtin?: T;
+        distance?: T;
+        id?: T;
+      };
+  llmMatches?:
+    | T
+    | {
+        frame?: T;
+        brand?: T;
+        productName?: T;
+        searchTerms?: T;
+        product?: T;
+        id?: T;
+      };
   preTranscript?: T;
   transcript?: T;
   postTranscript?: T;
-  frames?: T;
+  detections?:
+    | T
+    | {
+        product?: T;
+        confidence?: T;
+        sources?: T;
+        barcodeValue?: T;
+        clipDistance?: T;
+        llmBrand?: T;
+        llmProductName?: T;
+        id?: T;
+      };
+  videoMentions?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2879,24 +3038,8 @@ export interface VideoScenesSelect<T extends boolean = true> {
 export interface VideoFramesSelect<T extends boolean = true> {
   scene?: T;
   image?: T;
-  barcode?: T;
-  recognitionCandidate?: T;
-  recognitionThumbnail?: T;
-  detections?:
-    | T
-    | {
-        image?: T;
-        score?: T;
-        boxXMin?: T;
-        boxYMin?: T;
-        boxXMax?: T;
-        boxYMax?: T;
-        hasEmbedding?: T;
-        matchedProduct?: T;
-        matchDistance?: T;
-        matchedGtin?: T;
-        id?: T;
-      };
+  isClusterRepresentative?: T;
+  clusterThumbnail?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2907,6 +3050,10 @@ export interface VideoFramesSelect<T extends boolean = true> {
 export interface VideoMentionsSelect<T extends boolean = true> {
   videoScene?: T;
   product?: T;
+  confidence?: T;
+  sources?: T;
+  barcodeValue?: T;
+  clipDistance?: T;
   quotes?:
     | T
     | {
@@ -2984,10 +3131,12 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   urls?: T;
   crawl?: T;
   stageSceneDetection?: T;
-  stageProductRecognition?: T;
-  stageScreenshotDetection?: T;
-  stageScreenshotSearch?: T;
+  stageBarcodeScan?: T;
+  stageObjectDetection?: T;
+  stageVisualSearch?: T;
+  stageLlmRecognition?: T;
   stageTranscription?: T;
+  stageCompileDetections?: T;
   stageSentimentAnalysis?: T;
   itemsPerTick?: T;
   maxRetries?: T;

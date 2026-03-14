@@ -8,7 +8,7 @@ export const VideoScenes: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'video',
-    defaultColumns: ['video', 'timestampStart', 'matchingType', 'referencedProducts'],
+    defaultColumns: ['video', 'timestampStart', 'timestampEnd', 'createdAt'],
     group: 'Videos',
   },
   hooks: {
@@ -31,16 +31,6 @@ export const VideoScenes: CollectionConfig = {
   fields: [
     // --- Sidebar ---
     {
-      name: 'matchingType',
-      type: 'select',
-      label: 'Matching Type',
-      options: [
-        { label: 'Barcode', value: 'barcode' },
-        { label: 'Visual', value: 'visual' },
-      ],
-      admin: { position: 'sidebar' },
-    },
-    {
       name: 'timestampStart',
       type: 'number',
       label: 'Timestamp Start',
@@ -62,6 +52,7 @@ export const VideoScenes: CollectionConfig = {
     {
       type: 'tabs',
       tabs: [
+        // ── General ──
         {
           label: 'General',
           fields: [
@@ -89,27 +80,217 @@ export const VideoScenes: CollectionConfig = {
             },
           ],
         },
+
+        // ── Frames (Stage 0: scene_detection) ──
         {
-          label: 'Products',
+          label: 'Frames',
           fields: [
             {
-              name: 'referencedProducts',
-              type: 'relationship',
-              relationTo: 'products',
-              hasMany: true,
-              label: 'Referenced Products',
-            },
-            {
-              name: 'videoMentions',
+              name: 'frames',
               type: 'join',
-              collection: 'video-mentions',
-              on: 'videoScene',
+              collection: 'video-frames',
+              on: 'scene',
               admin: {
-                defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
+                defaultColumns: ['image', 'isClusterRepresentative', 'createdAt'],
               },
             },
           ],
         },
+
+        // ── Barcodes (Stage 1: barcode_scan) ──
+        {
+          label: 'Barcodes',
+          fields: [
+            {
+              name: 'barcodes',
+              type: 'array',
+              label: 'Barcodes',
+              admin: {
+                description: 'Barcodes found in this scene by zbarimg scanning. Each entry is a barcode detection with optional product resolution.',
+              },
+              fields: [
+                {
+                  name: 'barcode',
+                  type: 'text',
+                  label: 'Barcode',
+                  required: true,
+                  admin: { description: 'EAN-13/EAN-8 barcode value' },
+                },
+                {
+                  name: 'frame',
+                  type: 'relationship',
+                  relationTo: 'video-frames',
+                  label: 'Frame',
+                  admin: { description: 'The frame where this barcode was detected' },
+                },
+                {
+                  name: 'productVariant',
+                  type: 'relationship',
+                  relationTo: 'product-variants',
+                  label: 'Product Variant',
+                  admin: { description: 'Resolved product-variant by GTIN lookup' },
+                },
+                {
+                  name: 'product',
+                  type: 'relationship',
+                  relationTo: 'products',
+                  label: 'Product',
+                  admin: { description: 'Resolved product from the product-variant' },
+                },
+              ],
+            },
+          ],
+        },
+
+        // ── Objects (Stage 2: object_detection) ──
+        {
+          label: 'Objects',
+          fields: [
+            {
+              name: 'objects',
+              type: 'array',
+              label: 'Detected Objects',
+              admin: {
+                description: 'Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box and confidence score.',
+              },
+              fields: [
+                {
+                  name: 'frame',
+                  type: 'relationship',
+                  relationTo: 'video-frames',
+                  label: 'Source Frame',
+                },
+                {
+                  name: 'crop',
+                  type: 'upload',
+                  relationTo: 'detection-media',
+                  label: 'Detection Crop',
+                  required: true,
+                },
+                {
+                  name: 'score',
+                  type: 'number',
+                  label: 'Detection Score',
+                  min: 0,
+                  max: 1,
+                  admin: {
+                    step: 0.001,
+                    description: 'Grounding DINO detection confidence (0-1)',
+                  },
+                },
+                {
+                  type: 'row',
+                  fields: [
+                    { name: 'boxXMin', type: 'number', label: 'X Min', admin: { width: '25%' } },
+                    { name: 'boxYMin', type: 'number', label: 'Y Min', admin: { width: '25%' } },
+                    { name: 'boxXMax', type: 'number', label: 'X Max', admin: { width: '25%' } },
+                    { name: 'boxYMax', type: 'number', label: 'Y Max', admin: { width: '25%' } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+
+        // ── Recognitions (Stage 3: visual_search) ──
+        {
+          label: 'Recognitions',
+          fields: [
+            {
+              name: 'recognitions',
+              type: 'array',
+              label: 'Visual Recognitions',
+              admin: {
+                description: 'CLIP visual similarity search results. Each entry matches a detected object to a product via embedding cosine distance.',
+              },
+              fields: [
+                {
+                  name: 'objectIndex',
+                  type: 'number',
+                  label: 'Object Index',
+                  admin: { description: 'Index into the objects[] array on this scene' },
+                },
+                {
+                  name: 'product',
+                  type: 'relationship',
+                  relationTo: 'products',
+                  label: 'Matched Product',
+                },
+                {
+                  name: 'productVariant',
+                  type: 'relationship',
+                  relationTo: 'product-variants',
+                  label: 'Matched Variant',
+                },
+                {
+                  name: 'gtin',
+                  type: 'text',
+                  label: 'Matched GTIN',
+                  admin: { description: 'GTIN of the matched product-variant' },
+                },
+                {
+                  name: 'distance',
+                  type: 'number',
+                  label: 'Cosine Distance',
+                  admin: {
+                    step: 0.0001,
+                    description: 'CLIP cosine distance (lower = better, 0 = identical)',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+
+        // ── LLM Matches (Stage 4: llm_recognition) ──
+        {
+          label: 'LLM Matches',
+          fields: [
+            {
+              name: 'llmMatches',
+              type: 'array',
+              label: 'LLM Matches',
+              admin: {
+                description: 'Products identified by LLM visual recognition. The LLM classifies screenshots and extracts brand/product info.',
+              },
+              fields: [
+                {
+                  name: 'frame',
+                  type: 'relationship',
+                  relationTo: 'video-frames',
+                  label: 'Source Frame',
+                },
+                {
+                  name: 'brand',
+                  type: 'text',
+                  label: 'Brand',
+                  admin: { description: 'Brand name identified by the LLM' },
+                },
+                {
+                  name: 'productName',
+                  type: 'text',
+                  label: 'Product Name',
+                  admin: { description: 'Product name identified by the LLM' },
+                },
+                {
+                  name: 'searchTerms',
+                  type: 'json',
+                  label: 'Search Terms',
+                  admin: { description: 'Search terms extracted by the LLM for product matching' },
+                },
+                {
+                  name: 'product',
+                  type: 'relationship',
+                  relationTo: 'products',
+                  label: 'Matched Product',
+                  admin: { description: 'Product found/created via LLM + DB matching' },
+                },
+              ],
+            },
+          ],
+        },
+
+        // ── Transcription (Stage 5: transcription) ──
         {
           label: 'Transcription',
           fields: [
@@ -139,16 +320,92 @@ export const VideoScenes: CollectionConfig = {
             },
           ],
         },
+
+        // ── Detections (Stage 6: compile_detections — synthesized from all sources) ──
         {
-          label: 'Frames',
+          label: 'Detections',
           fields: [
             {
-              name: 'frames',
-              type: 'join',
-              collection: 'video-frames',
-              on: 'scene',
+              name: 'detections',
+              type: 'array',
+              label: 'Compiled Detections',
               admin: {
-                defaultColumns: ['image', 'recognitionCandidate', 'barcode'],
+                description: 'Unified product detections synthesized from all sources (barcode, object detection + CLIP, LLM vision). One entry per unique product.',
+              },
+              fields: [
+                {
+                  name: 'product',
+                  type: 'relationship',
+                  relationTo: 'products',
+                  label: 'Product',
+                  required: true,
+                },
+                {
+                  name: 'confidence',
+                  type: 'number',
+                  label: 'Confidence',
+                  min: 0,
+                  max: 1,
+                  admin: {
+                    step: 0.01,
+                    description: 'Synthesized confidence score (0-1) combining all detection sources',
+                  },
+                },
+                {
+                  name: 'sources',
+                  type: 'select',
+                  hasMany: true,
+                  label: 'Sources',
+                  options: [
+                    { label: 'Barcode', value: 'barcode' },
+                    { label: 'Object Detection', value: 'object_detection' },
+                    { label: 'Vision LLM', value: 'vision_llm' },
+                  ],
+                  admin: { description: 'Which detection methods identified this product' },
+                },
+                {
+                  name: 'barcodeValue',
+                  type: 'text',
+                  label: 'Barcode Value',
+                  admin: { description: 'EAN barcode if detected via barcode source' },
+                },
+                {
+                  name: 'clipDistance',
+                  type: 'number',
+                  label: 'CLIP Distance',
+                  admin: {
+                    step: 0.0001,
+                    description: 'Best CLIP cosine distance if detected via object detection',
+                  },
+                },
+                {
+                  name: 'llmBrand',
+                  type: 'text',
+                  label: 'LLM Brand',
+                  admin: { description: 'Brand name from LLM recognition' },
+                },
+                {
+                  name: 'llmProductName',
+                  type: 'text',
+                  label: 'LLM Product Name',
+                  admin: { description: 'Product name from LLM recognition' },
+                },
+              ],
+            },
+          ],
+        },
+
+        // ── Mentions (Stage 7: sentiment_analysis — final output) ──
+        {
+          label: 'Mentions',
+          fields: [
+            {
+              name: 'videoMentions',
+              type: 'join',
+              collection: 'video-mentions',
+              on: 'videoScene',
+              admin: {
+                defaultColumns: ['product', 'confidence', 'overallSentiment', 'overallSentimentScore'],
               },
             },
           ],

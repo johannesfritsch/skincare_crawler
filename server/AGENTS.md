@@ -1587,11 +1587,13 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 | `source_variants` | `sourceArticleNumber` | `source_article_number` |
 | `videos` | `channel` | `channel_id` |
 | `videos` | `transcriptWords` | `transcript_words` |
-| `video_scenes` | `matchingType` | `matching_type` |
 | `video_scenes` | `timestampStart` | `timestamp_start` |
 | `video_scenes` | `video` | `video_id` |
 | `video_mentions` | `overallSentiment` | `overall_sentiment` |
 | `video_mentions` | `overallSentimentScore` | `overall_sentiment_score` |
+| `video_mentions` | `confidence` | `confidence` |
+| `video_mentions` | `barcodeValue` | `barcode_value` |
+| `video_mentions` | `clipDistance` | `clip_distance` |
 | `video_mentions` | `product` | `product_id` |
 | `video_mentions` | `videoScene` | `video_scene_id` |
 | `channels` | `creator` | `creator_id` |
@@ -1771,7 +1773,7 @@ interface SnapshotResponse {
   videoPipeline: {
     total, crawled, processed, unprocessed, withTranscript, totalScenes,
     // Uses status field: "processed" = status='processed', "crawled" = status='crawled', "unprocessed" = status != 'processed'
-    scenesByBarcode, scenesByVisual, totalMentions,
+    totalScenes, totalMentions,
     mentionsByPositive, mentionsByNeutral, mentionsByNegative, mentionsByMixed,
     productsWithMentions, channelsByPlatform: Array<{ platform, count }>
   }
@@ -1804,7 +1806,7 @@ interface SnapshotResponse {
 | DatabaseOverview | `database-overview` | `DatabaseOverviewClient` | Grid of 11 entity count cards (products, variants, GTINs, source products/variants, brands, ingredients, videos, creators, channels, media) |
 | ProductQuality | `product-quality` | `ProductQualityClient` | Overall completeness percentage + 6 horizontal progress bars (image, brand, productType, ingredients, description, scoreHistory) |
 | SourceCoverage | `source-coverage` | `SourceCoverageClient` | Table with one row per store: products count, crawl progress bar with %, variants, GTINs, avg rating with review count |
-| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Pipeline progress bar (discovered/crawled/processed via status field), stats grid (scenes by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
+| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Pipeline progress bar (discovered/crawled/processed via status field), stats grid (scenes, mentions, products, transcripts), sentiment breakdown, channels by platform |
 | JobQueue | `job-queue` | `JobQueueClient` | Live workers section (name, status dot, last seen) + job queue table (pending/running/completed/failed/stale per collection, clickable links) |
 
 ### Key Files

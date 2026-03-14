@@ -8,7 +8,7 @@ export const VideoMentions: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'id',
-    defaultColumns: ['product', 'overallSentiment', 'overallSentimentScore'],
+    defaultColumns: ['product', 'confidence', 'overallSentiment', 'overallSentimentScore'],
     group: 'Videos',
   },
   fields: [
@@ -30,12 +30,60 @@ export const VideoMentions: CollectionConfig = {
       index: true,
       admin: { position: 'sidebar' },
     },
+
+    // ── Detection provenance (copied from compiled detections) ──
+    {
+      name: 'confidence',
+      type: 'number',
+      label: 'Confidence',
+      min: 0,
+      max: 1,
+      admin: {
+        position: 'sidebar',
+        step: 0.01,
+        description: 'Synthesized detection confidence (0-1)',
+      },
+    },
+    {
+      name: 'sources',
+      type: 'select',
+      hasMany: true,
+      label: 'Detection Sources',
+      options: [
+        { label: 'Barcode', value: 'barcode' },
+        { label: 'Object Detection', value: 'object_detection' },
+        { label: 'Vision LLM', value: 'vision_llm' },
+      ],
+      admin: {
+        position: 'sidebar',
+        description: 'Which detection methods identified this product',
+      },
+    },
+    {
+      name: 'barcodeValue',
+      type: 'text',
+      label: 'Barcode Value',
+      admin: {
+        description: 'EAN barcode if detected via barcode source',
+      },
+    },
+    {
+      name: 'clipDistance',
+      type: 'number',
+      label: 'CLIP Distance',
+      admin: {
+        step: 0.0001,
+        description: 'Best CLIP cosine distance if detected via object detection',
+      },
+    },
+
+    // ── Sentiment (from LLM analysis) ──
     {
       name: 'quotes',
       type: 'array',
       label: 'Quotes',
       admin: {
-        description: 'Spoken quotes about this product extracted from the video scene',
+        description: 'Spoken quotes about this product extracted from the scene transcript',
       },
       fields: [
         {

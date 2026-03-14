@@ -149,8 +149,6 @@ export default function VideoPipelineClient() {
         }}
       >
         <MiniStat label="Scenes" value={v.totalScenes} />
-        <MiniStat label="By Barcode" value={v.scenesByBarcode} color="#3b82f6" />
-        <MiniStat label="By Visual" value={v.scenesByVisual} color="#8b5cf6" />
         <MiniStat label="Mentions" value={v.totalMentions} />
         <MiniStat label="Products" value={v.productsWithMentions} color="#06b6d4" />
         <MiniStat label="Transcripts" value={v.withTranscript} color="#14b8a6" />

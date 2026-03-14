@@ -12,12 +12,14 @@
  * processing pipeline assumes videos already have their MP4 downloaded.
  *
  * Stage ordering (by index in STAGES array):
- *   0. scene_detection
- *   1. product_recognition
- *   2. screenshot_detection    — Grounding DINO on screenshots
- *   3. screenshot_search       — CLIP visual similarity search
- *   4. transcription
- *   5. sentiment_analysis
+ *   0. scene_detection      — Detect scenes, extract screenshots, cluster frames
+ *   1. barcode_scan         — Scan frames for EAN barcodes → scene.barcodes[]
+ *   2. object_detection     — Grounding DINO on cluster reps → scene.objects[]
+ *   3. visual_search        — CLIP search on object crops → scene.recognitions[]
+ *   4. llm_recognition      — LLM visual classification → scene.llmMatches[]
+ *   5. transcription        — Deepgram STT + LLM correction → scene transcript
+ *   6. compile_detections   — Synthesize all sources → scene.detections[]
+ *   7. sentiment_analysis   — LLM sentiment → video-mentions
  */
 
 import type { PayloadRestClient } from '@/lib/payload-client'
@@ -25,13 +27,15 @@ import type { Logger } from '@/lib/logger'
 
 // ─── Types ───
 
-/** The 6 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
+/** The 8 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
 export type StageName =
   | 'scene_detection'
-  | 'product_recognition'
-  | 'screenshot_detection'
-  | 'screenshot_search'
+  | 'barcode_scan'
+  | 'object_detection'
+  | 'visual_search'
+  | 'llm_recognition'
   | 'transcription'
+  | 'compile_detections'
   | 'sentiment_analysis'
 
 /**
@@ -99,10 +103,12 @@ export interface StageDefinition {
 
 // Import stage executors (lazy — each file exports a single execute function)
 import { executeSceneDetection } from './scene-detection'
-import { executeProductRecognition } from './product-recognition'
-import { executeScreenshotDetection } from './screenshot-detection'
-import { executeScreenshotSearch } from './screenshot-search'
+import { executeBarcodeScan } from './barcode-scan'
+import { executeObjectDetection } from './object-detection'
+import { executeVisualSearch } from './visual-search'
+import { executeLlmRecognition } from './llm-recognition'
 import { executeTranscription } from './transcription'
+import { executeCompileDetections } from './compile-detections'
 import { executeSentimentAnalysis } from './sentiment-analysis'
 
 /** All stages in pipeline order */
@@ -114,32 +120,44 @@ export const STAGES: StageDefinition[] = [
     execute: executeSceneDetection,
   },
   {
-    name: 'product_recognition',
+    name: 'barcode_scan',
     index: 1,
-    jobField: 'stageProductRecognition',
-    execute: executeProductRecognition,
+    jobField: 'stageBarcodeScan',
+    execute: executeBarcodeScan,
   },
   {
-    name: 'screenshot_detection',
+    name: 'object_detection',
     index: 2,
-    jobField: 'stageScreenshotDetection',
-    execute: executeScreenshotDetection,
+    jobField: 'stageObjectDetection',
+    execute: executeObjectDetection,
   },
   {
-    name: 'screenshot_search',
+    name: 'visual_search',
     index: 3,
-    jobField: 'stageScreenshotSearch',
-    execute: executeScreenshotSearch,
+    jobField: 'stageVisualSearch',
+    execute: executeVisualSearch,
+  },
+  {
+    name: 'llm_recognition',
+    index: 4,
+    jobField: 'stageLlmRecognition',
+    execute: executeLlmRecognition,
   },
   {
     name: 'transcription',
-    index: 4,
+    index: 5,
     jobField: 'stageTranscription',
     execute: executeTranscription,
   },
   {
+    name: 'compile_detections',
+    index: 6,
+    jobField: 'stageCompileDetections',
+    execute: executeCompileDetections,
+  },
+  {
     name: 'sentiment_analysis',
-    index: 5,
+    index: 7,
     jobField: 'stageSentimentAnalysis',
     execute: executeSentimentAnalysis,
   },
@@ -206,10 +224,12 @@ export function getFinalStage(enabledStages: Set<StageName>): StageName | null {
 export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   const stages = new Set<StageName>()
   if (job.stageSceneDetection !== false) stages.add('scene_detection')
-  if (job.stageProductRecognition !== false) stages.add('product_recognition')
-  if (job.stageScreenshotDetection !== false) stages.add('screenshot_detection')
-  if (job.stageScreenshotSearch !== false) stages.add('screenshot_search')
+  if (job.stageBarcodeScan !== false) stages.add('barcode_scan')
+  if (job.stageObjectDetection !== false) stages.add('object_detection')
+  if (job.stageVisualSearch !== false) stages.add('visual_search')
+  if (job.stageLlmRecognition !== false) stages.add('llm_recognition')
   if (job.stageTranscription !== false) stages.add('transcription')
+  if (job.stageCompileDetections !== false) stages.add('compile_detections')
   if (job.stageSentimentAnalysis !== false) stages.add('sentiment_analysis')
   return stages
 }

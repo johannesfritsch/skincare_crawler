@@ -399,7 +399,7 @@ export interface EventRegistry {
     brand: string
     product: string
   }
-  'video_processing.screenshot_detection_detail': {
+  'video_processing.object_detection_detail': {
     title: string
     sceneId: number
     frameId: number
@@ -412,14 +412,14 @@ export interface EventRegistry {
     topScore: number
     scores: string
   }
-  'video_processing.screenshots_detected': {
+  'video_processing.objects_detected': {
     title: string
     scenes: number
     detections: number
     candidatesProcessed: number
     candidatesWithDetections: number
   }
-  'video_processing.screenshot_search_detail': {
+  'video_processing.visual_search_detail': {
     title: string
     sceneId: number
     frameId: number
@@ -432,7 +432,7 @@ export interface EventRegistry {
     matchedProductId: number
     topDistances: string
   }
-  'video_processing.screenshots_searched': {
+  'video_processing.visual_search_complete': {
     title: string
     searched: number
     matched: number
@@ -899,22 +899,22 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     level: 'info',
     labels: ['video-processing', 'recognition'],
   },
-  'video_processing.screenshot_detection_detail': {
+  'video_processing.object_detection_detail': {
     type: 'info',
     level: 'debug',
     labels: ['video-processing', 'object-detection'],
   },
-  'video_processing.screenshots_detected': {
+  'video_processing.objects_detected': {
     type: 'info',
     level: 'info',
     labels: ['video-processing', 'object-detection'],
   },
-  'video_processing.screenshot_search_detail': {
+  'video_processing.visual_search_detail': {
     type: 'info',
     level: 'debug',
     labels: ['video-processing', 'embedding'],
   },
-  'video_processing.screenshots_searched': {
+  'video_processing.visual_search_complete': {
     type: 'info',
     level: 'info',
     labels: ['video-processing', 'embedding'],

@@ -133,38 +133,53 @@ export const VideoProcessings: CollectionConfig = {
                   label: 'Scene Detection',
                   defaultValue: true,
                   admin: {
-                    description: 'Detect scenes, extract screenshots, scan barcodes.',
-                    width: '20%',
+                    description: 'Detect scenes, extract screenshots, cluster frames.',
+                    width: '25%',
                   },
                 },
                 {
-                  name: 'stageProductRecognition',
+                  name: 'stageBarcodeScan',
                   type: 'checkbox',
-                  label: 'Product Recognition',
+                  label: 'Barcode Scan',
                   defaultValue: true,
                   admin: {
-                    description: 'LLM visual recognition and GTIN lookup.',
-                    width: '20%',
+                    description: 'Scan frames for EAN barcodes, resolve to products.',
+                    width: '25%',
                   },
                 },
                 {
-                  name: 'stageScreenshotDetection',
+                  name: 'stageObjectDetection',
                   type: 'checkbox',
-                  label: 'Screenshot Detection',
+                  label: 'Object Detection',
                   defaultValue: true,
                   admin: {
-                    description: 'Grounding DINO object detection on video screenshots.',
-                    width: '20%',
+                    description: 'Grounding DINO zero-shot object detection on frames.',
+                    width: '25%',
                   },
                 },
                 {
-                  name: 'stageScreenshotSearch',
+                  name: 'stageVisualSearch',
                   type: 'checkbox',
-                  label: 'Screenshot Search',
+                  label: 'Visual Search',
                   defaultValue: true,
                   admin: {
                     description: 'CLIP visual similarity search against product embeddings.',
-                    width: '20%',
+                    width: '25%',
+                  },
+                },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageLlmRecognition',
+                  type: 'checkbox',
+                  label: 'LLM Recognition',
+                  defaultValue: true,
+                  admin: {
+                    description: 'LLM visual classification and product matching.',
+                    width: '25%',
                   },
                 },
                 {
@@ -174,7 +189,17 @@ export const VideoProcessings: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description: 'Speech-to-text via Deepgram with LLM correction.',
-                    width: '20%',
+                    width: '25%',
+                  },
+                },
+                {
+                  name: 'stageCompileDetections',
+                  type: 'checkbox',
+                  label: 'Compile Detections',
+                  defaultValue: true,
+                  admin: {
+                    description: 'Synthesize all detection sources into unified detections.',
+                    width: '25%',
                   },
                 },
                 {
@@ -184,7 +209,7 @@ export const VideoProcessings: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description: 'LLM quote extraction and sentiment scoring.',
-                    width: '20%',
+                    width: '25%',
                   },
                 },
               ],

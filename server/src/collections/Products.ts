@@ -96,18 +96,12 @@ export const Products: CollectionConfig = {
           label: 'In Videos',
           fields: [
             {
-              name: 'videoScenes',
-              type: 'join',
-              collection: 'video-scenes',
-              on: 'referencedProducts',
-            },
-            {
               name: 'videoMentions',
               type: 'join',
               collection: 'video-mentions',
               on: 'product',
               admin: {
-                defaultColumns: ['videoScene', 'overallSentiment', 'overallSentimentScore'],
+                defaultColumns: ['videoScene', 'confidence', 'overallSentiment', 'overallSentimentScore'],
               },
             },
           ],

@@ -53,8 +53,6 @@ export interface SnapshotResponse {
     unprocessed: number
     withTranscript: number
     totalScenes: number
-    scenesByBarcode: number
-    scenesByVisual: number
     totalMentions: number
     mentionsByPositive: number
     mentionsByNeutral: number
@@ -194,12 +192,9 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       FROM videos
     `),
 
-    // 7. Video scenes by matching type
+    // 7. Video scenes count
     db.execute(sql`
-      SELECT
-        count(*)::int AS total,
-        count(*) FILTER (WHERE matching_type = 'barcode')::int AS barcode,
-        count(*) FILTER (WHERE matching_type = 'visual')::int AS visual
+      SELECT count(*)::int AS total
       FROM video_scenes
     `),
 
@@ -367,8 +362,6 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       unprocessed: Number(videoStats.unprocessed ?? 0),
       withTranscript: Number(videoStats.withTranscript ?? 0),
       totalScenes: Number(sceneStats.total ?? 0),
-      scenesByBarcode: Number(sceneStats.barcode ?? 0),
-      scenesByVisual: Number(sceneStats.visual ?? 0),
       totalMentions: Number(mentionStats.total ?? 0),
       mentionsByPositive: Number(mentionStats.positive ?? 0),
       mentionsByNeutral: Number(mentionStats.neutral ?? 0),
