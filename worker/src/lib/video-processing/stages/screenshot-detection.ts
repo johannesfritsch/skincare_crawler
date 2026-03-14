@@ -1,5 +1,5 @@
 /**
- * Stage 3: Screenshot Detection
+ * Stage 2: Screenshot Detection
  *
  * Runs Grounding DINO object detection on video screenshot cluster
  * representatives to detect cosmetics packaging. Crops each detected
@@ -7,27 +7,30 @@
  * the video-snippet's `detections` array field.
  *
  * Uses the shared Grounding DINO singleton from @/lib/models/grounding-dino.
+ *
+ * Detection prompt and threshold are configurable via the job's Configuration
+ * tab (detectionPrompt, detectionThreshold). Emits per-candidate detail events
+ * for full observability in the admin UI.
  */
 
 import sharp from 'sharp'
 import { getDetector } from '@/lib/models/grounding-dino'
 import type { StageContext, StageResult } from './index'
 
-const DETECTION_PROMPT = 'cosmetics packaging.'
-const BOX_THRESHOLD = 0.3
-
 export async function executeScreenshotDetection(ctx: StageContext, videoId: number): Promise<StageResult> {
   const { payload, config, log } = ctx
   const jlog = log.forJob('video-processings', config.jobId)
   const minBoxArea = config.minBoxArea ?? 0.25
+  const detectionThreshold = config.detectionThreshold ?? 0.3
+  const detectionPrompt = config.detectionPrompt ?? 'cosmetics packaging.'
 
   const video = (await payload.findByID({ collection: 'videos', id: videoId })) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
 
   // Lazily load the Grounding DINO model
-  log.info('Loading Grounding DINO model (first call may download ~700MB)')
+  jlog.info('Loading Grounding DINO model (first call may download ~700MB)')
   const detector = await getDetector()
-  log.info('Grounding DINO model ready')
+  jlog.info('Grounding DINO model ready', { prompt: detectionPrompt, threshold: detectionThreshold, minBoxAreaPct: (minBoxArea * 100).toFixed(0) })
 
   // Fetch all snippets for this video
   const snippetsResult = await payload.find({
@@ -38,12 +41,14 @@ export async function executeScreenshotDetection(ctx: StageContext, videoId: num
   })
 
   if (snippetsResult.docs.length === 0) {
-    log.info('No snippets found, skipping screenshot detection', { videoId })
+    jlog.info('No snippets found, skipping screenshot detection', { videoId })
     return { success: true }
   }
 
   let totalDetections = 0
   let snippetsProcessed = 0
+  let candidatesProcessed = 0
+  let candidatesWithDetections = 0
   const serverUrl = payload.serverUrl
 
   for (const snippetDoc of snippetsResult.docs) {
@@ -88,7 +93,7 @@ export async function executeScreenshotDetection(ctx: StageContext, videoId: num
         // Download the image for processing
         const imageRes = await fetch(fullImageUrl)
         if (!imageRes.ok) {
-          jlog.event('video_processing.warning', { title, warning: `Failed to download screenshot ${ssIndex} (status=${imageRes.status})` })
+          jlog.event('video_processing.warning', { title, warning: `Failed to download screenshot ${ssIndex} in snippet ${snippetId} (status=${imageRes.status})` })
           continue
         }
         const imageBuffer = Buffer.from(await imageRes.arrayBuffer())
@@ -98,77 +103,98 @@ export async function executeScreenshotDetection(ctx: StageContext, videoId: num
         const imgWidth = metadata.width ?? 0
         const imgHeight = metadata.height ?? 0
         if (imgWidth === 0 || imgHeight === 0) {
-          jlog.event('video_processing.warning', { title, warning: `Could not get image dimensions for screenshot ${ssIndex}` })
+          jlog.event('video_processing.warning', { title, warning: `Could not get image dimensions for screenshot ${ssIndex} in snippet ${snippetId}` })
           continue
         }
 
         // Run Grounding DINO detection
-        const detections = await detector(fullImageUrl, [DETECTION_PROMPT], {
-          threshold: BOX_THRESHOLD,
+        const detections = await detector(fullImageUrl, [detectionPrompt], {
+          threshold: detectionThreshold,
         })
 
-        if (!detections || detections.length === 0) {
-          log.info('No objects detected in screenshot', { snippetId, ssIndex })
-          continue
+        candidatesProcessed++
+
+        const rawCount = detections?.length ?? 0
+        let keptCount = 0
+        let skippedSmall = 0
+        let skippedInvalid = 0
+        const allScores: number[] = detections ? detections.map((d: { score: number }) => d.score) : []
+
+        if (detections && detections.length > 0) {
+          candidatesWithDetections++
+
+          for (const det of detections) {
+            // Clamp box coordinates to image bounds
+            const xmin = Math.max(0, Math.round(det.box.xmin))
+            const ymin = Math.max(0, Math.round(det.box.ymin))
+            const xmax = Math.min(imgWidth, Math.round(det.box.xmax))
+            const ymax = Math.min(imgHeight, Math.round(det.box.ymax))
+            const cropWidth = xmax - xmin
+            const cropHeight = ymax - ymin
+
+            if (cropWidth <= 0 || cropHeight <= 0) {
+              skippedInvalid++
+              continue
+            }
+
+            // Filter by minimum relative box area
+            const boxAreaRatio = (cropWidth * cropHeight) / (imgWidth * imgHeight)
+            if (boxAreaRatio < minBoxArea) {
+              skippedSmall++
+              continue
+            }
+
+            // Crop the region using sharp
+            const croppedBuffer = await sharp(imageBuffer)
+              .extract({ left: xmin, top: ymin, width: cropWidth, height: cropHeight })
+              .png()
+              .toBuffer()
+
+            // Upload cropped image to media
+            const cropMediaDoc = await payload.create({
+              collection: 'detection-media',
+              data: { alt: `${title} – detection ss${ssIndex} (${det.score.toFixed(2)})` },
+              file: {
+                data: croppedBuffer,
+                mimetype: 'image/png',
+                name: `detection-v${videoId}-sn${snippetId}-ss${ssIndex}-${detectionEntries.length}.png`,
+                size: croppedBuffer.length,
+              },
+            })
+            const cropMediaId = (cropMediaDoc as { id: number }).id
+
+            detectionEntries.push({
+              image: cropMediaId,
+              score: det.score,
+              screenshotIndex: ssIndex,
+              boxXMin: xmin,
+              boxYMin: ymin,
+              boxXMax: xmax,
+              boxYMax: ymax,
+            })
+
+            keptCount++
+            totalDetections++
+          }
         }
 
-        log.info('Objects detected', { snippetId, ssIndex, count: detections.length })
-
-        for (const det of detections) {
-          // Clamp box coordinates to image bounds
-          const xmin = Math.max(0, Math.round(det.box.xmin))
-          const ymin = Math.max(0, Math.round(det.box.ymin))
-          const xmax = Math.min(imgWidth, Math.round(det.box.xmax))
-          const ymax = Math.min(imgHeight, Math.round(det.box.ymax))
-          const cropWidth = xmax - xmin
-          const cropHeight = ymax - ymin
-
-          if (cropWidth <= 0 || cropHeight <= 0) {
-            jlog.event('video_processing.warning', { title, warning: `Invalid detection box: ${xmin},${ymin},${xmax},${ymax}` })
-            continue
-          }
-
-          // Filter by minimum relative box area
-          const boxAreaRatio = (cropWidth * cropHeight) / (imgWidth * imgHeight)
-          if (boxAreaRatio < minBoxArea) {
-            log.info('Detection too small, skipping', { snippetId, ssIndex, boxAreaPct: (boxAreaRatio * 100).toFixed(1), minPct: (minBoxArea * 100).toFixed(1) })
-            continue
-          }
-
-          // Crop the region using sharp
-          const croppedBuffer = await sharp(imageBuffer)
-            .extract({ left: xmin, top: ymin, width: cropWidth, height: cropHeight })
-            .png()
-            .toBuffer()
-
-          // Upload cropped image to media
-          const cropMediaDoc = await payload.create({
-            collection: 'detection-media',
-            data: { alt: `${title} – detection ss${ssIndex} (${det.score.toFixed(2)})` },
-            file: {
-              data: croppedBuffer,
-              mimetype: 'image/png',
-              name: `detection-v${videoId}-sn${snippetId}-ss${ssIndex}-${detectionEntries.length}.png`,
-              size: croppedBuffer.length,
-            },
-          })
-          const cropMediaId = (cropMediaDoc as { id: number }).id
-
-          detectionEntries.push({
-            image: cropMediaId,
-            score: det.score,
-            screenshotIndex: ssIndex,
-            boxXMin: xmin,
-            boxYMin: ymin,
-            boxXMax: xmax,
-            boxYMax: ymax,
-          })
-
-          totalDetections++
-        }
+        // Emit per-candidate detail event (always — even when rawCount is 0)
+        jlog.event('video_processing.screenshot_detection_detail', {
+          title,
+          snippetId,
+          screenshotIndex: ssIndex,
+          imageWidth: imgWidth,
+          imageHeight: imgHeight,
+          rawDetections: rawCount,
+          keptDetections: keptCount,
+          skippedSmall,
+          skippedInvalid,
+          topScore: allScores.length > 0 ? Math.max(...allScores) : 0,
+          scores: allScores.map((s) => s.toFixed(3)).join(',') || '-',
+        })
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        jlog.event('video_processing.warning', { title, warning: `Object detection failed for screenshot ${ssIndex}: ${msg}` })
+        jlog.event('video_processing.warning', { title, warning: `Object detection failed for screenshot ${ssIndex} in snippet ${snippetId}: ${msg}` })
       }
     }
 
@@ -183,14 +209,21 @@ export async function executeScreenshotDetection(ctx: StageContext, videoId: num
     await ctx.heartbeat()
   }
 
-  if (totalDetections > 0 || snippetsProcessed > 0) {
-    jlog.event('video_processing.screenshots_detected', {
-      title,
-      snippets: snippetsProcessed,
-      detections: totalDetections,
-    })
-  }
+  // Always emit aggregate event (even when 0 detections — that's useful info)
+  jlog.event('video_processing.screenshots_detected', {
+    title,
+    snippets: snippetsProcessed,
+    detections: totalDetections,
+    candidatesProcessed,
+    candidatesWithDetections,
+  })
 
-  log.info('Screenshot detection stage complete', { videoId, snippets: snippetsProcessed, detections: totalDetections })
+  jlog.info('Screenshot detection complete', {
+    videoId,
+    snippets: snippetsProcessed,
+    candidates: candidatesProcessed,
+    withDetections: candidatesWithDetections,
+    totalKept: totalDetections,
+  })
   return { success: true }
 }

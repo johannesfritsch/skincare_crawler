@@ -27,9 +27,10 @@ The project uses **migration-based schema management** (not `push`). `push: fals
 3. Include the migration file in commits (the developer will apply it with `pnpm payload migrate`)
 
 **Rules:**
+- **CRITICAL: NEVER hand-write migration files.** Always use `pnpm payload migrate:create` to generate migrations. Each generated migration is a pair: a `.ts` file (SQL) and a `.json` file (schema snapshot). Payload diffs the current schema against the **most recent `.json` snapshot** to compute what changed. Hand-written migrations without a companion `.json` cause Payload to lose track of the schema state, leading to `migrate:create` generating duplicate SQL for changes that already exist.
+- If `migrate:create` prompts interactively (e.g. "created or renamed?"), the developer must answer those prompts — do not try to bypass them. Flag this to the developer and let them run the command.
 - Always run `pnpm payload migrate:create` after changing collection fields, adding/removing collections, or modifying indexes
 - Do NOT run `pnpm payload migrate` yourself — applying migrations is the developer's responsibility
-- For complex cases (enum value additions, data transformations, column renames), note in the migration file what manual SQL may be needed and flag it to the developer
 - Migrations live in `server/src/migrations/` — the `index.ts` barrel file is auto-generated
 
 ## Project Structure

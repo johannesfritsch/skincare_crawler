@@ -693,6 +693,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
     transcriptionLanguage: (work.transcriptionLanguage as string) ?? 'de',
     transcriptionModel: (work.transcriptionModel as string) ?? 'nova-3',
     minBoxArea: ((work.minBoxArea as number) ?? 25) / 100,
+    detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
+    detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
   }
 
   log.info('Video processing job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })

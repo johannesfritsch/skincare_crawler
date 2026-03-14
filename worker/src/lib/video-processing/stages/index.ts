@@ -50,6 +50,10 @@ export interface StageConfig {
   transcriptionModel: string
   /** Minimum detection box area as a fraction (0-1) of the screenshot area. Default: 0.25 (25%). */
   minBoxArea: number
+  /** Grounding DINO confidence threshold (0-1). Default: 0.3. */
+  detectionThreshold: number
+  /** Grounding DINO text prompt for zero-shot detection. Default: "cosmetics packaging." */
+  detectionPrompt: string
 }
 
 /** Context available to all stage functions */

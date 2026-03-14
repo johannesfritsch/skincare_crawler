@@ -399,10 +399,25 @@ export interface EventRegistry {
     brand: string
     product: string
   }
+  'video_processing.screenshot_detection_detail': {
+    title: string
+    snippetId: number
+    screenshotIndex: number
+    imageWidth: number
+    imageHeight: number
+    rawDetections: number
+    keptDetections: number
+    skippedSmall: number
+    skippedInvalid: number
+    topScore: number
+    scores: string
+  }
   'video_processing.screenshots_detected': {
     title: string
     snippets: number
     detections: number
+    candidatesProcessed: number
+    candidatesWithDetections: number
   }
   'video_processing.screenshots_searched': {
     title: string
@@ -861,6 +876,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['video-processing', 'recognition'],
+  },
+  'video_processing.screenshot_detection_detail': {
+    type: 'info',
+    level: 'debug',
+    labels: ['video-processing', 'object-detection'],
   },
   'video_processing.screenshots_detected': {
     type: 'info',

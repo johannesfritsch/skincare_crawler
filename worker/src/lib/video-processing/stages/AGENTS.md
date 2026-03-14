@@ -10,7 +10,7 @@ Central orchestration file. Exports:
 
 - **`StageName`** — union of all 6 stage names
 - **`VideoProgress`** — `Record<string, StageName | null>` progress map type
-- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25)
+- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25), `detectionThreshold` (0-1, default 0.3), `detectionPrompt` (string, default "cosmetics packaging.")
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, tokens?: { recognition?, transcriptCorrection?, sentiment?, total? } }`
 - **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the VideoProcessings collection (e.g. `stageSceneDetection`)
@@ -121,26 +121,33 @@ Reads existing video-snippets. For barcode snippets, looks up products by GTIN. 
 **Checkbox**: `stageScreenshotDetection`
 **LLM**: No (ML inference via ONNX)
 **External**: None (local ONNX inference)
-**Event**: `video_processing.screenshots_detected`
+**Events**: `video_processing.screenshot_detection_detail` (per candidate), `video_processing.screenshots_detected` (aggregate)
 **Model**: Grounding DINO (shared singleton from `@/lib/models/grounding-dino`)
 
 Runs zero-shot object detection on cluster representative screenshots from visual snippets. Crops detections, uploads to detection-media, and stores in the snippet's `detections` array.
 
 **Scope**: Only `matchingType: 'visual'` snippets, only cluster representative screenshots.
 
-**Thresholds**: `box_threshold=0.3` (confidence), `minBoxArea` from job config (default 25% of screenshot area — only keeps foreground products, discards background detections)
+**Configurable parameters** (from job's Configuration tab → StageConfig):
+- `detectionPrompt` — Grounding DINO text prompt (default: `"cosmetics packaging."`)
+- `detectionThreshold` — confidence threshold 0-1 (default: 0.3)
+- `minBoxArea` — minimum box area as fraction of screenshot area (default: 0.25 = 25%)
 
 **Flow**:
 1. Fetch all snippets for the video
 2. Filter to visual snippets with cluster representatives
 3. Per snippet, per representative screenshot:
    - Download screenshot from video-media
-   - Run Grounding DINO detector (prompt: "cosmetics packaging")
+   - Run Grounding DINO detector with configurable prompt and threshold
    - For each detection above confidence threshold AND minimum box area:
      - Crop the detected region via `sharp`
-      - Upload crop to detection-media collection
-      - Store in snippet's `detections` array: `{ image (detection-media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
+     - Upload crop to detection-media collection
+     - Store in snippet's `detections` array: `{ image (detection-media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
+   - Emit `video_processing.screenshot_detection_detail` event with full breakdown: raw detection count, kept/skipped counts, all scores, image dimensions
 4. Update snippet with `detections` array
+5. Emit `video_processing.screenshots_detected` aggregate event with `candidatesProcessed` and `candidatesWithDetections`
+
+**Observability**: Every recognition candidate screenshot emits a detail event regardless of outcome. This makes it easy to debug why detections are missing — you can see whether Grounding DINO returned zero detections (model didn't recognize anything) or returned detections that were filtered out (too small, invalid boxes).
 
 **Writes to**: `video-snippets` (detections array), `detection-media`
 

@@ -1858,9 +1858,17 @@ export interface VideoProcessing {
    */
   clusterThreshold?: number | null;
   /**
-   * Minimum detection box area as a percentage of the screenshot area. Detections smaller than this are discarded as background noise. Default: 25% (foreground products only).
+   * Grounding DINO confidence threshold (0-1). Detections below this score are discarded. Default: 0.3.
+   */
+  detectionThreshold?: number | null;
+  /**
+   * Minimum detection box area as a percentage of the screenshot area. Detections smaller than this are discarded as background noise. Default: 25%.
    */
   minBoxArea?: number | null;
+  /**
+   * Grounding DINO text prompt for zero-shot object detection. Default: "cosmetics packaging."
+   */
+  detectionPrompt?: string | null;
   /**
    * Language for speech recognition.
    */
@@ -2970,7 +2978,9 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   maxRetries?: T;
   sceneThreshold?: T;
   clusterThreshold?: T;
+  detectionThreshold?: T;
   minBoxArea?: T;
+  detectionPrompt?: T;
   transcriptionLanguage?: T;
   transcriptionModel?: T;
   total?: T;

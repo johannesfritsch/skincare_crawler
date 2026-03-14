@@ -846,6 +846,8 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
     transcriptionLanguage: (job.transcriptionLanguage as string) ?? 'de',
     transcriptionModel: (job.transcriptionModel as string) ?? 'nova-3',
     minBoxArea: (job.minBoxArea as number) ?? 25,
+    detectionThreshold: (job.detectionThreshold as number) ?? 0.3,
+    detectionPrompt: (job.detectionPrompt as string) ?? 'cosmetics packaging.',
   }
 }
 

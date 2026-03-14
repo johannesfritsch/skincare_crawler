@@ -250,16 +250,44 @@ export const VideoProcessings: CollectionConfig = {
               ],
             },
             {
-              name: 'minBoxArea',
-              type: 'number',
-              label: 'Min Detection Box Area (%)',
-              defaultValue: 25,
-              min: 0,
-              max: 100,
+              type: 'row',
+              fields: [
+                {
+                  name: 'detectionThreshold',
+                  type: 'number',
+                  label: 'Detection Threshold',
+                  defaultValue: 0.3,
+                  min: 0.01,
+                  max: 1,
+                  admin: {
+                    description: 'Grounding DINO confidence threshold (0-1). Detections below this score are discarded. Default: 0.3.',
+                    width: '50%',
+                  },
+                },
+                {
+                  name: 'minBoxArea',
+                  type: 'number',
+                  label: 'Min Box Area (%)',
+                  defaultValue: 25,
+                  min: 0,
+                  max: 100,
+                  admin: {
+                    description:
+                      'Minimum detection box area as a percentage of the screenshot area. ' +
+                      'Detections smaller than this are discarded as background noise. Default: 25%.',
+                    width: '50%',
+                  },
+                },
+              ],
+            },
+            {
+              name: 'detectionPrompt',
+              type: 'text',
+              label: 'Detection Prompt',
+              defaultValue: 'cosmetics packaging.',
               admin: {
                 description:
-                  'Minimum detection box area as a percentage of the screenshot area. ' +
-                  'Detections smaller than this are discarded as background noise. Default: 25% (foreground products only).',
+                  'Grounding DINO text prompt for zero-shot object detection. Default: "cosmetics packaging."',
               },
             },
             {

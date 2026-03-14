@@ -33,15 +33,19 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE TYPE "public"."enum_events_level" AS ENUM('debug', 'info', 'warn', 'error');
   CREATE TYPE "public"."enum_events_component" AS ENUM('worker', 'server');
   CREATE TYPE "public"."enum_channels_platform" AS ENUM('youtube', 'instagram', 'tiktok');
+  CREATE TYPE "public"."enum_videos_status" AS ENUM('discovered', 'crawled', 'processed');
   CREATE TYPE "public"."enum_video_snippets_matching_type" AS ENUM('barcode', 'visual');
   CREATE TYPE "public"."enum_video_mentions_quotes_sentiment" AS ENUM('positive', 'neutral', 'negative', 'mixed');
   CREATE TYPE "public"."enum_video_mentions_overall_sentiment" AS ENUM('positive', 'neutral', 'negative', 'mixed');
   CREATE TYPE "public"."enum_video_discoveries_status" AS ENUM('pending', 'in_progress', 'completed', 'failed');
+  CREATE TYPE "public"."enum_video_crawls_status" AS ENUM('pending', 'in_progress', 'completed', 'failed');
+  CREATE TYPE "public"."enum_video_crawls_type" AS ENUM('all', 'selected_urls', 'from_discovery');
+  CREATE TYPE "public"."enum_video_crawls_scope" AS ENUM('uncrawled_only', 'recrawl');
   CREATE TYPE "public"."enum_video_processings_status" AS ENUM('pending', 'in_progress', 'completed', 'failed');
-  CREATE TYPE "public"."enum_video_processings_type" AS ENUM('all_unprocessed', 'single_video', 'selected_urls');
+  CREATE TYPE "public"."enum_video_processings_type" AS ENUM('all_unprocessed', 'single_video', 'selected_urls', 'from_crawl');
   CREATE TYPE "public"."enum_video_processings_transcription_language" AS ENUM('de', 'en', 'fr', 'es', 'it');
   CREATE TYPE "public"."enum_video_processings_transcription_model" AS ENUM('nova-3', 'nova-2', 'enhanced', 'base');
-  CREATE TYPE "public"."enum_workers_capabilities" AS ENUM('product-crawl', 'product-discovery', 'product-search', 'ingredients-discovery', 'video-discovery', 'video-processing', 'product-aggregation', 'ingredient-crawl', 'event-purge');
+  CREATE TYPE "public"."enum_workers_capabilities" AS ENUM('product-crawl', 'product-discovery', 'product-search', 'ingredients-discovery', 'video-discovery', 'video-crawl', 'video-processing', 'product-aggregation', 'ingredient-crawl', 'event-purge');
   CREATE TYPE "public"."enum_workers_status" AS ENUM('active', 'disabled');
   CREATE TABLE "users_sessions" (
   	"_order" integer NOT NULL,
@@ -64,7 +68,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"lock_until" timestamp(3) with time zone
   );
   
-  CREATE TABLE "media" (
+  CREATE TABLE "product_media" (
   	"id" serial PRIMARY KEY NOT NULL,
   	"alt" varchar NOT NULL,
   	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
@@ -96,6 +100,90 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"sizes_detail_mime_type" varchar,
   	"sizes_detail_filesize" numeric,
   	"sizes_detail_filename" varchar
+  );
+  
+  CREATE TABLE "video_media" (
+  	"id" serial PRIMARY KEY NOT NULL,
+  	"alt" varchar NOT NULL,
+  	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"url" varchar,
+  	"thumbnail_u_r_l" varchar,
+  	"filename" varchar,
+  	"mime_type" varchar,
+  	"filesize" numeric,
+  	"width" numeric,
+  	"height" numeric,
+  	"focal_x" numeric,
+  	"focal_y" numeric,
+  	"sizes_thumbnail_url" varchar,
+  	"sizes_thumbnail_width" numeric,
+  	"sizes_thumbnail_height" numeric,
+  	"sizes_thumbnail_mime_type" varchar,
+  	"sizes_thumbnail_filesize" numeric,
+  	"sizes_thumbnail_filename" varchar,
+  	"sizes_card_url" varchar,
+  	"sizes_card_width" numeric,
+  	"sizes_card_height" numeric,
+  	"sizes_card_mime_type" varchar,
+  	"sizes_card_filesize" numeric,
+  	"sizes_card_filename" varchar,
+  	"sizes_detail_url" varchar,
+  	"sizes_detail_width" numeric,
+  	"sizes_detail_height" numeric,
+  	"sizes_detail_mime_type" varchar,
+  	"sizes_detail_filesize" numeric,
+  	"sizes_detail_filename" varchar
+  );
+  
+  CREATE TABLE "profile_media" (
+  	"id" serial PRIMARY KEY NOT NULL,
+  	"alt" varchar NOT NULL,
+  	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"url" varchar,
+  	"thumbnail_u_r_l" varchar,
+  	"filename" varchar,
+  	"mime_type" varchar,
+  	"filesize" numeric,
+  	"width" numeric,
+  	"height" numeric,
+  	"focal_x" numeric,
+  	"focal_y" numeric,
+  	"sizes_avatar_url" varchar,
+  	"sizes_avatar_width" numeric,
+  	"sizes_avatar_height" numeric,
+  	"sizes_avatar_mime_type" varchar,
+  	"sizes_avatar_filesize" numeric,
+  	"sizes_avatar_filename" varchar,
+  	"sizes_thumbnail_url" varchar,
+  	"sizes_thumbnail_width" numeric,
+  	"sizes_thumbnail_height" numeric,
+  	"sizes_thumbnail_mime_type" varchar,
+  	"sizes_thumbnail_filesize" numeric,
+  	"sizes_thumbnail_filename" varchar,
+  	"sizes_card_url" varchar,
+  	"sizes_card_width" numeric,
+  	"sizes_card_height" numeric,
+  	"sizes_card_mime_type" varchar,
+  	"sizes_card_filesize" numeric,
+  	"sizes_card_filename" varchar
+  );
+  
+  CREATE TABLE "detection_media" (
+  	"id" serial PRIMARY KEY NOT NULL,
+  	"alt" varchar NOT NULL,
+  	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"url" varchar,
+  	"thumbnail_u_r_l" varchar,
+  	"filename" varchar,
+  	"mime_type" varchar,
+  	"filesize" numeric,
+  	"width" numeric,
+  	"height" numeric,
+  	"focal_x" numeric,
+  	"focal_y" numeric
   );
   
   CREATE TABLE "brands" (
@@ -165,8 +253,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
   	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
   	"pages_per_tick" numeric,
   	"discovered" numeric DEFAULT 0,
   	"created" numeric DEFAULT 0,
@@ -189,8 +275,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
   	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
   	"items_per_tick" numeric DEFAULT 10,
   	"type" "enum_ingredient_crawls_type" DEFAULT 'all_uncrawled' NOT NULL,
   	"total" numeric,
@@ -255,7 +339,8 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"box_x_min" numeric,
   	"box_y_min" numeric,
   	"box_x_max" numeric,
-  	"box_y_max" numeric
+  	"box_y_max" numeric,
+  	"has_embedding" boolean DEFAULT false
   );
   
   CREATE TABLE "product_variants_labels" (
@@ -406,8 +491,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
   	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
   	"items_per_tick" numeric,
   	"delay" numeric,
   	"debug" boolean DEFAULT false,
@@ -437,8 +520,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
   	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
   	"debug" boolean DEFAULT false,
   	"product_urls" varchar,
   	"discovered" numeric DEFAULT 0,
@@ -455,8 +536,6 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
   	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
   	"items_per_tick" numeric DEFAULT 10,
   	"crawl_variants" boolean DEFAULT true,
   	"debug" boolean DEFAULT false,
@@ -484,23 +563,24 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_at" timestamp(3) with time zone,
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
-  	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
-  	"items_per_tick" numeric DEFAULT 10,
   	"started_at" timestamp(3) with time zone,
   	"completed_at" timestamp(3) with time zone,
   	"type" "enum_product_aggregations_type" DEFAULT 'selected_gtins' NOT NULL,
   	"gtins" varchar,
   	"include_sister_variants" boolean DEFAULT true,
+  	"items_per_tick" numeric DEFAULT 10,
+  	"max_retries" numeric DEFAULT 3,
   	"language" "enum_product_aggregations_language" DEFAULT 'de',
   	"image_source_priority" jsonb DEFAULT '["dm","rossmann","mueller","purish"]'::jsonb,
+  	"detection_threshold" numeric DEFAULT 0.15,
+  	"min_box_area" numeric DEFAULT 5,
   	"stage_resolve" boolean DEFAULT true,
   	"stage_classify" boolean DEFAULT true,
   	"stage_match_brand" boolean DEFAULT true,
   	"stage_ingredients" boolean DEFAULT true,
   	"stage_images" boolean DEFAULT true,
   	"stage_object_detection" boolean DEFAULT true,
+  	"stage_embed_images" boolean DEFAULT true,
   	"stage_descriptions" boolean DEFAULT true,
   	"stage_score_history" boolean DEFAULT true,
   	"total" numeric,
@@ -551,6 +631,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"ingredients_discoveries_id" integer,
   	"product_aggregations_id" integer,
   	"video_discoveries_id" integer,
+  	"video_crawls_id" integer,
   	"video_processings_id" integer,
   	"ingredient_crawls_id" integer
   );
@@ -576,6 +657,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   
   CREATE TABLE "videos" (
   	"id" serial PRIMARY KEY NOT NULL,
+  	"status" "enum_videos_status" DEFAULT 'discovered',
   	"channel_id" integer NOT NULL,
   	"external_url" varchar,
   	"published_at" timestamp(3) with time zone,
@@ -583,11 +665,29 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"view_count" numeric,
   	"like_count" numeric,
   	"title" varchar NOT NULL,
-  	"image_id" integer,
+  	"thumbnail_id" integer,
+  	"video_file_id" integer,
   	"transcript" varchar,
   	"transcript_words" jsonb,
   	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
   	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL
+  );
+  
+  CREATE TABLE "video_snippets_detections" (
+  	"_order" integer NOT NULL,
+  	"_parent_id" integer NOT NULL,
+  	"id" varchar PRIMARY KEY NOT NULL,
+  	"image_id" integer NOT NULL,
+  	"score" numeric,
+  	"screenshot_index" numeric,
+  	"box_x_min" numeric,
+  	"box_y_min" numeric,
+  	"box_x_max" numeric,
+  	"box_y_max" numeric,
+  	"has_embedding" boolean DEFAULT false,
+  	"matched_product_id" integer,
+  	"match_distance" numeric,
+  	"matched_gtin" varchar
   );
   
   CREATE TABLE "video_snippets_screenshots" (
@@ -654,16 +754,35 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
   	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
   	"items_per_tick" numeric,
   	"max_videos" numeric,
+  	"video_urls" varchar,
   	"discovered" numeric DEFAULT 0,
-  	"created" numeric DEFAULT 0,
-  	"existing" numeric DEFAULT 0,
   	"progress" jsonb,
   	"started_at" timestamp(3) with time zone,
   	"completed_at" timestamp(3) with time zone,
+  	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+  	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL
+  );
+  
+  CREATE TABLE "video_crawls" (
+  	"id" serial PRIMARY KEY NOT NULL,
+  	"status" "enum_video_crawls_status" DEFAULT 'pending',
+  	"claimed_at" timestamp(3) with time zone,
+  	"claimed_by_id" integer,
+  	"retry_count" numeric DEFAULT 0,
+  	"type" "enum_video_crawls_type" DEFAULT 'all' NOT NULL,
+  	"scope" "enum_video_crawls_scope" DEFAULT 'uncrawled_only',
+  	"urls" varchar,
+  	"discovery_id" integer,
+  	"items_per_tick" numeric DEFAULT 5,
+  	"max_retries" numeric DEFAULT 3,
+  	"total" numeric,
+  	"crawled" numeric DEFAULT 0,
+  	"errors" numeric DEFAULT 0,
+  	"started_at" timestamp(3) with time zone,
+  	"completed_at" timestamp(3) with time zone,
+  	"crawled_video_urls" varchar,
   	"updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
   	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL
   );
@@ -674,22 +793,25 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"claimed_at" timestamp(3) with time zone,
   	"claimed_by_id" integer,
   	"retry_count" numeric DEFAULT 0,
-  	"max_retries" numeric DEFAULT 3,
-  	"failed_at" timestamp(3) with time zone,
-  	"failure_reason" varchar,
-  	"items_per_tick" numeric DEFAULT 1,
   	"started_at" timestamp(3) with time zone,
   	"completed_at" timestamp(3) with time zone,
   	"type" "enum_video_processings_type" DEFAULT 'all_unprocessed' NOT NULL,
   	"video_id" integer,
   	"urls" varchar,
-  	"stage_download" boolean DEFAULT true,
+  	"crawl_id" integer,
   	"stage_scene_detection" boolean DEFAULT true,
   	"stage_product_recognition" boolean DEFAULT true,
+  	"stage_screenshot_detection" boolean DEFAULT true,
+  	"stage_screenshot_search" boolean DEFAULT true,
   	"stage_transcription" boolean DEFAULT true,
   	"stage_sentiment_analysis" boolean DEFAULT true,
+  	"items_per_tick" numeric DEFAULT 1,
+  	"max_retries" numeric DEFAULT 3,
   	"scene_threshold" numeric DEFAULT 0.4,
   	"cluster_threshold" numeric DEFAULT 25,
+  	"detection_threshold" numeric DEFAULT 0.3,
+  	"min_box_area" numeric DEFAULT 25,
+  	"detection_prompt" varchar DEFAULT 'cosmetics packaging.',
   	"transcription_language" "enum_video_processings_transcription_language" DEFAULT 'de',
   	"transcription_model" "enum_video_processings_transcription_model" DEFAULT 'nova-3',
   	"total" numeric,
@@ -742,7 +864,10 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"parent_id" integer NOT NULL,
   	"path" varchar NOT NULL,
   	"users_id" integer,
-  	"media_id" integer,
+  	"product_media_id" integer,
+  	"video_media_id" integer,
+  	"profile_media_id" integer,
+  	"detection_media_id" integer,
   	"brands_id" integer,
   	"product_types_id" integer,
   	"ingredients_id" integer,
@@ -763,6 +888,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   	"video_snippets_id" integer,
   	"video_mentions_id" integer,
   	"video_discoveries_id" integer,
+  	"video_crawls_id" integer,
   	"video_processings_id" integer,
   	"workers_id" integer
   );
@@ -796,7 +922,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   ALTER TABLE "ingredients_functions" ADD CONSTRAINT "ingredients_functions_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."ingredients"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "ingredients_sources_fields_provided" ADD CONSTRAINT "ingredients_sources_fields_provided_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."ingredients_sources"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "ingredients_sources" ADD CONSTRAINT "ingredients_sources_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."ingredients"("id") ON DELETE cascade ON UPDATE no action;
-  ALTER TABLE "ingredients" ADD CONSTRAINT "ingredients_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "ingredients" ADD CONSTRAINT "ingredients_image_id_profile_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."profile_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "ingredients_discoveries" ADD CONSTRAINT "ingredients_discoveries_claimed_by_id_workers_id_fk" FOREIGN KEY ("claimed_by_id") REFERENCES "public"."workers"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "ingredient_crawls" ADD CONSTRAINT "ingredient_crawls_claimed_by_id_workers_id_fk" FOREIGN KEY ("claimed_by_id") REFERENCES "public"."workers"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "ingredient_crawls_rels" ADD CONSTRAINT "ingredient_crawls_rels_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."ingredient_crawls"("id") ON DELETE cascade ON UPDATE no action;
@@ -806,9 +932,9 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   ALTER TABLE "products" ADD CONSTRAINT "products_product_type_id_product_types_id_fk" FOREIGN KEY ("product_type_id") REFERENCES "public"."product_types"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "products_rels" ADD CONSTRAINT "products_rels_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "products_rels" ADD CONSTRAINT "products_rels_source_products_fk" FOREIGN KEY ("source_products_id") REFERENCES "public"."source_products"("id") ON DELETE cascade ON UPDATE no action;
-  ALTER TABLE "product_variants_images" ADD CONSTRAINT "product_variants_images_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "product_variants_images" ADD CONSTRAINT "product_variants_images_image_id_product_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."product_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "product_variants_images" ADD CONSTRAINT "product_variants_images_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."product_variants"("id") ON DELETE cascade ON UPDATE no action;
-  ALTER TABLE "product_variants_recognition_images" ADD CONSTRAINT "product_variants_recognition_images_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "product_variants_recognition_images" ADD CONSTRAINT "product_variants_recognition_images_image_id_detection_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."detection_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "product_variants_recognition_images" ADD CONSTRAINT "product_variants_recognition_images_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."product_variants"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "product_variants_labels" ADD CONSTRAINT "product_variants_labels_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."product_variants"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "product_variants_ingredients" ADD CONSTRAINT "product_variants_ingredients_ingredient_id_ingredients_id_fk" FOREIGN KEY ("ingredient_id") REFERENCES "public"."ingredients"("id") ON DELETE set null ON UPDATE no action;
@@ -843,31 +969,42 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   ALTER TABLE "events_rels" ADD CONSTRAINT "events_rels_ingredients_discoveries_fk" FOREIGN KEY ("ingredients_discoveries_id") REFERENCES "public"."ingredients_discoveries"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "events_rels" ADD CONSTRAINT "events_rels_product_aggregations_fk" FOREIGN KEY ("product_aggregations_id") REFERENCES "public"."product_aggregations"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "events_rels" ADD CONSTRAINT "events_rels_video_discoveries_fk" FOREIGN KEY ("video_discoveries_id") REFERENCES "public"."video_discoveries"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "events_rels" ADD CONSTRAINT "events_rels_video_crawls_fk" FOREIGN KEY ("video_crawls_id") REFERENCES "public"."video_crawls"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "events_rels" ADD CONSTRAINT "events_rels_video_processings_fk" FOREIGN KEY ("video_processings_id") REFERENCES "public"."video_processings"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "events_rels" ADD CONSTRAINT "events_rels_ingredient_crawls_fk" FOREIGN KEY ("ingredient_crawls_id") REFERENCES "public"."ingredient_crawls"("id") ON DELETE cascade ON UPDATE no action;
-  ALTER TABLE "creators" ADD CONSTRAINT "creators_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "creators" ADD CONSTRAINT "creators_image_id_profile_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."profile_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "channels" ADD CONSTRAINT "channels_creator_id_creators_id_fk" FOREIGN KEY ("creator_id") REFERENCES "public"."creators"("id") ON DELETE set null ON UPDATE no action;
-  ALTER TABLE "channels" ADD CONSTRAINT "channels_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "channels" ADD CONSTRAINT "channels_image_id_profile_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."profile_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "videos" ADD CONSTRAINT "videos_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE set null ON UPDATE no action;
-  ALTER TABLE "videos" ADD CONSTRAINT "videos_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
-  ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
-  ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_thumbnail_id_media_id_fk" FOREIGN KEY ("thumbnail_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
-  ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_recognition_thumbnail_id_media_id_fk" FOREIGN KEY ("recognition_thumbnail_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "videos" ADD CONSTRAINT "videos_thumbnail_id_video_media_id_fk" FOREIGN KEY ("thumbnail_id") REFERENCES "public"."video_media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "videos" ADD CONSTRAINT "videos_video_file_id_video_media_id_fk" FOREIGN KEY ("video_file_id") REFERENCES "public"."video_media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_snippets_detections" ADD CONSTRAINT "video_snippets_detections_image_id_detection_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."detection_media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_snippets_detections" ADD CONSTRAINT "video_snippets_detections_matched_product_id_products_id_fk" FOREIGN KEY ("matched_product_id") REFERENCES "public"."products"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_snippets_detections" ADD CONSTRAINT "video_snippets_detections_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."video_snippets"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_image_id_video_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."video_media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_thumbnail_id_video_media_id_fk" FOREIGN KEY ("thumbnail_id") REFERENCES "public"."video_media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_recognition_thumbnail_id_video_media_id_fk" FOREIGN KEY ("recognition_thumbnail_id") REFERENCES "public"."video_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "video_snippets_screenshots" ADD CONSTRAINT "video_snippets_screenshots_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."video_snippets"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "video_snippets" ADD CONSTRAINT "video_snippets_video_id_videos_id_fk" FOREIGN KEY ("video_id") REFERENCES "public"."videos"("id") ON DELETE set null ON UPDATE no action;
-  ALTER TABLE "video_snippets" ADD CONSTRAINT "video_snippets_image_id_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_snippets" ADD CONSTRAINT "video_snippets_image_id_video_media_id_fk" FOREIGN KEY ("image_id") REFERENCES "public"."video_media"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "video_snippets_rels" ADD CONSTRAINT "video_snippets_rels_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."video_snippets"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "video_snippets_rels" ADD CONSTRAINT "video_snippets_rels_products_fk" FOREIGN KEY ("products_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "video_mentions_quotes" ADD CONSTRAINT "video_mentions_quotes_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."video_mentions"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "video_mentions" ADD CONSTRAINT "video_mentions_video_snippet_id_video_snippets_id_fk" FOREIGN KEY ("video_snippet_id") REFERENCES "public"."video_snippets"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "video_mentions" ADD CONSTRAINT "video_mentions_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "video_discoveries" ADD CONSTRAINT "video_discoveries_claimed_by_id_workers_id_fk" FOREIGN KEY ("claimed_by_id") REFERENCES "public"."workers"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_crawls" ADD CONSTRAINT "video_crawls_claimed_by_id_workers_id_fk" FOREIGN KEY ("claimed_by_id") REFERENCES "public"."workers"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_crawls" ADD CONSTRAINT "video_crawls_discovery_id_video_discoveries_id_fk" FOREIGN KEY ("discovery_id") REFERENCES "public"."video_discoveries"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "video_processings" ADD CONSTRAINT "video_processings_claimed_by_id_workers_id_fk" FOREIGN KEY ("claimed_by_id") REFERENCES "public"."workers"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "video_processings" ADD CONSTRAINT "video_processings_video_id_videos_id_fk" FOREIGN KEY ("video_id") REFERENCES "public"."videos"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "video_processings" ADD CONSTRAINT "video_processings_crawl_id_video_crawls_id_fk" FOREIGN KEY ("crawl_id") REFERENCES "public"."video_crawls"("id") ON DELETE set null ON UPDATE no action;
   ALTER TABLE "workers_capabilities" ADD CONSTRAINT "workers_capabilities_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."payload_locked_documents"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_users_fk" FOREIGN KEY ("users_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
-  ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_media_fk" FOREIGN KEY ("media_id") REFERENCES "public"."media"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_product_media_fk" FOREIGN KEY ("product_media_id") REFERENCES "public"."product_media"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_video_media_fk" FOREIGN KEY ("video_media_id") REFERENCES "public"."video_media"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_profile_media_fk" FOREIGN KEY ("profile_media_id") REFERENCES "public"."profile_media"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_detection_media_fk" FOREIGN KEY ("detection_media_id") REFERENCES "public"."detection_media"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_brands_fk" FOREIGN KEY ("brands_id") REFERENCES "public"."brands"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_product_types_fk" FOREIGN KEY ("product_types_id") REFERENCES "public"."product_types"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_ingredients_fk" FOREIGN KEY ("ingredients_id") REFERENCES "public"."ingredients"("id") ON DELETE cascade ON UPDATE no action;
@@ -888,6 +1025,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_video_snippets_fk" FOREIGN KEY ("video_snippets_id") REFERENCES "public"."video_snippets"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_video_mentions_fk" FOREIGN KEY ("video_mentions_id") REFERENCES "public"."video_mentions"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_video_discoveries_fk" FOREIGN KEY ("video_discoveries_id") REFERENCES "public"."video_discoveries"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_video_crawls_fk" FOREIGN KEY ("video_crawls_id") REFERENCES "public"."video_crawls"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_video_processings_fk" FOREIGN KEY ("video_processings_id") REFERENCES "public"."video_processings"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_locked_documents_rels" ADD CONSTRAINT "payload_locked_documents_rels_workers_fk" FOREIGN KEY ("workers_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_preferences_rels" ADD CONSTRAINT "payload_preferences_rels_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."payload_preferences"("id") ON DELETE cascade ON UPDATE no action;
@@ -898,12 +1036,27 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "users_updated_at_idx" ON "users" USING btree ("updated_at");
   CREATE INDEX "users_created_at_idx" ON "users" USING btree ("created_at");
   CREATE UNIQUE INDEX "users_email_idx" ON "users" USING btree ("email");
-  CREATE INDEX "media_updated_at_idx" ON "media" USING btree ("updated_at");
-  CREATE INDEX "media_created_at_idx" ON "media" USING btree ("created_at");
-  CREATE UNIQUE INDEX "media_filename_idx" ON "media" USING btree ("filename");
-  CREATE INDEX "media_sizes_thumbnail_sizes_thumbnail_filename_idx" ON "media" USING btree ("sizes_thumbnail_filename");
-  CREATE INDEX "media_sizes_card_sizes_card_filename_idx" ON "media" USING btree ("sizes_card_filename");
-  CREATE INDEX "media_sizes_detail_sizes_detail_filename_idx" ON "media" USING btree ("sizes_detail_filename");
+  CREATE INDEX "product_media_updated_at_idx" ON "product_media" USING btree ("updated_at");
+  CREATE INDEX "product_media_created_at_idx" ON "product_media" USING btree ("created_at");
+  CREATE UNIQUE INDEX "product_media_filename_idx" ON "product_media" USING btree ("filename");
+  CREATE INDEX "product_media_sizes_thumbnail_sizes_thumbnail_filename_idx" ON "product_media" USING btree ("sizes_thumbnail_filename");
+  CREATE INDEX "product_media_sizes_card_sizes_card_filename_idx" ON "product_media" USING btree ("sizes_card_filename");
+  CREATE INDEX "product_media_sizes_detail_sizes_detail_filename_idx" ON "product_media" USING btree ("sizes_detail_filename");
+  CREATE INDEX "video_media_updated_at_idx" ON "video_media" USING btree ("updated_at");
+  CREATE INDEX "video_media_created_at_idx" ON "video_media" USING btree ("created_at");
+  CREATE UNIQUE INDEX "video_media_filename_idx" ON "video_media" USING btree ("filename");
+  CREATE INDEX "video_media_sizes_thumbnail_sizes_thumbnail_filename_idx" ON "video_media" USING btree ("sizes_thumbnail_filename");
+  CREATE INDEX "video_media_sizes_card_sizes_card_filename_idx" ON "video_media" USING btree ("sizes_card_filename");
+  CREATE INDEX "video_media_sizes_detail_sizes_detail_filename_idx" ON "video_media" USING btree ("sizes_detail_filename");
+  CREATE INDEX "profile_media_updated_at_idx" ON "profile_media" USING btree ("updated_at");
+  CREATE INDEX "profile_media_created_at_idx" ON "profile_media" USING btree ("created_at");
+  CREATE UNIQUE INDEX "profile_media_filename_idx" ON "profile_media" USING btree ("filename");
+  CREATE INDEX "profile_media_sizes_avatar_sizes_avatar_filename_idx" ON "profile_media" USING btree ("sizes_avatar_filename");
+  CREATE INDEX "profile_media_sizes_thumbnail_sizes_thumbnail_filename_idx" ON "profile_media" USING btree ("sizes_thumbnail_filename");
+  CREATE INDEX "profile_media_sizes_card_sizes_card_filename_idx" ON "profile_media" USING btree ("sizes_card_filename");
+  CREATE INDEX "detection_media_updated_at_idx" ON "detection_media" USING btree ("updated_at");
+  CREATE INDEX "detection_media_created_at_idx" ON "detection_media" USING btree ("created_at");
+  CREATE UNIQUE INDEX "detection_media_filename_idx" ON "detection_media" USING btree ("filename");
   CREATE INDEX "brands_updated_at_idx" ON "brands" USING btree ("updated_at");
   CREATE INDEX "brands_created_at_idx" ON "brands" USING btree ("created_at");
   CREATE UNIQUE INDEX "product_types_slug_idx" ON "product_types" USING btree ("slug");
@@ -1031,6 +1184,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "events_rels_ingredients_discoveries_id_idx" ON "events_rels" USING btree ("ingredients_discoveries_id");
   CREATE INDEX "events_rels_product_aggregations_id_idx" ON "events_rels" USING btree ("product_aggregations_id");
   CREATE INDEX "events_rels_video_discoveries_id_idx" ON "events_rels" USING btree ("video_discoveries_id");
+  CREATE INDEX "events_rels_video_crawls_id_idx" ON "events_rels" USING btree ("video_crawls_id");
   CREATE INDEX "events_rels_video_processings_id_idx" ON "events_rels" USING btree ("video_processings_id");
   CREATE INDEX "events_rels_ingredient_crawls_id_idx" ON "events_rels" USING btree ("ingredient_crawls_id");
   CREATE INDEX "creators_image_idx" ON "creators" USING btree ("image_id");
@@ -1042,10 +1196,16 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "channels_canonical_url_idx" ON "channels" USING btree ("canonical_url");
   CREATE INDEX "channels_updated_at_idx" ON "channels" USING btree ("updated_at");
   CREATE INDEX "channels_created_at_idx" ON "channels" USING btree ("created_at");
+  CREATE INDEX "videos_status_idx" ON "videos" USING btree ("status");
   CREATE INDEX "videos_channel_idx" ON "videos" USING btree ("channel_id");
-  CREATE INDEX "videos_image_idx" ON "videos" USING btree ("image_id");
+  CREATE INDEX "videos_thumbnail_idx" ON "videos" USING btree ("thumbnail_id");
+  CREATE INDEX "videos_video_file_idx" ON "videos" USING btree ("video_file_id");
   CREATE INDEX "videos_updated_at_idx" ON "videos" USING btree ("updated_at");
   CREATE INDEX "videos_created_at_idx" ON "videos" USING btree ("created_at");
+  CREATE INDEX "video_snippets_detections_order_idx" ON "video_snippets_detections" USING btree ("_order");
+  CREATE INDEX "video_snippets_detections_parent_id_idx" ON "video_snippets_detections" USING btree ("_parent_id");
+  CREATE INDEX "video_snippets_detections_image_idx" ON "video_snippets_detections" USING btree ("image_id");
+  CREATE INDEX "video_snippets_detections_matched_product_idx" ON "video_snippets_detections" USING btree ("matched_product_id");
   CREATE INDEX "video_snippets_screenshots_order_idx" ON "video_snippets_screenshots" USING btree ("_order");
   CREATE INDEX "video_snippets_screenshots_parent_id_idx" ON "video_snippets_screenshots" USING btree ("_parent_id");
   CREATE INDEX "video_snippets_screenshots_image_idx" ON "video_snippets_screenshots" USING btree ("image_id");
@@ -1069,9 +1229,15 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "video_discoveries_claimed_by_idx" ON "video_discoveries" USING btree ("claimed_by_id");
   CREATE INDEX "video_discoveries_updated_at_idx" ON "video_discoveries" USING btree ("updated_at");
   CREATE INDEX "video_discoveries_created_at_idx" ON "video_discoveries" USING btree ("created_at");
+  CREATE INDEX "video_crawls_status_idx" ON "video_crawls" USING btree ("status");
+  CREATE INDEX "video_crawls_claimed_by_idx" ON "video_crawls" USING btree ("claimed_by_id");
+  CREATE INDEX "video_crawls_discovery_idx" ON "video_crawls" USING btree ("discovery_id");
+  CREATE INDEX "video_crawls_updated_at_idx" ON "video_crawls" USING btree ("updated_at");
+  CREATE INDEX "video_crawls_created_at_idx" ON "video_crawls" USING btree ("created_at");
   CREATE INDEX "video_processings_status_idx" ON "video_processings" USING btree ("status");
   CREATE INDEX "video_processings_claimed_by_idx" ON "video_processings" USING btree ("claimed_by_id");
   CREATE INDEX "video_processings_video_idx" ON "video_processings" USING btree ("video_id");
+  CREATE INDEX "video_processings_crawl_idx" ON "video_processings" USING btree ("crawl_id");
   CREATE INDEX "video_processings_updated_at_idx" ON "video_processings" USING btree ("updated_at");
   CREATE INDEX "video_processings_created_at_idx" ON "video_processings" USING btree ("created_at");
   CREATE INDEX "workers_capabilities_order_idx" ON "workers_capabilities" USING btree ("order");
@@ -1087,7 +1253,10 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "payload_locked_documents_rels_parent_idx" ON "payload_locked_documents_rels" USING btree ("parent_id");
   CREATE INDEX "payload_locked_documents_rels_path_idx" ON "payload_locked_documents_rels" USING btree ("path");
   CREATE INDEX "payload_locked_documents_rels_users_id_idx" ON "payload_locked_documents_rels" USING btree ("users_id");
-  CREATE INDEX "payload_locked_documents_rels_media_id_idx" ON "payload_locked_documents_rels" USING btree ("media_id");
+  CREATE INDEX "payload_locked_documents_rels_product_media_id_idx" ON "payload_locked_documents_rels" USING btree ("product_media_id");
+  CREATE INDEX "payload_locked_documents_rels_video_media_id_idx" ON "payload_locked_documents_rels" USING btree ("video_media_id");
+  CREATE INDEX "payload_locked_documents_rels_profile_media_id_idx" ON "payload_locked_documents_rels" USING btree ("profile_media_id");
+  CREATE INDEX "payload_locked_documents_rels_detection_media_id_idx" ON "payload_locked_documents_rels" USING btree ("detection_media_id");
   CREATE INDEX "payload_locked_documents_rels_brands_id_idx" ON "payload_locked_documents_rels" USING btree ("brands_id");
   CREATE INDEX "payload_locked_documents_rels_product_types_id_idx" ON "payload_locked_documents_rels" USING btree ("product_types_id");
   CREATE INDEX "payload_locked_documents_rels_ingredients_id_idx" ON "payload_locked_documents_rels" USING btree ("ingredients_id");
@@ -1108,6 +1277,7 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "payload_locked_documents_rels_video_snippets_id_idx" ON "payload_locked_documents_rels" USING btree ("video_snippets_id");
   CREATE INDEX "payload_locked_documents_rels_video_mentions_id_idx" ON "payload_locked_documents_rels" USING btree ("video_mentions_id");
   CREATE INDEX "payload_locked_documents_rels_video_discoveries_id_idx" ON "payload_locked_documents_rels" USING btree ("video_discoveries_id");
+  CREATE INDEX "payload_locked_documents_rels_video_crawls_id_idx" ON "payload_locked_documents_rels" USING btree ("video_crawls_id");
   CREATE INDEX "payload_locked_documents_rels_video_processings_id_idx" ON "payload_locked_documents_rels" USING btree ("video_processings_id");
   CREATE INDEX "payload_locked_documents_rels_workers_id_idx" ON "payload_locked_documents_rels" USING btree ("workers_id");
   CREATE INDEX "payload_preferences_key_idx" ON "payload_preferences" USING btree ("key");
@@ -1126,7 +1296,10 @@ export async function down({ db, payload, req }: MigrateDownArgs): Promise<void>
   await db.execute(sql`
    DROP TABLE "users_sessions" CASCADE;
   DROP TABLE "users" CASCADE;
-  DROP TABLE "media" CASCADE;
+  DROP TABLE "product_media" CASCADE;
+  DROP TABLE "video_media" CASCADE;
+  DROP TABLE "profile_media" CASCADE;
+  DROP TABLE "detection_media" CASCADE;
   DROP TABLE "brands" CASCADE;
   DROP TABLE "product_types" CASCADE;
   DROP TABLE "ingredients_functions" CASCADE;
@@ -1166,12 +1339,14 @@ export async function down({ db, payload, req }: MigrateDownArgs): Promise<void>
   DROP TABLE "creators" CASCADE;
   DROP TABLE "channels" CASCADE;
   DROP TABLE "videos" CASCADE;
+  DROP TABLE "video_snippets_detections" CASCADE;
   DROP TABLE "video_snippets_screenshots" CASCADE;
   DROP TABLE "video_snippets" CASCADE;
   DROP TABLE "video_snippets_rels" CASCADE;
   DROP TABLE "video_mentions_quotes" CASCADE;
   DROP TABLE "video_mentions" CASCADE;
   DROP TABLE "video_discoveries" CASCADE;
+  DROP TABLE "video_crawls" CASCADE;
   DROP TABLE "video_processings" CASCADE;
   DROP TABLE "workers_capabilities" CASCADE;
   DROP TABLE "workers" CASCADE;
@@ -1212,10 +1387,14 @@ export async function down({ db, payload, req }: MigrateDownArgs): Promise<void>
   DROP TYPE "public"."enum_events_level";
   DROP TYPE "public"."enum_events_component";
   DROP TYPE "public"."enum_channels_platform";
+  DROP TYPE "public"."enum_videos_status";
   DROP TYPE "public"."enum_video_snippets_matching_type";
   DROP TYPE "public"."enum_video_mentions_quotes_sentiment";
   DROP TYPE "public"."enum_video_mentions_overall_sentiment";
   DROP TYPE "public"."enum_video_discoveries_status";
+  DROP TYPE "public"."enum_video_crawls_status";
+  DROP TYPE "public"."enum_video_crawls_type";
+  DROP TYPE "public"."enum_video_crawls_scope";
   DROP TYPE "public"."enum_video_processings_status";
   DROP TYPE "public"."enum_video_processings_type";
   DROP TYPE "public"."enum_video_processings_transcription_language";

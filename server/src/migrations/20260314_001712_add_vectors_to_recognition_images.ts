@@ -1,14 +1,5 @@
 import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-postgres'
 
-/**
- * Manual migration: adds a pgvector embedding column to the recognition images table.
- *
- * This column is NOT managed by Payload — it's invisible to the CMS. The worker writes
- * embeddings via the /api/embeddings/:namespace/write endpoint, which runs raw SQL.
- * The companion has_embedding boolean IS managed by Payload (added in the previous migration).
- *
- * Requires the pgvector extension (already enabled via postgresAdapter extensions: ['vector']).
- */
 export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   await db.execute(sql`
     ALTER TABLE "product_variants_recognition_images"
