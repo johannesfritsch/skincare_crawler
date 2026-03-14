@@ -10,7 +10,7 @@ Central orchestration file. Exports:
 
 - **`StageName`** — union of all 6 stage names
 - **`VideoProgress`** — `Record<string, StageName | null>` progress map type
-- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25), `detectionThreshold` (0-1, default 0.3), `detectionPrompt` (string, default "cosmetics packaging.")
+- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25), `detectionThreshold` (0-1, default 0.3), `detectionPrompt` (string, default "cosmetics packaging."), `searchThreshold` (0-2, default 0.3), `searchLimit` (int, default 1)
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, tokens?: { recognition?, transcriptCorrection?, sentiment?, total? } }`
 - **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the VideoProcessings collection (e.g. `stageSceneDetection`)
@@ -159,22 +159,32 @@ Runs zero-shot object detection on cluster representative screenshots from visua
 **Checkbox**: `stageScreenshotSearch`
 **LLM**: No (ML inference via ONNX)
 **External**: None (local ONNX inference + embeddings API)
-**Event**: `video_processing.screenshots_searched`
+**Events**: `video_processing.screenshot_search_detail` (per detection), `video_processing.screenshots_searched` (aggregate)
 **Model**: CLIP ViT-B/32 (shared singleton from `@/lib/models/clip`)
 
 Computes transient CLIP embeddings for detection crops and searches against stored product recognition image embeddings to match products.
 
 **Scope**: All snippets with detections from Stage 2.
 
+**Configurable parameters** (from job's Configuration tab → StageConfig):
+- `searchThreshold` — maximum cosine distance for matching (0-2, default: 0.3). Try 0.5-0.7 for video screenshots which have different angles/lighting vs product photos.
+- `searchLimit` — number of nearest neighbors to use for matching (default: 1). Only the top-1 is used for matching.
+
+**Diagnostic behavior**: Always fetches at least 3 results from pgvector (regardless of `searchLimit`) to log near-misses. The server-side threshold filter is disabled — all top-N results are returned, and threshold filtering is applied client-side. This means even when no match is found, you can see the closest distance in the detail event.
+
 **Flow**:
 1. Fetch all snippets with detections
 2. Per detection:
    - Download detection crop from detection-media
    - Compute transient CLIP ViT-B/32 embedding (512-dim, not persisted)
-   - Search `recognition-images` embedding namespace via cosine similarity
-   - If match found above threshold, resolve product-variant → product
+   - Search `recognition-images` embedding namespace (no server-side threshold, fetch top-N for diagnostics)
+   - If best result is within `searchThreshold`, resolve product-variant → product
+   - Emit `video_processing.screenshot_search_detail` event with: embedding status, results count, best distance, best GTIN, match status, top-N distances
 3. Merge matched product IDs into snippet's `referencedProducts` (alongside any existing barcode/LLM matches)
 4. Update detection entries with match info (matched product-variant ID, similarity score)
+5. Emit `video_processing.screenshots_searched` aggregate event with `embeddingsFailed` and `avgBestDistance`
+
+**Observability**: Every detection crop emits a detail event regardless of outcome. This shows whether CLIP embeddings computed successfully, what the nearest neighbor distances were (even if above threshold), and which GTIN was closest. The `avgBestDistance` in the aggregate event helps calibrate the `searchThreshold` setting.
 
 **Writes to**: `video-snippets` (detections with match info, referencedProducts)
 

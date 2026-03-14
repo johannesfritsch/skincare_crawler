@@ -1,7 +1,7 @@
 /**
- * Stage 4: Screenshot Search
+ * Stage 3: Screenshot Search
  *
- * Takes detection crops from stage 3 (screenshot_detection), computes
+ * Takes detection crops from stage 2 (screenshot_detection), computes
  * transient CLIP ViT-B/32 embeddings, and searches against the product
  * recognition image embeddings in pgvector to find matching products.
  *
@@ -10,21 +10,32 @@
  * and merged into the snippet's referencedProducts.
  *
  * Uses the shared CLIP singleton from @/lib/models/clip.
+ *
+ * Search threshold and limit are configurable via the job's Configuration
+ * tab (searchThreshold, searchLimit). Emits per-detection detail events
+ * for full observability in the admin UI — including the top-N distances
+ * so you can calibrate the threshold.
  */
 
 import { computeClipEmbedding } from '@/lib/models/clip'
 import type { StageContext, StageResult } from './index'
 
 const SEARCH_NAMESPACE = 'recognition-images'
-const SEARCH_THRESHOLD = 0.3
-const SEARCH_LIMIT = 1
+/** How many results to fetch for diagnostic logging (always >= searchLimit) */
+const DIAGNOSTIC_LIMIT = 3
 
 export async function executeScreenshotSearch(ctx: StageContext, videoId: number): Promise<StageResult> {
   const { payload, config, log } = ctx
   const jlog = log.forJob('video-processings', config.jobId)
+  const searchThreshold = config.searchThreshold ?? 0.3
+  const searchLimit = config.searchLimit ?? 1
+  // Always fetch at least DIAGNOSTIC_LIMIT results so we can log near-misses
+  const fetchLimit = Math.max(searchLimit, DIAGNOSTIC_LIMIT)
 
   const video = (await payload.findByID({ collection: 'videos', id: videoId })) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
+
+  jlog.info('Starting CLIP search', { threshold: searchThreshold, searchLimit, fetchLimit })
 
   // Fetch all snippets for this video
   const snippetsResult = await payload.find({
@@ -35,13 +46,15 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
   })
 
   if (snippetsResult.docs.length === 0) {
-    log.info('No snippets found, skipping screenshot search', { videoId })
+    jlog.info('No snippets found, skipping screenshot search', { videoId })
     return { success: true }
   }
 
   let totalSearched = 0
   let totalMatched = 0
+  let embeddingsFailed = 0
   const allMatchedProductIds = new Set<number>()
+  const allBestDistances: number[] = []
   const serverUrl = payload.serverUrl
 
   for (const snippetDoc of snippetsResult.docs) {
@@ -69,7 +82,9 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
     const updatedDetections: Array<Record<string, unknown>> = []
     const snippetMatchedProductIds: number[] = []
 
-    for (const det of detections) {
+    for (let detIdx = 0; detIdx < detections.length; detIdx++) {
+      const det = detections[detIdx]
+
       // Resolve the detection crop media URL
       const imageRef = det.image
       let mediaUrl: string | undefined
@@ -82,7 +97,7 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
       }
 
       if (!mediaUrl) {
-        jlog.event('video_processing.warning', { title, warning: `No media URL for detection crop in snippet ${snippetId}` })
+        jlog.event('video_processing.warning', { title, warning: `No media URL for detection crop ${detIdx} in snippet ${snippetId}` })
         updatedDetections.push({
           ...det,
           image: typeof det.image === 'number' ? det.image : (det.image as { id: number }).id,
@@ -96,7 +111,19 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
         // Compute CLIP embedding (transient — not stored)
         const embedding = await computeClipEmbedding(fullUrl)
         if (!embedding) {
-          jlog.event('video_processing.warning', { title, warning: `Failed to compute CLIP embedding for detection in snippet ${snippetId}` })
+          embeddingsFailed++
+          jlog.event('video_processing.screenshot_search_detail', {
+            title,
+            snippetId,
+            detectionIndex: detIdx,
+            embeddingComputed: false,
+            resultsReturned: 0,
+            bestDistance: 0,
+            bestGtin: '-',
+            matched: false,
+            matchedProductId: 0,
+            topDistances: '-',
+          })
           updatedDetections.push({
             ...det,
             image: typeof det.image === 'number' ? det.image : (det.image as { id: number }).id,
@@ -108,19 +135,31 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
         totalSearched++
 
         // Search against product recognition image embeddings
+        // Fetch more results than needed for diagnostic logging
         const searchResult = await payload.embeddings.search(SEARCH_NAMESPACE, embedding, {
-          limit: SEARCH_LIMIT,
-          threshold: SEARCH_THRESHOLD,
+          limit: fetchLimit,
+          threshold: undefined, // Don't filter server-side — we want to see all top-N for diagnostics
         })
 
+        const allResults = searchResult.results || []
+        const topDistances = allResults.map((r) => (r.distance as number).toFixed(4)).join(', ') || '-'
+        const bestResult = allResults.length > 0 ? allResults[0] : null
+        const bestDistance = bestResult ? (bestResult.distance as number) : 0
+        const bestGtin = bestResult ? ((bestResult.gtin as string) || '-') : '-'
+
+        if (bestDistance > 0) {
+          allBestDistances.push(bestDistance)
+        }
+
+        // Only match if the best result is within the configured threshold
         let matchedProduct: number | null = null
         let matchDistance: number | null = null
         let matchedGtin: string | null = null
+        let didMatch = false
 
-        if (searchResult.results.length > 0) {
-          const best = searchResult.results[0]
-          matchDistance = best.distance as number
-          matchedGtin = (best.gtin as string) || null
+        if (bestResult && bestDistance <= searchThreshold) {
+          matchDistance = bestDistance
+          matchedGtin = (bestResult.gtin as string) || null
 
           // Look up the product from the product-variant via GTIN
           if (matchedGtin) {
@@ -136,16 +175,24 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
               snippetMatchedProductIds.push(matchedProduct)
               allMatchedProductIds.add(matchedProduct)
               totalMatched++
-
-              log.info('CLIP match found', {
-                snippetId,
-                gtin: matchedGtin,
-                productId: matchedProduct,
-                distance: matchDistance,
-              })
+              didMatch = true
             }
           }
         }
+
+        // Emit per-detection detail event (always — even on no match)
+        jlog.event('video_processing.screenshot_search_detail', {
+          title,
+          snippetId,
+          detectionIndex: detIdx,
+          embeddingComputed: true,
+          resultsReturned: allResults.length,
+          bestDistance: Math.round(bestDistance * 10000) / 10000,
+          bestGtin,
+          matched: didMatch,
+          matchedProductId: matchedProduct ?? 0,
+          topDistances,
+        })
 
         updatedDetections.push({
           ...det,
@@ -157,7 +204,7 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
         })
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        jlog.event('video_processing.warning', { title, warning: `CLIP search failed for detection in snippet ${snippetId}: ${msg}` })
+        jlog.event('video_processing.warning', { title, warning: `CLIP search failed for detection ${detIdx} in snippet ${snippetId}: ${msg}` })
         updatedDetections.push({
           ...det,
           image: typeof det.image === 'number' ? det.image : (det.image as { id: number }).id,
@@ -185,26 +232,35 @@ export async function executeScreenshotSearch(ctx: StageContext, videoId: number
         id: snippetId,
         data: { referencedProducts: mergedIds },
       })
-
-      log.info('Updated snippet with CLIP-matched products', {
-        snippetId,
-        newProducts: snippetMatchedProductIds.length,
-        totalProducts: mergedIds.length,
-      })
     }
 
     await ctx.heartbeat()
   }
 
-  if (totalSearched > 0 || totalMatched > 0) {
-    jlog.event('video_processing.screenshots_searched', {
-      title,
-      searched: totalSearched,
-      matched: totalMatched,
-      productsFound: allMatchedProductIds.size,
-    })
-  }
+  // Compute average best distance for the aggregate event
+  const avgBestDistance =
+    allBestDistances.length > 0
+      ? Math.round((allBestDistances.reduce((s, d) => s + d, 0) / allBestDistances.length) * 10000) / 10000
+      : 0
 
-  log.info('Screenshot search stage complete', { videoId, searched: totalSearched, matched: totalMatched, products: allMatchedProductIds.size })
+  // Always emit aggregate event (even when 0 searched — that's useful info)
+  jlog.event('video_processing.screenshots_searched', {
+    title,
+    searched: totalSearched,
+    matched: totalMatched,
+    productsFound: allMatchedProductIds.size,
+    embeddingsFailed,
+    avgBestDistance,
+  })
+
+  jlog.info('Screenshot search complete', {
+    videoId,
+    searched: totalSearched,
+    matched: totalMatched,
+    products: allMatchedProductIds.size,
+    embeddingsFailed,
+    avgBestDistance,
+    threshold: searchThreshold,
+  })
   return { success: true }
 }

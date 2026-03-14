@@ -848,6 +848,8 @@ async function buildVideoProcessingWork(payload: PayloadRestClient, jobId: numbe
     minBoxArea: (job.minBoxArea as number) ?? 25,
     detectionThreshold: (job.detectionThreshold as number) ?? 0.3,
     detectionPrompt: (job.detectionPrompt as string) ?? 'cosmetics packaging.',
+    searchThreshold: (job.searchThreshold as number) ?? 0.3,
+    searchLimit: (job.searchLimit as number) ?? 1,
   }
 }
 

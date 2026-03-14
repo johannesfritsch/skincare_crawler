@@ -419,11 +419,25 @@ export interface EventRegistry {
     candidatesProcessed: number
     candidatesWithDetections: number
   }
+  'video_processing.screenshot_search_detail': {
+    title: string
+    snippetId: number
+    detectionIndex: number
+    embeddingComputed: boolean
+    resultsReturned: number
+    bestDistance: number
+    bestGtin: string
+    matched: boolean
+    matchedProductId: number
+    topDistances: string
+  }
   'video_processing.screenshots_searched': {
     title: string
     searched: number
     matched: number
     productsFound: number
+    embeddingsFailed: number
+    avgBestDistance: number
   }
   'video_processing.warning': { title: string; warning: string }
   'video_processing.transcribed': { title: string; words: number }
@@ -886,6 +900,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['video-processing', 'object-detection'],
+  },
+  'video_processing.screenshot_search_detail': {
+    type: 'info',
+    level: 'debug',
+    labels: ['video-processing', 'embedding'],
   },
   'video_processing.screenshots_searched': {
     type: 'info',

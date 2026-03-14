@@ -695,6 +695,8 @@ async function handleVideoProcessing(work: Record<string, unknown>): Promise<voi
     minBoxArea: ((work.minBoxArea as number) ?? 25) / 100,
     detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
     detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
+    searchThreshold: (work.searchThreshold as number) ?? 0.3,
+    searchLimit: (work.searchLimit as number) ?? 1,
   }
 
   log.info('Video processing job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })

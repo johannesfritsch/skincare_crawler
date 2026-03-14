@@ -1870,6 +1870,14 @@ export interface VideoProcessing {
    */
   detectionPrompt?: string | null;
   /**
+   * Maximum cosine distance for CLIP similarity search (0-2). Lower = stricter matching. Default: 0.3. Try 0.5-0.7 for video screenshots.
+   */
+  searchThreshold?: number | null;
+  /**
+   * Number of nearest neighbors to return per detection. Only the top-1 is used for matching; others are logged for diagnostics. Default: 1.
+   */
+  searchLimit?: number | null;
+  /**
    * Language for speech recognition.
    */
   transcriptionLanguage?: ('de' | 'en' | 'fr' | 'es' | 'it') | null;
@@ -2981,6 +2989,8 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   detectionThreshold?: T;
   minBoxArea?: T;
   detectionPrompt?: T;
+  searchThreshold?: T;
+  searchLimit?: T;
   transcriptionLanguage?: T;
   transcriptionModel?: T;
   total?: T;

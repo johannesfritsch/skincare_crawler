@@ -54,6 +54,10 @@ export interface StageConfig {
   detectionThreshold: number
   /** Grounding DINO text prompt for zero-shot detection. Default: "cosmetics packaging." */
   detectionPrompt: string
+  /** Maximum cosine distance for CLIP similarity search (0-2). Default: 0.3. */
+  searchThreshold: number
+  /** Number of nearest neighbors to return per detection. Default: 1. */
+  searchLimit: number
 }
 
 /** Context available to all stage functions */
