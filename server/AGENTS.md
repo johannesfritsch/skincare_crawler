@@ -1976,9 +1976,9 @@ Generic API for storing and searching embedding vectors in pgvector columns. The
 const NAMESPACES: Record<string, EmbeddingNamespace> = {
   'recognition-images': {
     table: 'product_variants_recognition_images',
-    embeddingColumn: 'embedding',        // vector(512) — manual migration, NOT managed by Payload
+    embeddingColumn: 'embedding',        // vector(384) — manual migration, NOT managed by Payload
     flagColumn: 'has_embedding',         // boolean — managed by Payload (on ProductVariants.recognitionImages)
-    dimensions: 512,                     // CLIP ViT-B/32
+    dimensions: 384,                     // DINOv2-small
     idColumn: 'id',
     returnColumns: ['_parent_id', 'score'],
     join: { table: 'product_variants', on: ['_parent_id', 'id'], columns: ['gtin'] },
@@ -1997,7 +1997,7 @@ To add a new embedding target: add a namespace entry + create a migration that a
 
 ### Key Details
 
-- **Vector columns are NOT managed by Payload** — they are added via manual migrations (`ALTER TABLE ... ADD COLUMN embedding vector(N)`). Payload ignores them; the embeddings endpoint handles all reads/writes via raw SQL.
+- **Vector columns are NOT managed by Payload** — they are added via manual migrations (`ALTER TABLE ... ADD COLUMN embedding vector(384)`). Payload ignores them; the embeddings endpoint handles all reads/writes via raw SQL.
 - **Flag columns ARE managed by Payload** — the `hasEmbedding` boolean on `recognitionImages` is a normal Payload checkbox field, visible in the admin UI (read-only). The `write` endpoint sets this flag alongside the vector in the same SQL UPDATE.
 - **HNSW index** on the vector column for fast approximate nearest neighbor search. Created in the migration.
 - **pgvector extension** is enabled via `extensions: ['vector']` on the postgresAdapter in `payload.config.ts`.

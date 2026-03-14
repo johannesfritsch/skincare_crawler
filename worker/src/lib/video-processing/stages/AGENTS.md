@@ -42,7 +42,7 @@ All stages use CLI tools and external APIs — not bundled Node.js libraries:
 | `ffprobe` | scene_detection | Video duration/metadata |
 | `zbarimg` | barcode_scan | Barcode scanning in screenshots |
 | Grounding DINO (ONNX) | object_detection | Zero-shot object detection on screenshots (shared singleton from `@/lib/models/grounding-dino`) |
-| CLIP ViT-B/32 (ONNX) | visual_search | Image embedding + cosine similarity search (shared singleton from `@/lib/models/clip`) |
+| DINOv2-small (ONNX) | visual_search | Image embedding + cosine similarity search (shared singleton from `@/lib/models/clip`) |
 | Deepgram API | transcription | Speech-to-text |
 | OpenAI gpt-4.1-mini | llm_recognition, transcription, sentiment_analysis | LLM classification, correction, sentiment |
 
@@ -138,16 +138,16 @@ Runs zero-shot object detection on cluster representative frames. Crops detectio
 
 ---
 
-### Stage 3: `visual_search` — CLIP Visual Similarity Search
+### Stage 3: `visual_search` — DINOv2 Visual Similarity Search
 
 **File**: `visual-search.ts` (exports `executeVisualSearch`)
 **Checkbox**: `stageVisualSearch`
 **LLM**: No (ML inference via ONNX)
 **External**: None (local ONNX inference + embeddings API)
 **Events**: `video_processing.visual_search_detail` (per detection), `video_processing.visual_search_complete` (aggregate)
-**Model**: CLIP ViT-B/32 (shared singleton from `@/lib/models/clip`)
+**Model**: DINOv2-small (shared singleton from `@/lib/models/clip`)
 
-Computes transient CLIP embeddings for object detection crops stored on scenes and searches against stored product recognition image embeddings to match products.
+Computes transient DINOv2 embeddings for object detection crops stored on scenes and searches against stored product recognition image embeddings to match products.
 
 **Scope**: All scenes for the video. Processes scenes with objects from Stage 2.
 
@@ -161,7 +161,7 @@ Computes transient CLIP embeddings for object detection crops stored on scenes a
 1. Fetch all scenes for the video
 2. Per scene with objects[], per object detection:
    - Download detection crop from detection-media
-   - Compute transient CLIP ViT-B/32 embedding (512-dim, not persisted)
+   - Compute transient DINOv2-small embedding (384-dim, not persisted)
    - Search `recognition-images` embedding namespace (no server-side threshold, fetch top-N for diagnostics)
    - If best result is within `searchThreshold`, resolve product-variant → product
    - Emit `video_processing.visual_search_detail` event with: sceneId, detection index, best distance, best GTIN, match status
@@ -237,7 +237,7 @@ Reads all detection data from prior stages (barcodes[], objects[]+recognitions[]
 
 **Confidence scoring**:
 - Barcode match: confidence = 1.0 (definitive identification)
-- Object detection + CLIP match: confidence = 1.0 - clipDistance
+- Object detection + DINOv2 match: confidence = 1.0 - clipDistance
 - LLM recognition: confidence = 0.6
 - Multi-source bonus: +0.1 per additional source that identified the same product (capped at 1.0)
 
@@ -279,7 +279,7 @@ Reads scenes with compiled detections and transcript data, runs LLM sentiment an
 
 ## Shared Patterns
 
-- **Shared ML model singletons**: `object_detection` and `visual_search` use shared model singletons from `@/lib/models/` (Grounding DINO and CLIP respectively). These are the same singletons used by the product aggregation pipeline's `object_detection` and `embed_images` stages — models are loaded once and shared across both pipelines.
+- **Shared ML model singletons**: `object_detection` and `visual_search` use shared model singletons from `@/lib/models/` (Grounding DINO and DINOv2 respectively). These are the same singletons used by the product aggregation pipeline's `object_detection` and `embed_images` stages — models are loaded once and shared across both pipelines.
 - **Temp directories**: Stages that need local files (scene_detection, object_detection, visual_search, transcription) create temp dirs via `fs.mkdtempSync()` with `try/finally` cleanup via `fs.rmSync()`
 - **Media URL resolution**: Stages that read from media collections (video-media, detection-media) construct full URLs via `payload.serverUrl` + relative path (or use the URL directly if already absolute)
 - **Heartbeat**: all stages call `ctx.heartbeat()` after heavy operations (downloads, per-segment loops, LLM calls) to keep the job claim alive
@@ -304,7 +304,7 @@ object_detection (reads video-frames where isClusterRepresentative=true)
   └─ video-scenes.objects[] (Grounding DINO crops as detection-media, bounding boxes)
        │
 visual_search (reads video-scenes.objects[])
-  └─ video-scenes.recognitions[] (CLIP matches with distance + product refs)
+  └─ video-scenes.recognitions[] (DINOv2 matches with distance + product refs)
        │
 llm_recognition (reads video-frames where isClusterRepresentative=true)
   └─ video-scenes.llmMatches[] (LLM-identified products)

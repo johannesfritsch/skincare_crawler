@@ -8,7 +8,7 @@
  *
  * Confidence scoring:
  *   - Barcode: 1.0 (definitive match)
- *   - Object detection + CLIP: 1.0 - clipDistance (inverted distance)
+ *   - Object detection + DINOv2: 1.0 - clipDistance (inverted distance)
  *   - LLM recognition: 0.6 (moderate confidence — LLM can hallucinate)
  *   - Multiple sources boost confidence: max of individual scores + 0.1 bonus per additional source
  */
@@ -75,7 +75,7 @@ export async function executeCompileDetections(ctx: StageContext, videoId: numbe
       }
     }
 
-    // From recognitions (stage 3 — CLIP visual search results)
+    // From recognitions (stage 3 — DINOv2 visual search results)
     const recognitions = scene.recognitions as Array<Record<string, unknown>> | undefined
     if (recognitions) {
       for (const rec of recognitions) {
@@ -117,7 +117,7 @@ export async function executeCompileDetections(ctx: StageContext, videoId: numbe
         confidence = Math.max(confidence, 1.0)
       }
       if (c.sources.has('object_detection') && c.clipDistance != null) {
-        // Invert CLIP distance: closer = higher confidence
+        // Invert cosine distance: closer = higher confidence
         // Distance of 0 = perfect match = 1.0 confidence
         // Distance of 0.3 (threshold) ≈ 0.7 confidence
         const clipConfidence = Math.max(0, 1.0 - c.clipDistance)

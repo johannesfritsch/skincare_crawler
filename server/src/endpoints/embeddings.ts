@@ -18,7 +18,7 @@ interface EmbeddingNamespace {
   embeddingColumn: string
   /** Payload-managed boolean flag column (has_embedding) */
   flagColumn: string
-  /** Vector dimensions (e.g. 512 for CLIP ViT-B/32) */
+  /** Vector dimensions (384 for DINOv2-small) */
   dimensions: number
   /** Primary key column name */
   idColumn: string
@@ -39,7 +39,7 @@ const NAMESPACES: Record<string, EmbeddingNamespace> = {
     table: 'product_variants_recognition_images',
     embeddingColumn: 'embedding',
     flagColumn: 'has_embedding',
-    dimensions: 512,
+    dimensions: 384,
     idColumn: 'id',
     returnColumns: ['_parent_id', 'score'],
     join: {

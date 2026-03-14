@@ -273,7 +273,7 @@ export const ProductAggregations: CollectionConfig = {
                   defaultValue: true,
                   admin: {
                     description:
-                      'CLIP embedding vectors for recognition image crops (for visual similarity search).',
+                      'Embedding vectors for recognition image crops (for visual similarity search).',
                     width: '25%',
                   },
                 },

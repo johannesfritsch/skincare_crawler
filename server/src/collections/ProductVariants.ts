@@ -71,7 +71,7 @@ export const ProductVariants: CollectionConfig = {
               admin: {
                 description:
                   'All variant images from all stores. The first "public" entry is the primary display image. ' +
-                  '"recognition_only" images are used for object detection + CLIP embedding but not shown in the frontend.',
+                  '"recognition_only" images are used for object detection + embedding but not shown in the frontend.',
               },
               fields: [
                 {
@@ -95,7 +95,7 @@ export const ProductVariants: CollectionConfig = {
                       ],
                       admin: {
                         width: '50%',
-                        description: 'Public images are shown in the frontend. Recognition-only images are used for object detection + CLIP embedding only.',
+                        description: 'Public images are shown in the frontend. Recognition-only images are used for object detection + embedding only.',
                       },
                     },
                     {
@@ -174,7 +174,7 @@ export const ProductVariants: CollectionConfig = {
                   defaultValue: false,
                   admin: {
                     readOnly: true,
-                    description: 'Whether a CLIP embedding vector has been computed for this crop.',
+                    description: 'Whether an embedding vector has been computed for this crop.',
                   },
                 },
               ],

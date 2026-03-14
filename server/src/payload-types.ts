@@ -983,7 +983,7 @@ export interface ProductAggregation {
    */
   stageObjectDetection?: boolean | null;
   /**
-   * CLIP embedding vectors for recognition image crops (for visual similarity search).
+   * Embedding vectors for recognition image crops (for visual similarity search).
    */
   stageEmbedImages?: boolean | null;
   /**
@@ -1108,13 +1108,13 @@ export interface ProductVariant {
    */
   description?: string | null;
   /**
-   * All variant images from all stores. The first "public" entry is the primary display image. "recognition_only" images are used for object detection + CLIP embedding but not shown in the frontend.
+   * All variant images from all stores. The first "public" entry is the primary display image. "recognition_only" images are used for object detection + embedding but not shown in the frontend.
    */
   images?:
     | {
         image: number | ProductMedia;
         /**
-         * Public images are shown in the frontend. Recognition-only images are used for object detection + CLIP embedding only.
+         * Public images are shown in the frontend. Recognition-only images are used for object detection + embedding only.
          */
         visibility?: ('public' | 'recognition_only') | null;
         /**
@@ -1139,7 +1139,7 @@ export interface ProductVariant {
         boxXMax?: number | null;
         boxYMax?: number | null;
         /**
-         * Whether a CLIP embedding vector has been computed for this crop.
+         * Whether an embedding vector has been computed for this crop.
          */
         hasEmbedding?: boolean | null;
         id?: string | null;

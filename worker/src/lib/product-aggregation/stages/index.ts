@@ -12,7 +12,7 @@
  *   3. ingredients       — LLM ingredient parsing + matching per variant
  *   4. images            — download + upload best image per variant
  *   5. object_detection  — Grounding DINO detection + crop per variant
- *   6. embed_images      — CLIP embedding vectors for recognition image crops
+ *   6. embed_images      — DINOv2 embedding vectors for recognition image crops
  *   7. descriptions      — LLM consensus description + deduplicated labels per variant
  *   8. score_history     — compute store + creator scores
  */

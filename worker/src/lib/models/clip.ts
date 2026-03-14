@@ -1,28 +1,28 @@
 /**
- * CLIP ViT-B/32 singleton — shared across all stages that need image embeddings.
+ * DINOv2-small image embedding singleton.
  *
- * Model: Xenova/clip-vit-base-patch32 (~350MB, cached in .cache/huggingface)
+ * Model: Xenova/dinov2-small (~90MB, cached in .cache/huggingface)
  * Uses @huggingface/transformers with onnxruntime-node for local inference.
  * Lazy-loaded on first call, reused across all subsequent invocations.
  *
- * Output: 512-dimensional embedding vectors (image-feature-extraction pipeline).
+ * Output: 384-dimensional embedding vectors (image-feature-extraction pipeline).
  */
 
-const CLIP_MODEL_ID = 'Xenova/clip-vit-base-patch32'
+const MODEL_ID = 'Xenova/dinov2-small'
 
-export const EMBEDDING_DIMENSIONS = 512
+export const EMBEDDING_DIMENSIONS = 384
 
 // Lazy-loaded pipeline singleton — created once per worker process
-let extractorPromise: Promise<CLIPFeatureExtractor> | null = null
+let extractorPromise: Promise<FeatureExtractor> | null = null
 
-export interface CLIPFeatureExtractor {
+export interface FeatureExtractor {
   (images: string | string[], options?: { pool?: boolean | null }): Promise<{
     data: Float32Array
     dims: number[]
   }>
 }
 
-export async function getExtractor(): Promise<CLIPFeatureExtractor> {
+export async function getExtractor(): Promise<FeatureExtractor> {
   if (!extractorPromise) {
     extractorPromise = (async () => {
       // Dynamic import — @huggingface/transformers is ESM
@@ -31,19 +31,19 @@ export async function getExtractor(): Promise<CLIPFeatureExtractor> {
       // Prefer local cache dir for models
       env.cacheDir = './.cache/huggingface'
 
-      const extractor = await pipeline('image-feature-extraction', CLIP_MODEL_ID, {
+      const extractor = await pipeline('image-feature-extraction', MODEL_ID, {
         dtype: 'fp32',
       })
-      return extractor as unknown as CLIPFeatureExtractor
+      return extractor as unknown as FeatureExtractor
     })()
   }
   return extractorPromise
 }
 
 /**
- * Compute a CLIP embedding for an image URL and return the L2-normalized 512-dim vector.
+ * Compute a DINOv2 embedding for an image URL and return the L2-normalized 384-dim vector.
  */
-export async function computeClipEmbedding(imageUrl: string): Promise<number[] | null> {
+export async function computeImageEmbedding(imageUrl: string): Promise<number[] | null> {
   const extractor = await getExtractor()
   const output = await extractor(imageUrl)
 
@@ -54,3 +54,8 @@ export async function computeClipEmbedding(imageUrl: string): Promise<number[] |
   const norm = Math.sqrt(raw.reduce((sum, v) => sum + v * v, 0))
   return norm > 0 ? Array.from(raw, (v) => v / norm) : Array.from(raw)
 }
+
+/**
+ * @deprecated Use computeImageEmbedding instead. Kept for backward compatibility.
+ */
+export const computeClipEmbedding = computeImageEmbedding

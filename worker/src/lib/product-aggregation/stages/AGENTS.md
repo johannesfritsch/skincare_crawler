@@ -131,7 +131,7 @@ Per variant: parses raw INCI text into individual ingredient names, then matches
 
 Per variant: collects **all** images from all source-variants (across all stores), downloads each, uploads to product-media, and sets them on the product-variant with visibility and source metadata.
 
-**Image visibility**: The "best" image (selected by `imageSourcePriority`) is marked `visibility: 'public'` and placed first in the array — this is the frontend display image. All other images are marked `visibility: 'recognition_only'` — they are not shown in the frontend but are used by the object detection and CLIP embedding stages, giving the video search pipeline a much richer reference database to match against.
+**Image visibility**: The "best" image (selected by `imageSourcePriority`) is marked `visibility: 'public'` and placed first in the array — this is the frontend display image. All other images are marked `visibility: 'recognition_only'` — they are not shown in the frontend but are used by the object detection and DINOv2 embedding stages, giving the video search pipeline a much richer reference database to match against.
 
 **Flow** (per variant):
 1. Aggregate source variant data — `aggregateSourceVariantsToVariant()` collects `allImages` (deduplicated by URL across all stores) and picks `selectedImageUrl` by priority
@@ -179,30 +179,30 @@ This gives detection crops from every store's image of the product — not just 
 
 ---
 
-### Stage 6: `embed_images` — CLIP Embedding Vectors
+### Stage 6: `embed_images` — DINOv2 Embedding Vectors
 
 **File**: `embed-images.ts` (~170 lines)
 **Checkbox**: `stageEmbedImages`
 **LLM**: No (ML inference via ONNX)
 **Event**: `aggregation.images_embedded`
 
-Per variant: takes the recognition image crops (from stage 5 object detection), computes CLIP ViT-B/32 embedding vectors (512-dim), and writes them to pgvector via the server's generic embeddings API.
+Per variant: takes the recognition image crops (from stage 5 object detection), computes DINOv2-small embedding vectors (384-dim), and writes them to pgvector via the server's generic embeddings API.
 
-**Model**: `Xenova/clip-vit-base-patch32` (ONNX version of OpenAI's CLIP ViT-B/32). Lazy-loaded singleton — first call downloads ~350MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only. Same pattern as the Grounding DINO singleton.
+**Model**: `Xenova/dinov2-small` (ONNX version of Meta's DINOv2-small). Lazy-loaded singleton — first call downloads ~90MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only. Same pattern as the Grounding DINO singleton.
 
 **Flow** (per variant):
 1. Find the `product-variant` by GTIN
 2. Get `recognitionImages` array — filter to items where `hasEmbedding` is false
 3. For each pending recognition image:
    a. Resolve the detection-media URL
-   b. Run CLIP feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
-   c. Extract the 512-dim embedding vector
+   b. Run DINOv2 feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
+   c. Extract the 384-dim embedding vector
 4. Batch write embeddings via `POST /api/embeddings/recognition-images/write`
 5. Update product-variant `recognitionImages` array with `hasEmbedding: true` for processed items
 
 **Writes to**: `product_variants_recognition_images.embedding` (raw pgvector column via embeddings API), `product-variants` (hasEmbedding flag via Payload REST)
 
-**Note**: The `embedding vector(512)` column is NOT managed by Payload — it was added via a manual migration. Only the `hasEmbedding` boolean is a Payload field. The embeddings API (`/api/embeddings/:namespace/write`) handles writing both the vector and the flag in a single transaction.
+**Note**: The `embedding vector(384)` column is NOT managed by Payload — it was added via a manual migration. Only the `hasEmbedding` boolean is a Payload field. The embeddings API (`/api/embeddings/:namespace/write`) handles writing both the vector and the flag in a single transaction.
 
 ---
 

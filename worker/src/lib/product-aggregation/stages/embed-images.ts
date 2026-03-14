@@ -2,19 +2,20 @@
  * Stage 6: Embed Images
  *
  * Per variant: takes recognition image crops (from stage 5 object detection),
- * computes CLIP ViT-B/32 embedding vectors (512-dim), and writes them to
- * pgvector via the server's /api/embeddings/:namespace/write endpoint.
+ * computes DINOv2-small embedding vectors (384-dim), and
+ * writes them to pgvector via the server's /api/embeddings/:namespace/write
+ * endpoint.
  *
  * These embeddings enable visual similarity search — given a video screenshot,
  * you can find the closest product-variant by cosine distance in the DB.
  *
+ * Model is selected via EMBEDDING_MODEL env var (default: 'dinov2').
  * Uses @huggingface/transformers with onnxruntime-node for local inference.
- * The model (Xenova/clip-vit-base-patch32) is lazily loaded on first call
- * and reused across all subsequent invocations (~350MB download, cached in
- * .cache/huggingface alongside the Grounding DINO model).
+ * The model is lazily loaded on first call and reused across all subsequent
+ * invocations (cached in .cache/huggingface).
  */
 
-import { computeClipEmbedding } from '@/lib/models/clip'
+import { computeImageEmbedding } from '@/lib/models/clip'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
 const EMBEDDING_NAMESPACE = 'recognition-images'
@@ -56,7 +57,7 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
       continue
     }
 
-    log.info('Computing CLIP embeddings', { gtin: v.gtin, count: recognitionImages.length })
+    log.info('Computing image embeddings', { gtin: v.gtin, count: recognitionImages.length })
 
     const writeItems: Array<{ id: string; embedding: number[] }> = []
 
@@ -81,15 +82,15 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
       const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${payload.serverUrl}${mediaUrl}`
 
       try {
-        const embedding = await computeClipEmbedding(fullUrl)
+        const embedding = await computeImageEmbedding(fullUrl)
         if (!embedding) {
-          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Unexpected embedding dimensions for recognition image ${ri.id}` })
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding returned null for recognition image ${ri.id}` })
           continue
         }
         writeItems.push({ id: ri.id, embedding })
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `CLIP embedding failed for recognition image ${ri.id}: ${msg}` })
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding failed for recognition image ${ri.id}: ${msg}` })
       }
     }
 

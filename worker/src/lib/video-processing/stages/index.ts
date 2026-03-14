@@ -15,7 +15,7 @@
  *   0. scene_detection      — Detect scenes, extract screenshots, cluster frames
  *   1. barcode_scan         — Scan frames for EAN barcodes → scene.barcodes[]
  *   2. object_detection     — Grounding DINO on cluster reps → scene.objects[]
- *   3. visual_search        — CLIP search on object crops → scene.recognitions[]
+ *   3. visual_search        — DINOv2 search on object crops → scene.recognitions[]
  *   4. llm_recognition      — LLM visual classification → scene.llmMatches[]
  *   5. transcription        — Deepgram STT + LLM correction → scene transcript
  *   6. compile_detections   — Synthesize all sources → scene.detections[]
@@ -58,7 +58,7 @@ export interface StageConfig {
   detectionThreshold: number
   /** Grounding DINO text prompt for zero-shot detection. Default: "cosmetics packaging." */
   detectionPrompt: string
-  /** Maximum cosine distance for CLIP similarity search (0-2). Default: 0.3. */
+  /** Maximum cosine distance for DINOv2 similarity search (0-2). Default: 0.3. */
   searchThreshold: number
   /** Number of nearest neighbors to return per detection. Default: 1. */
   searchLimit: number

@@ -2,21 +2,21 @@
  * Stage 3: Visual Search
  *
  * Reads detection crops from the scene's `objects[]` array (from stage 2),
- * computes transient CLIP ViT-B/32 embeddings, and searches against product
+ * computes transient DINOv2-small embeddings, and searches against product
  * recognition image embeddings in pgvector to find matching products.
  *
  * Embeddings are NOT stored — they are computed in memory and discarded
  * after the search. Matched products are written to the scene's
  * `recognitions[]` array.
  *
- * Uses the shared CLIP singleton from @/lib/models/clip.
+ * Uses the shared DINOv2 singleton from @/lib/models/clip.
  *
  * Search threshold and limit are configurable via the job's Configuration
  * tab (searchThreshold, searchLimit). Emits per-detection detail events
  * for full observability.
  */
 
-import { computeClipEmbedding } from '@/lib/models/clip'
+import { computeImageEmbedding } from '@/lib/models/clip'
 import type { StageContext, StageResult } from './index'
 
 const SEARCH_NAMESPACE = 'recognition-images'
@@ -34,7 +34,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
   const video = (await payload.findByID({ collection: 'videos', id: videoId })) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
 
-  jlog.info('Starting CLIP visual search', { threshold: searchThreshold, searchLimit, fetchLimit })
+  jlog.info('Starting DINOv2 visual search', { threshold: searchThreshold, searchLimit, fetchLimit })
 
   // Fetch all scenes for this video
   const scenesResult = await payload.find({
@@ -92,8 +92,8 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
       const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
 
       try {
-        // Compute CLIP embedding (transient — not stored)
-        const embedding = await computeClipEmbedding(fullUrl)
+        // Compute image embedding (transient — not stored)
+        const embedding = await computeImageEmbedding(fullUrl)
         if (!embedding) {
           embeddingsFailed++
           jlog.event('video_processing.visual_search_detail', {
@@ -184,7 +184,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        jlog.event('video_processing.warning', { title, warning: `CLIP search failed for object ${objIdx} in scene ${sceneId}: ${msg}` })
+        jlog.event('video_processing.warning', { title, warning: `Visual search failed for object ${objIdx} in scene ${sceneId}: ${msg}` })
       }
     }
 

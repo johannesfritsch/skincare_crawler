@@ -64,7 +64,7 @@ worker/src/
     │       ├── scene-detection.ts    # Stage 0: Scene detection, screenshots, clustering (no barcode scanning)
     │       ├── barcode-scan.ts       # Stage 1: Barcode scanning on frame images → scene.barcodes[]
     │       ├── object-detection.ts   # Stage 2: Grounding DINO detection on cluster reps → scene.objects[]
-    │       ├── visual-search.ts      # Stage 3: CLIP visual similarity search → scene.recognitions[]
+    │       ├── visual-search.ts      # Stage 3: DINOv2 visual similarity search → scene.recognitions[]
     │       ├── llm-recognition.ts    # Stage 4: LLM classification + product matching → scene.llmMatches[]
     │       ├── transcription.ts      # Stage 5: Deepgram STT + LLM correction
     │       ├── compile-detections.ts # Stage 6: Synthesize all detection sources → scene.detections[]
@@ -72,7 +72,7 @@ worker/src/
     │
     ├── models/
     │   ├── grounding-dino.ts         # Shared Grounding DINO singleton (zero-shot object detection)
-    │   └── clip.ts                   # Shared CLIP ViT-B/32 singleton (image embeddings + search helper)
+    │   └── clip.ts                   # Shared DINOv2-small singleton (image embeddings + search helper)
     │
     ├── product-aggregation/
     │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
@@ -84,7 +84,7 @@ worker/src/
     │       ├── ingredients.ts        # Stage 3: parseIngredients() + matchIngredients() per variant
     │       ├── images.ts             # Stage 4: Download + upload best image per variant
     │       ├── object-detection.ts   # Stage 5: Grounding DINO detection + crop per variant
-    │       ├── embed-images.ts       # Stage 6: CLIP ViT-B/32 embedding vectors for recognition image crops
+    │       ├── embed-images.ts       # Stage 6: DINOv2-small embedding vectors for recognition image crops
     │       ├── descriptions.ts       # Stage 7: consensusDescription() + deduplicateLabels() per variant
     │       └── score-history.ts      # Stage 8: Compute store + creator scores
     │
@@ -328,10 +328,10 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 | 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, clusters by perceptual hash, uploads to video-media | `video-scenes` (timestamps), `video-frames` (image, isClusterRepresentative, clusterThumbnail) |
 | 1 | `barcode_scan` | Scans frame images for barcodes via `zbarimg`, looks up product-variants by GTIN | `video-scenes.barcodes[]` |
 | 2 | `object_detection` | Per scene: Grounding DINO detection on cluster representative frames, crop + upload to detection-media. Configurable: `detectionPrompt` (default "cosmetics packaging."), `detectionThreshold` (default 0.3), `minBoxArea` (default 25%). Emits per-candidate detail events. | `video-scenes.objects[]` (crops as detection-media, bounding boxes) |
-| 3 | `visual_search` | Per scene: CLIP ViT-B/32 transient embeddings for object detection crops → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). | `video-scenes.recognitions[]` |
+| 3 | `visual_search` | Per scene: DINOv2-small transient embeddings for object detection crops → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). | `video-scenes.recognitions[]` |
 | 4 | `llm_recognition` | Per scene: LLM classification of cluster rep frames + product matching via `recognizeProduct()` + `matchProduct()` | `video-scenes.llmMatches[]` |
 | 5 | `transcription` | Extracts audio (ffmpeg), transcribes via Deepgram, corrects transcript via LLM (gpt-4.1-mini), splits into pre/main/post per scene. Reads keywords from barcodes/recognitions/llmMatches. | `videos.transcript`, `videos.transcriptWords`, `video-scenes.preTranscript`/`transcript`/`postTranscript` |
-| 6 | `compile_detections` | Synthesizes all detection sources (barcodes, objects+recognitions, llmMatches) into unified detections[] with confidence scores. Barcode: 1.0, CLIP: 1.0-distance, LLM: 0.6, multi-source bonus: +0.1 per additional source (capped at 1.0). | `video-scenes.detections[]` |
+| 6 | `compile_detections` | Synthesizes all detection sources (barcodes, objects+recognitions, llmMatches) into unified detections[] with confidence scores. Barcode: 1.0, DINOv2: 1.0-distance, LLM: 0.6, multi-source bonus: +0.1 per additional source (capped at 1.0). | `video-scenes.detections[]` |
 | 7 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per scene, creates video-mentions with detection provenance | `video-mentions` (quotes, sentiment, confidence, sources, barcodeValue, clipDistance) |
 
 **Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
@@ -348,7 +348,7 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 
 **Counters**: `completed` and `errors` counters on the job's progress field are incremented per stage execution.
 
-**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-scenes, video-frames, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Detection data is stored on video-scenes in tabbed arrays (barcodes[], objects[], recognitions[], llmMatches[], detections[]). Video-frames are pure frame records with no detection data. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches via CLIP, products are resolved from product-variants. For LLM matches, calls `matchProduct()` to find/create product records. The compile_detections stage synthesizes all sources into a unified detections[] array with confidence scores. The sentiment_analysis stage creates video-mentions with full detection provenance (confidence, sources, barcodeValue, clipDistance).
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-scenes, video-frames, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` on the video. The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Detection data is stored on video-scenes in tabbed arrays (barcodes[], objects[], recognitions[], llmMatches[], detections[]). Video-frames are pure frame records with no detection data. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches via DINOv2, products are resolved from product-variants. For LLM matches, calls `matchProduct()` to find/create product records. The compile_detections stage synthesizes all sources into a unified detections[] array with confidence scores. The sentiment_analysis stage creates video-mentions with full detection provenance (confidence, sources, barcodeValue, clipDistance).
 
 ### 8. product-aggregation
 
@@ -373,7 +373,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
 | 4 | `images` | `stageImages` | Per variant: download ALL images from all stores, upload to product-media with visibility (public/recognition_only) and source metadata. Public image first, then recognition-only. | No |
 | 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection on ALL variant images (public + recognition_only) — "cosmetics packaging" prompt + sharp crop + upload crops to detection-media as `recognitionImages`. Accumulates detections across all store images. Filters by `minBoxArea` (default 5%). | No (ML) |
-| 6 | `embed_images` | `stageEmbedImages` | Per variant: CLIP ViT-B/32 embedding vectors for recognition image crops → pgvector via embeddings API | No (ML) |
+| 6 | `embed_images` | `stageEmbedImages` | Per variant: DINOv2-small embedding vectors for recognition image crops → pgvector via embeddings API | No (ML) |
 | 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
 | 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
 
@@ -688,7 +688,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram (speech-to-text), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching)
-- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`object_detection` stage). (2) CLIP ViT-B/32 (`Xenova/clip-vit-base-patch32`, ~350MB, `lib/models/clip.ts`) for computing 512-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`visual_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
+- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`object_detection` stage). (2) DINOv2-small (`Xenova/dinov2-small`, ~90MB, `lib/models/clip.ts`) for computing 384-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`visual_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
 
 ## Per-Driver Documentation
 

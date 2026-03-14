@@ -6,7 +6,7 @@
  *
  * The "best" image (selected by imageSourcePriority) is marked visibility: 'public'
  * and placed first in the array. All other images are marked visibility: 'recognition_only' —
- * they are not shown in the frontend but are used for object detection + CLIP embedding,
+ * they are not shown in the frontend but are used for object detection + DINOv2 embedding,
  * giving the video search pipeline a much richer reference database to match against.
  *
  * Each image entry tracks which store it came from via the `source` field.
