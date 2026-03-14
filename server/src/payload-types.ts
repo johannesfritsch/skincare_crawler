@@ -1064,11 +1064,15 @@ export interface Product {
     | {
         recordedAt: string;
         storeScore?: number | null;
+        /**
+         * Store score movement vs previous (>= 5% relative)
+         */
+        storeScoreChange?: ('drop' | 'stable' | 'increase') | null;
         creatorScore?: number | null;
         /**
-         * Score movement vs previous record (>= 5% relative change)
+         * Creator score movement vs previous (>= 5% relative)
          */
-        change?: ('drop' | 'stable' | 'increase') | null;
+        creatorScoreChange?: ('drop' | 'stable' | 'increase') | null;
         id?: string | null;
       }[]
     | null;
@@ -2617,8 +2621,9 @@ export interface ProductsSelect<T extends boolean = true> {
     | {
         recordedAt?: T;
         storeScore?: T;
+        storeScoreChange?: T;
         creatorScore?: T;
-        change?: T;
+        creatorScoreChange?: T;
         id?: T;
       };
   aggregations?: T;

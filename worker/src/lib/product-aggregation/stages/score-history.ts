@@ -1,12 +1,20 @@
 /**
- * Stage 6: Score History
+ * Stage 8: Score History
  *
  * Computes store scores (from source-product ratings) and creator scores
  * (from video-mention sentiments) and prepends a new entry to the
- * product's scoreHistory array.
+ * product's scoreHistory array with independent change tracking per score.
  */
 
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
+
+function computeChange(current: number, previous: number): 'drop' | 'increase' | 'stable' {
+  if (previous === 0) return current > 0 ? 'increase' : 'stable'
+  const pct = (current - previous) / previous
+  if (pct <= -0.05) return 'drop'
+  if (pct >= 0.05) return 'increase'
+  return 'stable'
+}
 
 export async function executeScoreHistory(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, config, log } = ctx
@@ -59,29 +67,22 @@ export async function executeScoreHistory(ctx: StageContext, workItem: Aggregati
   const existingHistory = ((product.scoreHistory ?? []) as Array<{
     recordedAt: string
     storeScore?: number | null
+    storeScoreChange?: string | null
     creatorScore?: number | null
-    change?: string | null
+    creatorScoreChange?: string | null
   }>)
 
-  // Determine change direction
-  let change: string | null = null
+  // Determine change direction independently for each score
+  let storeScoreChange: string | null = null
+  let creatorScoreChange: string | null = null
+
   if (existingHistory.length > 0) {
     const prev = existingHistory[0]
-    const scoreChange = (current: number, previous: number): 'drop' | 'increase' | 'stable' => {
-      if (previous === 0) return current > 0 ? 'increase' : 'stable'
-      const pct = (current - previous) / previous
-      if (pct <= -0.05) return 'drop'
-      if (pct >= 0.05) return 'increase'
-      return 'stable'
-    }
     if (storeScore != null && prev.storeScore != null) {
-      change = scoreChange(storeScore, Number(prev.storeScore))
-    } else if (creatorScore != null && prev.creatorScore != null) {
-      change = scoreChange(creatorScore, Number(prev.creatorScore))
+      storeScoreChange = computeChange(storeScore, Number(prev.storeScore))
     }
-    if (change === 'stable' && creatorScore != null && prev.creatorScore != null && storeScore != null && prev.storeScore != null) {
-      const creatorChange = scoreChange(creatorScore, Number(prev.creatorScore))
-      if (creatorChange !== 'stable') change = creatorChange
+    if (creatorScore != null && prev.creatorScore != null) {
+      creatorScoreChange = computeChange(creatorScore, Number(prev.creatorScore))
     }
   }
 
@@ -92,12 +93,13 @@ export async function executeScoreHistory(ctx: StageContext, workItem: Aggregati
       scoreHistory: [{
         recordedAt: new Date().toISOString(),
         storeScore,
+        storeScoreChange,
         creatorScore,
-        change,
+        creatorScoreChange,
       }, ...existingHistory],
     },
   })
 
-  log.info('Score history stage complete', { productId, storeScore, creatorScore, change })
+  log.info('Score history stage complete', { productId, storeScore, storeScoreChange, creatorScore, creatorScoreChange })
   return { success: true, productId }
 }

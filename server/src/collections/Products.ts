@@ -133,7 +133,21 @@ export const Products: CollectionConfig = {
                       label: 'Store Score (0–10)',
                       min: 0,
                       max: 10,
-                      admin: { step: 0.1, width: '33%' },
+                      admin: { step: 0.1, width: '25%' },
+                    },
+                    {
+                      name: 'storeScoreChange',
+                      type: 'select',
+                      label: 'Store Change',
+                      options: [
+                        { label: 'Drop', value: 'drop' },
+                        { label: 'Stable', value: 'stable' },
+                        { label: 'Increase', value: 'increase' },
+                      ],
+                      admin: {
+                        width: '25%',
+                        description: 'Store score movement vs previous (>= 5% relative)',
+                      },
                     },
                     {
                       name: 'creatorScore',
@@ -141,20 +155,20 @@ export const Products: CollectionConfig = {
                       label: 'Creator Score (0–10)',
                       min: 0,
                       max: 10,
-                      admin: { step: 0.1, width: '33%' },
+                      admin: { step: 0.1, width: '25%' },
                     },
                     {
-                      name: 'change',
+                      name: 'creatorScoreChange',
                       type: 'select',
-                      label: 'Change',
+                      label: 'Creator Change',
                       options: [
                         { label: 'Drop', value: 'drop' },
                         { label: 'Stable', value: 'stable' },
                         { label: 'Increase', value: 'increase' },
                       ],
                       admin: {
-                        width: '33%',
-                        description: 'Score movement vs previous record (>= 5% relative change)',
+                        width: '25%',
+                        description: 'Creator score movement vs previous (>= 5% relative)',
                       },
                     },
                   ],
