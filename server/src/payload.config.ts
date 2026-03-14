@@ -29,7 +29,8 @@ import { Events } from './collections/Events'
 import { Creators } from './collections/Creators'
 import { Channels } from './collections/Channels'
 import { Videos } from './collections/Videos'
-import { VideoSnippets } from './collections/VideoSnippets'
+import { VideoScenes } from './collections/VideoScenes'
+import { VideoFrames } from './collections/VideoFrames'
 import { VideoMentions } from './collections/VideoMentions'
 import { VideoDiscoveries } from './collections/VideoDiscoveries'
 import { VideoCrawls } from './collections/VideoCrawls'
@@ -222,7 +223,8 @@ export default buildConfig({
     Creators,
     Channels,
     Videos,
-    VideoSnippets,
+    VideoScenes,
+    VideoFrames,
     VideoMentions,
     VideoDiscoveries,
     VideoCrawls,

@@ -52,9 +52,9 @@ export interface SnapshotResponse {
     processed: number
     unprocessed: number
     withTranscript: number
-    totalSnippets: number
-    snippetsByBarcode: number
-    snippetsByVisual: number
+    totalScenes: number
+    scenesByBarcode: number
+    scenesByVisual: number
     totalMentions: number
     mentionsByPositive: number
     mentionsByNeutral: number
@@ -105,7 +105,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
     sourceGtinRows,
     sourceVariantCountRows,
     videoPipelineRows,
-    snippetRows,
+    sceneRows,
     mentionRows,
     channelPlatformRows,
     jobQueueRows,
@@ -194,13 +194,13 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       FROM videos
     `),
 
-    // 7. Video snippets by matching type
+    // 7. Video scenes by matching type
     db.execute(sql`
       SELECT
         count(*)::int AS total,
         count(*) FILTER (WHERE matching_type = 'barcode')::int AS barcode,
         count(*) FILTER (WHERE matching_type = 'visual')::int AS visual
-      FROM video_snippets
+      FROM video_scenes
     `),
 
     // 8. Video mentions by sentiment
@@ -275,7 +275,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
   const entities = entityRows.rows[0] as Record<string, number>
   const quality = productQualityRows.rows[0] as Record<string, number>
   const videoStats = videoPipelineRows.rows[0] as Record<string, number>
-  const snippetStats = snippetRows.rows[0] as Record<string, number>
+  const sceneStats = sceneRows.rows[0] as Record<string, number>
   const mentionStats = mentionRows.rows[0] as Record<string, number>
 
   // Merge source coverage data from 3 queries
@@ -366,9 +366,9 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       processed: Number(videoStats.processed ?? 0),
       unprocessed: Number(videoStats.unprocessed ?? 0),
       withTranscript: Number(videoStats.withTranscript ?? 0),
-      totalSnippets: Number(snippetStats.total ?? 0),
-      snippetsByBarcode: Number(snippetStats.barcode ?? 0),
-      snippetsByVisual: Number(snippetStats.visual ?? 0),
+      totalScenes: Number(sceneStats.total ?? 0),
+      scenesByBarcode: Number(sceneStats.barcode ?? 0),
+      scenesByVisual: Number(sceneStats.visual ?? 0),
       totalMentions: Number(mentionStats.total ?? 0),
       mentionsByPositive: Number(mentionStats.positive ?? 0),
       mentionsByNeutral: Number(mentionStats.neutral ?? 0),

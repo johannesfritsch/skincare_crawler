@@ -1,10 +1,14 @@
 /**
- * Stage 2: Scene Detection
+ * Stage 0: Scene Detection
  *
  * Reads the video media from the DB, downloads it to a temp dir,
  * detects scene changes, extracts screenshots per segment,
  * scans for barcodes, clusters visual screenshots,
- * uploads all screenshots as media, and creates video-snippets.
+ * uploads all screenshots as media, and creates video-scenes
+ * with video-frames as separate records.
+ *
+ * Transient data (hash, thumbnail, distance, screenshotGroup)
+ * is used for clustering but NOT persisted on frames.
  */
 
 import fs from 'fs'
@@ -81,32 +85,37 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
     jlog.event('video_processing.scene_detected', { title, sceneChanges: sceneChanges.length, segments: segments.length })
 
     // Delete existing snippets for this video (idempotent re-run)
+    // The beforeDelete hook on video-scenes will cascade-delete video-frames and video-mentions
     const existingSnippets = await payload.find({
-      collection: 'video-snippets',
+      collection: 'video-scenes',
       where: { video: { equals: videoId } },
       limit: 1000,
     })
     if (existingSnippets.docs.length > 0) {
-      // Delete video-mentions for existing snippets first
       for (const snippet of existingSnippets.docs) {
         const snippetId = (snippet as { id: number }).id
+        // Delete video-mentions first (required FK)
         await payload.delete({
           collection: 'video-mentions',
-          where: { videoSnippet: { equals: snippetId } },
+          where: { videoScene: { equals: snippetId } },
+        })
+        // Delete video-frames (required FK)
+        await payload.delete({
+          collection: 'video-frames',
+          where: { scene: { equals: snippetId } },
         })
       }
       await payload.delete({
-        collection: 'video-snippets',
+        collection: 'video-scenes',
         where: { video: { equals: videoId } },
       })
-      log.info('Deleted existing snippets and video-mentions', { snippetCount: existingSnippets.docs.length, videoId })
+      log.info('Deleted existing scenes, frames, and video-mentions', { sceneCount: existingSnippets.docs.length, videoId })
     }
 
     // Process each segment
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
       const segLabel = `Segment ${i + 1}/${segments.length}`
-      const segTime = `[${formatTime(seg.start)} – ${formatTime(seg.end)}]`
 
       log.info('Processing segment', { segment: segLabel, startS: Number(seg.start.toFixed(1)), endS: Number(seg.end.toFixed(1)) })
 
@@ -132,36 +141,49 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
         // ── Barcode path ──
         jlog.event('video_processing.barcode_found', { title, segment: i + 1, barcode: foundBarcode })
 
-        const screenshotEntries: Array<Record<string, unknown>> = []
-        for (let j = 0; j < screenshotFiles.length; j++) {
-          const ts = Math.floor(seg.start) + j
-          const imageMediaId = await ctx.uploadMedia(screenshotFiles[j], `${title} – ${ts}s`, 'image/jpeg')
-          const entry: Record<string, unknown> = { image: imageMediaId }
-          if (j === barcodeScreenshotIndex) {
-            entry.barcode = foundBarcode
-          }
-          screenshotEntries.push(entry)
-        }
+        // Upload first screenshot as the snippet image
+        const firstTs = Math.floor(seg.start)
+        const firstImageMediaId = await ctx.uploadMedia(screenshotFiles[0], `${title} – ${firstTs}s`, 'image/jpeg')
 
-        const firstScreenshot = screenshotEntries[0]?.image ?? null
-
-        await payload.create({
-          collection: 'video-snippets',
+        // Create the snippet
+        const snippetDoc = await payload.create({
+          collection: 'video-scenes',
           data: {
             video: videoId,
-            image: firstScreenshot as number,
+            image: firstImageMediaId,
             matchingType: 'barcode',
             timestampStart: Math.round(seg.start),
             timestampEnd: Math.round(seg.end),
-            screenshots: screenshotEntries,
           },
         })
+        const snippetId = (snippetDoc as { id: number }).id
+
+        // Create video-frame records for each screenshot
+        for (let j = 0; j < screenshotFiles.length; j++) {
+          const ts = Math.floor(seg.start) + j
+          const imageMediaId = j === 0
+            ? firstImageMediaId
+            : await ctx.uploadMedia(screenshotFiles[j], `${title} – ${ts}s`, 'image/jpeg')
+
+          const frameData: Record<string, unknown> = {
+            scene: snippetId,
+            image: imageMediaId,
+          }
+          if (j === barcodeScreenshotIndex) {
+            frameData.barcode = foundBarcode
+          }
+
+          await payload.create({
+            collection: 'video-frames',
+            data: frameData,
+          })
+        }
       } else {
         // ── Visual path ──
         log.info('No barcode found, using visual recognition path')
 
-        // Compute hashes and cluster
-        const hashResults: { thumbnailPath: string; hash: string; distance: number | null; screenshotGroup: number }[] = []
+        // Compute hashes and cluster (transiently — not persisted)
+        const hashResults: { thumbnailPath: string; hash: string; screenshotGroup: number }[] = []
         const clusterRepresentatives: { hash: string; group: number; screenshotIndex: number }[] = []
 
         for (let j = 0; j < screenshotFiles.length; j++) {
@@ -185,7 +207,7 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
             clusterRepresentatives.push({ hash, group: assignedGroup, screenshotIndex: j })
           }
 
-          hashResults.push({ thumbnailPath, hash, distance: bestDistance, screenshotGroup: assignedGroup })
+          hashResults.push({ thumbnailPath, hash, screenshotGroup: assignedGroup })
         }
 
         log.info('Clusters formed', { clusters: clusterRepresentatives.length })
@@ -198,57 +220,58 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
           recogThumbnails.push({ clusterGroup: rep.group, recogPath })
         }
 
-        // Upload screenshots with hash/cluster metadata
+        // Build lookup maps
         const repScreenshotIndices = new Set(clusterRepresentatives.map((r) => r.screenshotIndex))
         const recogPathByGroup = new Map<number, string>()
         for (const rt of recogThumbnails) {
           recogPathByGroup.set(rt.clusterGroup, rt.recogPath)
         }
 
-        const screenshotEntries: Array<Record<string, unknown>> = []
+        // Upload first screenshot as snippet image
+        const firstTs = Math.floor(seg.start)
+        const firstImageMediaId = await ctx.uploadMedia(screenshotFiles[0], `${title} – ${firstTs}s`, 'image/jpeg')
 
+        // Create the snippet
+        const snippetDoc = await payload.create({
+          collection: 'video-scenes',
+          data: {
+            video: videoId,
+            image: firstImageMediaId,
+            matchingType: 'visual',
+            timestampStart: Math.round(seg.start),
+            timestampEnd: Math.round(seg.end),
+          },
+        })
+        const snippetId = (snippetDoc as { id: number }).id
+
+        // Create video-frame records for each screenshot
         for (let j = 0; j < screenshotFiles.length; j++) {
           const file = screenshotFiles[j]
           const hr = hashResults[j]
           const ts = Math.floor(seg.start) + j
 
-          const imageMediaId = await ctx.uploadMedia(file, `${title} – ${ts}s`, 'image/jpeg')
-          const thumbnailMediaId = await ctx.uploadMedia(hr.thumbnailPath, `${title} – ${ts}s thumb`, 'image/png')
+          const imageMediaId = j === 0
+            ? firstImageMediaId
+            : await ctx.uploadMedia(file, `${title} – ${ts}s`, 'image/jpeg')
 
-          const entry: Record<string, unknown> = {
+          const frameData: Record<string, unknown> = {
+            scene: snippetId,
             image: imageMediaId,
-            thumbnail: thumbnailMediaId,
-            hash: hr.hash,
-            screenshotGroup: hr.screenshotGroup,
-          }
-          if (hr.distance !== null) {
-            entry.distance = hr.distance
           }
 
           if (repScreenshotIndices.has(j)) {
             const recogPath = recogPathByGroup.get(hr.screenshotGroup)
             if (recogPath) {
-              entry.recognitionCandidate = true
-              entry.recognitionThumbnail = await ctx.uploadMedia(recogPath, `${title} – ${ts}s recog`, 'image/png')
+              frameData.recognitionCandidate = true
+              frameData.recognitionThumbnail = await ctx.uploadMedia(recogPath, `${title} – ${ts}s recog`, 'image/png')
             }
           }
 
-          screenshotEntries.push(entry)
+          await payload.create({
+            collection: 'video-frames',
+            data: frameData,
+          })
         }
-
-        const firstScreenshot = screenshotEntries[0]?.image ?? null
-
-        await payload.create({
-          collection: 'video-snippets',
-          data: {
-            video: videoId,
-            image: firstScreenshot as number,
-            matchingType: 'visual',
-            timestampStart: Math.round(seg.start),
-            timestampEnd: Math.round(seg.end),
-            screenshots: screenshotEntries,
-          },
-        })
       }
 
       await ctx.heartbeat()

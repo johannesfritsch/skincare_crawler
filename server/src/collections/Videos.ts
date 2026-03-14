@@ -24,7 +24,7 @@ export const Videos: CollectionConfig = {
       async ({ id, req }) => {
         // Cascade delete: remove child records that have required (NOT NULL) references
         await req.payload.delete({
-          collection: 'video-snippets',
+          collection: 'video-scenes',
           where: { video: { equals: id } },
           req,
         })
@@ -157,12 +157,12 @@ export const Videos: CollectionConfig = {
           ],
         },
         {
-          label: 'Snippets',
+          label: 'Scenes',
           fields: [
             {
-              name: 'videoSnippets',
+              name: 'videoScenes',
               type: 'join',
-              collection: 'video-snippets',
+              collection: 'video-scenes',
               on: 'video',
               defaultSort: 'timestampStart',
               admin: {

@@ -7,7 +7,7 @@ import { VideoDetailClient, type VideoMentionItem, type VideoQuote } from '@/com
 
 interface Props {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ snippetId?: string }>
+  searchParams: Promise<{ sceneId?: string }>
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -29,8 +29,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function VideoDetailPage({ params, searchParams }: Props) {
   const { id } = await params
-  const { snippetId: snippetIdParam } = await searchParams
-  const initialSnippetId = snippetIdParam ? Number(snippetIdParam) : null
+  const { sceneId: sceneIdParam } = await searchParams
+  const initialSceneId = sceneIdParam ? Number(sceneIdParam) : null
   const numericId = Number(id)
   if (!id || isNaN(numericId)) notFound()
 
@@ -59,24 +59,24 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
 
   if (!video) notFound()
 
-  /* ---- Fetch snippets ---- */
-  const snippets = await db
+  /* ---- Fetch scenes ---- */
+  const scenes = await db
     .select({
-      id: t.video_snippets.id,
-      timestampStart: t.video_snippets.timestampStart,
-      timestampEnd: t.video_snippets.timestampEnd,
-      transcript: t.video_snippets.transcript,
+      id: t.video_scenes.id,
+      timestampStart: t.video_scenes.timestampStart,
+      timestampEnd: t.video_scenes.timestampEnd,
+      transcript: t.video_scenes.transcript,
     })
-    .from(t.video_snippets)
-    .where(eq(t.video_snippets.video, numericId))
-    .orderBy(asc(t.video_snippets.timestampStart))
+    .from(t.video_scenes)
+    .where(eq(t.video_scenes.video, numericId))
+    .orderBy(asc(t.video_scenes.timestampStart))
 
-  const snippetIds = snippets.map((s) => s.id as number)
+  const sceneIds = scenes.map((s) => s.id as number)
 
   /* ---- Fetch mentions with product data ---- */
   let mentionRows: {
     mentionId: number
-    snippetId: number
+    sceneId: number
     productId: number
     productName: string | null
     productGtin: string | null
@@ -85,11 +85,11 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
     overallSentiment: string | null
   }[] = []
 
-  if (snippetIds.length > 0) {
+  if (sceneIds.length > 0) {
     mentionRows = await db
       .select({
         mentionId: t.video_mentions.id,
-        snippetId: t.video_mentions.videoSnippet,
+        sceneId: t.video_mentions.videoScene,
         productId: t.video_mentions.product,
         productName: t.products.name,
         productGtin: sql<string | null>`(SELECT min(pv.gtin) FROM ${t.product_variants} pv WHERE pv.product_id = ${t.products.id})`,
@@ -102,7 +102,7 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
       .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
       .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
       .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
-      .where(inArray(t.video_mentions.videoSnippet, snippetIds))
+      .where(inArray(t.video_mentions.videoScene, sceneIds))
   }
 
   /* ---- Fetch quotes for each mention ---- */
@@ -139,11 +139,11 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
     })
   }
 
-  // Build a snippet lookup
-  const snippetLookup = new Map(snippets.map((s) => [s.id as number, s]))
+  // Build a scene lookup
+  const sceneLookup = new Map(scenes.map((s) => [s.id as number, s]))
 
   const mentions: VideoMentionItem[] = mentionRows.map((m) => {
-    const snippet = snippetLookup.get(m.snippetId as number)
+    const scene = sceneLookup.get(m.sceneId as number)
     return {
       id: m.mentionId as number,
       productId: m.productId as number,
@@ -153,10 +153,10 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
       brandName: m.brandName,
       overallSentiment: m.overallSentiment,
       quotes: quotesMap.get(m.mentionId as number) ?? [],
-      snippetId: m.snippetId as number,
-      timestampStart: (snippet?.timestampStart as number) ?? null,
-      timestampEnd: (snippet?.timestampEnd as number) ?? null,
-      snippetTranscript: (snippet?.transcript as string) ?? null,
+      sceneId: m.sceneId as number,
+      timestampStart: (scene?.timestampStart as number) ?? null,
+      timestampEnd: (scene?.timestampEnd as number) ?? null,
+      sceneTranscript: (scene?.transcript as string) ?? null,
     }
   })
 
@@ -171,7 +171,7 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
       likeCount={video.likeCount as number | null}
       externalUrl={video.externalUrl as string | null}
       mentions={mentions}
-      initialSnippetId={initialSnippetId}
+      initialSceneId={initialSceneId}
     />
   )
 }

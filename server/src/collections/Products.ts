@@ -96,9 +96,9 @@ export const Products: CollectionConfig = {
           label: 'In Videos',
           fields: [
             {
-              name: 'videoSnippets',
+              name: 'videoScenes',
               type: 'join',
-              collection: 'video-snippets',
+              collection: 'video-scenes',
               on: 'referencedProducts',
             },
             {
@@ -107,7 +107,7 @@ export const Products: CollectionConfig = {
               collection: 'video-mentions',
               on: 'product',
               admin: {
-                defaultColumns: ['videoSnippet', 'overallSentiment', 'overallSentimentScore'],
+                defaultColumns: ['videoScene', 'overallSentiment', 'overallSentimentScore'],
               },
             },
           ],

@@ -94,8 +94,8 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
       creatorName: t.creators.name,
       mentionCount: sql<number>`(
         SELECT count(DISTINCT vm.product_id)
-        FROM video_snippets vs
-        JOIN video_mentions vm ON vm.video_snippet_id = vs.id
+        FROM video_scenes vs
+        JOIN video_mentions vm ON vm.video_scene_id = vs.id
         WHERE vs.video_id = ${t.videos.id}
       )::int`,
     })

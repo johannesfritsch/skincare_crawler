@@ -11,7 +11,7 @@ import path from 'path'
 import os from 'os'
 import { extractAudio, transcribeAudio } from '@/lib/video-processing/transcribe-audio'
 import { correctTranscript } from '@/lib/video-processing/correct-transcript'
-import { splitTranscriptForSnippet } from '@/lib/video-processing/split-transcript'
+import { splitTranscriptForScene } from '@/lib/video-processing/split-transcript'
 import type { StageContext, StageResult } from './index'
 
 export async function executeTranscription(ctx: StageContext, videoId: number): Promise<StageResult> {
@@ -36,7 +36,7 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
 
   // Fetch snippets for transcript splitting
   const snippetsResult = await payload.find({
-    collection: 'video-snippets',
+    collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
     sort: 'timestampStart',
@@ -129,7 +129,7 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       const start = snippet.timestampStart as number
       const end = snippet.timestampEnd as number
 
-      const tx = splitTranscriptForSnippet(
+      const tx = splitTranscriptForScene(
         rawTranscription.words,
         start,
         end,
@@ -138,7 +138,7 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       )
 
       await payload.update({
-        collection: 'video-snippets',
+        collection: 'video-scenes',
         id: snippetId,
         data: {
           preTranscript: tx.preTranscript,

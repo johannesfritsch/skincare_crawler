@@ -90,7 +90,8 @@ export interface Config {
     creators: Creator;
     channels: Channel;
     videos: Video;
-    'video-snippets': VideoSnippet;
+    'video-scenes': VideoScene;
+    'video-frames': VideoFrame;
     'video-mentions': VideoMention;
     'video-discoveries': VideoDiscovery;
     'video-crawls': VideoCrawl;
@@ -110,7 +111,7 @@ export interface Config {
     };
     products: {
       variants: 'product-variants';
-      videoSnippets: 'video-snippets';
+      videoScenes: 'video-scenes';
       videoMentions: 'video-mentions';
       aggregations: 'product-aggregations';
     };
@@ -136,10 +137,11 @@ export interface Config {
       videos: 'videos';
     };
     videos: {
-      videoSnippets: 'video-snippets';
+      videoScenes: 'video-scenes';
     };
-    'video-snippets': {
+    'video-scenes': {
       videoMentions: 'video-mentions';
+      frames: 'video-frames';
     };
     'video-discoveries': {
       events: 'events';
@@ -174,7 +176,8 @@ export interface Config {
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
     videos: VideosSelect<false> | VideosSelect<true>;
-    'video-snippets': VideoSnippetsSelect<false> | VideoSnippetsSelect<true>;
+    'video-scenes': VideoScenesSelect<false> | VideoScenesSelect<true>;
+    'video-frames': VideoFramesSelect<false> | VideoFramesSelect<true>;
     'video-mentions': VideoMentionsSelect<false> | VideoMentionsSelect<true>;
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
     'video-crawls': VideoCrawlsSelect<false> | VideoCrawlsSelect<true>;
@@ -1050,8 +1053,8 @@ export interface Product {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  videoSnippets?: {
-    docs?: (number | VideoSnippet)[];
+  videoScenes?: {
+    docs?: (number | VideoScene)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -1424,9 +1427,9 @@ export interface SourceProduct {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-snippets".
+ * via the `definition` "video-scenes".
  */
-export interface VideoSnippet {
+export interface VideoScene {
   id: number;
   matchingType?: ('barcode' | 'visual') | null;
   /**
@@ -1446,88 +1449,22 @@ export interface VideoSnippet {
     totalDocs?: number;
   };
   /**
-   * 5 seconds of spoken context before this snippet
+   * 5 seconds of spoken context before this scene
    */
   preTranscript?: string | null;
   /**
-   * Spoken words within this snippet time range
+   * Spoken words within this scene time range
    */
   transcript?: string | null;
   /**
-   * 3 seconds of spoken context after this snippet
+   * 3 seconds of spoken context after this scene
    */
   postTranscript?: string | null;
-  /**
-   * Object detections from Grounding DINO on video screenshots. Each entry is a cropped region with bounding box, optional CLIP match, and debug info.
-   */
-  detections?:
-    | {
-        image: number | DetectionMedia;
-        /**
-         * Grounding DINO detection confidence (0-1)
-         */
-        score?: number | null;
-        /**
-         * 0-based index into the screenshots array
-         */
-        screenshotIndex?: number | null;
-        boxXMin?: number | null;
-        boxYMin?: number | null;
-        boxXMax?: number | null;
-        boxYMax?: number | null;
-        /**
-         * Whether a CLIP embedding was computed for this crop.
-         */
-        hasEmbedding?: boolean | null;
-        /**
-         * Product matched by CLIP visual similarity search.
-         */
-        matchedProduct?: (number | null) | Product;
-        /**
-         * Cosine distance from CLIP search (lower = better match, 0 = identical).
-         */
-        matchDistance?: number | null;
-        /**
-         * GTIN of the matched product-variant (for quick debugging).
-         */
-        matchedGtin?: string | null;
-        id?: string | null;
-      }[]
-    | null;
-  screenshots?:
-    | {
-        image: number | VideoMedia;
-        /**
-         * 64x64 grayscale thumbnail used for image hashing
-         */
-        thumbnail?: (number | null) | VideoMedia;
-        /**
-         * Perceptual hash of the thumbnail
-         */
-        hash?: string | null;
-        /**
-         * Hamming distance to assigned cluster representative hash
-         */
-        distance?: number | null;
-        /**
-         * Cluster ID — screenshots with similar visual content share a cluster
-         */
-        screenshotGroup?: number | null;
-        /**
-         * EAN-13/EAN-8 barcode detected in this screenshot
-         */
-        barcode?: string | null;
-        /**
-         * Whether this screenshot was selected as a cluster representative for product recognition
-         */
-        recognitionCandidate?: boolean | null;
-        /**
-         * 128x128 color thumbnail used for product classification
-         */
-        recognitionThumbnail?: (number | null) | VideoMedia;
-        id?: string | null;
-      }[]
-    | null;
+  frames?: {
+    docs?: (number | VideoFrame)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1559,8 +1496,8 @@ export interface Video {
    * Downloaded MP4 file (set during crawl).
    */
   videoFile?: (number | null) | VideoMedia;
-  videoSnippets?: {
-    docs?: (number | VideoSnippet)[];
+  videoScenes?: {
+    docs?: (number | VideoScene)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -1627,10 +1564,10 @@ export interface Creator {
  */
 export interface VideoMention {
   id: number;
-  videoSnippet: number | VideoSnippet;
+  videoScene: number | VideoScene;
   product: number | Product;
   /**
-   * Spoken quotes about this product extracted from the video snippet
+   * Spoken quotes about this product extracted from the video scene
    */
   quotes?:
     | {
@@ -1660,6 +1597,62 @@ export interface VideoMention {
    * Aggregate score from -1 (very negative) to 1 (very positive)
    */
   overallSentimentScore?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-frames".
+ */
+export interface VideoFrame {
+  id: number;
+  scene: number | VideoScene;
+  image: number | VideoMedia;
+  /**
+   * EAN-13/EAN-8 barcode detected in this frame
+   */
+  barcode?: string | null;
+  /**
+   * Whether this frame was selected as a cluster representative for product recognition
+   */
+  recognitionCandidate?: boolean | null;
+  /**
+   * 128x128 color thumbnail used for product classification
+   */
+  recognitionThumbnail?: (number | null) | VideoMedia;
+  /**
+   * Object detections from Grounding DINO. Each entry is a cropped region with bounding box, optional CLIP match, and debug info.
+   */
+  detections?:
+    | {
+        image: number | DetectionMedia;
+        /**
+         * Grounding DINO detection confidence (0-1)
+         */
+        score?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
+        /**
+         * Whether a CLIP embedding was computed for this crop.
+         */
+        hasEmbedding?: boolean | null;
+        /**
+         * Product matched by CLIP visual similarity search.
+         */
+        matchedProduct?: (number | null) | Product;
+        /**
+         * Cosine distance from CLIP search (lower = better match, 0 = identical).
+         */
+        matchDistance?: number | null;
+        /**
+         * GTIN of the matched product-variant (for quick debugging).
+         */
+        matchedGtin?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2117,8 +2110,12 @@ export interface PayloadLockedDocument {
         value: number | Video;
       } | null)
     | ({
-        relationTo: 'video-snippets';
-        value: number | VideoSnippet;
+        relationTo: 'video-scenes';
+        value: number | VideoScene;
+      } | null)
+    | ({
+        relationTo: 'video-frames';
+        value: number | VideoFrame;
       } | null)
     | ({
         relationTo: 'video-mentions';
@@ -2505,7 +2502,7 @@ export interface ProductsSelect<T extends boolean = true> {
   productType?: T;
   name?: T;
   variants?: T;
-  videoSnippets?: T;
+  videoScenes?: T;
   videoMentions?: T;
   scoreHistory?:
     | T
@@ -2850,7 +2847,7 @@ export interface VideosSelect<T extends boolean = true> {
   title?: T;
   thumbnail?: T;
   videoFile?: T;
-  videoSnippets?: T;
+  videoScenes?: T;
   transcript?: T;
   transcriptWords?: T;
   updatedAt?: T;
@@ -2858,9 +2855,9 @@ export interface VideosSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-snippets_select".
+ * via the `definition` "video-scenes_select".
  */
-export interface VideoSnippetsSelect<T extends boolean = true> {
+export interface VideoScenesSelect<T extends boolean = true> {
   matchingType?: T;
   timestampStart?: T;
   timestampEnd?: T;
@@ -2871,12 +2868,25 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
   preTranscript?: T;
   transcript?: T;
   postTranscript?: T;
+  frames?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-frames_select".
+ */
+export interface VideoFramesSelect<T extends boolean = true> {
+  scene?: T;
+  image?: T;
+  barcode?: T;
+  recognitionCandidate?: T;
+  recognitionThumbnail?: T;
   detections?:
     | T
     | {
         image?: T;
         score?: T;
-        screenshotIndex?: T;
         boxXMin?: T;
         boxYMin?: T;
         boxXMax?: T;
@@ -2887,19 +2897,6 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
         matchedGtin?: T;
         id?: T;
       };
-  screenshots?:
-    | T
-    | {
-        image?: T;
-        thumbnail?: T;
-        hash?: T;
-        distance?: T;
-        screenshotGroup?: T;
-        barcode?: T;
-        recognitionCandidate?: T;
-        recognitionThumbnail?: T;
-        id?: T;
-      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2908,7 +2905,7 @@ export interface VideoSnippetsSelect<T extends boolean = true> {
  * via the `definition` "video-mentions_select".
  */
 export interface VideoMentionsSelect<T extends boolean = true> {
-  videoSnippet?: T;
+  videoScene?: T;
   product?: T;
   quotes?:
     | T

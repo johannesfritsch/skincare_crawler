@@ -1,7 +1,7 @@
 - Aggregate reviews from stores
 - ✅ Make sure leaf pages are all found for rossmann/mueller and the crawl can be resumed
 - ✅ Aggregate ph level and usageInterval (and other properties from the Google Sheet)
-- ✅ Sentiment analysis for VideoSnippets
+- ✅ Sentiment analysis for VideoScenes
 - Find out why no recognition candidates are found sometimes
 - ✅ Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers
 - ✅ Rename ProductQuotes to VideoMentions

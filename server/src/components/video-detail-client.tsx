@@ -38,10 +38,10 @@ export interface VideoMentionItem {
   brandName: string | null
   overallSentiment: string | null
   quotes: VideoQuote[]
-  snippetId: number
+  sceneId: number
   timestampStart: number | null
   timestampEnd: number | null
-  snippetTranscript: string | null
+  sceneTranscript: string | null
 }
 
 export interface VideoDetailClientProps {
@@ -54,8 +54,8 @@ export interface VideoDetailClientProps {
   likeCount: number | null
   externalUrl: string | null
   mentions: VideoMentionItem[]
-  /** When set, the snippet with this ID will be auto-opened and its timestamp seeked on load */
-  initialSnippetId?: number | null
+  /** When set, the scene with this ID will be auto-opened and its timestamp seeked on load */
+  initialSceneId?: number | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,7 +256,7 @@ function VideoInfo({
   )
 }
 
-/** Compact product tile inside a snippet header */
+/** Compact product tile inside a scene header */
 function ProductTile({
   mention,
 }: {
@@ -303,15 +303,15 @@ function ProductTile({
   )
 }
 
-/** A single snippet block — collapsible, blocky, minimal */
-function SnippetBlock({
-  snippet,
+/** A single scene block — collapsible, blocky, minimal */
+function SceneBlock({
+  scene,
   seekTo,
   defaultOpen,
-  snippetBlockRef,
+  sceneBlockRef,
 }: {
-  snippet: {
-    snippetId: number
+  scene: {
+    sceneId: number
     timestampStart: number | null
     timestampEnd: number | null
     transcript: string | null
@@ -319,14 +319,14 @@ function SnippetBlock({
   }
   seekTo: (seconds: number) => void
   defaultOpen?: boolean
-  snippetBlockRef?: RefObject<HTMLDivElement | null>
+  sceneBlockRef?: RefObject<HTMLDivElement | null>
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false)
-  const totalQuotes = snippet.mentions.reduce((sum, m) => sum + m.quotes.length, 0)
+  const totalQuotes = scene.mentions.reduce((sum, m) => sum + m.quotes.length, 0)
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div ref={snippetBlockRef} className="rounded-xl border bg-card overflow-hidden transition-colors">
+      <div ref={sceneBlockRef} className="rounded-xl border bg-card overflow-hidden transition-colors">
         {/* ── Header: always visible ── */}
         <CollapsibleTrigger asChild>
           <button className="w-full text-left px-3.5 py-3 flex items-center gap-3 hover:bg-muted/40 transition-colors">
@@ -335,16 +335,16 @@ function SnippetBlock({
               className="shrink-0 flex items-center gap-1 text-[11px] font-mono font-medium text-primary bg-primary/8 px-2 py-0.5 rounded-md"
               onClick={(e) => {
                 e.stopPropagation()
-                if (snippet.timestampStart != null) seekTo(snippet.timestampStart)
+                if (scene.timestampStart != null) seekTo(scene.timestampStart)
               }}
             >
               <Clock className="h-3 w-3" />
-              {formatTimestamp(snippet.timestampStart)}
+              {formatTimestamp(scene.timestampStart)}
             </span>
 
             {/* Product avatars stack */}
             <div className="flex items-center -space-x-1.5 shrink-0">
-              {snippet.mentions.slice(0, 4).map((mention) => (
+              {scene.mentions.slice(0, 4).map((mention) => (
                 <div
                   key={mention.id}
                   className="h-7 w-7 rounded-md border-2 border-card bg-muted/50 flex items-center justify-center overflow-hidden p-0.5"
@@ -365,10 +365,10 @@ function SnippetBlock({
                   )}
                 </div>
               ))}
-              {snippet.mentions.length > 4 && (
+              {scene.mentions.length > 4 && (
                 <div className="h-7 w-7 rounded-md border-2 border-card bg-muted flex items-center justify-center">
                   <span className="text-[9px] font-medium text-muted-foreground">
-                    +{snippet.mentions.length - 4}
+                    +{scene.mentions.length - 4}
                   </span>
                 </div>
               )}
@@ -377,17 +377,17 @@ function SnippetBlock({
             {/* Product name(s) summary */}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">
-                {snippet.mentions.map((m) => m.productName ?? 'Unknown').join(', ')}
+                {scene.mentions.map((m) => m.productName ?? 'Unknown').join(', ')}
               </p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                {snippet.mentions.length} product{snippet.mentions.length !== 1 ? 's' : ''}
+                {scene.mentions.length} product{scene.mentions.length !== 1 ? 's' : ''}
                 {totalQuotes > 0 && <> &middot; {totalQuotes} quote{totalQuotes !== 1 ? 's' : ''}</>}
               </p>
             </div>
 
             {/* Sentiment dots */}
             <div className="flex items-center gap-1 shrink-0">
-              {snippet.mentions.map((m) => (
+              {scene.mentions.map((m) => (
                 <span
                   key={m.id}
                   className={cn('h-2 w-2 rounded-full', sentimentDot(m.overallSentiment))}
@@ -410,19 +410,19 @@ function SnippetBlock({
         <CollapsibleContent>
           <div className="border-t px-3.5 pb-3.5">
             {/* Transcript */}
-            {snippet.transcript && (
+            {scene.transcript && (
               <button
-                onClick={() => snippet.timestampStart != null && seekTo(snippet.timestampStart)}
+                onClick={() => scene.timestampStart != null && seekTo(scene.timestampStart)}
                 className="w-full text-left mt-3 text-[13px] text-muted-foreground leading-relaxed bg-muted/30 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors"
               >
                 <MessageCircle className="h-3 w-3 inline mr-1.5 -mt-0.5 text-muted-foreground/40" />
-                <span className="italic">&ldquo;{snippet.transcript}&rdquo;</span>
+                <span className="italic">&ldquo;{scene.transcript}&rdquo;</span>
               </button>
             )}
 
             {/* Product mentions */}
             <div className="mt-3 flex flex-col gap-2.5">
-              {snippet.mentions.map((mention) => (
+              {scene.mentions.map((mention) => (
                 <div key={mention.id} className="flex flex-col gap-2">
                   {/* Product row */}
                   <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2.5 hover:border-primary/20 transition-colors">
@@ -442,7 +442,7 @@ function SnippetBlock({
                         <button
                           key={qi}
                           onClick={() =>
-                            snippet.timestampStart != null && seekTo(snippet.timestampStart)
+                            scene.timestampStart != null && seekTo(scene.timestampStart)
                           }
                           className={cn(
                             'text-left rounded-lg border px-3 py-2 text-[12px] leading-relaxed transition-colors hover:opacity-80',
@@ -483,13 +483,13 @@ export function VideoDetailClient({
   likeCount,
   externalUrl,
   mentions,
-  initialSnippetId,
+  initialSceneId,
 }: VideoDetailClientProps) {
   const playerRef = useRef<YTPlayer | null>(null)
   const playerElRef = useRef<HTMLDivElement | null>(null)
   const [playerReady, setPlayerReady] = useState(false)
   const initialSeekDone = useRef(false)
-  const targetSnippetRef = useRef<HTMLDivElement | null>(null)
+  const targetSceneRef = useRef<HTMLDivElement | null>(null)
 
   const ytVideoId = externalUrl ? extractYouTubeId(externalUrl) : null
 
@@ -534,38 +534,38 @@ export function VideoDetailClient({
     [playerReady],
   )
 
-  /* Auto-seek to the target snippet when arriving from a product page */
+  /* Auto-seek to the target scene when arriving from a product page */
   useEffect(() => {
-    if (!initialSnippetId || !playerReady || initialSeekDone.current) return
+    if (!initialSceneId || !playerReady || initialSeekDone.current) return
     initialSeekDone.current = true
 
-    // Find the timestamp for this snippet from mentions data
-    const targetMention = mentions.find(m => m.snippetId === initialSnippetId)
+    // Find the timestamp for this scene from mentions data
+    const targetMention = mentions.find(m => m.sceneId === initialSceneId)
     if (targetMention?.timestampStart != null) {
       playerRef.current?.seekTo(targetMention.timestampStart, true)
       playerRef.current?.playVideo()
     }
 
-    // Scroll the snippet block into view on mobile (after a short delay for DOM)
+    // Scroll the scene block into view on mobile (after a short delay for DOM)
     setTimeout(() => {
-      targetSnippetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      targetSceneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }, 300)
-  }, [initialSnippetId, playerReady, mentions])
+  }, [initialSceneId, playerReady, mentions])
 
-  /* Group mentions by snippet */
-  const snippetMap = new Map<
+  /* Group mentions by scene */
+  const sceneMap = new Map<
     number,
-    { snippetId: number; timestampStart: number | null; timestampEnd: number | null; transcript: string | null; mentions: VideoMentionItem[] }
+    { sceneId: number; timestampStart: number | null; timestampEnd: number | null; transcript: string | null; mentions: VideoMentionItem[] }
   >()
   for (const m of mentions) {
-    let entry = snippetMap.get(m.snippetId)
+    let entry = sceneMap.get(m.sceneId)
     if (!entry) {
-      entry = { snippetId: m.snippetId, timestampStart: m.timestampStart, timestampEnd: m.timestampEnd, transcript: m.snippetTranscript, mentions: [] }
-      snippetMap.set(m.snippetId, entry)
+      entry = { sceneId: m.sceneId, timestampStart: m.timestampStart, timestampEnd: m.timestampEnd, transcript: m.sceneTranscript, mentions: [] }
+      sceneMap.set(m.sceneId, entry)
     }
     entry.mentions.push(m)
   }
-  const snippets = Array.from(snippetMap.values()).sort(
+  const scenes = Array.from(sceneMap.values()).sort(
     (a, b) => (a.timestampStart ?? 0) - (b.timestampStart ?? 0),
   )
 
@@ -577,22 +577,22 @@ export function VideoDetailClient({
 
   const mentionsContent = (
     <>
-      {snippets.length === 0 ? (
+      {scenes.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Package className="h-8 w-8 text-muted-foreground/30 mb-3" />
           <p className="text-sm text-muted-foreground">No product mentions found in this video.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {snippets.map((snippet, idx) => {
-            const isTarget = initialSnippetId != null && snippet.snippetId === initialSnippetId
+          {scenes.map((scene, idx) => {
+            const isTarget = initialSceneId != null && scene.sceneId === initialSceneId
             return (
-              <SnippetBlock
-                key={snippet.snippetId}
-                snippet={snippet}
+              <SceneBlock
+                key={scene.sceneId}
+                scene={scene}
                 seekTo={seekTo}
                 defaultOpen={isTarget}
-                snippetBlockRef={isTarget ? targetSnippetRef : undefined}
+                sceneBlockRef={isTarget ? targetSceneRef : undefined}
               />
             )
           })}

@@ -1,10 +1,11 @@
 /**
- * Stage 3: Product Recognition
+ * Stage 1: Product Recognition
  *
- * Reads existing video-snippets from the DB (created in scene detection stage).
- * For barcode snippets: looks up product-variants by GTIN.
- * For visual snippets: runs LLM classification + recognition on screenshot clusters,
- * then matches products via matchProduct().
+ * Reads existing video-scenes and their video-frames from the DB
+ * (created in scene detection stage).
+ * For barcode snippets: looks up product-variants by GTIN from frames.
+ * For visual snippets: runs LLM classification + recognition on
+ * recognition candidate frames, then matches products via matchProduct().
  * Updates snippets with referencedProducts.
  */
 
@@ -24,14 +25,14 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
 
   // Fetch all snippets for this video
   const snippetsResult = await payload.find({
-    collection: 'video-snippets',
+    collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
     sort: 'timestampStart',
   })
 
   if (snippetsResult.docs.length === 0) {
-    log.info('No snippets found, skipping product recognition', { videoId })
+    log.info('No scenes found, skipping product recognition', { videoId })
     return { success: true }
   }
 
@@ -41,17 +42,22 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
     const snippet = snippetDoc as Record<string, unknown>
     const snippetId = snippet.id as number
     const matchingType = snippet.matchingType as string
-    const screenshots = snippet.screenshots as Array<Record<string, unknown>> | undefined
+
+    // Fetch all frames for this snippet
+    const framesResult = await payload.find({
+      collection: 'video-frames',
+      where: { scene: { equals: snippetId } },
+      limit: 1000,
+    })
+    const frames = framesResult.docs as Array<Record<string, unknown>>
 
     if (matchingType === 'barcode') {
-      // Find the barcode from screenshots
+      // Find the barcode from frames
       let barcode: string | null = null
-      if (screenshots) {
-        for (const ss of screenshots) {
-          if (ss.barcode) {
-            barcode = ss.barcode as string
-            break
-          }
+      for (const frame of frames) {
+        if (frame.barcode) {
+          barcode = frame.barcode as string
+          break
         }
       }
 
@@ -67,7 +73,7 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
           const productRef = variant.product as number | Record<string, unknown>
           const pid = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
           await payload.update({
-            collection: 'video-snippets',
+            collection: 'video-scenes',
             id: snippetId,
             data: { referencedProducts: [pid] },
           })
@@ -76,37 +82,42 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
           log.info('No product-variant found for barcode', { snippetId, barcode })
         }
       }
-    } else if (matchingType === 'visual' && screenshots && screenshots.length > 0) {
-      // Visual path: we need to download recognition thumbnails, classify, then recognize
+    } else if (matchingType === 'visual' && frames.length > 0) {
+      // Visual path: find recognition candidate frames, classify, then recognize
 
-      // Find cluster representatives (screenshots with recognitionCandidate=true or just use all unique groups)
-      const groups = new Map<number, Array<{ imageMediaId: number; recogThumbnailMediaId?: number; index: number }>>()
-      const repsByGroup = new Map<number, { recogThumbnailMediaId?: number }>()
+      // Gather recognition candidate frames
+      const candidateFrames: Array<{
+        frameId: number
+        imageMediaId: number
+        recogThumbnailMediaId?: number
+      }> = []
 
-      for (let j = 0; j < screenshots.length; j++) {
-        const ss = screenshots[j]
-        const group = (ss.screenshotGroup as number) ?? j
-        if (!groups.has(group)) groups.set(group, [])
-        groups.get(group)!.push({
-          imageMediaId: (ss.image as number | Record<string, unknown>)
-            ? (typeof ss.image === 'number' ? ss.image : (ss.image as { id: number }).id)
-            : 0,
-          recogThumbnailMediaId: ss.recognitionThumbnail
-            ? (typeof ss.recognitionThumbnail === 'number'
-              ? ss.recognitionThumbnail
-              : (ss.recognitionThumbnail as { id: number }).id)
-            : undefined,
-          index: j,
-        })
-        if (ss.recognitionCandidate) {
-          repsByGroup.set(group, {
-            recogThumbnailMediaId: ss.recognitionThumbnail
-              ? (typeof ss.recognitionThumbnail === 'number'
-                ? ss.recognitionThumbnail
-                : (ss.recognitionThumbnail as { id: number }).id)
-              : undefined,
+      // Also gather all frames with their image media IDs for downloading screenshots
+      const allFrameImageIds: Array<{ frameId: number; imageMediaId: number }> = []
+
+      for (const frame of frames) {
+        const imageRef = frame.image as number | Record<string, unknown>
+        const imageMediaId = typeof imageRef === 'number' ? imageRef : (imageRef as { id: number }).id
+
+        allFrameImageIds.push({ frameId: frame.id as number, imageMediaId })
+
+        if (frame.recognitionCandidate) {
+          const recogRef = frame.recognitionThumbnail as number | Record<string, unknown> | null
+          const recogThumbnailMediaId = recogRef
+            ? (typeof recogRef === 'number' ? recogRef : (recogRef as { id: number }).id)
+            : undefined
+
+          candidateFrames.push({
+            frameId: frame.id as number,
+            imageMediaId,
+            recogThumbnailMediaId,
           })
         }
+      }
+
+      if (candidateFrames.length === 0) {
+        log.info('No recognition candidate frames for visual snippet', { snippetId })
+        continue
       }
 
       // Download recognition thumbnails to temp files for LLM classification
@@ -115,20 +126,22 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
       try {
         const serverUrl = payload.serverUrl
 
-        // Phase 1: Classify cluster representatives
+        // Phase 1: Classify each recognition candidate independently
         const classifyInputs: { clusterGroup: number; imagePath: string }[] = []
 
-        for (const [group, rep] of repsByGroup.entries()) {
-          if (rep.recogThumbnailMediaId) {
-            const mediaDoc = await payload.findByID({ collection: 'video-media', id: rep.recogThumbnailMediaId }) as Record<string, unknown>
+        for (let ci = 0; ci < candidateFrames.length; ci++) {
+          const cf = candidateFrames[ci]
+          if (cf.recogThumbnailMediaId) {
+            const mediaDoc = await payload.findByID({ collection: 'video-media', id: cf.recogThumbnailMediaId }) as Record<string, unknown>
             const mediaUrl = mediaDoc.url as string
             if (mediaUrl) {
               const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
               const res = await fetch(fullUrl)
               if (res.ok) {
-                const localPath = path.join(tmpDir, `recog_${group}.png`)
+                const localPath = path.join(tmpDir, `recog_${ci}.png`)
                 fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()))
-                classifyInputs.push({ clusterGroup: group, imagePath: localPath })
+                // Use candidate index as "cluster group" — each candidate is independent
+                classifyInputs.push({ clusterGroup: ci, imagePath: localPath })
               }
             }
           }
@@ -141,50 +154,32 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
 
         const classifyResult = await classifyScreenshots(classifyInputs)
         totalTokens += classifyResult.tokensUsed.totalTokens
-        const candidateClusters = new Set(classifyResult.candidates)
-        log.info('Phase 1 classification complete', { snippetId, productClusters: candidateClusters.size })
-        jlog.event('video_processing.candidates_identified', { title, segment: snippetId, candidates: candidateClusters.size })
+        const candidateIndices = new Set(classifyResult.candidates)
+        log.info('Phase 1 classification complete', { snippetId, productCandidates: candidateIndices.size })
+        jlog.event('video_processing.candidates_identified', { title, segment: snippetId, candidates: candidateIndices.size })
         await ctx.heartbeat()
 
-        // Phase 2: Recognize products in candidate clusters
+        // Phase 2: Recognize products from each candidate frame
         const referencedProductIds: number[] = []
 
-        for (const clusterGroup of candidateClusters) {
-          const clusterScreenshots = groups.get(clusterGroup) ?? []
+        for (const candidateIdx of candidateIndices) {
+          const cf = candidateFrames[candidateIdx]
+          if (!cf) continue
 
-          // Select up to 4 screenshots for recognition
-          const selected: string[] = []
-          const screenshotMediaIds = clusterScreenshots.map((s) => s.imageMediaId).filter(Boolean)
+          // Download the candidate's full-size image for recognition
+          const mediaDoc = await payload.findByID({ collection: 'video-media', id: cf.imageMediaId }) as Record<string, unknown>
+          const mediaUrl = mediaDoc.url as string
+          if (!mediaUrl) continue
 
-          // Download screenshots for recognition
-          const downloadedPaths: string[] = []
-          for (const mid of screenshotMediaIds.slice(0, 4)) {
-             const mediaDoc = await payload.findByID({ collection: 'video-media', id: mid }) as Record<string, unknown>
-            const mediaUrl = mediaDoc.url as string
-            if (mediaUrl) {
-              const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
-              const res = await fetch(fullUrl)
-              if (res.ok) {
-                const localPath = path.join(tmpDir, `ss_${clusterGroup}_${downloadedPaths.length}.jpg`)
-                fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()))
-                downloadedPaths.push(localPath)
-              }
-            }
-          }
+          const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
+          const res = await fetch(fullUrl)
+          if (!res.ok) continue
 
-          if (downloadedPaths.length <= 4) {
-            selected.push(...downloadedPaths)
-          } else {
-            const step = (downloadedPaths.length - 1) / 3
-            for (let k = 0; k < 4; k++) {
-              selected.push(downloadedPaths[Math.round(k * step)])
-            }
-          }
+          const localPath = path.join(tmpDir, `ss_${candidateIdx}.jpg`)
+          fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()))
 
-          if (selected.length === 0) continue
-
-          log.info('Phase 2: recognizing product', { snippetId, clusterGroup, screenshots: selected.length })
-          const recognition = await recognizeProduct(selected)
+          log.info('Phase 2: recognizing product', { snippetId, candidateIdx, frameId: cf.frameId })
+          const recognition = await recognizeProduct([localPath])
           if (recognition) {
             totalTokens += recognition.tokensUsed.totalTokens
             jlog.event('video_processing.product_recognized', { title, segment: snippetId, brand: recognition.brand ?? 'unknown', product: recognition.productName ?? 'unknown' })
@@ -199,7 +194,7 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
             )
             if (matchResult) {
               referencedProductIds.push(matchResult.productId)
-              log.info('Visual recognition matched to product', { snippetId, clusterGroup, productId: matchResult.productId })
+              log.info('Visual recognition matched to product', { snippetId, frameId: cf.frameId, productId: matchResult.productId })
             }
           }
           await ctx.heartbeat()
@@ -209,7 +204,7 @@ export async function executeProductRecognition(ctx: StageContext, videoId: numb
         const uniqueProductIds = [...new Set(referencedProductIds)]
         if (uniqueProductIds.length > 0) {
           await payload.update({
-            collection: 'video-snippets',
+            collection: 'video-scenes',
             id: snippetId,
             data: { referencedProducts: uniqueProductIds },
           })

@@ -99,7 +99,7 @@ OPENAI_API_KEY=sk-...            # for LLM tasks
 DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 ```
 
-## Database Schema (28 Collections)
+## Database Schema (29 Collections)
 
 ### Core Data
 
@@ -117,9 +117,10 @@ DEEPGRAM_API_KEY=...             # for speech-to-text transcription
 
 | Collection | Purpose |
 |------------|---------|
-| `videos` | YouTube/social videos with lifecycle status (status: discovered/crawled/processed, title, thumbnail (upload → video-media, video thumbnail image), videoFile (upload → video-media, downloaded MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoSnippets (join)). Status is managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
-| `video-snippets` | Video segments (timestamps, image (upload → video-media), matchingType: barcode/visual, screenshots (array with image/thumbnail/recognitionThumbnail uploads → video-media), referencedProducts, preTranscript/transcript/postTranscript, detections array (image upload → detection-media, Grounding DINO detection crops with bounding boxes and CLIP match results)) |
-| `video-mentions` | Product-specific quotes from video snippets (videoSnippet ref, product ref, quotes with sentiment scores) |
+| `videos` | YouTube/social videos with lifecycle status (status: discovered/crawled/processed, title, thumbnail (upload → video-media, video thumbnail image), videoFile (upload → video-media, downloaded MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, transcript, transcriptWords, videoScenes (join)). Status is managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
+| `video-scenes` | Video segments (timestamps, image (upload → video-media), matchingType: barcode/visual, referencedProducts, preTranscript/transcript/postTranscript, frames (join → video-frames on scene)) |
+| `video-frames` | Per-frame records for video scenes (scene ref, image upload → video-media, barcode, recognitionCandidate, recognitionThumbnail upload → video-media, detections array with Grounding DINO crops as detection-media + bounding boxes + CLIP match results) |
+| `video-mentions` | Product-specific quotes from video scenes (videoScene ref, product ref, quotes with sentiment scores) |
 | `creators` | Social media creators |
 | `channels` | Creator channels (platform: youtube/instagram/tiktok, image (upload → profile-media), canonicalUrl for dedup) |
 
@@ -163,7 +164,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 5. Worker loops back, claims next batch until job completes
 6. Product aggregation runs as 9 independent stages (resolve → classify → match_brand → ingredients → images → object_detection → embed_images → descriptions → score_history), each persisting immediately. Progress is tracked per-product-group on the job's `aggregationProgress` JSON map (not on the product). Job selects which stages to run via checkboxes. Resolve creates/finds products and product-variants, merging duplicates if needed. Subsequent stages run LLM operations (classification, brand matching, ingredient parsing), data operations (image download, score computation), and ML operations (Grounding DINO object detection on product images, CLIP embedding generation for visual similarity search).
 7. Video crawl downloads video metadata via yt-dlp, resolves/creates channel+creator records, downloads MP4 + thumbnail, uploads to video-media/profile-media, and sets video status to `crawled`.
-8. Video processing runs as 6 independent stages (scene detection → product recognition → screenshot detection → screenshot search → transcription → sentiment analysis), each persisting immediately. Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes. The download stage has been moved to the video crawl step.
+8. Video processing runs as 6 independent stages (scene detection → product recognition → frame detection → frame search → transcription → sentiment analysis), each persisting immediately. Per-scene frames are stored in the `video-frames` collection (one record per frame, with detections and CLIP match results). Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes. The download stage has been moved to the video crawl step.
 ```
 
 ## Keeping AGENTS.md Up to Date

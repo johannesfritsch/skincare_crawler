@@ -884,7 +884,7 @@ interface TranscriptData {
   transcriptWords: Array<{ word: string; start: number; end: number; confidence: number }>
 }
 
-interface SnippetTranscript {
+interface SceneTranscript {
   preTranscript: string
   transcript: string
   postTranscript: string
@@ -906,6 +906,10 @@ interface VideoQuoteData {
  * @deprecated Stage-based video processing persists results directly within each stage.
  * This function is retained for backward compatibility but is no longer called.
  * See worker/src/lib/video-processing/stages/ for per-stage persistence.
+ *
+ * WARNING: This function still references the old `screenshots` array field on
+ * video-scenes which has been replaced by the `video-frames` collection.
+ * Do NOT call this function — it will fail at runtime.
  */
 export async function persistVideoProcessingResult(
   payload: PayloadRestClient,
@@ -914,32 +918,32 @@ export async function persistVideoProcessingResult(
   videoMediaId: number | undefined,
   segments: VideoProcessingSegment[],
   transcriptData?: TranscriptData,
-  snippetTranscripts?: SnippetTranscript[],
-  snippetVideoQuotes?: VideoQuoteData[][],
+  sceneTranscripts?: SceneTranscript[],
+  sceneVideoQuotes?: VideoQuoteData[][],
 ): Promise<void> {
   const jlog = log.forJob('video-processings', jobId)
   log.info('persistVideoProcessingResult: starting', { videoId, segmentCount: segments.length })
 
-  // Delete existing snippets and their video-mentions for this video
-  const existingSnippets = await payload.find({
-    collection: 'video-snippets',
+  // Delete existing scenes and their video-mentions for this video
+  const existingScenes = await payload.find({
+    collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
   })
-  if (existingSnippets.docs.length > 0) {
-    // Delete video-mentions for existing snippets
-    for (const snippet of existingSnippets.docs) {
-      const snippetId = (snippet as { id: number }).id
+  if (existingScenes.docs.length > 0) {
+    // Delete video-mentions for existing scenes
+    for (const scene of existingScenes.docs) {
+      const sceneId = (scene as { id: number }).id
       await payload.delete({
         collection: 'video-mentions',
-        where: { videoSnippet: { equals: snippetId } },
+        where: { videoScene: { equals: sceneId } },
       })
     }
     await payload.delete({
-      collection: 'video-snippets',
+      collection: 'video-scenes',
       where: { video: { equals: videoId } },
     })
-    log.info('Deleted existing snippets and video-mentions', { snippetCount: existingSnippets.docs.length, videoId })
+    log.info('Deleted existing scenes and video-mentions', { sceneCount: existingScenes.docs.length, videoId })
   }
 
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -991,11 +995,11 @@ export async function persistVideoProcessingResult(
 
     const firstScreenshot = screenshotEntries[0]?.image ?? null
 
-    // Get transcript data for this snippet
-    const snippetTx = snippetTranscripts?.[segIdx]
+    // Get transcript data for this scene
+    const sceneTx = sceneTranscripts?.[segIdx]
 
-    const snippetDoc = await payload.create({
-      collection: 'video-snippets',
+    const sceneDoc = await payload.create({
+      collection: 'video-scenes',
       data: {
         video: videoId,
         image: firstScreenshot as number,
@@ -1004,24 +1008,24 @@ export async function persistVideoProcessingResult(
         timestampEnd: segment.timestampEnd,
         screenshots: screenshotEntries,
         ...(referencedProductIds.length > 0 ? { referencedProducts: referencedProductIds } : {}),
-        ...(snippetTx ? {
-          preTranscript: snippetTx.preTranscript,
-          transcript: snippetTx.transcript,
-          postTranscript: snippetTx.postTranscript,
+        ...(sceneTx ? {
+          preTranscript: sceneTx.preTranscript,
+          transcript: sceneTx.transcript,
+          postTranscript: sceneTx.postTranscript,
         } : {}),
       },
     })
 
-    const snippetId = (snippetDoc as { id: number }).id
+    const sceneId = (sceneDoc as { id: number }).id
 
-    // Create video-mention records for this snippet (only when sentiment data exists)
-    const videoMentions = snippetVideoQuotes?.[segIdx]
+    // Create video-mention records for this scene (only when sentiment data exists)
+    const videoMentions = sceneVideoQuotes?.[segIdx]
     if (videoMentions && videoMentions.length > 0) {
       for (const vq of videoMentions) {
         await payload.create({
           collection: 'video-mentions',
           data: {
-            videoSnippet: snippetId,
+            videoScene: sceneId,
             product: vq.productId,
             quotes: vq.quotes.map((q) => ({
               text: q.text,
@@ -1033,7 +1037,7 @@ export async function persistVideoProcessingResult(
             overallSentimentScore: vq.overallSentimentScore,
           },
         })
-        log.info('Created video-mention', { snippetId, productId: vq.productId, quoteCount: vq.quotes.length, sentiment: vq.overallSentiment })
+        log.info('Created video-mention', { sceneId, productId: vq.productId, quoteCount: vq.quotes.length, sentiment: vq.overallSentiment })
       }
     }
 

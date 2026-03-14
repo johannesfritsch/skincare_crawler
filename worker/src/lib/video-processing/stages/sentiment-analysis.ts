@@ -18,7 +18,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
 
   // Fetch all snippets
   const snippetsResult = await payload.find({
-    collection: 'video-snippets',
+    collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
     sort: 'timestampStart',
@@ -62,7 +62,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
     const snippetId = (snippetDoc as { id: number }).id
     await payload.delete({
       collection: 'video-mentions',
-      where: { videoSnippet: { equals: snippetId } },
+      where: { videoScene: { equals: snippetId } },
     })
   }
 
@@ -110,7 +110,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
       await payload.create({
         collection: 'video-mentions',
         data: {
-          videoSnippet: snippetId,
+          videoScene: snippetId,
           product: productResult.productId,
           quotes: productResult.quotes.map((q) => ({
             text: q.text,

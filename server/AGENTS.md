@@ -1456,7 +1456,7 @@ src/app/(frontend)/
 | `ChannelFilter` | `components/channel-filter.tsx` | Client | Horizontally scrollable channel chips with avatars for video filtering |
 | `StoreLogo` | `components/store-logos.tsx` | Server | DM, Rossmann, Müller inline SVG logos (`<StoreLogo source="dm" />`), aspect-ratio-aware sizing |
 | `Sparkline` | `components/sparkline.tsx` | Server | Tiny SVG sparkline (no axes/labels), green if price dropped, red if rose. Props: `data` (chronological numbers), `width`, `height` |
-| `ProductVideoList` | `components/product-video-list.tsx` | Client | Paginated video mention cards with sentiment badge overlay on thumbnail, creator avatar, timestamp, and all quotes rendered as stacked sentiment-colored strips. Links include `?snippetId=X` to deep-link into video detail. Props: `videos: ProductVideoItem[]`. Exports `ProductVideoItem`, `ProductVideoQuote` types. |
+| `ProductVideoList` | `components/product-video-list.tsx` | Client | Paginated video mention cards with sentiment badge overlay on thumbnail, creator avatar, timestamp, and all quotes rendered as stacked sentiment-colored strips. Links include `?sceneId=X` to deep-link into video detail. Props: `videos: ProductVideoItem[]`. Exports `ProductVideoItem`, `ProductVideoQuote` types. |
 | `AccordionSection` | `components/accordion-section.tsx` | Client | Collapsible section with title/trailing/chevron, uses Radix Collapsible. Props: `title`, `trailing`, `defaultOpen`, `children`. Multiple can be open simultaneously. |
 | `DescriptionTeaser` | `components/description-teaser.tsx` | Client | Truncated product description (~100 chars) with a "more" link that opens a bottom-sheet (Sheet) displaying the full text. Used in the product detail hero header. Props: `description: string`. |
 | `IngredientChipGroup` | `components/ingredient-chip-group.tsx` | Client | Tappable ingredient pills (amber for restricted, neutral for others). Opens bottom-sheet listing all ingredients as collapsible rows (one open at a time). Each row shows index, name, functions, and expands to show description, function pills, CAS number, and restriction warnings. Optimized for 50+ items. Props: `items: IngredientItem[]`. Exports `IngredientItem` type. |
@@ -1464,7 +1464,7 @@ src/app/(frontend)/
 | `CreatorScoreCard` | `components/score-sheet.tsx` | Client | Tappable creator score badge (sentiment color + creator avatars). Opens bottom-sheet listing all creators with avatar, name, mention count, individual sentiment score, and per-channel platform links (YouTube/Instagram/TikTok pills with platform icons). Props: `avgSentiment`, `dominantSentiment`, `totalMentions`, `creators: CreatorScoreItem[]`. Exports `CreatorScoreItem`, `CreatorChannel` types. |
 | `StoreScoreCard` | `components/score-sheet.tsx` | Client | Tappable store score badge (amber + store logos). Opens bottom-sheet listing all stores as white cards (`bg-card`) with logo, name, review count, star rating, and a `ScoreBadge` on the right. Props: `avgStoreRating`, `stores: StoreScoreItem[]`. |
 | `ScoreBadge` | `components/score-sheet.tsx` | Server | Small rounded badge showing a star icon + numeric score (0-10), colored by tier (emerald/lime/amber/rose). Used inside store cards on both the product detail page and the StoreScoreCard bottom-sheet. Props: `score: number`. |
-| `VideoDetailClient` | `components/video-detail-client.tsx` | Client | Full video detail page with YouTube IFrame API player, seekable timestamps, collapsible snippet blocks with product tiles, sentiment indicators, and quote cards. Supports `initialSnippetId` prop to auto-open a specific snippet and seek to its timestamp on load (used when deep-linking from product pages). Exports `VideoMentionItem`, `VideoQuote`, `VideoDetailClientProps` types. |
+| `VideoDetailClient` | `components/video-detail-client.tsx` | Client | Full video detail page with YouTube IFrame API player, seekable timestamps, collapsible scene blocks with product tiles, sentiment indicators, and quote cards. Supports `initialSceneId` prop to auto-open a specific scene and seek to its timestamp on load (used when deep-linking from product pages). Exports `VideoMentionItem`, `VideoQuote`, `VideoDetailClientProps` types. |
 
 ### Score Tier System
 
@@ -1587,13 +1587,13 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 | `source_variants` | `sourceArticleNumber` | `source_article_number` |
 | `videos` | `channel` | `channel_id` |
 | `videos` | `transcriptWords` | `transcript_words` |
-| `video_snippets` | `matchingType` | `matching_type` |
-| `video_snippets` | `timestampStart` | `timestamp_start` |
-| `video_snippets` | `video` | `video_id` |
+| `video_scenes` | `matchingType` | `matching_type` |
+| `video_scenes` | `timestampStart` | `timestamp_start` |
+| `video_scenes` | `video` | `video_id` |
 | `video_mentions` | `overallSentiment` | `overall_sentiment` |
 | `video_mentions` | `overallSentimentScore` | `overall_sentiment_score` |
 | `video_mentions` | `product` | `product_id` |
-| `video_mentions` | `videoSnippet` | `video_snippet_id` |
+| `video_mentions` | `videoScene` | `video_scene_id` |
 | `channels` | `creator` | `creator_id` |
 | `channels` | `canonicalUrl` | `canonical_url` |
 | `workers` | `lastSeenAt` | `last_seen_at` |
@@ -1686,13 +1686,13 @@ All sizes use `fit: 'inside'` to preserve the full image (no cropping). Frontend
 
 - URL param is **GTIN** (not numeric ID): `/products/[gtin]`
 - `notFound()` triggers the custom `not-found.tsx` which explains AnySkin only covers cosmetics and offers a feedback form
-- **Sections** (top to bottom): Hero (image + name + brand + **description teaser** + pills + **tappable score badges**), then accordion sections via `<AccordionSection>` (Radix Collapsible-based, multiple can be open): Videos (open, unified paginated list via `ProductVideoList` — each card shows thumbnail with sentiment overlay + duration, title, creator avatar, timestamp, and optional featured quote strip; links to `/videos/{id}?snippetId={snippetId}` for deep-linking), Prices & Stores (open, grid cards with sparkline), Ingredients (closed by default). Description is shown as a truncated teaser in the hero header via `DescriptionTeaser` component; tapping "more" opens a bottom-sheet with the full text.
+- **Sections** (top to bottom): Hero (image + name + brand + **description teaser** + pills + **tappable score badges**), then accordion sections via `<AccordionSection>` (Radix Collapsible-based, multiple can be open): Videos (open, unified paginated list via `ProductVideoList` — each card shows thumbnail with sentiment overlay + duration, title, creator avatar, timestamp, and optional featured quote strip; links to `/videos/{id}?sceneId={sceneId}` for deep-linking), Prices & Stores (open, grid cards with sparkline), Ingredients (closed by default). Description is shown as a truncated teaser in the hero header via `DescriptionTeaser` component; tapping "more" opens a bottom-sheet with the full text.
 - **Sentiment scoring**: Per-mention score is -1 to +1. Overall sentiment displayed as a tappable `CreatorScoreCard` badge in the hero section; tapping opens a bottom-sheet listing all creators with individual scores.
 - **Store scoring**: Weighted average of store ratings displayed as a tappable `StoreScoreCard` badge in the hero section; tapping opens a bottom-sheet listing all stores with individual star ratings and review counts.
 - **Store logos**: `StoreLogo` component renders inline SVG for dm/rossmann/mueller based on `source` slug. DM uses `h-8`, Rossmann `h-6` (wide aspect ~6.25:1), Müller `h-7`. Also stored in worker driver `logoSvg` field.
 - **Store cards**: White (`bg-card`) cards with logo on left in a `bg-muted/40` box, price + per-unit + rating + sparkline in the middle, and a `ScoreBadge` (tier-colored score out of 10) on the right. External link icon. Grid: 1 col mobile, 2 cols sm, 3 cols lg.
 - **Price history**: Fetched from `source_products_price_history` table, grouped by source product, shows latest price with delta vs previous. **Sparkline** graph shows last 12 months (chronological, oldest→newest) using `<Sparkline />` component (green if price dropped, red if rose).
-- **Videos section**: Unified paginated list of all video mentions via `ProductVideoList`. Each card shows thumbnail with sentiment icon overlay + duration badge, title, creator avatar, timestamp at mention, and an optional featured quote strip (the quote with the highest absolute sentiment score for that mention). Clicking a card navigates to `/videos/{id}?snippetId={snippetId}`, which deep-links into the video detail page with that snippet auto-opened and its timestamp seeked.
+- **Videos section**: Unified paginated list of all video mentions via `ProductVideoList`. Each card shows thumbnail with sentiment icon overlay + duration badge, title, creator avatar, timestamp at mention, and an optional featured quote strip (the quote with the highest absolute sentiment score for that mention). Clicking a card navigates to `/videos/{id}?sceneId={sceneId}`, which deep-links into the video detail page with that scene auto-opened and its timestamp seeked.
 
 ### CSS Specificity with Tailwind v4
 
@@ -1769,9 +1769,9 @@ interface SnapshotResponse {
     source, total, crawled, uncrawled, withGtin, variants, avgRating, avgRatingCount
   }>
   videoPipeline: {
-    total, crawled, processed, unprocessed, withTranscript, totalSnippets,
+    total, crawled, processed, unprocessed, withTranscript, totalScenes,
     // Uses status field: "processed" = status='processed', "crawled" = status='crawled', "unprocessed" = status != 'processed'
-    snippetsByBarcode, snippetsByVisual, totalMentions,
+    scenesByBarcode, scenesByVisual, totalMentions,
     mentionsByPositive, mentionsByNeutral, mentionsByNegative, mentionsByMixed,
     productsWithMentions, channelsByPlatform: Array<{ platform, count }>
   }
@@ -1804,7 +1804,7 @@ interface SnapshotResponse {
 | DatabaseOverview | `database-overview` | `DatabaseOverviewClient` | Grid of 11 entity count cards (products, variants, GTINs, source products/variants, brands, ingredients, videos, creators, channels, media) |
 | ProductQuality | `product-quality` | `ProductQualityClient` | Overall completeness percentage + 6 horizontal progress bars (image, brand, productType, ingredients, description, scoreHistory) |
 | SourceCoverage | `source-coverage` | `SourceCoverageClient` | Table with one row per store: products count, crawl progress bar with %, variants, GTINs, avg rating with review count |
-| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Pipeline progress bar (discovered/crawled/processed via status field), stats grid (snippets by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
+| VideoPipeline | `video-pipeline` | `VideoPipelineClient` | Pipeline progress bar (discovered/crawled/processed via status field), stats grid (scenes by barcode/visual, mentions, products, transcripts), sentiment breakdown, channels by platform |
 | JobQueue | `job-queue` | `JobQueueClient` | Live workers section (name, status dot, last seen) + job queue table (pending/running/completed/failed/stale per collection, clickable links) |
 
 ### Key Files

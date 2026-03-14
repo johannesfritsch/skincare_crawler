@@ -7,18 +7,18 @@ export interface SplitTranscriptResult {
 }
 
 /**
- * Split word-level transcript data into pre/main/post segments for a video snippet.
+ * Split word-level transcript data into pre/main/post segments for a video scene.
  *
  * @param words - Word-level timestamps from transcription
- * @param snippetStart - Snippet start time in seconds
- * @param snippetEnd - Snippet end time in seconds
- * @param preSeconds - Seconds of context before snippet (default 5)
- * @param postSeconds - Seconds of context after snippet (default 3)
+ * @param sceneStart - Scene start time in seconds
+ * @param sceneEnd - Scene end time in seconds
+ * @param preSeconds - Seconds of context before scene (default 5)
+ * @param postSeconds - Seconds of context after scene (default 3)
  */
-export function splitTranscriptForSnippet(
+export function splitTranscriptForScene(
   words: TranscriptWord[],
-  snippetStart: number,
-  snippetEnd: number,
+  sceneStart: number,
+  sceneEnd: number,
   preSeconds: number = 5,
   postSeconds: number = 3,
 ): SplitTranscriptResult {
@@ -26,19 +26,19 @@ export function splitTranscriptForSnippet(
   const mainWords: string[] = []
   const postWords: string[] = []
 
-  const preStart = snippetStart - preSeconds
+  const preStart = sceneStart - preSeconds
 
   for (const w of words) {
-    // Pre-transcript: words that end within the pre window but before snippet start
-    if (w.end >= preStart && w.end < snippetStart) {
+    // Pre-transcript: words that end within the pre window but before scene start
+    if (w.end >= preStart && w.end < sceneStart) {
       preWords.push(w.word)
     }
-    // Main transcript: words within the snippet range
-    else if (w.start >= snippetStart && w.end <= snippetEnd) {
+    // Main transcript: words within the scene range
+    else if (w.start >= sceneStart && w.end <= sceneEnd) {
       mainWords.push(w.word)
     }
-    // Post-transcript: words that start after snippet end but within the post window
-    else if (w.start > snippetEnd && w.start <= snippetEnd + postSeconds) {
+    // Post-transcript: words that start after scene end but within the post window
+    else if (w.start > sceneEnd && w.start <= sceneEnd + postSeconds) {
       postWords.push(w.word)
     }
   }

@@ -136,8 +136,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       mentionId: t.video_mentions.id,
       overallSentiment: t.video_mentions.overallSentiment,
       overallSentimentScore: t.video_mentions.overallSentimentScore,
-      snippetId: t.video_snippets.id,
-      timestampStart: t.video_snippets.timestampStart,
+      sceneId: t.video_scenes.id,
+      timestampStart: t.video_scenes.timestampStart,
       videoId: t.videos.id,
       videoTitle: t.videos.title,
       videoDuration: t.videos.duration,
@@ -153,8 +153,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       )`,
       creatorName: t.creators.name,
     }).from(t.video_mentions)
-      .innerJoin(t.video_snippets, eq(t.video_mentions.videoSnippet, t.video_snippets.id))
-      .innerJoin(t.videos, eq(t.video_snippets.video, t.videos.id))
+      .innerJoin(t.video_scenes, eq(t.video_mentions.videoScene, t.video_scenes.id))
+      .innerJoin(t.videos, eq(t.video_scenes.video, t.videos.id))
       .leftJoin(t.channels, eq(t.videos.channel, t.channels.id))
       .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
       .where(eq(t.video_mentions.product, productId))
@@ -178,8 +178,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       neutralCount: sql<number>`count(*) filter (where ${t.video_mentions.overallSentiment} = 'neutral')::int`,
       mixedCount: sql<number>`count(*) filter (where ${t.video_mentions.overallSentiment} = 'mixed')::int`,
     }).from(t.video_mentions)
-      .innerJoin(t.video_snippets, eq(t.video_mentions.videoSnippet, t.video_snippets.id))
-      .innerJoin(t.videos, eq(t.video_snippets.video, t.videos.id))
+      .innerJoin(t.video_scenes, eq(t.video_mentions.videoScene, t.video_scenes.id))
+      .innerJoin(t.videos, eq(t.video_scenes.video, t.videos.id))
       .leftJoin(t.channels, eq(t.videos.channel, t.channels.id))
       .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
       .where(eq(t.video_mentions.product, productId))
@@ -294,7 +294,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     overallSentiment: m.overallSentiment as string | null,
     overallSentimentScore: m.overallSentimentScore as number | null,
     timestampStart: m.timestampStart as number | null,
-    snippetId: m.snippetId as number | null,
+    sceneId: m.sceneId as number | null,
     quotes: quotesByMention.get(m.mentionId as number) ?? [],
   }))
 

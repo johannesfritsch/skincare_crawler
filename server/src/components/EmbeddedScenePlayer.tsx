@@ -15,7 +15,7 @@ function extractYouTubeId(url: string): string | null {
   return null
 }
 
-export default function EmbeddedSnippetPlayer() {
+export default function EmbeddedScenePlayer() {
   const videoField = useFormFields(([fields]) => fields['video']?.value as { id?: number; externalUrl?: string } | number | undefined)
   const timestampStart = useFormFields(([fields]) => fields['timestampStart']?.value as number | undefined)
   const timestampEnd = useFormFields(([fields]) => fields['timestampEnd']?.value as number | undefined)

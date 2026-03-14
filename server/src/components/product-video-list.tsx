@@ -28,7 +28,7 @@ export interface ProductVideoItem {
   overallSentiment: string | null
   overallSentimentScore: number | null
   timestampStart: number | null
-  snippetId: number | null
+  sceneId: number | null
   quotes: ProductVideoQuote[]
 }
 
@@ -95,13 +95,13 @@ export function ProductVideoList({ videos }: { videos: ProductVideoItem[] }) {
   return (
     <div className="flex flex-col gap-2.5">
       {pageVideos.map((v, i) => {
-        const href = v.snippetId
-          ? `/videos/${v.videoId}?snippetId=${v.snippetId}`
+        const href = v.sceneId
+          ? `/videos/${v.videoId}?sceneId=${v.sceneId}`
           : `/videos/${v.videoId}`
 
         return (
           <Link
-            key={`${v.videoId}-${v.snippetId ?? i}`}
+            key={`${v.videoId}-${v.sceneId ?? i}`}
             href={href}
             className="rounded-xl border bg-card overflow-hidden transition-colors active:bg-muted/60"
           >

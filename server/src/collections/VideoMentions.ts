@@ -13,10 +13,10 @@ export const VideoMentions: CollectionConfig = {
   },
   fields: [
     {
-      name: 'videoSnippet',
+      name: 'videoScene',
       type: 'relationship',
-      relationTo: 'video-snippets',
-      label: 'Video Snippet',
+      relationTo: 'video-scenes',
+      label: 'Video Scene',
       required: true,
       index: true,
       admin: { position: 'sidebar' },
@@ -35,7 +35,7 @@ export const VideoMentions: CollectionConfig = {
       type: 'array',
       label: 'Quotes',
       admin: {
-        description: 'Spoken quotes about this product extracted from the video snippet',
+        description: 'Spoken quotes about this product extracted from the video scene',
       },
       fields: [
         {

@@ -401,8 +401,8 @@ export interface EventRegistry {
   }
   'video_processing.screenshot_detection_detail': {
     title: string
-    snippetId: number
-    screenshotIndex: number
+    sceneId: number
+    frameId: number
     imageWidth: number
     imageHeight: number
     rawDetections: number
@@ -414,14 +414,15 @@ export interface EventRegistry {
   }
   'video_processing.screenshots_detected': {
     title: string
-    snippets: number
+    scenes: number
     detections: number
     candidatesProcessed: number
     candidatesWithDetections: number
   }
   'video_processing.screenshot_search_detail': {
     title: string
-    snippetId: number
+    sceneId: number
+    frameId: number
     detectionIndex: number
     embeddingComputed: boolean
     resultsReturned: number

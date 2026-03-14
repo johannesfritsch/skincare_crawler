@@ -60,28 +60,27 @@ All stages use CLI tools and external APIs — not bundled Node.js libraries:
 **External**: `ffmpeg` (scene detection + screenshot extraction), `zbarimg` (barcode scanning)
 **Event**: `video_processing.scene_detected`, `video_processing.barcode_found`, `video_processing.clustered`
 
-Detects scene changes in the video, extracts screenshots per segment, scans for barcodes, clusters visually similar screenshots, and creates video-snippet records.
+Detects scene changes in the video, extracts screenshots per segment, scans for barcodes, clusters visually similar screenshots, and creates video-scene + video-frame records.
 
 **Flow**:
 1. Download video media from server to temp directory (reads `videos.videoFile`)
 2. Detect scene changes via `ffmpeg` with `sceneThreshold` (default 0.4)
 3. Build segments from scene change timestamps (minimum 0.5s duration)
-4. **Delete existing snippets** + video-mentions for this video (idempotent re-run)
+4. **Delete existing scenes** + video-frames + video-mentions for this video (idempotent re-run — deletes video-mentions first, then video-frames, then video-scenes per scene)
 5. For each segment:
    - Extract screenshots at 1fps via `ffmpeg`
    - Scan each screenshot for barcodes via `zbarimg`
-   - **Barcode path**: If a barcode is found, upload all screenshots to video-media, create a `video-snippet` with `matchingType: 'barcode'` and the barcode value on the relevant screenshot entry
+   - **Barcode path**: If a barcode is found, upload first screenshot to video-media, create a `video-scene` with `matchingType: 'barcode'`, then create `video-frame` records for each screenshot (the frame with the barcode gets `barcode` set)
    - **Visual path**: If no barcode found:
-     - Compute perceptual hashes via `sharp` thumbnail + hash
+     - Compute perceptual hashes via `sharp` thumbnail + hash (transient — used for clustering only, NOT persisted on frames)
      - Cluster screenshots by hamming distance (threshold from `clusterThreshold` config)
      - Create recognition thumbnails for cluster representatives
-      - Upload all screenshots, thumbnails, and recognition thumbnails to video-media
-     - Create a `video-snippet` with `matchingType: 'visual'`, screenshot entries include `hash`, `screenshotGroup`, `distance`, `recognitionCandidate`, `recognitionThumbnail`
+     - Upload all screenshots and recognition thumbnails to video-media
+     - Create a `video-scene` with `matchingType: 'visual'`
+     - Create `video-frame` records for each screenshot — cluster representative frames get `recognitionCandidate: true` and `recognitionThumbnail` (video-media)
 6. Clean up temp directory
 
-**Writes to**: `video-snippets`, `video-media`
-
-**Screenshot entry fields**: `image` (video-media), `thumbnail` (video-media, visual only), `hash` (string, visual only), `screenshotGroup` (number), `distance` (number, distance to cluster representative), `recognitionCandidate` (boolean), `recognitionThumbnail` (video-media, visual only), `barcode` (string, barcode path only)
+**Writes to**: `video-scenes`, `video-frames`, `video-media`
 
 ---
 
@@ -93,25 +92,28 @@ Detects scene changes in the video, extracts screenshots per segment, scans for 
 **External**: OpenAI gpt-4.1-mini (vision)
 **Event**: `video_processing.candidates_identified`, `video_processing.product_recognized`
 
-Reads existing video-snippets. For barcode snippets, looks up products by GTIN. For visual snippets, runs a two-phase LLM pipeline to identify and match products.
+Reads existing video-scenes and their `video-frames` from the DB. For barcode scenes, reads `frame.barcode` to look up products by GTIN. For visual scenes, runs a two-phase LLM pipeline on recognition candidate frames to identify and match products.
 
-**Flow** per snippet:
+**Flow** per scene:
+
+1. Fetch all `video-frames` for the scene from the `video-frames` collection
 
 **Barcode path**:
-1. Extract barcode from screenshot entries
+1. Scan frames for one with a `barcode` field set
 2. Look up `product-variants` by GTIN
-3. If found, set `referencedProducts: [productId]` on the snippet
+3. If found, set `referencedProducts: [productId]` on the scene
 
 **Visual path** (two phases):
-1. **Phase 1 — Classify**: Download recognition thumbnails for cluster representatives → call `classifyScreenshots(inputs)` → LLM determines which clusters contain a cosmetics product (returns `candidates` set of cluster group IDs)
-2. **Phase 2 — Recognize**: For each candidate cluster:
-   - Download up to 4 screenshots
+1. Gather recognition candidate frames (`recognitionCandidate: true`) — each candidate is treated independently (no `screenshotGroup` grouping)
+2. **Phase 1 — Classify**: Download recognition thumbnails from candidate frames → call `classifyScreenshots(inputs)` → LLM determines which candidates contain a cosmetics product (returns `candidates` set of candidate indices)
+3. **Phase 2 — Recognize**: For each candidate frame identified by classification:
+   - Download the candidate's full-size image
    - Call `recognizeProduct(imagePaths)` → LLM extracts brand, product name, search terms
    - Call `matchProduct(payload, brand, name, terms, logger)` → finds/creates product in DB via LLM fuzzy matching
    - Collect matched product IDs
-3. Update snippet: `referencedProducts: uniqueProductIds`
+4. Update scene: `referencedProducts: uniqueProductIds`
 
-**Writes to**: `video-snippets`, `products` (may create via `matchProduct`)
+**Writes to**: `video-scenes`, `products` (may create via `matchProduct`)
 
 ---
 
@@ -124,9 +126,9 @@ Reads existing video-snippets. For barcode snippets, looks up products by GTIN. 
 **Events**: `video_processing.screenshot_detection_detail` (per candidate), `video_processing.screenshots_detected` (aggregate)
 **Model**: Grounding DINO (shared singleton from `@/lib/models/grounding-dino`)
 
-Runs zero-shot object detection on cluster representative screenshots from visual snippets. Crops detections, uploads to detection-media, and stores in the snippet's `detections` array.
+Runs zero-shot object detection on recognition candidate frames from visual scenes. Queries `video-frames` where `recognitionCandidate=true`. Crops detections, uploads to detection-media, and stores in the `video-frame`'s `detections` array.
 
-**Scope**: Only `matchingType: 'visual'` snippets, only cluster representative screenshots.
+**Scope**: Only `matchingType: 'visual'` scenes. Within those, only `video-frames` with `recognitionCandidate: true`.
 
 **Configurable parameters** (from job's Configuration tab → StageConfig):
 - `detectionPrompt` — Grounding DINO text prompt (default: `"cosmetics packaging."`)
@@ -134,22 +136,22 @@ Runs zero-shot object detection on cluster representative screenshots from visua
 - `minBoxArea` — minimum box area as fraction of screenshot area (default: 0.25 = 25%)
 
 **Flow**:
-1. Fetch all snippets for the video
-2. Filter to visual snippets with cluster representatives
-3. Per snippet, per representative screenshot:
-   - Download screenshot from video-media
+1. Fetch all scenes for the video, filter to visual scenes
+2. For each visual scene, query `video-frames` where `scene=sceneId` AND `recognitionCandidate=true`
+3. Per recognition candidate frame:
+   - Download frame image from video-media
    - Run Grounding DINO detector with configurable prompt and threshold
    - For each detection above confidence threshold AND minimum box area:
      - Crop the detected region via `sharp`
      - Upload crop to detection-media collection
-     - Store in snippet's `detections` array: `{ image (detection-media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
-   - Emit `video_processing.screenshot_detection_detail` event with full breakdown: raw detection count, kept/skipped counts, all scores, image dimensions
-4. Update snippet with `detections` array
+     - Store in frame's `detections` array: `{ image (detection-media), boxXMin, boxYMin, boxXMax, boxYMax, score }`
+   - Emit `video_processing.screenshot_detection_detail` event with `frameId`, raw detection count, kept/skipped counts, all scores, image dimensions
+4. Update frame with `detections` array (overwrite for idempotency)
 5. Emit `video_processing.screenshots_detected` aggregate event with `candidatesProcessed` and `candidatesWithDetections`
 
-**Observability**: Every recognition candidate screenshot emits a detail event regardless of outcome. This makes it easy to debug why detections are missing — you can see whether Grounding DINO returned zero detections (model didn't recognize anything) or returned detections that were filtered out (too small, invalid boxes).
+**Observability**: Every recognition candidate frame emits a detail event regardless of outcome. Per-candidate events include `frameId` (not screenshot index). This makes it easy to debug why detections are missing — you can see whether Grounding DINO returned zero detections (model didn't recognize anything) or returned detections that were filtered out (too small, invalid boxes).
 
-**Writes to**: `video-snippets` (detections array), `detection-media`
+**Writes to**: `video-frames` (detections array), `detection-media`
 
 ---
 
@@ -162,9 +164,9 @@ Runs zero-shot object detection on cluster representative screenshots from visua
 **Events**: `video_processing.screenshot_search_detail` (per detection), `video_processing.screenshots_searched` (aggregate)
 **Model**: CLIP ViT-B/32 (shared singleton from `@/lib/models/clip`)
 
-Computes transient CLIP embeddings for detection crops and searches against stored product recognition image embeddings to match products.
+Computes transient CLIP embeddings for detection crops stored on `video-frames` and searches against stored product recognition image embeddings to match products.
 
-**Scope**: All snippets with detections from Stage 2.
+**Scope**: All scenes for the video. For each scene, fetches all `video-frames` and processes those with detections from Stage 2.
 
 **Configurable parameters** (from job's Configuration tab → StageConfig):
 - `searchThreshold` — maximum cosine distance for matching (0-2, default: 0.3). Try 0.5-0.7 for video screenshots which have different angles/lighting vs product photos.
@@ -173,20 +175,21 @@ Computes transient CLIP embeddings for detection crops and searches against stor
 **Diagnostic behavior**: Always fetches at least 3 results from pgvector (regardless of `searchLimit`) to log near-misses. The server-side threshold filter is disabled — all top-N results are returned, and threshold filtering is applied client-side. This means even when no match is found, you can see the closest distance in the detail event.
 
 **Flow**:
-1. Fetch all snippets with detections
-2. Per detection:
+1. Fetch all scenes for the video
+2. Per scene, fetch all `video-frames` for that scene
+3. Per frame with detections, per detection:
    - Download detection crop from detection-media
    - Compute transient CLIP ViT-B/32 embedding (512-dim, not persisted)
    - Search `recognition-images` embedding namespace (no server-side threshold, fetch top-N for diagnostics)
    - If best result is within `searchThreshold`, resolve product-variant → product
-   - Emit `video_processing.screenshot_search_detail` event with: embedding status, results count, best distance, best GTIN, match status, top-N distances
-3. Merge matched product IDs into snippet's `referencedProducts` (alongside any existing barcode/LLM matches)
-4. Update detection entries with match info (matched product-variant ID, similarity score)
-5. Emit `video_processing.screenshots_searched` aggregate event with `embeddingsFailed` and `avgBestDistance`
+   - Emit `video_processing.screenshot_search_detail` event with: `sceneId`, `frameId`, detection index, embedding status, results count, best distance, best GTIN, match status, top-N distances
+4. Update frame's detection entries with match info (`hasEmbedding`, `matchedProduct`, `matchDistance`, `matchedGtin`)
+5. Merge matched product IDs into scene's `referencedProducts` (alongside any existing barcode/LLM matches)
+6. Emit `video_processing.screenshots_searched` aggregate event with `embeddingsFailed` and `avgBestDistance`
 
-**Observability**: Every detection crop emits a detail event regardless of outcome. This shows whether CLIP embeddings computed successfully, what the nearest neighbor distances were (even if above threshold), and which GTIN was closest. The `avgBestDistance` in the aggregate event helps calibrate the `searchThreshold` setting.
+**Observability**: Every detection crop emits a detail event regardless of outcome, including `frameId` for traceability. This shows whether CLIP embeddings computed successfully, what the nearest neighbor distances were (even if above threshold), and which GTIN was closest. The `avgBestDistance` in the aggregate event helps calibrate the `searchThreshold` setting.
 
-**Writes to**: `video-snippets` (detections with match info, referencedProducts)
+**Writes to**: `video-frames` (detections with match info), `video-scenes` (referencedProducts)
 
 ---
 
@@ -198,19 +201,19 @@ Computes transient CLIP embeddings for detection crops and searches against stor
 **External**: `ffmpeg` (audio extraction), Deepgram API (STT), OpenAI gpt-4.1-mini (correction)
 **Event**: `video_processing.transcribed`, `video_processing.transcript_corrected`
 
-Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/product names via LLM, and splits the transcript per snippet.
+Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/product names via LLM, and splits the transcript per scene.
 
 **Flow**:
 1. Download video from video-media to temp directory (reads `videos.videoFile`)
 2. Extract audio via `ffmpeg` → WAV
-3. Collect product/brand names from snippets' `referencedProducts` for keyword boosting
+3. Collect product/brand names from scenes' `referencedProducts` for keyword boosting
 4. Transcribe via `transcribeAudio(audioPath, { language, model, keywords })` using Deepgram
 5. Fetch all brand names for LLM correction context
 6. Call `correctTranscript(rawTranscript, words, brandNames, productKeywords)` — LLM fixes misheard brand/product names
 7. Save full transcript on video: `transcript`, `transcriptWords`
-8. For each snippet: call `splitTranscriptForSnippet(words, start, end, preSeconds=5, postSeconds=3)` — extracts the transcript segment with pre/post context. Update snippet: `preTranscript`, `transcript`, `postTranscript`
+8. For each scene: call `splitTranscriptForScene(words, start, end, preSeconds=5, postSeconds=3)` — extracts the transcript segment with pre/post context. Update scene: `preTranscript`, `transcript`, `postTranscript`
 
-**Writes to**: `videos`, `video-snippets`
+**Writes to**: `videos`, `video-scenes`
 
 **Config**: `transcriptionLanguage` (default 'de'), `transcriptionModel` (default 'nova-3')
 
@@ -224,16 +227,16 @@ Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/pr
 **External**: OpenAI gpt-4.1-mini
 **Event**: `video_processing.sentiment_analyzed`
 
-Reads snippets with referenced products and transcript data, runs LLM sentiment analysis per snippet, creates video-mention records.
+Reads scenes with referenced products and transcript data, runs LLM sentiment analysis per scene, creates video-mention records.
 
 **Flow**:
 1. Fetch video for full transcript context
-2. Fetch all snippets, collect all referenced product IDs
+2. Fetch all scenes, collect all referenced product IDs
 3. Build product info map (brand name + product name for each product)
-4. **Delete existing video-mentions** for all snippets (idempotent re-run)
-5. For each snippet with `referencedProducts` and transcript text:
+4. **Delete existing video-mentions** for all scenes (idempotent re-run)
+5. For each scene with `referencedProducts` and transcript text:
    - Call `analyzeSentiment(preTranscript, transcript, postTranscript, products, fullTranscript)` — LLM extracts quotes about each product with sentiment scores
-   - For each product result: create `video-mention` with `videoSnippet`, `product`, `quotes` array (text, summary, sentiment, sentimentScore), `overallSentiment`, `overallSentimentScore`
+   - For each product result: create `video-mention` with `videoScene`, `product`, `quotes` array (text, summary, sentiment, sentimentScore), `overallSentiment`, `overallSentimentScore`
 
 **Writes to**: `video-mentions`
 
@@ -248,8 +251,8 @@ Reads snippets with referenced products and transcript data, runs LLM sentiment 
 - **Media URL resolution**: Stages that read from media collections (video-media, detection-media) construct full URLs via `payload.serverUrl` + relative path (or use the URL directly if already absolute)
 - **Heartbeat**: all stages call `ctx.heartbeat()` after heavy operations (downloads, per-segment loops, LLM calls) to keep the job claim alive
 - **Token tracking**: LLM stages return categorized token counts in `StageResult.tokens`; the dispatcher accumulates these
-- **Idempotency**: scene_detection and sentiment_analysis delete existing snippets/mentions before re-creating them, making re-runs safe
-- **Snippet ownership**: video-snippets belong to a video (via `video` relationship). video-mentions belong to a snippet (via `videoSnippet` relationship). Deleting snippets cascades to deleting their mentions.
+- **Idempotency**: scene_detection and sentiment_analysis delete existing scenes/mentions before re-creating them, making re-runs safe
+- **Scene ownership**: video-scenes belong to a video (via `video` relationship). video-frames belong to a scene (via `scene` relationship). video-mentions belong to a scene (via `videoScene` relationship). Deleting scenes cascades to deleting their frames and mentions (scene_detection explicitly deletes video-mentions, then video-frames, then video-scenes per scene for idempotent re-runs).
 
 ## Data Flow Between Stages
 
@@ -257,21 +260,22 @@ Reads snippets with referenced products and transcript data, runs LLM sentiment 
 [video-crawl handler sets videos.videoFile + videos.thumbnail + status='crawled']
        |
 scene_detection (reads videos.videoFile)
-  └─ video-snippets (timestamps, screenshots, barcodes/hashes/clusters)
+  └─ video-scenes (timestamps, matchingType)
+  └─ video-frames (image, barcode, recognitionCandidate, recognitionThumbnail — per scene)
        │
-product_recognition (reads video-snippets)
-  └─ video-snippets.referencedProducts (product IDs from barcode/LLM)
+product_recognition (reads video-scenes + video-frames)
+  └─ video-scenes.referencedProducts (product IDs from barcode/LLM)
        │
-screenshot_detection (reads video-snippets, visual snippets only)
-   └─ video-snippets.detections (Grounding DINO crops as detection-media, bounding boxes)
+screenshot_detection (reads video-frames where recognitionCandidate=true, visual scenes only)
+  └─ video-frames.detections (Grounding DINO crops as detection-media, bounding boxes)
        │
-screenshot_search (reads video-snippets.detections)
-  └─ video-snippets.detections (match info) + video-snippets.referencedProducts (merged)
+screenshot_search (reads video-frames.detections)
+  └─ video-frames.detections (match info) + video-scenes.referencedProducts (merged)
        │
-transcription (reads videos.videoFile + video-snippets.referencedProducts for keywords)
+transcription (reads videos.videoFile + video-scenes.referencedProducts for keywords)
   └─ videos.transcript + videos.transcriptWords
-  └─ video-snippets.preTranscript / transcript / postTranscript
+  └─ video-scenes.preTranscript / transcript / postTranscript
        │
-sentiment_analysis (reads video-snippets with products + transcripts)
-  └─ video-mentions (quotes, sentiment scores per product per snippet)
+sentiment_analysis (reads video-scenes with products + transcripts)
+  └─ video-mentions (quotes, sentiment scores per product per scene)
 ```
