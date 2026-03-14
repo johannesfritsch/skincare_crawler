@@ -4,6 +4,7 @@ import * as migration_20260314_005052_add_more_config_to_video_processings from 
 import * as migration_20260314_134030 from './20260314_134030';
 import * as migration_20260314_155003_new_videos_structure from './20260314_155003_new_videos_structure';
 import * as migration_20260314_162248 from './20260314_162248';
+import * as migration_20260314_183349 from './20260314_183349';
 
 export const migrations = [
   {
@@ -34,6 +35,11 @@ export const migrations = [
   {
     up: migration_20260314_162248.up,
     down: migration_20260314_162248.down,
-    name: '20260314_162248'
+    name: '20260314_162248',
+  },
+  {
+    up: migration_20260314_183349.up,
+    down: migration_20260314_183349.down,
+    name: '20260314_183349'
   },
 ];
