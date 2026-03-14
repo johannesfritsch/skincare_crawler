@@ -28,6 +28,13 @@ export interface AggregateOptions {
   imageSourcePriority?: string[]
 }
 
+/** A single source image with provenance metadata */
+export interface SourceImage {
+  url: string
+  alt: string | null
+  source: string // store slug (dm, rossmann, mueller, purish)
+}
+
 // Result of source-variant → product-variant aggregation (per GTIN)
 export interface VariantAggregatedData {
   // Consensus from source-variants
@@ -35,9 +42,11 @@ export interface VariantAggregatedData {
   variantDimension?: string
   amount?: number
   amountUnit?: string
-  // Image selection
+  // Image selection (best image by priority — for backward compat)
   selectedImageUrl?: string
   selectedImageAlt?: string | null
+  // All images from all stores (deduplicated by URL)
+  allImages: SourceImage[]
   // Raw data for further LLM processing
   ingredientsText?: string
   // Collected for LLM consensus (pre-dedup)
@@ -72,6 +81,7 @@ export function aggregateSourceVariantsToVariant(
   const result: VariantAggregatedData = {
     descriptions: [],
     allLabels: [],
+    allImages: [],
     sourceProductIds: sources.map((s) => s.sourceProductId),
     sourceVariantIds: sources.map((s) => s.sourceVariantId),
   }
@@ -140,6 +150,21 @@ export function aggregateSourceVariantsToVariant(
     if (anyWithImages && anyWithImages.images && anyWithImages.images.length > 0) {
       result.selectedImageUrl = anyWithImages.images[0].url
       result.selectedImageAlt = anyWithImages.images[0].alt ?? null
+    }
+  }
+
+  // All images: collect every image from every source, deduplicated by URL
+  const seenUrls = new Set<string>()
+  for (const s of sources) {
+    if (!s.images || !s.source) continue
+    for (const img of s.images) {
+      if (!img.url || seenUrls.has(img.url)) continue
+      seenUrls.add(img.url)
+      result.allImages.push({
+        url: img.url,
+        alt: img.alt ?? null,
+        source: s.source,
+      })
     }
   }
 

@@ -1365,7 +1365,7 @@ export async function persistProductAggregationResult(
             const mediaId = (mediaDoc as { id: number }).id
             variantUpdateData.images = [{ image: mediaId }]
             log.info('persistProductAggregationResult: uploaded image to variant', { gtin: vr.gtin, mediaId, variantId })
-            jlog.event('aggregation.image_uploaded', { mediaId })
+            jlog.event('aggregation.image_uploaded', { gtin: vr.gtin, total: 1, public: 1, recognitionOnly: 0, failed: 0 })
           }
         } catch (error) {
           warningMessages.push(`[${vr.gtin}] Image upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

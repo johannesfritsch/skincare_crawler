@@ -501,7 +501,13 @@ export interface EventRegistry {
     unmatched: number
     total: number
   }
-  'aggregation.image_uploaded': { mediaId: number }
+  'aggregation.image_uploaded': {
+    gtin: string
+    total: number
+    public: number
+    recognitionOnly: number
+    failed: number
+  }
   'aggregation.name_cleaned': {
     rawName: string
     variantLabels: number
@@ -514,6 +520,7 @@ export interface EventRegistry {
   }
   'aggregation.objects_detected': {
     gtin: string
+    images: number
     detections: number
     scores: string
   }

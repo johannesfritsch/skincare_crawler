@@ -122,21 +122,25 @@ Per variant: parses raw INCI text into individual ingredient names, then matches
 
 ---
 
-### Stage 4: `images` — Download + Upload Best Image
+### Stage 4: `images` — Download + Upload ALL Store Images
 
-**File**: `images.ts` (~77 lines)
+**File**: `images.ts`
 **Checkbox**: `stageImages`
 **LLM**: No
 **Event**: `aggregation.image_uploaded`
 
-Per variant: selects the best image from source data (by store priority order), downloads it, uploads to the product-media collection, and sets it on the product-variant.
+Per variant: collects **all** images from all source-variants (across all stores), downloads each, uploads to product-media, and sets them on the product-variant with visibility and source metadata.
+
+**Image visibility**: The "best" image (selected by `imageSourcePriority`) is marked `visibility: 'public'` and placed first in the array — this is the frontend display image. All other images are marked `visibility: 'recognition_only'` — they are not shown in the frontend but are used by the object detection and CLIP embedding stages, giving the video search pipeline a much richer reference database to match against.
 
 **Flow** (per variant):
-1. Aggregate source variant data — `aggregateSourceVariantsToVariant()` selects `selectedImageUrl` based on `imageSourcePriority` config (e.g. `['dm', 'rossmann', 'mueller', 'purish']`)
+1. Aggregate source variant data — `aggregateSourceVariantsToVariant()` collects `allImages` (deduplicated by URL across all stores) and picks `selectedImageUrl` by priority
 2. Find the `product-variant` by GTIN
-3. Download the image via `fetch()`
-4. Upload to `product-media` collection via `payload.create()` with multipart file data
-5. Update product-variant: `images: [{ image: mediaId }]`
+3. Download each image via `fetch()`
+4. Upload each to `product-media` collection
+5. Set `visibility: 'public'` on the best image, `'recognition_only'` on all others
+6. Set `source` on each entry (dm/rossmann/mueller/purish)
+7. Update product-variant: `images` array (public first, then recognition-only)
 
 **Writes to**: `product-variants`, `product-media`
 
@@ -144,12 +148,14 @@ Per variant: selects the best image from source data (by store priority order), 
 
 ### Stage 5: `object_detection` — Grounding DINO Detection + Crop
 
-**File**: `object-detection.ts` (~237 lines)
+**File**: `object-detection.ts`
 **Checkbox**: `stageObjectDetection`
 **LLM**: No (ML inference via ONNX)
 **Event**: `aggregation.objects_detected`
 
-Per variant: takes the uploaded product image (from stage 4), runs Grounding DINO zero-shot object detection with the prompt `"cosmetics packaging."`, crops each detected region using sharp, uploads the crops to detection-media, and stores them in `recognitionImages`.
+Per variant: takes **ALL** uploaded product images (public + recognition_only from stage 4), runs Grounding DINO zero-shot object detection on each with the prompt `"cosmetics packaging."`, crops each detected region using sharp, uploads the crops to detection-media, and accumulates them all in `recognitionImages`.
+
+This gives detection crops from every store's image of the product — not just a single "best" image — providing a much richer set of recognition embeddings for the video search pipeline to match against.
 
 **Model**: `onnx-community/grounding-dino-tiny-ONNX` via `@huggingface/transformers` pipeline API. Lazy-loaded singleton — first call downloads ~700MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only.
 
@@ -157,13 +163,15 @@ Per variant: takes the uploaded product image (from stage 4), runs Grounding DIN
 
 **Flow** (per variant):
 1. Find the `product-variant` by GTIN
-2. Get `images[0].image` — resolve to product-media ID and URL
-3. Download the image buffer via `fetch()`
-4. Get image dimensions via `sharp(buffer).metadata()`
-5. Run detection: `detector(imageUrl, ["cosmetics packaging."], { threshold: 0.3 })`
-6. For each detection: clamp box coordinates to image bounds, crop via `sharp().extract().png().toBuffer()`, upload crop to `detection-media`
-7. Update product-variant: `recognitionImages` array of `{ image, score, boxXMin, boxYMin, boxXMax, boxYMax }`
-8. If no detections found, clear `recognitionImages: []`
+2. Iterate **all** entries in the `images` array (both public and recognition_only)
+3. For each image:
+   - Resolve product-media URL, download the image buffer via `fetch()`
+   - Get image dimensions via `sharp(buffer).metadata()`
+   - Run detection: `detector(imageUrl, ["cosmetics packaging."], { threshold })`
+   - For each detection: clamp box coordinates, crop via `sharp().extract().png().toBuffer()`, upload crop to `detection-media`
+4. Accumulate all detection crops across all images into one `recognitionImages` array
+5. Update product-variant: `recognitionImages` array of `{ image, score, boxXMin, boxYMin, boxXMax, boxYMax }`
+6. If no images or no detections found across any image, clear `recognitionImages: []`
 
 **Writes to**: `product-variants`, `detection-media`
 

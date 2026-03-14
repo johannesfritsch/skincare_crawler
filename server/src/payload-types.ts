@@ -1111,11 +1111,19 @@ export interface ProductVariant {
    */
   description?: string | null;
   /**
-   * Variant images (first entry is primary display image, aggregated from source variants by source priority)
+   * All variant images from all stores. The first "public" entry is the primary display image. "recognition_only" images are used for object detection + CLIP embedding but not shown in the frontend.
    */
   images?:
     | {
         image: number | ProductMedia;
+        /**
+         * Public images are shown in the frontend. Recognition-only images are used for object detection + CLIP embedding only.
+         */
+        visibility?: ('public' | 'recognition_only') | null;
+        /**
+         * Which store this image was sourced from.
+         */
+        source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
         id?: string | null;
       }[]
     | null;
@@ -2527,6 +2535,8 @@ export interface ProductVariantsSelect<T extends boolean = true> {
     | T
     | {
         image?: T;
+        visibility?: T;
+        source?: T;
         id?: T;
       };
   recognitionImages?:

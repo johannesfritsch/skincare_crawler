@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { SOURCE_OPTIONS } from './shared/store-fields'
 
 export const ProductVariants: CollectionConfig = {
   slug: 'product-variants',
@@ -68,7 +69,9 @@ export const ProductVariants: CollectionConfig = {
               type: 'array',
               label: 'Variant Images',
               admin: {
-                description: 'Variant images (first entry is primary display image, aggregated from source variants by source priority)',
+                description:
+                  'All variant images from all stores. The first "public" entry is the primary display image. ' +
+                  '"recognition_only" images are used for object detection + CLIP embedding but not shown in the frontend.',
               },
               fields: [
                 {
@@ -77,6 +80,35 @@ export const ProductVariants: CollectionConfig = {
                   relationTo: 'product-media',
                   label: 'Image',
                   required: true,
+                },
+                {
+                  type: 'row',
+                  fields: [
+                    {
+                      name: 'visibility',
+                      type: 'select',
+                      label: 'Visibility',
+                      defaultValue: 'public',
+                      options: [
+                        { label: 'Public', value: 'public' },
+                        { label: 'Recognition Only', value: 'recognition_only' },
+                      ],
+                      admin: {
+                        width: '50%',
+                        description: 'Public images are shown in the frontend. Recognition-only images are used for object detection + CLIP embedding only.',
+                      },
+                    },
+                    {
+                      name: 'source',
+                      type: 'select',
+                      label: 'Source',
+                      options: SOURCE_OPTIONS,
+                      admin: {
+                        width: '50%',
+                        description: 'Which store this image was sourced from.',
+                      },
+                    },
+                  ],
                 },
               ],
             },

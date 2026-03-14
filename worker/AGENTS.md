@@ -367,8 +367,8 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 1 | `classify` | `stageClassify` | `classifyProduct()` + `cleanProductName()` → productType, attributes, claims, warnings, pH, usage | Yes |
 | 2 | `match_brand` | `stageMatchBrand` | `matchBrand()` → link brand to product | Yes |
 | 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
-| 4 | `images` | `stageImages` | Per variant: download best image, upload to product-media | No |
-| 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection of "cosmetics packaging" + sharp crop + upload crops to detection-media as `recognitionImages` on product-variants. Filters by `minBoxArea` (default 5% of image area). | No (ML) |
+| 4 | `images` | `stageImages` | Per variant: download ALL images from all stores, upload to product-media with visibility (public/recognition_only) and source metadata. Public image first, then recognition-only. | No |
+| 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection on ALL variant images (public + recognition_only) — "cosmetics packaging" prompt + sharp crop + upload crops to detection-media as `recognitionImages`. Accumulates detections across all store images. Filters by `minBoxArea` (default 5%). | No (ML) |
 | 6 | `embed_images` | `stageEmbedImages` | Per variant: CLIP ViT-B/32 embedding vectors for recognition image crops → pgvector via embeddings API | No (ML) |
 | 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
 | 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
