@@ -13,11 +13,15 @@ import { retryOrFail } from './job-failure'
 import {
   getVideoProgress,
   videoNeedsWork,
+  incrementVideoErrorCount,
+  markVideoFailed,
   type StageName,
 } from '@/lib/video-processing/stages'
 import {
   getAggregationProgress,
   productNeedsWork,
+  incrementProductErrorCount,
+  markProductFailed,
   type StageName as AggregationStageName,
 } from '@/lib/product-aggregation/stages'
 
@@ -821,6 +825,8 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
   // Read current videoProgress map from the job and update it with results
   const progress = getVideoProgress(job)
 
+  const maxRetries = (job.maxRetries as number) ?? 3
+
   for (const result of results) {
     // Always accumulate tokens, regardless of success/failure
     tokensUsed += result.tokensUsed ?? 0
@@ -832,11 +838,23 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
       // Stage already persisted its own results — update progress map and count it
       completed++
       progress[String(result.videoId)] = result.stageName as StageName
+      // Clear any accumulated error count on success
+      delete progress[`err:${result.videoId}`]
       log.info('Stage execution complete', { jobId, videoId: result.videoId, stage: result.stageName, tokens: result.tokensUsed ?? 0 })
     } else {
       errors++
-      log.info('Stage execution failed', { jobId, videoId: result.videoId, stage: result.stageName, error: result.error })
+
+      // Track per-video consecutive failures
+      const errCount = incrementVideoErrorCount(progress, result.videoId)
+      log.info('Stage execution failed', { jobId, videoId: result.videoId, stage: result.stageName, error: result.error, consecutiveErrors: errCount, maxRetries })
       jlog.event('video_processing.error', { videoId: String(result.videoId), stage: result.stageName, error: result.error ?? 'Unknown error' })
+
+      if (errCount > maxRetries) {
+        // This video has failed too many times — mark it as permanently failed
+        markVideoFailed(progress, result.videoId)
+        log.warn('Video permanently failed after max retries', { jobId, videoId: result.videoId, stage: result.stageName, consecutiveErrors: errCount, maxRetries })
+        jlog.event('video_processing.error', { videoId: String(result.videoId), stage: result.stageName, error: `Permanently failed after ${errCount} consecutive errors (maxRetries=${maxRetries}). Last error: ${result.error ?? 'Unknown'}` })
+      }
     }
   }
 
@@ -909,33 +927,62 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
 
   const allDone = remainingWork === 0
   const batchDurationMs = Date.now() - batchStartMs
-  log.info('Video processing progress', { jobId, completed, errors, tokensUsed, done: allDone, remaining: remainingWork })
 
-  if (allDone && completed === 0 && errors > 0) {
-    log.warn('Video processing completed with zero successes, retrying or failing', { jobId, errors })
-    await retryOrFail(payload, 'video-processings', jobId, `All ${errors} stage-executions failed`)
-    return { completed, errors, tokensUsed, done: allDone }
-  }
+  // Count permanently failed videos (marked as !failed in progress)
+  const failedVideoIds = Object.entries(progress)
+    .filter(([k, v]) => !k.startsWith('err:') && v === '!failed' as string)
+    .map(([k]) => k)
+  const failedVideoCount = failedVideoIds.length
+
+  log.info('Video processing progress', { jobId, completed, errors, tokensUsed, done: allDone, remaining: remainingWork, failedVideos: failedVideoCount })
 
   if (allDone) {
-    await payload.update({
-      collection: 'video-processings',
-      id: jobId,
-      data: {
-        status: 'completed',
-        completed,
-        errors,
-        tokensUsed,
-        tokensRecognition,
-        tokensTranscriptCorrection,
-        tokensSentiment,
-        videoProgress: progress,
-        completedAt: new Date().toISOString(),
-      },
-    })
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
-    jlog.event('video_processing.completed', { completed, errors, tokensUsed, durationMs: jobDurationMs })
+
+    if (failedVideoCount > 0 && completed === 0) {
+      // ALL work resulted in failures — mark job as failed
+      const reason = `All videos failed permanently after exceeding max retries (${maxRetries}). Failed video IDs: ${failedVideoIds.join(', ')}`
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: {
+          status: 'failed',
+          completed,
+          errors,
+          tokensUsed,
+          tokensRecognition,
+          tokensTranscriptCorrection,
+          tokensSentiment,
+          videoProgress: progress,
+          failedAt: new Date().toISOString(),
+          failureReason: reason,
+        },
+      })
+      jlog.event('job.failed', { reason })
+    } else {
+      // Some or all succeeded — mark as completed (with optional failure note)
+      const failureReason = failedVideoCount > 0
+        ? `Completed with ${failedVideoCount} permanently failed video(s): ${failedVideoIds.join(', ')}`
+        : null
+      await payload.update({
+        collection: 'video-processings',
+        id: jobId,
+        data: {
+          status: 'completed',
+          completed,
+          errors,
+          tokensUsed,
+          tokensRecognition,
+          tokensTranscriptCorrection,
+          tokensSentiment,
+          videoProgress: progress,
+          completedAt: new Date().toISOString(),
+          ...(failureReason ? { failureReason } : {}),
+        },
+      })
+      jlog.event('video_processing.completed', { completed, errors, tokensUsed, durationMs: jobDurationMs, failedVideos: failedVideoCount })
+    }
   } else {
     await payload.update({
       collection: 'video-processings',
@@ -999,12 +1046,40 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
           progress[progressKey] = result.stageName as AggregationStageName
           // Store the product ID for quick lookup by claim.ts
           progress[`pid:${progressKey}`] = String(result.productId) as unknown as AggregationStageName
+          // Clear any accumulated error count on success
+          delete progress[`err:${progressKey}`]
         }
       }
     } else {
       errors++
       log.info('Stage execution failed', { jobId, productId: result.productId, stage: result.stageName, error: result.error })
       jlog.event('aggregation.error', { error: result.error ?? 'Unknown error' })
+
+      // Track per-product consecutive failures — need to find the progressKey for this product
+      if (result.productId) {
+        const pvResult = await payload.find({
+          collection: 'product-variants',
+          where: { product: { equals: result.productId } },
+          limit: 100,
+        })
+        const gtins = (pvResult.docs as Array<Record<string, unknown>>)
+          .map((pv) => pv.gtin as string)
+          .filter(Boolean)
+          .sort()
+        const progressKey = gtins.join(',')
+
+        if (progressKey) {
+          const maxRetries = (job.maxRetries as number) ?? 3
+          const errCount = incrementProductErrorCount(progress, progressKey)
+          log.info('Product error tracked', { jobId, productId: result.productId, progressKey, consecutiveErrors: errCount, maxRetries })
+
+          if (errCount > maxRetries) {
+            markProductFailed(progress, progressKey)
+            log.warn('Product permanently failed after max retries', { jobId, productId: result.productId, stage: result.stageName, consecutiveErrors: errCount, maxRetries })
+            jlog.event('aggregation.error', { error: `Product ${result.productId} permanently failed after ${errCount} consecutive errors (maxRetries=${maxRetries}). Last error: ${result.error ?? 'Unknown'}` })
+          }
+        }
+      }
     }
   }
 
@@ -1029,32 +1104,57 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
     ? remainingWork === 0
     : remainingWork === 0 // For 'all', claim.ts already completes the job early when no more source-products exist
 
-  const batchDurationMs = Date.now() - batchStartMs
-  log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: allDone, remaining: remainingWork })
+  // Count permanently failed product groups
+  const failedProductKeys = Object.entries(progress)
+    .filter(([k, v]) => !k.startsWith('pid:') && !k.startsWith('err:') && v === '!failed' as string)
+    .map(([k]) => k)
+  const failedProductCount = failedProductKeys.length
 
-  if (allDone && aggregated === 0 && errors > 0) {
-    log.warn('Product aggregation completed with zero successes, retrying or failing', { jobId, errors })
-    await retryOrFail(payload, 'product-aggregations', jobId, `All ${errors} stage-executions failed`)
-    return { aggregated, errors, tokensUsed, done: allDone }
-  }
+  const batchDurationMs = Date.now() - batchStartMs
+  log.info('Product aggregation progress', { jobId, aggregated, errors, tokensUsed, done: allDone, remaining: remainingWork, failedProducts: failedProductCount })
 
   if (allDone && aggregationType === 'selected_gtins') {
-    await payload.update({
-      collection: 'product-aggregations',
-      id: jobId,
-      data: {
-        status: 'completed',
-        aggregated,
-        errors,
-        tokensUsed,
-        products: [...productIds],
-        aggregationProgress: progress,
-        completedAt: new Date().toISOString(),
-      },
-    })
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
-    jlog.event('aggregation.completed', { aggregated, errors, tokensUsed, durationMs: jobDurationMs })
+
+    if (failedProductCount > 0 && aggregated === 0) {
+      // ALL products failed
+      const reason = `All product groups failed permanently after exceeding max retries. Failed groups: ${failedProductKeys.join('; ')}`
+      await payload.update({
+        collection: 'product-aggregations',
+        id: jobId,
+        data: {
+          status: 'failed',
+          aggregated,
+          errors,
+          tokensUsed,
+          products: [...productIds],
+          aggregationProgress: progress,
+          failedAt: new Date().toISOString(),
+          failureReason: reason,
+        },
+      })
+      jlog.event('job.failed', { reason })
+    } else {
+      const failureReason = failedProductCount > 0
+        ? `Completed with ${failedProductCount} permanently failed product group(s): ${failedProductKeys.join('; ')}`
+        : null
+      await payload.update({
+        collection: 'product-aggregations',
+        id: jobId,
+        data: {
+          status: 'completed',
+          aggregated,
+          errors,
+          tokensUsed,
+          products: [...productIds],
+          aggregationProgress: progress,
+          completedAt: new Date().toISOString(),
+          ...(failureReason ? { failureReason } : {}),
+        },
+      })
+      jlog.event('aggregation.completed', { aggregated, errors, tokensUsed, durationMs: jobDurationMs, failedProducts: failedProductCount })
+    }
   } else {
     // Release claim for next batch (both 'all' cursor-based and 'selected_gtins' with remaining work)
     await payload.update({

@@ -102,11 +102,13 @@ export async function transcribeAudio(
   }
 
   const url = `${baseURL.replace(/\/+$/, '')}/audio/transcriptions`
+  const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS) || 120_000
 
   const rawResponse = await fetch(url, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}` },
     body: formData,
+    signal: AbortSignal.timeout(timeoutMs),
   })
 
   if (!rawResponse.ok) {

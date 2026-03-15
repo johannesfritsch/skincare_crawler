@@ -237,6 +237,7 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
 /**
  * Check if a video needs any more work for this job's enabled stages.
  * Returns true if the video still has stages to run.
+ * Returns false if the video has been marked as failed (progress = '!failed').
  *
  * @param lastCompleted - The last completed stage name for this video (from videoProgress)
  * @param enabledStages - Set of enabled stage names from the job config
@@ -245,7 +246,42 @@ export function videoNeedsWork(
   lastCompleted: StageName | null | undefined,
   enabledStages: Set<StageName>,
 ): boolean {
+  // Videos marked as permanently failed don't need more work
+  if (lastCompleted === '!failed' as StageName) return false
   return getNextStage(lastCompleted, enabledStages) !== null
+}
+
+/** Sentinel value stored in videoProgress when a video has permanently failed */
+export const VIDEO_FAILED_SENTINEL = '!failed'
+
+/**
+ * Get the per-video error count from the progress map.
+ * Error counts are stored as `err:{videoId}` → count.
+ */
+export function getVideoErrorCount(progress: VideoProgress, videoId: number): number {
+  const key = `err:${videoId}`
+  const val = progress[key]
+  return typeof val === 'string' ? parseInt(val, 10) || 0 : 0
+}
+
+/**
+ * Increment the per-video error count in the progress map.
+ * Returns the new count.
+ */
+export function incrementVideoErrorCount(progress: VideoProgress, videoId: number): number {
+  const key = `err:${videoId}`
+  const current = getVideoErrorCount(progress, videoId)
+  const next = current + 1
+  progress[key] = String(next) as StageName // store as string in the map
+  return next
+}
+
+/**
+ * Mark a video as permanently failed in the progress map.
+ * This prevents it from being picked up for further processing.
+ */
+export function markVideoFailed(progress: VideoProgress, videoId: number): void {
+  progress[String(videoId)] = VIDEO_FAILED_SENTINEL as StageName
 }
 
 /**

@@ -469,6 +469,7 @@ export interface EventRegistry {
     errors: number
     tokensUsed: number
     durationMs: number
+    failedVideos: number
   }
 
   // ─── Product Aggregation ───────────────────────────────────────────────
@@ -541,6 +542,7 @@ export interface EventRegistry {
     errors: number
     tokensUsed: number
     durationMs: number
+    failedProducts: number
   }
 
   // ─── Brand Matching ────────────────────────────────────────────────────

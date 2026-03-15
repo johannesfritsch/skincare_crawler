@@ -390,6 +390,9 @@ export const VideoScenes: CollectionConfig = {
               on: 'videoScene',
               admin: {
                 defaultColumns: ['product', 'confidence', 'overallSentiment', 'overallSentimentScore'],
+                components: {
+                  Cell: '/components/VideoMentionsCell',
+                },
               },
             },
           ],

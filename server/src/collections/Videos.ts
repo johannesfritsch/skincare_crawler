@@ -166,21 +166,7 @@ export const Videos: CollectionConfig = {
               on: 'video',
               defaultSort: 'timestampStart',
               admin: {
-                defaultColumns: ['image', 'timestampStart', 'timestampEnd', 'createdAt'],
-              },
-            },
-          ],
-        },
-        {
-          label: 'Mentions',
-          fields: [
-            {
-              name: 'mentionsList',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '/components/VideoMentionsList',
-                },
+                defaultColumns: ['image', 'timestampStart', 'timestampEnd', 'videoMentions'],
               },
             },
           ],

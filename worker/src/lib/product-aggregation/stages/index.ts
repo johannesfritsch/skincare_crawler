@@ -241,12 +241,46 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
 
 /**
  * Check if a product needs any more work for this job's enabled stages.
+ * Returns false if the product has been marked as permanently failed.
  */
 export function productNeedsWork(
   lastCompleted: StageName | null | undefined,
   enabledStages: Set<StageName>,
 ): boolean {
+  if (lastCompleted === '!failed' as StageName) return false
   return getNextStage(lastCompleted, enabledStages) !== null
+}
+
+/** Sentinel value stored in progress when a product group has permanently failed */
+export const PRODUCT_FAILED_SENTINEL = '!failed'
+
+/**
+ * Get the per-product error count from the progress map.
+ * Error counts are stored as `err:{progressKey}` → count string.
+ */
+export function getProductErrorCount(progress: AggregationProgress, progressKey: string): number {
+  const key = `err:${progressKey}`
+  const val = progress[key]
+  return typeof val === 'string' ? parseInt(val, 10) || 0 : 0
+}
+
+/**
+ * Increment the per-product error count in the progress map.
+ * Returns the new count.
+ */
+export function incrementProductErrorCount(progress: AggregationProgress, progressKey: string): number {
+  const key = `err:${progressKey}`
+  const current = getProductErrorCount(progress, progressKey)
+  const next = current + 1
+  progress[key] = String(next) as StageName
+  return next
+}
+
+/**
+ * Mark a product group as permanently failed in the progress map.
+ */
+export function markProductFailed(progress: AggregationProgress, progressKey: string): void {
+  progress[progressKey] = PRODUCT_FAILED_SENTINEL as StageName
 }
 
 /**
