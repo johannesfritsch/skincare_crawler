@@ -188,7 +188,7 @@ export const VideoProcessings: CollectionConfig = {
                   label: 'Transcription',
                   defaultValue: true,
                   admin: {
-                    description: 'Speech-to-text via Deepgram with LLM correction.',
+                    description: 'Speech-to-text via Whisper API with LLM correction.',
                     width: '25%',
                   },
                 },
@@ -370,17 +370,11 @@ export const VideoProcessings: CollectionConfig = {
                 },
                 {
                   name: 'transcriptionModel',
-                  type: 'select',
+                  type: 'text',
                   label: 'Transcription Model',
-                  defaultValue: 'nova-3',
-                  options: [
-                    { label: 'Nova 3 (Latest)', value: 'nova-3' },
-                    { label: 'Nova 2', value: 'nova-2' },
-                    { label: 'Enhanced', value: 'enhanced' },
-                    { label: 'Base', value: 'base' },
-                  ],
+                  defaultValue: 'whisper-1',
                   admin: {
-                    description: 'Deepgram model to use for speech recognition.',
+                    description: 'Whisper model name for speech recognition. Use "whisper-1" for OpenAI, or the model name served by your local OpenAI-compatible server.',
                     width: '50%',
                   },
                 },

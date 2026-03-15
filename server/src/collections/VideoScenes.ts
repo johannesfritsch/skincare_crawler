@@ -295,27 +295,11 @@ export const VideoScenes: CollectionConfig = {
           label: 'Transcription',
           fields: [
             {
-              name: 'preTranscript',
-              type: 'textarea',
-              label: 'Pre-Transcript',
-              admin: {
-                description: '5 seconds of spoken context before this scene',
-              },
-            },
-            {
               name: 'transcript',
               type: 'textarea',
               label: 'Transcript',
               admin: {
-                description: 'Spoken words within this scene time range',
-              },
-            },
-            {
-              name: 'postTranscript',
-              type: 'textarea',
-              label: 'Post-Transcript',
-              admin: {
-                description: '3 seconds of spoken context after this scene',
+                description: 'Transcribed spoken words for this scene (from per-scene Whisper transcription)',
               },
             },
           ],

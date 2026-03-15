@@ -1586,7 +1586,6 @@ Payload CMS 3.x with `@payloadcms/db-postgres` converts all field names to **sna
 | `source_variants` | `crawledAt` | `crawled_at` |
 | `source_variants` | `sourceArticleNumber` | `source_article_number` |
 | `videos` | `channel` | `channel_id` |
-| `videos` | `transcriptWords` | `transcript_words` |
 | `video_scenes` | `timestampStart` | `timestamp_start` |
 | `video_scenes` | `video` | `video_id` |
 | `video_mentions` | `overallSentiment` | `overall_sentiment` |
@@ -1773,6 +1772,7 @@ interface SnapshotResponse {
   videoPipeline: {
     total, crawled, processed, unprocessed, withTranscript, totalScenes,
     // Uses status field: "processed" = status='processed', "crawled" = status='crawled', "unprocessed" = status != 'processed'
+    // withTranscript uses a subquery against video_scenes (videos with at least one scene that has a transcript), not a column on videos
     totalScenes, totalMentions,
     mentionsByPositive, mentionsByNeutral, mentionsByNegative, mentionsByMixed,
     productsWithMentions, channelsByPlatform: Array<{ platform, count }>

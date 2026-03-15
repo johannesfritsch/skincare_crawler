@@ -1600,17 +1600,9 @@ export interface VideoScene {
       }[]
     | null;
   /**
-   * 5 seconds of spoken context before this scene
-   */
-  preTranscript?: string | null;
-  /**
-   * Spoken words within this scene time range
+   * Transcribed spoken words for this scene (from per-scene Whisper transcription)
    */
   transcript?: string | null;
-  /**
-   * 3 seconds of spoken context after this scene
-   */
-  postTranscript?: string | null;
   /**
    * Unified product detections synthesized from all sources (barcode, object detection + CLIP, LLM vision). One entry per unique product.
    */
@@ -1685,22 +1677,6 @@ export interface Video {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  /**
-   * Full corrected transcript of the video audio
-   */
-  transcript?: string | null;
-  /**
-   * Word-level timestamps from speech recognition: [{ word, start, end, confidence }]
-   */
-  transcriptWords?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1944,7 +1920,7 @@ export interface VideoProcessing {
    */
   stageLlmRecognition?: boolean | null;
   /**
-   * Speech-to-text via Deepgram with LLM correction.
+   * Speech-to-text via Whisper API with LLM correction.
    */
   stageTranscription?: boolean | null;
   /**
@@ -1996,9 +1972,9 @@ export interface VideoProcessing {
    */
   transcriptionLanguage?: ('de' | 'en' | 'fr' | 'es' | 'it') | null;
   /**
-   * Deepgram model to use for speech recognition.
+   * Whisper model name for speech recognition. Use "whisper-1" for OpenAI, or the model name served by your local OpenAI-compatible server.
    */
-  transcriptionModel?: ('nova-3' | 'nova-2' | 'enhanced' | 'base') | null;
+  transcriptionModel?: string | null;
   /**
    * Total stage-executions to process
    */
@@ -2961,8 +2937,6 @@ export interface VideosSelect<T extends boolean = true> {
   thumbnail?: T;
   videoFile?: T;
   videoScenes?: T;
-  transcript?: T;
-  transcriptWords?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3017,9 +2991,7 @@ export interface VideoScenesSelect<T extends boolean = true> {
         product?: T;
         id?: T;
       };
-  preTranscript?: T;
   transcript?: T;
-  postTranscript?: T;
   detections?:
     | T
     | {

@@ -441,7 +441,7 @@ export interface EventRegistry {
     avgBestDistance: number
   }
   'video_processing.warning': { title: string; warning: string }
-  'video_processing.transcribed': { title: string; words: number }
+  'video_processing.transcribed': { title: string; scenes: number; charCount: number }
   'video_processing.transcript_corrected': {
     title: string
     fixes: number

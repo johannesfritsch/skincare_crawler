@@ -22,6 +22,7 @@ import { default as default_0794882da6eab7bb4ff2423cf9aedab6 } from '@/component
 import { default as default_a8ab241c8c17c65f461a6a923e398f73 } from '@/components/ChannelSaveButton'
 import { default as default_87728572563c6e1da33eadd3a829ec3d } from '../../../components/EmbeddedVideoPlayer'
 import { default as default_4b4ffd9db6aab146d914cdb41f3a779d } from '@/components/VideoJobStatus'
+import { default as default_3092b4e739f8d5bf37979aac3794cd12 } from '../../../components/VideoMentionsList'
 import { default as default_efddd0db6825b46b8974231a9cc8f159 } from '@/components/bulk-actions/VideoBulkActions'
 import { default as default_d36a95c7b667f33a72dc38ff7d7f7916 } from '@/components/bulk-actions/VideoBulkStatus'
 import { default as default_8da85ba43770e514d85a6fec69d919f4 } from '@/components/VideoSaveButton'
@@ -69,6 +70,7 @@ export const importMap = {
   "@/components/ChannelSaveButton#default": default_a8ab241c8c17c65f461a6a923e398f73,
   "/components/EmbeddedVideoPlayer#default": default_87728572563c6e1da33eadd3a829ec3d,
   "@/components/VideoJobStatus#default": default_4b4ffd9db6aab146d914cdb41f3a779d,
+  "/components/VideoMentionsList#default": default_3092b4e739f8d5bf37979aac3794cd12,
   "@/components/bulk-actions/VideoBulkActions#default": default_efddd0db6825b46b8974231a9cc8f159,
   "@/components/bulk-actions/VideoBulkStatus#default": default_d36a95c7b667f33a72dc38ff7d7f7916,
   "@/components/VideoSaveButton#default": default_8da85ba43770e514d85a6fec69d919f4,

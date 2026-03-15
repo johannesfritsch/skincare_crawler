@@ -10,7 +10,7 @@ Central orchestration file. Exports:
 
 - **`StageName`** — union of all 8 stage names
 - **`VideoProgress`** — `Record<string, StageName | null>` progress map type
-- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel`, `minBoxArea` (fraction, default 0.25), `detectionThreshold` (0-1, default 0.3), `detectionPrompt` (string, default "cosmetics packaging."), `searchThreshold` (0-2, default 0.3), `searchLimit` (int, default 1)
+- **`StageConfig`** — job-level config: `jobId`, `sceneThreshold`, `clusterThreshold`, `transcriptionLanguage`, `transcriptionModel` (text, default 'whisper-1'), `minBoxArea` (fraction, default 0.25), `detectionThreshold` (0-1, default 0.3), `detectionPrompt` (string, default "cosmetics packaging."), `searchThreshold` (0-2, default 0.3), `searchLimit` (int, default 1)
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, tokens?: { recognition?, transcriptCorrection?, sentiment?, total? } }`
 - **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the VideoProcessings collection (e.g. `stageSceneDetection`, `stageBarcodeScan`)
@@ -43,7 +43,7 @@ All stages use CLI tools and external APIs — not bundled Node.js libraries:
 | `zbarimg` | barcode_scan | Barcode scanning in screenshots |
 | Grounding DINO (ONNX) | object_detection | Zero-shot object detection on screenshots (shared singleton from `@/lib/models/grounding-dino`) |
 | DINOv2-small (ONNX) | visual_search | Image embedding + cosine similarity search (shared singleton from `@/lib/models/clip`) |
-| Deepgram API | transcription | Speech-to-text |
+| OpenAI Whisper API | transcription | Speech-to-text (via `audio.transcriptions.create`) |
 | OpenAI gpt-4.1-mini | llm_recognition, transcription, sentiment_analysis | LLM classification, correction, sentiment |
 
 **Note**: Video download (`yt-dlp`) has been moved to the **video-crawl** handler — it is no longer part of the processing pipeline.
@@ -199,29 +199,35 @@ Reads existing video-scenes and their cluster representative `video-frames` from
 
 ---
 
-### Stage 5: `transcription` — Deepgram STT + LLM Correction + Per-Snippet Splitting
+### Stage 5: `transcription` — Per-Scene OpenAI Whisper STT + LLM Correction
 
 **File**: `transcription.ts`
 **Checkbox**: `stageTranscription`
 **LLM**: Yes — `correctTranscript()`
-**External**: `ffmpeg` (audio extraction), Deepgram API (STT), OpenAI gpt-4.1-mini (correction)
+**External**: `ffmpeg` (audio extraction + per-scene clip extraction), OpenAI Whisper API (STT via `audio.transcriptions.create`), OpenAI gpt-4.1-mini (correction)
 **Event**: `video_processing.transcribed`, `video_processing.transcript_corrected`
 
-Downloads the video, extracts audio, transcribes via Deepgram, corrects brand/product names via LLM, and splits the transcript per scene.
+Downloads the video, extracts full audio, then transcribes each scene individually by extracting audio clips and running Whisper + LLM correction per scene.
 
 **Flow**:
 1. Download video from video-media to temp directory (reads `videos.videoFile`)
-2. Extract audio via `ffmpeg` → WAV
-3. Collect product/brand names from scenes' `barcodes[]`, `recognitions[]`, and `llmMatches[]` for keyword boosting
-4. Transcribe via `transcribeAudio(audioPath, { language, model, keywords })` using Deepgram
-5. Fetch all brand names for LLM correction context
-6. Call `correctTranscript(rawTranscript, words, brandNames, productKeywords)` — LLM fixes misheard brand/product names
-7. Save full transcript on video: `transcript`, `transcriptWords`
-8. For each scene: call `splitTranscriptForScene(words, start, end, preSeconds=5, postSeconds=3)` — extracts the transcript segment with pre/post context. Update scene: `preTranscript`, `transcript`, `postTranscript`
+2. Extract full audio via `ffmpeg` → WAV
+3. Collect product/brand names from scenes' `barcodes[]`, `recognitions[]`, and `llmMatches[]` for vocabulary hints
+4. Fetch all brand names for LLM correction context
+5. For each scene:
+   a. Extract audio clip via `extractAudioClip(audioPath, clipPath, startSeconds, durationSeconds)` — uses `ffmpeg -ss {start} -t {duration}` to extract the scene's time range from the full audio
+   b. Transcribe clip via `transcribeAudio(clipPath, { language, model, keywords })` → returns text string (no word timestamps)
+   c. Call `correctTranscript(rawTranscript, brandNames, productKeywords)` — LLM fixes misheard brand/product names
+   d. Update scene with `transcript` field
 
-**Writes to**: `videos`, `video-scenes`
+**Writes to**: `video-scenes.transcript`
 
-**Config**: `transcriptionLanguage` (default 'de'), `transcriptionModel` (default 'nova-3')
+**Config**: `transcriptionLanguage` (default 'de'), `transcriptionModel` (text field, default 'whisper-1' — free-form since local OpenAI-compatible servers may use different model names)
+
+**Key functions**:
+- `transcribeAudio(audioPath, options)` → `Promise<string>` — calls OpenAI Whisper API, returns plain text
+- `extractAudioClip(audioPath, outputPath, startSeconds, durationSeconds)` → `Promise<boolean>` — extracts a time-range clip from audio using `ffmpeg -ss -t`
+- `correctTranscript(rawTranscript, brandNames, productNames)` → `{ correctedTranscript, corrections[], tokensUsed }` — LLM correction
 
 ---
 
@@ -263,12 +269,12 @@ Reads all detection data from prior stages (barcodes[], objects[]+recognitions[]
 Reads scenes with compiled detections and transcript data, runs LLM sentiment analysis per scene, creates video-mention records with full detection provenance.
 
 **Flow**:
-1. Fetch video for full transcript context
-2. Fetch all scenes, collect products from compiled `detections[]` array
+1. Fetch all scenes, concatenate scene transcripts on-the-fly to derive `fullTranscript` context
+2. Collect products from compiled `detections[]` array
 3. Build product info map (brand name + product name for each product)
 4. **Delete existing video-mentions** for all scenes (idempotent re-run)
 5. For each scene with `detections[]` and transcript text:
-   - Call `analyzeSentiment(preTranscript, transcript, postTranscript, products, fullTranscript)` — LLM extracts quotes about each product with sentiment scores
+   - Call `analyzeSentiment(transcript, products, fullTranscript)` — LLM extracts quotes about each product with sentiment scores (no pre/post context params — the LLM prompt uses only the scene transcript and optional full transcript)
    - For each product result: create `video-mention` with `videoScene`, `product`, `quotes` array (text, summary, sentiment, sentimentScore), `overallSentiment`, `overallSentimentScore`, plus detection provenance from the compiled detections: `confidence`, `sources` (barcode/object_detection/vision_llm), `barcodeValue`, `clipDistance`
 
 **Writes to**: `video-mentions`
@@ -310,12 +316,11 @@ llm_recognition (reads video-frames where isClusterRepresentative=true)
   └─ video-scenes.llmMatches[] (LLM-identified products)
        │
 transcription (reads videos.videoFile + scene barcodes/recognitions/llmMatches for keywords)
-  └─ videos.transcript + videos.transcriptWords
-  └─ video-scenes.preTranscript / transcript / postTranscript
+  └─ video-scenes.transcript (per-scene: ffmpeg clip extraction → Whisper API → LLM correction)
        │
 compile_detections (reads scene barcodes + objects + recognitions + llmMatches)
   └─ video-scenes.detections[] (unified, confidence-scored, deduplicated)
        │
-sentiment_analysis (reads video-scenes with detections + transcripts)
+sentiment_analysis (reads video-scenes with detections + transcripts, concatenates scene transcripts on-the-fly for fullTranscript context)
   └─ video-mentions (quotes, sentiment, confidence, sources, barcodeValue, clipDistance)
 ```

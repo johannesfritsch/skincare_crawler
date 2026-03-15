@@ -3,13 +3,13 @@
 server:
   host: "127.0.0.1"
   port: 8000
-  log_level: INFO
+  log_level: DEBUG
 
 models:
   # LLM: Qwen3-32B
   - model_path: mlx-community/Qwen3-32B-4bit
     model_type: lm
-    model_id: qwen3-32b
+    model_id: gpt-4.1-mini
     tool_call_parser: qwen3
     reasoning_parser: qwen3
     enable_auto_tool_choice: true
@@ -18,4 +18,4 @@ models:
   # Transcription: Whisper
   - model_path: mlx-community/whisper-large-v3-turbo
     model_type: whisper
-    model_id: whisper
+    model_id: whisper-1

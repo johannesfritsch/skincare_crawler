@@ -166,37 +166,26 @@ export const Videos: CollectionConfig = {
               on: 'video',
               defaultSort: 'timestampStart',
               admin: {
-                defaultColumns: ['timestampStart', 'timestampEnd', 'createdAt'],
+                defaultColumns: ['image', 'timestampStart', 'timestampEnd', 'createdAt'],
               },
             },
           ],
         },
         {
-          label: 'Transcript',
+          label: 'Mentions',
           fields: [
             {
-              name: 'transcript',
-              type: 'textarea',
-              label: 'Transcript',
+              name: 'mentionsList',
+              type: 'ui',
               admin: {
-                description: 'Full corrected transcript of the video audio',
+                components: {
+                  Field: '/components/VideoMentionsList',
+                },
               },
             },
           ],
         },
-        {
-          label: 'Transcript Words',
-          fields: [
-            {
-              name: 'transcriptWords',
-              type: 'json',
-              label: 'Transcript Words',
-              admin: {
-                description: 'Word-level timestamps from speech recognition: [{ word, start, end, confidence }]',
-              },
-            },
-          ],
-        },
+
       ],
       admin: {
         condition: (data) => !!data?.id,

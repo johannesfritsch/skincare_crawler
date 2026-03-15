@@ -1,5 +1,4 @@
 import type { TokenUsage } from '../classify-product'
-import type { TranscriptWord } from './transcribe-audio'
 import { createLogger } from '@/lib/logger'
 import { getOpenAI } from '@/lib/openai'
 
@@ -37,7 +36,6 @@ export interface CorrectionResult {
  */
 export async function correctTranscript(
   rawTranscript: string,
-  words: TranscriptWord[],
   brandNames: string[],
   productNames: string[],
 ): Promise<CorrectionResult> {

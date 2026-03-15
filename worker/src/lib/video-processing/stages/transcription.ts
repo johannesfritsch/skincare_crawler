@@ -1,17 +1,20 @@
 /**
  * Stage 5: Transcription
  *
- * Downloads the video media, extracts audio, runs Deepgram STT,
- * corrects transcript via LLM, splits per scene, saves transcript
- * data on the video and on each scene.
+ * Downloads the video media, extracts full audio, then transcribes
+ * each scene individually via the Whisper API. Each scene gets its
+ * own audio clip (ffmpeg -ss -t), its own transcription call, and
+ * its own LLM correction pass.
+ *
+ * The full video transcript is assembled by concatenating all
+ * corrected scene transcripts.
  */
 
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { extractAudio, transcribeAudio } from '@/lib/video-processing/transcribe-audio'
+import { extractAudio, extractAudioClip, transcribeAudio } from '@/lib/video-processing/transcribe-audio'
 import { correctTranscript } from '@/lib/video-processing/correct-transcript'
-import { splitTranscriptForScene } from '@/lib/video-processing/split-transcript'
 import type { StageContext, StageResult } from './index'
 
 export async function executeTranscription(ctx: StageContext, videoId: number): Promise<StageResult> {
@@ -34,13 +37,18 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
     return { success: false, error: 'Video media record has no URL' }
   }
 
-  // Fetch scenes for transcript splitting and keyword collection
+  // Fetch scenes for per-scene transcription
   const scenesResult = await payload.find({
     collection: 'video-scenes',
     where: { video: { equals: videoId } },
     limit: 1000,
     sort: 'timestampStart',
   })
+
+  if (scenesResult.docs.length === 0) {
+    log.info('No scenes found, skipping transcription', { videoId })
+    return { success: true }
+  }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-transcribe-'))
   const videoPath = path.join(tmpDir, 'video.mp4')
@@ -60,19 +68,17 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
     fs.writeFileSync(videoPath, Buffer.from(await res.arrayBuffer()))
     await ctx.heartbeat()
 
-    // Extract audio
+    // Extract full audio track
     await extractAudio(videoPath, audioPath)
     await ctx.heartbeat()
 
-    // Collect product names/brands from scenes for keyword boosting
-    // Gather product IDs from all detection sources: barcodes, recognitions, llmMatches
+    // Collect keyword hints from detection stages
     const productIds = new Set<number>()
     const productKeywords: string[] = []
 
     for (const sceneDoc of scenesResult.docs) {
       const scene = sceneDoc as Record<string, unknown>
 
-      // From barcodes (stage 1)
       const barcodes = scene.barcodes as Array<Record<string, unknown>> | undefined
       if (barcodes) {
         for (const bc of barcodes) {
@@ -81,7 +87,6 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
         }
       }
 
-      // From recognitions (stage 3)
       const recognitions = scene.recognitions as Array<Record<string, unknown>> | undefined
       if (recognitions) {
         for (const rec of recognitions) {
@@ -90,11 +95,9 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
         }
       }
 
-      // From LLM matches (stage 4)
       const llmMatches = scene.llmMatches as Array<Record<string, unknown>> | undefined
       if (llmMatches) {
         for (const lm of llmMatches) {
-          // Add LLM-extracted brand/product names directly as keywords
           if (lm.brand) productKeywords.push(lm.brand as string)
           if (lm.productName) productKeywords.push(lm.productName as string)
           const pid = lm.product as number | Record<string, unknown> | null
@@ -103,7 +106,6 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       }
     }
 
-    // Fetch product names and brands for keyword boosting
     for (const productId of productIds) {
       try {
         const product = await payload.findByID({ collection: 'products', id: productId }) as Record<string, unknown>
@@ -119,68 +121,71 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
 
     const uniqueKeywords = [...new Set(productKeywords)]
 
-    // Transcribe with Deepgram
-    log.info('Transcribing audio', { videoId, language: config.transcriptionLanguage, model: config.transcriptionModel })
-    const rawTranscription = await transcribeAudio(audioPath, {
-      language: config.transcriptionLanguage,
-      model: config.transcriptionModel,
-      keywords: uniqueKeywords,
-    })
-    jlog.event('video_processing.transcribed', { title, words: rawTranscription.words.length })
-    await ctx.heartbeat()
-
     // Fetch all brand names for LLM correction context
     const brandsResult = await payload.find({ collection: 'brands', limit: 500 })
     const allBrandNames = brandsResult.docs.map((b) => (b as { name: string }).name).filter(Boolean)
 
-    // Correct transcript via LLM
-    const correction = await correctTranscript(
-      rawTranscription.transcript,
-      rawTranscription.words,
-      allBrandNames,
-      uniqueKeywords,
-    )
-    tokensTranscriptCorrection = correction.tokensUsed.totalTokens
-    jlog.event('video_processing.transcript_corrected', { title, fixes: correction.corrections.length, tokens: tokensTranscriptCorrection })
-    await ctx.heartbeat()
+    // Transcribe each scene individually
+    const sceneTranscripts: string[] = []
 
-    // Save full transcript on the video
-    await payload.update({
-      collection: 'videos',
-      id: videoId,
-      data: {
-        transcript: correction.correctedTranscript,
-        transcriptWords: rawTranscription.words,
-      },
-    })
-
-    // Split transcript per scene and update each
-    for (const sceneDoc of scenesResult.docs) {
-      const scene = sceneDoc as Record<string, unknown>
+    for (let i = 0; i < scenesResult.docs.length; i++) {
+      const scene = scenesResult.docs[i] as Record<string, unknown>
       const sceneId = scene.id as number
       const start = scene.timestampStart as number
       const end = scene.timestampEnd as number
+      const duration = end - start
 
-      const tx = splitTranscriptForScene(
-        rawTranscription.words,
-        start,
-        end,
-        5, // preSeconds
-        3, // postSeconds
-      )
+      if (duration < 0.5) {
+        log.info('Scene too short, skipping transcription', { sceneId, duration })
+        sceneTranscripts.push('')
+        continue
+      }
 
+      // Extract audio clip for this scene
+      const clipPath = path.join(tmpDir, `scene_${i}.wav`)
+      const clipOk = await extractAudioClip(audioPath, clipPath, start, duration)
+
+      if (!clipOk) {
+        log.warn('Audio clip extraction failed or empty', { sceneId, start, duration })
+        sceneTranscripts.push('')
+        continue
+      }
+
+      // Transcribe the scene clip
+      log.info('Transcribing scene', { sceneId, sceneIndex: i, start, duration, language: config.transcriptionLanguage })
+      const rawText = await transcribeAudio(clipPath, {
+        language: config.transcriptionLanguage,
+        model: config.transcriptionModel,
+        keywords: uniqueKeywords,
+      })
+
+      // LLM-correct the scene transcript
+      let correctedText = rawText
+      if (rawText.trim()) {
+        const correction = await correctTranscript(rawText, allBrandNames, uniqueKeywords)
+        tokensTranscriptCorrection += correction.tokensUsed.totalTokens
+        correctedText = correction.correctedTranscript
+      }
+
+      sceneTranscripts.push(correctedText)
+
+      // Update the scene with its transcript
       await payload.update({
         collection: 'video-scenes',
         id: sceneId,
-        data: {
-          preTranscript: tx.preTranscript,
-          transcript: tx.transcript,
-          postTranscript: tx.postTranscript,
-        },
+        data: { transcript: correctedText },
       })
+
+      // Clean up clip file
+      try { fs.unlinkSync(clipPath) } catch { /* ignore */ }
+      await ctx.heartbeat()
     }
 
-    log.info('Transcription stage complete', { videoId, tokens: tokensTranscriptCorrection })
+    const totalCharCount = sceneTranscripts.reduce((sum, t) => sum + t.length, 0)
+
+    jlog.event('video_processing.transcribed', { title, scenes: scenesResult.docs.length, charCount: totalCharCount })
+
+    log.info('Transcription stage complete', { videoId, scenes: scenesResult.docs.length, totalCharCount, tokens: tokensTranscriptCorrection })
     return {
       success: true,
       tokens: { transcriptCorrection: tokensTranscriptCorrection, total: tokensTranscriptCorrection },

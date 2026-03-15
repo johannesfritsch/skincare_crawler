@@ -1,29 +1,15 @@
-import { createClient } from '@deepgram/sdk'
 import fs from 'fs'
 import { run } from './process-video'
 import { createLogger } from '@/lib/logger'
 
 const log = createLogger('transcribeAudio')
 
-export interface TranscriptWord {
-  word: string
-  start: number
-  end: number
-  confidence: number
-}
-
-export interface TranscriptionResult {
-  transcript: string
-  words: TranscriptWord[]
-}
-
 /**
- * Extract audio from a video file as WAV using ffmpeg.
+ * Extract full audio from a video file as WAV using ffmpeg.
  */
 export async function extractAudio(videoPath: string, outputPath: string): Promise<void> {
   log.info('Extracting audio', { videoPath, outputPath })
 
-  // Verify input file exists and has content
   if (!fs.existsSync(videoPath)) {
     throw new Error(`Video file not found: ${videoPath}`)
   }
@@ -33,10 +19,9 @@ export async function extractAudio(videoPath: string, outputPath: string): Promi
   await run(
     'ffmpeg',
     ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-y', outputPath],
-    300_000, // 5 min timeout
+    300_000,
   )
 
-  // Verify output was created and has content
   if (!fs.existsSync(outputPath)) {
     throw new Error(`Audio extraction produced no output file: ${outputPath}`)
   }
@@ -49,7 +34,42 @@ export async function extractAudio(videoPath: string, outputPath: string): Promi
 }
 
 /**
- * Transcribe audio using Deepgram's API with word-level timestamps.
+ * Extract a time-range clip from an audio file using ffmpeg.
+ * Returns false if the output is empty or missing (e.g. scene beyond audio duration).
+ */
+export async function extractAudioClip(
+  audioPath: string,
+  outputPath: string,
+  startSeconds: number,
+  durationSeconds: number,
+): Promise<boolean> {
+  const clampedStart = Math.max(0, startSeconds)
+
+  try {
+    await run(
+      'ffmpeg',
+      [
+        '-ss', String(clampedStart),
+        '-t', String(durationSeconds),
+        '-i', audioPath,
+        '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+        '-y', outputPath,
+      ],
+      60_000,
+    )
+  } catch {
+    return false
+  }
+
+  if (!fs.existsSync(outputPath)) return false
+  const size = fs.statSync(outputPath).size
+  // WAV header is 44 bytes; anything <= that is effectively empty
+  return size > 100
+}
+
+/**
+ * Transcribe an audio file using the OpenAI-compatible Whisper API.
+ * Returns the transcript text.
  */
 export async function transcribeAudio(
   audioPath: string,
@@ -58,88 +78,50 @@ export async function transcribeAudio(
     model: string
     keywords?: string[]
   },
-): Promise<TranscriptionResult> {
-  const apiKey = process.env.DEEPGRAM_API_KEY
-  log.debug('transcribeAudio called', { deepgramKeySet: !!apiKey, deepgramKeyLength: apiKey?.length ?? 0 })
-  if (!apiKey) {
-    throw new Error('DEEPGRAM_API_KEY environment variable is not set')
+): Promise<string> {
+  log.info('Transcribing audio via Whisper API', { language: options.language, model: options.model })
+
+  const audioSizeKB = (fs.statSync(audioPath).size / 1024).toFixed(0)
+  log.debug('Audio file', { sizeKB: Number(audioSizeKB) })
+
+  const prompt = options.keywords?.length
+    ? options.keywords.join(', ')
+    : undefined
+
+  const baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+  const apiKey = process.env.OPENAI_API_KEY || ''
+
+  const formData = new FormData()
+  const audioBlob = new Blob([fs.readFileSync(audioPath)], { type: 'audio/wav' })
+  formData.append('file', audioBlob, 'audio.wav')
+  formData.append('model', options.model)
+  formData.append('language', options.language)
+  formData.append('response_format', 'json')
+  if (prompt) {
+    formData.append('prompt', prompt)
   }
 
-  const deepgram = createClient(apiKey)
+  const url = `${baseURL.replace(/\/+$/, '')}/audio/transcriptions`
 
-  log.info('Transcribing audio', { language: options.language, model: options.model })
+  const rawResponse = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    body: formData,
+  })
 
-  const audioBuffer = fs.readFileSync(audioPath)
-  const audioSizeKB = (audioBuffer.length / 1024).toFixed(0)
-  log.info('Audio file loaded', { sizeKB: Number(audioSizeKB) })
-
-  if (options.keywords?.length) {
-    log.debug('Keywords configured', { count: options.keywords.length, sample: options.keywords.slice(0, 10).join(', ') })
+  if (!rawResponse.ok) {
+    const errorBody = await rawResponse.text()
+    log.error('Transcription request failed', { status: rawResponse.status, body: errorBody })
+    throw new Error(`Transcription API returned ${rawResponse.status}: ${errorBody || '(empty body)'}`)
   }
 
-  // Nova-3 uses `keyterm` instead of `keywords`; older models use `keywords`
-  const isNova3 = options.model.startsWith('nova-3')
-  const boostedTerms =
-    options.keywords && options.keywords.length > 0
-      ? options.keywords.map((kw) => `${kw}:2`)
-      : undefined
+  const result = await rawResponse.json() as { text?: string }
+  const transcript = result.text ?? ''
 
-  log.debug('Deepgram request params', { model: options.model, language: options.language, termType: isNova3 ? 'keyterms' : 'keywords', termCount: boostedTerms?.length ?? 0 })
-
-  try {
-    const response = await deepgram.listen.prerecorded.transcribeFile(audioBuffer, {
-      model: options.model,
-      language: options.language,
-      smart_format: true,
-      utterances: true,
-      punctuate: true,
-      ...(boostedTerms ? (isNova3 ? { keyterm: boostedTerms } : { keywords: boostedTerms }) : {}),
-    })
-
-    log.debug('Deepgram raw response', { keys: Object.keys(response).join(', ') })
-
-    // The SDK v4 returns { result } where result is the transcription response
-    const result = response.result
-    if (!result) {
-      log.error('Deepgram returned no result', { response: JSON.stringify(response).slice(0, 500) })
-      return { transcript: '', words: [] }
-    }
-
-    log.debug('Deepgram result', { keys: Object.keys(result).join(', ') })
-
-    const channels = result.results?.channels
-    if (!channels || channels.length === 0) {
-      log.error('Deepgram returned no channels', { result: JSON.stringify(result).slice(0, 500) })
-      return { transcript: '', words: [] }
-    }
-
-    const alternative = channels[0]?.alternatives?.[0]
-    if (!alternative) {
-      log.error('Deepgram returned no alternatives', { channel: JSON.stringify(channels[0]).slice(0, 500) })
-      return { transcript: '', words: [] }
-    }
-
-    const transcript = alternative.transcript ?? ''
-    const words: TranscriptWord[] = (alternative.words ?? []).map((w) => ({
-      word: w.word,
-      start: w.start,
-      end: w.end,
-      confidence: w.confidence,
-    }))
-
-    log.info('Transcription complete', { wordCount: words.length, charCount: transcript.length })
-    if (transcript.length > 0) {
-      log.debug('Transcript preview', { preview: transcript.slice(0, 200) })
-    }
-
-    return { transcript, words }
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    const stack = error instanceof Error ? error.stack : undefined
-    log.error('Deepgram API call failed', { error: msg })
-    if (stack) {
-      log.debug('Stack trace', { stack })
-    }
-    throw error
+  log.info('Transcription complete', { charCount: transcript.length })
+  if (transcript.length > 0) {
+    log.debug('Transcript preview', { preview: transcript.slice(0, 200) })
   }
+
+  return transcript
 }

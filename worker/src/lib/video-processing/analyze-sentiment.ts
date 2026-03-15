@@ -8,7 +8,7 @@ const SYSTEM_PROMPT = `You are a skincare video analyst. You analyze transcript 
 
 You receive:
 - The full video transcript (for overall context and tone)
-- A transcript segment from the current scene (with pre and post context)
+- A transcript segment from the current scene
 - A list of products referenced in this video segment (with brand and product name)
 
 Your task:
@@ -161,9 +161,7 @@ async function refineSummaries(
  * Analyze transcript segments to extract product-specific quotes and sentiment.
  */
 export async function analyzeSentiment(
-  preTranscript: string,
   transcript: string,
-  postTranscript: string,
   referencedProducts: Array<{ productId: number; brandName: string; productName: string }>,
   fullTranscript?: string,
 ): Promise<SentimentAnalysisResult> {
@@ -192,14 +190,8 @@ ${fullTranscript}
 `
     : ''
 
-  const userMessage = `${fullTranscriptSection}[Pre-context]
-${preTranscript || '(none)'}
-
-[Main transcript]
+  const userMessage = `${fullTranscriptSection}[Scene transcript]
 ${transcript}
-
-[Post-context]
-${postTranscript || '(none)'}
 
 Referenced products:
 ${productList}${singleProductHint}`

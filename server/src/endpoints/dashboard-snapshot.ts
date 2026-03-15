@@ -188,7 +188,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
         count(*) FILTER (WHERE status = 'crawled')::int AS crawled,
         count(*) FILTER (WHERE status = 'processed')::int AS processed,
         count(*) FILTER (WHERE status != 'processed')::int AS unprocessed,
-        count(*) FILTER (WHERE transcript IS NOT NULL AND transcript != '')::int AS "withTranscript"
+        (SELECT count(DISTINCT vs.video_id)::int FROM video_scenes vs WHERE vs.transcript IS NOT NULL AND vs.transcript != '') AS "withTranscript"
       FROM videos
     `),
 

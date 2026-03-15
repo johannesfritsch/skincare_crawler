@@ -41,8 +41,8 @@ import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discove
 // ─── Config ───
 
 console.log('[Worker] Environment check at startup:')
-console.log(`  DEEPGRAM_API_KEY: ${process.env.DEEPGRAM_API_KEY ? `SET (${process.env.DEEPGRAM_API_KEY.length} chars)` : 'NOT SET'}`)
 console.log(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? `SET (${process.env.OPENAI_API_KEY.length} chars)` : 'NOT SET'}`)
+console.log(`  OPENAI_BASE_URL: ${process.env.OPENAI_BASE_URL ?? '(default: api.openai.com)'}`)
 console.log(`  WORKER_SERVER_URL: ${process.env.WORKER_SERVER_URL ?? '(default)'}`)
 console.log(`  LOG_LEVEL: ${process.env.LOG_LEVEL ?? '(default)'}`)
 

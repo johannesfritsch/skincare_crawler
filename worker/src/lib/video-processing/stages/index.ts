@@ -17,7 +17,7 @@
  *   2. object_detection     — Grounding DINO on cluster reps → scene.objects[]
  *   3. visual_search        — DINOv2 search on object crops → scene.recognitions[]
  *   4. llm_recognition      — LLM visual classification → scene.llmMatches[]
- *   5. transcription        — Deepgram STT + LLM correction → scene transcript
+ *   5. transcription        — Whisper STT + LLM correction → scene transcript
  *   6. compile_detections   — Synthesize all sources → scene.detections[]
  *   7. sentiment_analysis   — LLM sentiment → video-mentions
  */

@@ -15,7 +15,6 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
 
   const video = await payload.findByID({ collection: 'videos', id: videoId }) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
-  const fullTranscript = (video.transcript as string) ?? ''
 
   // Fetch all scenes
   const scenesResult = await payload.find({
@@ -24,6 +23,12 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
     limit: 1000,
     sort: 'timestampStart',
   })
+
+  // Derive full transcript from scene transcripts (no longer stored on video)
+  const fullTranscript = scenesResult.docs
+    .map((s) => ((s as Record<string, unknown>).transcript as string) ?? '')
+    .filter(Boolean)
+    .join(' ')
 
   let tokensSentiment = 0
 
@@ -74,9 +79,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
   for (const sceneDoc of scenesResult.docs) {
     const scene = sceneDoc as Record<string, unknown>
     const sceneId = scene.id as number
-    const preTranscript = (scene.preTranscript as string) ?? ''
     const transcript = (scene.transcript as string) ?? ''
-    const postTranscript = (scene.postTranscript as string) ?? ''
 
     // Get compiled detections for this scene
     const detections = scene.detections as Array<Record<string, unknown>> | undefined
@@ -108,9 +111,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
     }
 
     const sentimentResult = await analyzeSentiment(
-      preTranscript,
       transcript,
-      postTranscript,
       segProducts,
       fullTranscript,
     )
