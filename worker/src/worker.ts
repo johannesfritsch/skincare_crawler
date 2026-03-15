@@ -1040,8 +1040,8 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       const apiKey = process.env.OPENAI_API_KEY
       if (apiKey) {
         try {
-          const OpenAI = (await import('openai')).default
-          const openai = new OpenAI({ apiKey })
+          const { getOpenAI } = await import('@/lib/openai')
+          const openai = getOpenAI()
 
           const llmResponse = await openai.chat.completions.create({
             model: 'gpt-4.1-mini',

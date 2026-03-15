@@ -1,6 +1,6 @@
-import OpenAI from 'openai'
 import { createLogger } from '@/lib/logger'
 import type { TokenUsage } from '@/lib/classify-product'
+import { getOpenAI } from '@/lib/openai'
 import crypto from 'crypto'
 
 const log = createLogger('deduplicateLabels')
@@ -37,14 +37,6 @@ Return ONLY a JSON array of the deduplicated canonical labels. Example:
 
 If no labels remain after filtering, return an empty array: []
 No explanation, no markdown fences.`
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 function computeCacheKey(labels: string[]): string {
   const normalized = [...labels].sort().map((l) => l.trim().toLowerCase()).join('|')

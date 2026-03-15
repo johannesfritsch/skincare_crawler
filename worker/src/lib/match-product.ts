@@ -1,8 +1,8 @@
-import OpenAI from 'openai'
 import type { PayloadRestClient } from './payload-client'
 import { matchBrand } from './match-brand'
 import type { TokenUsage } from './match-ingredients'
 import { createLogger, type Logger } from '@/lib/logger'
+import { getOpenAI } from '@/lib/openai'
 const log = createLogger('matchProduct')
 
 export interface MatchProductResult {
@@ -23,14 +23,6 @@ Return ONLY a JSON object with this structure:
 { "selectedId": matched_product_id_or_null }
 
 No explanation, no markdown fences.`
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 interface ProductCandidate {
   id: number

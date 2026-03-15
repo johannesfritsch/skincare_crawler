@@ -1,5 +1,5 @@
-import OpenAI from 'openai'
 import { createLogger, type Logger } from '@/lib/logger'
+import { getOpenAI } from '@/lib/openai'
 const log = createLogger('classifyProduct')
 
 export interface TokenUsage {
@@ -154,14 +154,6 @@ const VALID_CLAIMS = new Set([
   'microplasticFree', 'allergenFree', 'simpleAlcoholFree', 'glutenFree', 'siliconeFree',
   'sulfateFree', 'parabenFree', 'pegFree', 'fragranceFree', 'mineralOilFree',
 ])
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 export async function classifyProduct(sources: SourceInput[], language: string = 'de', jlog?: Logger): Promise<ClassifyProductResult> {
   const openai = getOpenAI()

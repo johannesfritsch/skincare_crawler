@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import { getOpenAI } from '@/lib/openai'
 
 const SYSTEM_PROMPT = `You are an expert cosmetic chemist who parses INCI (International Nomenclature of Cosmetic Ingredients) ingredient lists.
 
@@ -25,12 +25,7 @@ Example output:
 ["AQUA / WATER","GLYCERIN","DIMETHICONE","ALOE BARBADENSIS LEAF JUICE","CI 77891 / TITANIUM DIOXIDE"]`
 
 export async function parseIngredients(rawText: string): Promise<string[]> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-
-  const openai = new OpenAI({ apiKey })
+  const openai = getOpenAI()
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',

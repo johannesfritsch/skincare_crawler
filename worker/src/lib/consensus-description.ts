@@ -1,6 +1,6 @@
-import OpenAI from 'openai'
 import { createLogger } from '@/lib/logger'
 import type { TokenUsage } from '@/lib/classify-product'
+import { getOpenAI } from '@/lib/openai'
 import crypto from 'crypto'
 
 const log = createLogger('consensusDescription')
@@ -24,14 +24,6 @@ Rules:
 6. If descriptions conflict on facts, prefer the more detailed/specific version.
 
 Return ONLY the synthesized description text. No JSON, no markdown fences, no explanation.`
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 function computeContentHash(descriptions: string[]): string {
   const normalized = descriptions.map((d) => d.trim().toLowerCase()).sort().join('|||')

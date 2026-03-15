@@ -1,16 +1,8 @@
-import OpenAI from 'openai'
 import type { TokenUsage } from '../classify-product'
 import { createLogger } from '@/lib/logger'
+import { getOpenAI } from '@/lib/openai'
 
 const log = createLogger('analyzeSentiment')
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 const SYSTEM_PROMPT = `You are a skincare video analyst. You analyze transcript segments from skincare/beauty video reviews to extract product-specific quotes and sentiment.
 

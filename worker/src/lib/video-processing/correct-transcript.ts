@@ -1,17 +1,9 @@
-import OpenAI from 'openai'
 import type { TokenUsage } from '../classify-product'
 import type { TranscriptWord } from './transcribe-audio'
 import { createLogger } from '@/lib/logger'
+import { getOpenAI } from '@/lib/openai'
 
 const log = createLogger('correctTranscript')
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 const SYSTEM_PROMPT = `You are a professional skincare transcription editor. You receive a raw speech-to-text transcript from a German skincare/beauty video.
 

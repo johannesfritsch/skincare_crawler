@@ -1,16 +1,9 @@
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import fs from 'fs'
 import type { TokenUsage } from '../classify-product'
 import { createLogger } from '@/lib/logger'
+import { getOpenAI } from '@/lib/openai'
 const log = createLogger('recognizeProduct')
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 const CLASSIFY_SYSTEM_PROMPT = `You are a cosmetics product classifier. Given numbered images, determine whether each image shows a cosmetics/beauty product package (e.g. bottle, tube, box, jar with visible branding).
 

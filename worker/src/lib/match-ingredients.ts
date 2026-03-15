@@ -1,6 +1,6 @@
-import OpenAI from 'openai'
 import type { PayloadRestClient } from './payload-client'
 import { createLogger, type Logger } from '@/lib/logger'
+import { getOpenAI } from '@/lib/openai'
 const log = createLogger('matchIngredients')
 
 export interface MatchedIngredient {
@@ -67,14 +67,6 @@ Return ONLY a JSON array of objects with this structure:
 [{ "original": "exact input string", "selectedName": "matched candidate name or null" }]
 
 No explanation, no markdown fences.`
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 async function generateSearchTerms(ingredientNames: string[]): Promise<{ entries: SearchTermEntry[]; usage: TokenUsage }> {
   const openai = getOpenAI()

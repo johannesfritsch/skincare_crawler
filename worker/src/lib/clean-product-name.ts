@@ -1,6 +1,6 @@
-import OpenAI from 'openai'
 import { createLogger } from '@/lib/logger'
 import type { TokenUsage } from '@/lib/classify-product'
+import { getOpenAI } from '@/lib/openai'
 import crypto from 'crypto'
 
 const log = createLogger('cleanProductName')
@@ -26,14 +26,6 @@ Rules:
 8. Do NOT translate or rephrase — only remove variant-specific parts.
 
 Return ONLY the cleaned product name. No quotes, no explanation.`
-
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY environment variable is not set')
-  }
-  return new OpenAI({ apiKey })
-}
 
 function computeContentHash(name: string, variantLabels: string[]): string {
   const normalized = [name.trim().toLowerCase(), ...variantLabels.map((l) => l.trim().toLowerCase()).sort()].join('|||')
