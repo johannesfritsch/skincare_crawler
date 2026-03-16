@@ -90,8 +90,11 @@ export const VideoScenes: CollectionConfig = {
               type: 'join',
               collection: 'video-frames',
               on: 'scene',
+              defaultLimit: 100,
               admin: {
-                defaultColumns: ['image', 'isClusterRepresentative', 'createdAt'],
+                components: {
+                  Field: '/components/FramesGallery',
+                },
               },
             },
           ],
@@ -142,7 +145,7 @@ export const VideoScenes: CollectionConfig = {
           ],
         },
 
-        // ── Objects (Stage 2: object_detection) ──
+        // ── Objects (Stage 2: object_detection + Stage 3: side_detection) ──
         {
           label: 'Objects',
           fields: [
@@ -151,7 +154,7 @@ export const VideoScenes: CollectionConfig = {
               type: 'array',
               label: 'Detected Objects',
               admin: {
-                description: 'Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box and confidence score.',
+                description: 'Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box, confidence score, and side classification (set by side_detection stage).',
               },
               fields: [
                 {
@@ -185,6 +188,44 @@ export const VideoScenes: CollectionConfig = {
                     { name: 'boxYMin', type: 'number', label: 'Y Min', admin: { width: '25%' } },
                     { name: 'boxXMax', type: 'number', label: 'X Max', admin: { width: '25%' } },
                     { name: 'boxYMax', type: 'number', label: 'Y Max', admin: { width: '25%' } },
+                  ],
+                },
+                // Fields set by side_detection stage (stage 3)
+                {
+                  type: 'row',
+                  fields: [
+                    {
+                      name: 'side',
+                      type: 'select',
+                      label: 'Side',
+                      options: [
+                        { label: 'Front', value: 'front' },
+                        { label: 'Back', value: 'back' },
+                        { label: 'Unknown', value: 'unknown' },
+                      ],
+                      admin: {
+                        width: '33%',
+                        description: 'Packaging side classification (set by side_detection stage)',
+                      },
+                    },
+                    {
+                      name: 'clusterGroup',
+                      type: 'number',
+                      label: 'Cluster Group',
+                      admin: {
+                        width: '33%',
+                        description: 'Cluster index within same-side crops (set by side_detection stage)',
+                      },
+                    },
+                    {
+                      name: 'isRepresentative',
+                      type: 'checkbox',
+                      label: 'Representative',
+                      admin: {
+                        width: '33%',
+                        description: 'Whether this crop is the representative for its side-cluster (set by side_detection stage)',
+                      },
+                    },
                   ],
                 },
               ],
