@@ -4,12 +4,13 @@ German drugstore chain (dm-drogerie markt). Fully API-based driver — no browse
 
 ## Data Sources
 
-Each `scrapeProduct()` call makes **two HTTP requests** (no browser):
+Each `scrapeProduct()` call makes **two API requests + one browser page load** (hybrid approach):
 
 | Request | URL | Returns |
 |---------|-----|---------|
-| Product detail API | `products.dm.de/product/products/detail/DE/gtin/{gtin}` | Full product data (name, brand, price, description, images, variants, pills/labels, breadcrumbs) |
+| Product detail API | `products.dm.de/product/products/detail/DE/gtin/{gtin}` | Full product data (name, brand with image, price, description, images, variants, pills/labels, breadcrumbs) |
 | Availability API | `products.dm.de/availability/api/v1/tiles/DE/{dan1},{dan2},...` | Per-DAN availability (`isPurchasable` boolean) |
+| Browser page load | `www.dm.de{canonicalPath}` (via Playwright) | Brand page URL (from rendered `h1 > span > a` link) |
 
 The GTIN is extracted from the product URL pattern: `/produkt-name-p{GTIN}.html`.
 
@@ -18,20 +19,25 @@ The GTIN is extracted from the product URL pattern: `/produkt-name-p{GTIN}.html`
 ```
 1. Extract GTIN from URL (regex: /-p(\d+)\.html/)
 2. Fetch product detail API → DmProductDetail
-3. Extract name, brand, description, ingredients, price, images, labels, variants
+3. Extract name, brand (with image URL), description, ingredients, price, images, labels, variants
 4. Collect all DANs (product + variant DANs)
 5. Batch-fetch availability for all DANs
 6. Assign availability to product and each variant option
-7. Return ScrapedProductData
+7. Launch Playwright browser → navigate to product page → extract brand URL from rendered h1 > span > a
+8. Return ScrapedProductData
 ```
 
 ## Field Extraction Details
 
-### Name, Brand
+### Name, Brand, Brand URL
 
 From the product detail API:
 - **name**: `data.title.headline`
 - **brand**: `data.brand.name`
+
+**Brand URL**: extracted from the rendered product page via Playwright. DM product pages are SPAs — `stealthFetch` only returns the shell HTML, so a browser is required. The brand link is in `h1[data-dmid="detail-page-headline-product-title"] span:first-child a[href]` and uses a search URL pattern: `/search?query={brand}&brandName={brand}&searchType=brand-search`. Prefixed with `https://www.dm.de`. Wrapped in try/catch — failure does not fail the scrape.
+
+**Brand Image**: from the API response `data.brand.image.src` — a static CDN URL for the brand logo.
 
 ### Description
 
@@ -154,7 +160,7 @@ Uses the product search API directly:
 
 ## Key Implementation Details
 
-- **No browser required** — all requests use `stealthFetch()` (HTTP with `Referer` header)
+- **Hybrid approach** — API requests use `stealthFetch()` (HTTP with `Referer` header), brand URL extraction uses Playwright (DM product pages are SPAs that require JS rendering)
 - **DAN (Drogerieartikelnummer)** is DM's internal article number, distinct from GTIN. Used for availability lookups and variant identification
 - **Color variants on DM are separate products** — each color has its own GTIN, DAN, and product page URL. The `variants.colors[].options[].href` points to a different product page
 - **Jittered delays** between API requests: `baseMs ± 25%` randomization

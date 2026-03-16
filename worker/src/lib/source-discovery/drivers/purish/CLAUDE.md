@@ -30,11 +30,12 @@ The page HTML fetch is handled by `fetchProductPageData(handle)`, which extracts
 
 ## Field Extraction Details
 
-### Name, Brand, Category
+### Name, Brand, Brand URL, Category
 
 From the Shopify JSON API:
 - **name**: `product.title`
 - **brand**: `product.vendor`
+- **brandUrl**: constructed as `https://purish.com/collections/{vendor-slug}` where vendor-slug is the vendor name lowercased with spaces replaced by hyphens (e.g. `https://purish.com/collections/essence`). Used to create `source-brands` records during persist.
 - **category**: `product.product_type` (single-level, e.g. "Serum & Booster")
 
 ### Description

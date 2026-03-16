@@ -31,9 +31,10 @@ Each `scrapeProduct()` call uses **one browser page load**. Data is extracted fr
 
 From `.rm-product__title` text content.
 
-### Brand
+### Brand, Brand URL
 
-From `.rm-product__brand` text content.
+- **Brand name**: from `.rm-product__brand` text content.
+- **Brand URL**: from `a.rm-product__brand[href]` — the brand name element is a link. The `href` is a relative path (e.g. `/de/alle-marken/essence/c/online-dachmarke_4455255`), prefixed with `https://www.rossmann.de`. Used to create `source-brands` records during persist.
 
 ### Description
 

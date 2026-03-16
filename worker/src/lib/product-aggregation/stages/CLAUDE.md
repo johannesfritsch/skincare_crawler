@@ -181,7 +181,7 @@ This gives detection crops from every store's image of the product — not just 
 
 ### Stage 6: `embed_images` — DINOv2 Embedding Vectors
 
-**File**: `embed-images.ts` (~170 lines)
+**File**: `embed-images.ts` (~135 lines)
 **Checkbox**: `stageEmbedImages`
 **LLM**: No (ML inference via ONNX)
 **Event**: `aggregation.images_embedded`
@@ -192,17 +192,18 @@ Per variant: takes the recognition image crops (from stage 5 object detection), 
 
 **Flow** (per variant):
 1. Find the `product-variant` by GTIN
-2. Get `recognitionImages` array — filter to items where `hasEmbedding` is false
-3. For each pending recognition image:
+2. Get `recognitionImages` array
+3. For each recognition image:
    a. Resolve the detection-media URL
    b. Run DINOv2 feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
    c. Extract the 384-dim embedding vector
-4. Batch write embeddings via `POST /api/embeddings/recognition-images/write`
-5. Update product-variant `recognitionImages` array with `hasEmbedding: true` for processed items
+4. Batch write embeddings via `POST /api/embeddings/recognition-images/write` — this endpoint sets both the pgvector embedding AND `has_embedding = true` in a single SQL UPDATE per row
 
-**Writes to**: `product_variants_recognition_images.embedding` (raw pgvector column via embeddings API), `product-variants` (hasEmbedding flag via Payload REST)
+**Writes to**: `product_variants_recognition_images.embedding` + `product_variants_recognition_images.has_embedding` (both via raw SQL in the embeddings API endpoint)
 
-**Note**: The `embedding vector(384)` column is NOT managed by Payload — it was added via a manual migration. Only the `hasEmbedding` boolean is a Payload field. The embeddings API (`/api/embeddings/:namespace/write`) handles writing both the vector and the flag in a single transaction.
+**IMPORTANT**: The stage must NOT update the `recognitionImages` array via Payload REST API after writing embeddings. Payload's array field handling deletes all existing rows and reinserts them with new auto-generated IDs — this would orphan the pgvector embeddings that were just written to the old row IDs. The embeddings write endpoint already sets `has_embedding = true` alongside the vector, so no separate Payload update is needed.
+
+**Note**: The `embedding vector(384)` column is NOT managed by Payload — it was added via a manual migration. Only the `hasEmbedding` boolean is a Payload field visible in the admin UI. The embeddings API (`/api/embeddings/:namespace/write`) handles writing both the vector and the flag in a single SQL UPDATE.
 
 ---
 

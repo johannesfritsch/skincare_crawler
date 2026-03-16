@@ -25,21 +25,21 @@ worker/src/
     │   └── job-failure.ts            # failJob(), retryOrFail() — shared job failure/retry logic
     │
     ├── source-discovery/
-    │   ├── types.ts                  # SourceDriver, ScrapedProductData, DiscoveredProduct
+    │   ├── types.ts                  # SourceDriver, ScrapedProductData (includes brandUrl), DiscoveredProduct
     │   ├── driver.ts                 # getSourceDriver(url), getSourceDriverBySlug(slug)
     │   └── drivers/
     │       ├── dm/
     │       │   ├── index.ts          # DM drugstore driver (API-based)
-    │       │   └── AGENTS.md         # DM scraping reference (TODO)
+    │       │   └── CLAUDE.md         # DM scraping reference (TODO)
     │       ├── mueller/
     │       │   ├── index.ts          # Mueller driver (Playwright + RSC JSON)
-    │       │   └── AGENTS.md         # Mueller scraping reference (TODO)
+    │       │   └── CLAUDE.md         # Mueller scraping reference (TODO)
     │       ├── rossmann/
     │       │   ├── index.ts          # Rossmann driver (Playwright)
-    │       │   └── AGENTS.md         # Rossmann scraping reference (TODO)
+    │       │   └── CLAUDE.md         # Rossmann scraping reference (TODO)
     │       └── purish/
     │           ├── index.ts          # PURISH driver (Shopify API + page HTML)
-    │           └── AGENTS.md         # PURISH scraping reference (detailed)
+    │           └── CLAUDE.md         # PURISH scraping reference (detailed)
     │
     ├── ingredients-discovery/
     │   ├── types.ts                  # ScrapedIngredientData
@@ -57,8 +57,8 @@ worker/src/
     │   ├── transcribe-audio.ts       # OpenAI Whisper STT + extractAudioClip() via getOpenAI() singleton
     │   ├── correct-transcript.ts     # LLM transcript correction
     │   ├── analyze-sentiment.ts      # LLM sentiment analysis
-    │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
-    │       ├── AGENTS.md             # Detailed stage pipeline documentation
+    │   └── stages/                   # Stage-based pipeline — see stages/CLAUDE.md for detailed docs
+    │       ├── CLAUDE.md             # Detailed stage pipeline documentation
     │       ├── index.ts              # Stage registry, types, ordering, VideoProgress, getNextStage(), getVideoProgress()
     │       ├── download.ts           # (Legacy) Download video — moved to video-crawl handler, no longer in pipeline
     │       ├── scene-detection.ts    # Stage 0: Scene detection, screenshots, clustering (no barcode scanning)
@@ -75,8 +75,8 @@ worker/src/
     │   └── clip.ts                   # Shared DINOv2-small singleton (image embeddings + search helper)
     │
     ├── product-aggregation/
-    │   └── stages/                   # Stage-based pipeline — see stages/AGENTS.md for detailed docs
-    │       ├── AGENTS.md             # Detailed stage pipeline documentation
+    │   └── stages/                   # Stage-based pipeline — see stages/CLAUDE.md for detailed docs
+    │       ├── CLAUDE.md             # Detailed stage pipeline documentation
     │       ├── index.ts              # Stage registry, types, ordering, AggregationProgress, getNextStage(), getAggregationProgress()
     │       ├── resolve.ts            # Stage 0: Find/create product + variants, merge duplicates
     │       ├── classify.ts           # Stage 1: classifyProduct() + cleanProductName()
@@ -204,7 +204,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 
 | Function | What it writes |
 |----------|---------------|
-| `persistCrawlResult()` | **Creates source-products if needed** (find-or-create by normalized URL — no stubs are pre-created; crawl is the sole creator of source-products); updates parent `source-products` with **product-level** scraped data (name, brandName, categoryBreadcrumb, rating, ratingNum); writes **variant-level** data (description, images, ingredientsText, amount, amountUnit, labels, priceHistory with availability) to the crawled `source-variant`; on **first crawl** (no `sourceVariantId`), creates a source-variant for the crawled URL (for all stores — DM/Rossmann get a variant matching the product URL, Mueller/PURISH get their query-param variants) — if a variant with that URL already exists (e.g. created as a sibling during another product's crawl), re-links it to the correct source-product; on **re-crawl** (existing `sourceVariantId`), updates the variant's GTIN, canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), `crawledAt`, and all variant-level content fields; **availability is tracked per price entry** — each priceHistory entry includes an `availability` field (available/unavailable/unknown, defaults to `available`); creates sibling `source-variants` from variant URLs provided by the driver (all sources) with GTIN but no priceHistory (siblings get their price+availability entry when crawled directly — seeding on creation would cause duplicates) — **sibling ownership**: when a sibling URL matches an existing source-product's `sourceUrl`, the variant is linked to that source-product (not the current one), since color/shade variants on DM are separate products with their own source-products; updates metadata (GTIN, articleNumber, sourceProduct) on existing sibling variants when needed but does NOT append availability entries (to avoid N entries per variant per crawl session — availability is tracked on creation, direct crawl, and disappearance only); **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and appends a `availability: 'unavailable'` priceHistory entry to any whose URL is NOT in the scraped set (skips if already marked unavailable in most recent entry; store-agnostic — works for all drivers); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
+| `persistCrawlResult()` | **Creates source-products if needed** (find-or-create by normalized URL — no stubs are pre-created; crawl is the sole creator of source-products); updates parent `source-products` with **product-level** scraped data (name, brandName, categoryBreadcrumb, rating, ratingNum); writes **variant-level** data (description, images, ingredientsText, amount, amountUnit, labels, priceHistory with availability) to the crawled `source-variant`; on **first crawl** (no `sourceVariantId`), creates a source-variant for the crawled URL (for all stores — DM/Rossmann get a variant matching the product URL, Mueller/PURISH get their query-param variants) — if a variant with that URL already exists (e.g. created as a sibling during another product's crawl), re-links it to the correct source-product; on **re-crawl** (existing `sourceVariantId`), updates the variant's GTIN, canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), `crawledAt`, and all variant-level content fields; **availability is tracked per price entry** — each priceHistory entry includes an `availability` field (available/unavailable/unknown, defaults to `available`); creates sibling `source-variants` from variant URLs provided by the driver (all sources) with GTIN but no priceHistory (siblings get their price+availability entry when crawled directly — seeding on creation would cause duplicates) — **sibling ownership**: when a sibling URL matches an existing source-product's `sourceUrl`, the variant is linked to that source-product (not the current one), since color/shade variants on DM are separate products with their own source-products; updates metadata (GTIN, articleNumber, sourceProduct) on existing sibling variants when needed but does NOT append availability entries (to avoid N entries per variant per crawl session — availability is tracked on creation, direct crawl, and disappearance only); **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and appends a `availability: 'unavailable'` priceHistory entry to any whose URL is NOT in the scraped set (skips if already marked unavailable in most recent entry; store-agnostic — works for all drivers); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; **upserts `source-brands`**: when the driver provides both `brandName` and `brandUrl`, finds-or-creates a `source-brands` record keyed by `sourceUrl` (unique constraint) — one per store+brand combination; emits `persist.source_brand_created` on creation, `persist.source_brand_exists` (debug) on skip; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
 | ~~`persistCrawlFailure()`~~ | **Removed** — no longer writes to join tables |
 | ~~`persistDiscoveredProduct()`~~ | **Removed** — discovery/search no longer create source-product stubs; they only accumulate URLs |
 
@@ -321,7 +321,7 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 4. Each stage runs independently, persists its own data outputs inline (media links, scenes, transcripts, mentions)
 5. `submitVideoProcessing()` updates the progress map entry for each video (`progress[videoId] = stageName`) after successful stage execution, persists the updated `videoProgress` to the job on every update (both batch release and completion), and uses the progress map for remaining work checks
 
-**8 stages** (in order) — see `video-processing/stages/AGENTS.md` for detailed per-stage documentation:
+**8 stages** (in order) — see `video-processing/stages/CLAUDE.md` for detailed per-stage documentation:
 
 | # | Stage name | What it does | Data outputs |
 |---|------------|--------------|-------------|
@@ -692,21 +692,21 @@ All events below are emitted to the server's `events` collection (visible in adm
 
 ## Per-Driver Documentation
 
-Each source driver has its own `AGENTS.md` file documenting store-specific scraping details:
+Each source driver has its own `CLAUDE.md` file documenting store-specific scraping details:
 
-- **`drivers/dm/AGENTS.md`** — DM: API-based, product detail + availability APIs, DAN system, search headers
-- **`drivers/mueller/AGENTS.md`** — Mueller: Playwright, hybrid RSC JSON + DOM, bot check handling, GTIN from image URLs
-- **`drivers/rossmann/AGENTS.md`** — Rossmann: Playwright, pure DOM scraping, BazaarVoice ratings, dataLayer categories
-- **`drivers/purish/AGENTS.md`** — PURISH: Shopify JSON API + page HTML, tab-structured descriptions, position-based image grouping, productJson variants
+- **`drivers/dm/CLAUDE.md`** — DM: API-based, product detail + availability APIs, DAN system, search headers
+- **`drivers/mueller/CLAUDE.md`** — Mueller: Playwright, hybrid RSC JSON + DOM, bot check handling, GTIN from image URLs
+- **`drivers/rossmann/CLAUDE.md`** — Rossmann: Playwright, pure DOM scraping, BazaarVoice ratings, dataLayer categories
+- **`drivers/purish/CLAUDE.md`** — PURISH: Shopify JSON API + page HTML, tab-structured descriptions, position-based image grouping, productJson variants
 
 These files document: data sources, scrape flow, field extraction details (with CSS selectors / API paths / regex patterns), discovery and search flows, URL patterns, and implementation details.
 
-**When you learn something new about how a store's website works** — a new HTML structure, a changed API response, a different selector, a new label source, an anti-bot behavior, or any other scraping detail — **update that driver's `AGENTS.md` immediately**. This is critical for maintaining accurate documentation that future sessions can rely on. Each driver's page structure and APIs are different and change over time; the AGENTS.md is the single source of truth for how we scrape each store.
+**When you learn something new about how a store's website works** — a new HTML structure, a changed API response, a different selector, a new label source, an anti-bot behavior, or any other scraping detail — **update that driver's `CLAUDE.md` immediately**. This is critical for maintaining accurate documentation that future sessions can rely on. Each driver's page structure and APIs are different and change over time; the CLAUDE.md is the single source of truth for how we scrape each store.
 
 ## Keeping This File Up to Date
 
 Whenever you make changes to the worker codebase, **update this file** to reflect those changes. This includes additions or modifications to job handlers, the work protocol, source drivers, matching/classification functions, the REST client, logging, or any worker-side patterns documented here. Documentation must stay in sync with the code.
 
-When modifying a source driver, also **update the driver's own `AGENTS.md`** (in the driver's folder) to reflect the changes. The per-driver AGENTS.md files contain store-specific scraping details that are too granular for this file — see the "Per-Driver Documentation" section above.
+When modifying a source driver, also **update the driver's own `CLAUDE.md`** (in the driver's folder) to reflect the changes. The per-driver CLAUDE.md files contain store-specific scraping details that are too granular for this file — see the "Per-Driver Documentation" section above.
 
-For changes that affect the overall repository layout or cross both server and worker, also update the root `AGENTS.md`. See the root file for the full policy.
+For changes that affect the overall repository layout or cross both server and worker, also update the root `CLAUDE.md`. See the root file for the full policy.

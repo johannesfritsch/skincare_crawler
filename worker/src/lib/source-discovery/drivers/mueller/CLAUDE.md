@@ -49,9 +49,11 @@ The resulting `RscProduct` contains: `name`, `ean`, `code`, `brand.name`, `curre
 
 Priority: `h1` text → RSC `product.name` → JSON-LD `name`
 
-### Brand
+### Brand, Brand URL
 
-Priority: RSC `product.brand.name` → DOM brand image alt text (strips "Markenbild von " prefix) → JSON-LD `brand.name`
+**Brand name** priority: RSC `product.brand.name` → DOM brand image alt text (strips "Markenbild von " prefix) → JSON-LD `brand.name`
+
+**Brand URL**: from `a[class*="product-info"][class*="brand"][href]` — the brand image link. Only accepted if `href` starts with `/b/` (e.g. `/b/essence/`), prefixed with `https://www.mueller.de`. Used to create `source-brands` records during persist.
 
 ### Description
 
