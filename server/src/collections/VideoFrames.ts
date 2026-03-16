@@ -10,6 +10,7 @@ export const VideoFrames: CollectionConfig = {
     useAsTitle: 'scene',
     defaultColumns: ['scene', 'isClusterRepresentative', 'createdAt'],
     group: 'Videos',
+    hidden: true,
   },
   fields: [
     {

@@ -37,9 +37,8 @@ export const Videos: CollectionConfig = {
       name: 'status',
       type: 'select',
       label: 'Status',
-      defaultValue: 'discovered',
+      defaultValue: 'crawled',
       options: [
-        { label: 'Discovered', value: 'discovered' },
         { label: 'Crawled', value: 'crawled' },
         { label: 'Processed', value: 'processed' },
       ],
@@ -47,7 +46,7 @@ export const Videos: CollectionConfig = {
       admin: {
         position: 'sidebar',
         readOnly: true,
-        description: 'Lifecycle status: discovered → crawled → processed. Managed by the worker.',
+        description: 'Lifecycle status: crawled → processed. Managed by the worker.',
       },
     },
     {
@@ -128,7 +127,25 @@ export const Videos: CollectionConfig = {
       type: 'tabs',
       tabs: [
         {
-          label: 'Video',
+          label: 'Scenes',
+          fields: [
+            {
+              name: 'videoScenes',
+              type: 'join',
+              collection: 'video-scenes',
+              on: 'video',
+              defaultSort: 'timestampStart',
+              defaultLimit: 200,
+              admin: {
+                components: {
+                  Field: '/components/ScenesGallery',
+                },
+              },
+            },
+          ],
+        },
+        {
+          label: 'Video Details',
           fields: [
             {
               name: 'title',
@@ -156,22 +173,6 @@ export const Videos: CollectionConfig = {
             },
           ],
         },
-        {
-          label: 'Scenes',
-          fields: [
-            {
-              name: 'videoScenes',
-              type: 'join',
-              collection: 'video-scenes',
-              on: 'video',
-              defaultSort: 'timestampStart',
-              admin: {
-                defaultColumns: ['image', 'timestampStart', 'timestampEnd', 'videoMentions'],
-              },
-            },
-          ],
-        },
-
       ],
       admin: {
         condition: (data) => !!data?.id,
