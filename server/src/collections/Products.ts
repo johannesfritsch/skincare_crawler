@@ -38,24 +38,6 @@ export const Products: CollectionConfig = {
   },
   fields: [
     {
-      name: 'brand',
-      type: 'relationship',
-      relationTo: 'brands',
-      label: 'Brand',
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
-      name: 'productType',
-      type: 'relationship',
-      relationTo: 'product-types',
-      label: 'Product Type',
-      admin: {
-        position: 'sidebar',
-      },
-    },
-    {
       name: 'aggregateStatus',
       type: 'ui',
       admin: {
@@ -68,16 +50,6 @@ export const Products: CollectionConfig = {
       type: 'tabs',
       tabs: [
         {
-          label: 'Product',
-          fields: [
-            {
-              name: 'name',
-              type: 'text',
-              label: 'Product Name',
-            },
-          ],
-        },
-        {
           label: 'Variants',
           fields: [
             {
@@ -89,6 +61,28 @@ export const Products: CollectionConfig = {
                 defaultColumns: ['label', 'gtin'],
                 description: 'Product variants — each has its own GTIN, ingredients, images, description, attributes, and claims',
               },
+            },
+          ],
+        },
+        {
+          label: 'Product Details',
+          fields: [
+            {
+              name: 'name',
+              type: 'text',
+              label: 'Product Name',
+            },
+            {
+              name: 'brand',
+              type: 'relationship',
+              relationTo: 'brands',
+              label: 'Brand',
+            },
+            {
+              name: 'productType',
+              type: 'relationship',
+              relationTo: 'product-types',
+              label: 'Product Type',
             },
           ],
         },
