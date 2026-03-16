@@ -944,6 +944,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
       collection: 'source-products',
       where: { id: { in: spIds.join(',') } },
       limit: 100,
+      depth: 1,
     })
 
     return (result.docs as Record<string, unknown>[]).map((sp): AggregationSource => {
@@ -953,7 +954,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         sourceVariantId: sv.id as number,
         // Product-level
         name: (sp.name as string) ?? null,
-        brandName: (sp.brandName as string) ?? null,
+        brandName: (sp.sourceBrand as { name?: string } | null)?.name ?? null,
         source: (sp.source as string) ?? null,
         // Variant-level
         ingredientsText: (sv.ingredientsText as string) ?? null,

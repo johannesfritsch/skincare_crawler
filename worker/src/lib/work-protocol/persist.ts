@@ -65,6 +65,8 @@ interface ScrapedProductData {
   gtin?: string
   name: string
   brandName?: string
+  brandUrl?: string
+  brandImageUrl?: string
   description?: string
   ingredientsText?: string
   priceCents?: number
@@ -257,11 +259,37 @@ export async function persistCrawlResult(
   }
   if (priceEntry) priceEntry.change = priceChange
 
+  // Upsert source-brand first so we can link it to the source-product
+  let sourceBrandId: number | null = null
+  if (data.brandName && data.brandUrl) {
+    const existingBrand = await payload.find({
+      collection: 'source-brands',
+      where: { sourceUrl: { equals: data.brandUrl } },
+      limit: 1,
+    })
+    if (existingBrand.docs.length === 0) {
+      const created = await payload.create({
+        collection: 'source-brands',
+        data: {
+          name: data.brandName,
+          source,
+          sourceUrl: data.brandUrl,
+          ...(data.brandImageUrl ? { imageUrl: data.brandImageUrl } : {}),
+        },
+      }) as { id: number }
+      sourceBrandId = created.id
+      jlog.event('persist.source_brand_created', { source, brandName: data.brandName, brandUrl: data.brandUrl })
+    } else {
+      sourceBrandId = (existingBrand.docs[0] as { id: number }).id
+      jlog.event('persist.source_brand_exists', { source, brandUrl: data.brandUrl })
+    }
+  }
+
   // Update source-product with product-level data only.
   // Variant-specific data (description, images, ingredientsText, amount, amountUnit) goes on source-variants.
   const productPayload: Record<string, unknown> = {
     source,
-    brandName: data.brandName ?? null,
+    sourceBrand: sourceBrandId,
     name: data.name,
     ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
     rating: data.rating || null,

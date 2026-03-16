@@ -10,6 +10,7 @@ interface FindArgs {
   where?: Where
   limit?: number
   sort?: string
+  depth?: number
 }
 
 interface FindByIDArgs {
@@ -132,6 +133,7 @@ export class PayloadRestClient {
     const parts: string[] = []
     if (args.where) parts.push(encodeWhere(args.where))
     if (args.limit !== undefined) parts.push(`limit=${args.limit}`)
+    if (args.depth !== undefined) parts.push(`depth=${args.depth}`)
     if (args.sort) parts.push(`sort=${encodeURIComponent(args.sort)}`)
     const qs = parts.length > 0 ? `?${parts.join('&')}` : ''
     return this.request('GET', `/${args.collection}${qs}`) as Promise<FindResult<T>>

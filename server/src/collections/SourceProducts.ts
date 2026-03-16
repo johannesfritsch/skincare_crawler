@@ -9,10 +9,10 @@ export const SourceProducts: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'brandName', 'source', 'createdAt'],
+    defaultColumns: ['name', 'sourceBrand', 'source', 'createdAt'],
     group: 'Source Products',
     description: 'Products crawled from source stores',
-    listSearchableFields: ['name', 'brandName'],
+    listSearchableFields: ['name'],
     components: {
       edit: {
         SaveButton: '@/components/SourceProductSaveButton',
@@ -64,13 +64,14 @@ export const SourceProducts: CollectionConfig = {
     },
 
     {
-      name: 'brandName',
-      type: 'text',
+      name: 'sourceBrand',
+      type: 'relationship',
+      relationTo: 'source-brands',
       label: 'Brand',
       index: true,
       admin: {
         position: 'sidebar',
-        description: 'Product brand name',
+        description: 'Brand from source store',
       },
     },
     {
