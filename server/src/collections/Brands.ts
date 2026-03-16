@@ -8,7 +8,7 @@ export const Brands: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'createdAt'],
+    defaultColumns: ['name', 'image', 'createdAt'],
     group: 'Products',
   },
   fields: [
@@ -17,6 +17,15 @@ export const Brands: CollectionConfig = {
       type: 'text',
       label: 'Brand Name',
       required: true,
+    },
+    {
+      name: 'image',
+      type: 'upload',
+      relationTo: 'profile-media',
+      label: 'Brand Image',
+      admin: {
+        description: 'Brand logo or image, downloaded from source stores during aggregation.',
+      },
     },
     {
       name: 'description',

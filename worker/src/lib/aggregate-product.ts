@@ -13,6 +13,8 @@ export interface AggregationSource {
   name?: string | null
   brandName?: string | null
   source?: string | null
+  sourceBrandId?: number | null
+  sourceBrandImageUrl?: string | null
   // Variant-level
   ingredientsText?: string | null
   description?: string | null
@@ -26,6 +28,7 @@ export interface AggregationSource {
 
 export interface AggregateOptions {
   imageSourcePriority?: string[]
+  brandSourcePriority?: string[]
 }
 
 /** A single source image with provenance metadata */
@@ -62,6 +65,10 @@ export interface VariantAggregatedData {
 export interface ProductAggregatedData {
   name?: string
   brandName?: string
+  /** The source-brand ID from the highest-priority source (for linking to the source-brand record) */
+  sourceBrandId?: number
+  /** The brand image URL from the highest-priority source-brand */
+  sourceBrandImageUrl?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -177,9 +184,12 @@ export function aggregateSourceVariantsToVariant(
 
 /**
  * Aggregate variant-level data into product-level data.
- * Currently just picks the best name and brand from all sources.
+ * Picks the best name (longest) and brand (by source priority).
  */
-export function aggregateVariantsToProduct(sources: AggregationSource[]): ProductAggregatedData | null {
+export function aggregateVariantsToProduct(
+  sources: AggregationSource[],
+  options?: AggregateOptions,
+): ProductAggregatedData | null {
   if (sources.length === 0) return null
 
   const result: ProductAggregatedData = {}
@@ -190,8 +200,44 @@ export function aggregateVariantsToProduct(sources: AggregationSource[]): Produc
     result.name = names.reduce((a, b) => (b.length > a.length ? b : a))
   }
 
-  // Brand: first non-null (should agree across sources)
-  result.brandName = sources.find((s) => s.brandName)?.brandName ?? undefined
+  // Brand name: pick from highest-priority source that has a brand name
+  const brandPriority = options?.brandSourcePriority
+  if (brandPriority && brandPriority.length > 0) {
+    for (const slug of brandPriority) {
+      const s = sources.find((src) => src.source === slug && src.brandName)
+      if (s) {
+        result.brandName = s.brandName!
+        result.sourceBrandId = s.sourceBrandId ?? undefined
+        break
+      }
+    }
+  }
+  // Fallback: first non-null brand from any source
+  if (!result.brandName) {
+    const s = sources.find((src) => src.brandName)
+    if (s) {
+      result.brandName = s.brandName!
+      result.sourceBrandId = s.sourceBrandId ?? undefined
+    }
+  }
+
+  // Brand image: pick independently — first source (by priority) that has a brand image URL
+  if (brandPriority && brandPriority.length > 0) {
+    for (const slug of brandPriority) {
+      const s = sources.find((src) => src.source === slug && src.sourceBrandImageUrl)
+      if (s) {
+        result.sourceBrandImageUrl = s.sourceBrandImageUrl!
+        break
+      }
+    }
+  }
+  // Fallback: first non-null brand image from any source
+  if (!result.sourceBrandImageUrl) {
+    const s = sources.find((src) => src.sourceBrandImageUrl)
+    if (s) {
+      result.sourceBrandImageUrl = s.sourceBrandImageUrl!
+    }
+  }
 
   return result
 }

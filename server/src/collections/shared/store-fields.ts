@@ -31,6 +31,9 @@ export const ALL_SOURCE_SLUGS = STORES.map((s) => s.value)
 /** Default image source priority for product aggregation */
 export const DEFAULT_IMAGE_SOURCE_PRIORITY = STORES.map((s) => s.value)
 
+/** Default brand source priority for product aggregation (rossmann → purish → dm → mueller) */
+export const DEFAULT_BRAND_SOURCE_PRIORITY = ['rossmann', 'purish', 'dm', 'mueller']
+
 /** Map source slug → display label */
 export const STORE_LABELS: Record<string, string> = Object.fromEntries(
   STORES.map((s) => [s.value, s.label]),

@@ -14,6 +14,7 @@ export const ProductVariants: CollectionConfig = {
     group: 'Products',
   },
   fields: [
+    // ── Sidebar ──
     {
       name: 'product',
       type: 'relationship',
@@ -21,6 +22,9 @@ export const ProductVariants: CollectionConfig = {
       label: 'Product',
       required: true,
       index: true,
+      admin: {
+        position: 'sidebar',
+      },
     },
     {
       name: 'gtin',
@@ -29,6 +33,7 @@ export const ProductVariants: CollectionConfig = {
       unique: true,
       index: true,
       admin: {
+        position: 'sidebar',
         description: 'Global Trade Item Number for this specific variant',
       },
     },
@@ -37,6 +42,7 @@ export const ProductVariants: CollectionConfig = {
       type: 'text',
       label: 'Label',
       admin: {
+        position: 'sidebar',
         description: 'Variant-specific label (e.g. "50ml", "Rose Gold", "SPF 30")',
       },
     },
@@ -47,14 +53,54 @@ export const ProductVariants: CollectionConfig = {
       hasMany: true,
       label: 'Source Variants',
       admin: {
+        position: 'sidebar',
         description: 'Links to retailer-specific variants for this product variant',
       },
     },
+
+    // ── Tabs ──
     {
       type: 'tabs',
       tabs: [
         {
           label: 'Variant',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'amount',
+                  type: 'number',
+                  label: 'Amount',
+                  admin: {
+                    width: '33%',
+                    description: 'Product amount (e.g. 100, 250)',
+                  },
+                },
+                {
+                  name: 'amountUnit',
+                  type: 'text',
+                  label: 'Unit',
+                  admin: {
+                    width: '33%',
+                    description: 'Unit of measurement (e.g. ml, g)',
+                  },
+                },
+                {
+                  name: 'variantDimension',
+                  type: 'text',
+                  label: 'Dimension',
+                  admin: {
+                    width: '33%',
+                    description: 'Variant dimension type (e.g. "Color", "Size")',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Description',
           fields: [
             {
               name: 'description',
@@ -64,6 +110,11 @@ export const ProductVariants: CollectionConfig = {
                 description: 'Aggregated description (LLM consensus from source variants)',
               },
             },
+          ],
+        },
+        {
+          label: 'Images',
+          fields: [
             {
               name: 'images',
               type: 'array',
@@ -179,38 +230,40 @@ export const ProductVariants: CollectionConfig = {
                 },
               ],
             },
+          ],
+        },
+        {
+          label: 'Ingredients',
+          fields: [
             {
-              type: 'row',
+              name: 'ingredients',
+              type: 'array',
+              label: 'Ingredients',
+              admin: {
+                description: 'Product ingredients (parsed from source variant INCI text, matched to ingredient database)',
+              },
               fields: [
                 {
-                  name: 'amount',
-                  type: 'number',
-                  label: 'Amount',
-                  admin: {
-                    width: '33%',
-                    description: 'Product amount (e.g. 100, 250)',
-                  },
+                  name: 'name',
+                  type: 'text',
+                  label: 'Name',
+                  required: true,
+                  admin: { description: 'Raw ingredient name as listed on the product' },
                 },
                 {
-                  name: 'amountUnit',
-                  type: 'text',
-                  label: 'Unit',
-                  admin: {
-                    width: '33%',
-                    description: 'Unit of measurement (e.g. ml, g)',
-                  },
-                },
-                {
-                  name: 'variantDimension',
-                  type: 'text',
-                  label: 'Dimension',
-                  admin: {
-                    width: '33%',
-                    description: 'Variant dimension type (e.g. "Color", "Size")',
-                  },
+                  name: 'ingredient',
+                  type: 'relationship',
+                  relationTo: 'ingredients',
+                  label: 'Matched Ingredient',
+                  admin: { description: 'Link to ingredient database entry, if matched' },
                 },
               ],
             },
+          ],
+        },
+        {
+          label: 'Labels',
+          fields: [
             {
               name: 'labels',
               type: 'array',
@@ -261,7 +314,7 @@ export const ProductVariants: CollectionConfig = {
                   max: 14,
                   admin: {
                     width: '50%',
-                    description: 'Minimum pH level (0–14)',
+                    description: 'Minimum pH level (0-14)',
                     step: 0.1,
                   },
                 },
@@ -273,7 +326,7 @@ export const ProductVariants: CollectionConfig = {
                   max: 14,
                   admin: {
                     width: '50%',
-                    description: 'Maximum pH level (0–14)',
+                    description: 'Maximum pH level (0-14)',
                     step: 0.1,
                   },
                 },
@@ -297,35 +350,6 @@ export const ProductVariants: CollectionConfig = {
                   'Each slot is 1 (use) or 0 (skip). An empty inner array [] means skip that day entirely. ' +
                   'Example: [[1,0,1]] = daily morning+evening. [[1,0,0],[]] = every other day morning only.',
               },
-            },
-          ],
-        },
-        {
-          label: 'Ingredients',
-          fields: [
-            {
-              name: 'ingredients',
-              type: 'array',
-              label: 'Ingredients',
-              admin: {
-                description: 'Product ingredients (parsed from source variant INCI text, matched to ingredient database)',
-              },
-              fields: [
-                {
-                  name: 'name',
-                  type: 'text',
-                  label: 'Name',
-                  required: true,
-                  admin: { description: 'Raw ingredient name as listed on the product' },
-                },
-                {
-                  name: 'ingredient',
-                  type: 'relationship',
-                  relationTo: 'ingredients',
-                  label: 'Matched Ingredient',
-                  admin: { description: 'Link to ingredient database entry, if matched' },
-                },
-              ],
             },
           ],
         },

@@ -2,7 +2,7 @@ import type { PayloadRestClient } from '@/lib/payload-client'
 import type { AuthenticatedWorker } from './types'
 import { findUncrawledProducts, findUncrawledVariants, countUncrawled, resetProducts, normalizeProductUrl, getSourceSlugFromUrl } from '@/lib/source-product-queries'
 import type { SourceSlug } from '@/lib/source-product-queries'
-import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
+import { ALL_SOURCE_SLUGS, DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { createLogger } from '@/lib/logger'
 import type { AggregationSource } from '@/lib/aggregate-product'
@@ -862,6 +862,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
   const language = (job.language as string) || 'de'
   const aggregationType = ((job.type as string) || 'all') as 'all' | 'selected_gtins'
   const imageSourcePriority = (job.imageSourcePriority as string[] | null) ?? DEFAULT_IMAGE_SOURCE_PRIORITY
+  const brandSourcePriority = (job.brandSourcePriority as string[] | null) ?? DEFAULT_BRAND_SOURCE_PRIORITY
   const includeSisterVariants = (job.includeSisterVariants as boolean) ?? true
 
   // Determine which stages are enabled and read progress map
@@ -956,6 +957,8 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
         name: (sp.name as string) ?? null,
         brandName: (sp.sourceBrand as { name?: string } | null)?.name ?? null,
         source: (sp.source as string) ?? null,
+        sourceBrandId: (sp.sourceBrand as { id?: number } | null)?.id ?? null,
+        sourceBrandImageUrl: (sp.sourceBrand as { imageUrl?: string } | null)?.imageUrl ?? null,
         // Variant-level
         ingredientsText: (sv.ingredientsText as string) ?? null,
         description: (sv.description as string) ?? null,
@@ -1302,6 +1305,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     language,
     aggregationType,
     imageSourcePriority,
+    brandSourcePriority,
     includeSisterVariants,
     lastCheckedSourceId: lastId ?? ((job.lastCheckedSourceId as number) || 0),
     stageItems,

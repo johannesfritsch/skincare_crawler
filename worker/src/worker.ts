@@ -23,7 +23,7 @@ import { claimWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-prot
 import { submitWork } from '@/lib/work-protocol/submit'
 import { failJob, retryOrFail } from '@/lib/work-protocol/job-failure'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
-import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
+import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
@@ -784,6 +784,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     jobId,
     language: (work.language as string) ?? 'de',
     imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
+    brandSourcePriority: (work.brandSourcePriority as string[]) ?? DEFAULT_BRAND_SOURCE_PRIORITY,
     detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
     minBoxArea: ((work.minBoxArea as number) ?? 5) / 100,
   }

@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { sql } from 'drizzle-orm'
 
 export const Products: CollectionConfig = {
   slug: 'products',
@@ -22,6 +23,15 @@ export const Products: CollectionConfig = {
   hooks: {
     beforeDelete: [
       async ({ id, req }) => {
+        // Delete video_scenes_detections rows that reference this product.
+        // The detections.product FK is NOT NULL + ON DELETE SET NULL which is
+        // contradictory — SET NULL would violate the NOT NULL constraint.
+        // Raw SQL is needed because detections are array sub-rows, not top-level docs.
+        const db = req.payload.db.drizzle
+        await db.execute(
+          sql`DELETE FROM video_scenes_detections WHERE product_id = ${id}`,
+        )
+
         // Cascade delete: remove child records that have required (NOT NULL) references
         await req.payload.delete({
           collection: 'product-variants',

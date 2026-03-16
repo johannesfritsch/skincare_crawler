@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
-import { DEFAULT_IMAGE_SOURCE_PRIORITY } from './shared/store-fields'
+import { DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from './shared/store-fields'
 
 export const ProductAggregations: CollectionConfig = {
   slug: 'product-aggregations',
@@ -162,6 +162,16 @@ export const ProductAggregations: CollectionConfig = {
               admin: {
                 description:
                   'Ordered list of source slugs to prefer when selecting a product image. First source with images wins.',
+              },
+            },
+            {
+              name: 'brandSourcePriority',
+              type: 'json',
+              label: 'Brand Source Priority',
+              defaultValue: DEFAULT_BRAND_SOURCE_PRIORITY,
+              admin: {
+                description:
+                  'Ordered list of source slugs to prefer when selecting the brand name and image. First source with a source-brand wins. Default: rossmann → purish → dm → mueller.',
               },
             },
             {

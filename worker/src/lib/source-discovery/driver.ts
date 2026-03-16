@@ -15,6 +15,12 @@ export const ALL_SOURCE_SLUGS: SourceSlug[] = drivers.map((d) => d.slug)
  */
 export const DEFAULT_IMAGE_SOURCE_PRIORITY: string[] = drivers.map((d) => d.slug)
 
+/**
+ * Default priority order for selecting the brand during aggregation.
+ * First source with a source-brand wins. Rossmann → PURISH → DM → Mueller.
+ */
+export const DEFAULT_BRAND_SOURCE_PRIORITY: string[] = ['rossmann', 'purish', 'dm', 'mueller']
+
 export function getSourceDriver(url: string): SourceDriver | null {
   for (const driver of drivers) {
     if (driver.matches(url)) {

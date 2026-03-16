@@ -179,6 +179,15 @@ export interface EventRegistry {
     chars: number
   }
   'persist.crawl_warning': { warning: string }
+  'persist.source_brand_created': {
+    source: string
+    brandName: string
+    brandUrl: string
+  }
+  'persist.source_brand_exists': {
+    source: string
+    brandUrl: string
+  }
 
   // ─── Product Discovery ─────────────────────────────────────────────────
   // worker.ts: handler start
@@ -419,6 +428,24 @@ export interface EventRegistry {
     candidatesProcessed: number
     candidatesWithDetections: number
   }
+  'video_processing.side_classified': {
+    title: string
+    sceneId: number
+    objectIndex: number
+    side: string
+    frontScore: number
+    backScore: number
+    representativeScore: number
+  }
+  'video_processing.side_detection_complete': {
+    title: string
+    totalObjects: number
+    front: number
+    back: number
+    unknown: number
+    clusters: number
+    representatives: number
+  }
   'video_processing.visual_search_detail': {
     title: string
     sceneId: number
@@ -497,7 +524,7 @@ export interface EventRegistry {
   'aggregation.persist_error': { gtin: string; error: string }
   'aggregation.persist_failed': { gtin: string; error: string }
   'aggregation.warning': { gtin: string; warning: string }
-  'aggregation.brand_matched': { brandName: string; brandId: number }
+  'aggregation.brand_matched': { brandName: string; brandId: number; method?: string }
   'aggregation.ingredients_matched': {
     matched: number
     unmatched: number
@@ -709,6 +736,16 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     labels: ['scraping', 'ingredients'],
   },
   'persist.crawl_warning': { type: 'warning', level: 'warn' },
+  'persist.source_brand_created': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'source-brand'],
+  },
+  'persist.source_brand_exists': {
+    type: 'info',
+    level: 'debug',
+    labels: ['scraping', 'source-brand'],
+  },
 
   // Discovery
   'discovery.started': {
@@ -910,6 +947,16 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['video-processing', 'object-detection'],
+  },
+  'video_processing.side_classified': {
+    type: 'info',
+    level: 'debug',
+    labels: ['video-processing', 'side-detection'],
+  },
+  'video_processing.side_detection_complete': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-processing', 'side-detection'],
   },
   'video_processing.visual_search_detail': {
     type: 'info',
