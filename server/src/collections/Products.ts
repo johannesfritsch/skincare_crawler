@@ -63,13 +63,12 @@ export const Products: CollectionConfig = {
           label: 'Variants',
           fields: [
             {
-              name: 'variants',
-              type: 'join',
-              collection: 'product-variants',
-              on: 'product',
+              name: 'variantsGallery',
+              type: 'ui',
               admin: {
-                defaultColumns: ['label', 'gtin'],
-                description: 'Product variants — each has its own GTIN, ingredients, images, description, attributes, and claims',
+                components: {
+                  Field: '/components/VariantsGallery',
+                },
               },
             },
           ],
