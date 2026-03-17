@@ -97,11 +97,6 @@ export const ProductVariants: CollectionConfig = {
                 },
               ],
             },
-          ],
-        },
-        {
-          label: 'Description',
-          fields: [
             {
               name: 'description',
               type: 'textarea',
