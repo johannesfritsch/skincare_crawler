@@ -20,14 +20,14 @@ export default async function ListsPage() {
       name: t.product_types.name,
       slug: t.product_types.slug,
       productCount: sql<number>`count(DISTINCT ${t.products.id})::int`,
-      avgRating: sql<number>`round(avg(${t.source_products.rating})::numeric, 1)`,
+      avgRating: sql<number>`round(avg(${t.source_products.averageRating})::numeric, 1)`,
     })
     .from(t.product_types)
     .innerJoin(t.products, eq(t.products.productType, t.product_types.id))
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
     .innerJoin(t.source_variants, eq(t.source_variants.gtin, t.product_variants.gtin))
     .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
-    .where(sql`${t.source_products.rating} > 0`)
+    .where(sql`${t.source_products.averageRating} > 0`)
     .groupBy(t.product_types.id, t.product_types.name, t.product_types.slug)
     .orderBy(desc(sql`count(DISTINCT ${t.products.id})`))
 

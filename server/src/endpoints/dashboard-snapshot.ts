@@ -151,8 +151,8 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
         sp.source,
         count(*)::int AS total,
         count(*) FILTER (WHERE sv.id IS NOT NULL)::int AS "withVariants",
-        round(avg(sp.rating)::numeric, 2) AS "avgRating",
-        round(avg(sp.rating_num)::numeric, 0) AS "avgRatingCount"
+        round(avg(sp.average_rating)::numeric, 2) AS "avgRating",
+        round(avg(sp.rating_count)::numeric, 0) AS "avgRatingCount"
       FROM source_products sp
       LEFT JOIN LATERAL (
         SELECT id FROM source_variants WHERE source_product_id = sp.id LIMIT 1

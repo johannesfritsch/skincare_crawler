@@ -1,10 +1,107 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../../types'
 import { launchBrowser } from '@/lib/browser'
+import { stealthFetch } from '@/lib/stealth-fetch'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
 
 const log = createLogger('Rossmann')
+
+// ── BazaarVoice Reviews ─────────────────────────────────────────────────────
+
+const ROSSMANN_BV_API = 'https://apps.bazaarvoice.com/bfd/v1/clients/rossmann-de/api-products/cv2/resources/data/reviews.json'
+const ROSSMANN_BV_TOKEN = '16671,main_site,de_DE'
+const ROSSMANN_BV_DISPLAY_CODE = '16671-de_de'
+const ROSSMANN_BV_LOCALES = 'en_CH,de_CH,fr_CH,it_CH,en_AT,de_AT,de_DE,de_DE'
+
+interface RossmannBvReview {
+  Id: string
+  Rating: number
+  Title?: string
+  ReviewText?: string
+  UserNickname?: string
+  SubmissionTime?: string
+  IsRecommended?: boolean | null
+  TotalPositiveFeedbackCount?: number
+  TotalNegativeFeedbackCount?: number
+  ContextDataValues?: Record<string, { Value?: string }>
+}
+
+async function fetchReviews(gtin: string): Promise<NonNullable<ScrapedProductData['reviews']>> {
+  const PAGE_SIZE = 100
+  const allReviews: NonNullable<ScrapedProductData['reviews']> = []
+
+  try {
+    let offset = 0
+    let totalResults = Infinity
+
+    while (offset < totalResults) {
+      const params = new URLSearchParams({
+        'apiversion': '5.5',
+        'displaycode': ROSSMANN_BV_DISPLAY_CODE,
+        'resource': 'reviews',
+        'action': 'REVIEWS_N_STATS',
+        'filter': `productid:eq:${gtin}`,
+        'filter_reviews': `contentlocale:eq:${ROSSMANN_BV_LOCALES}`,
+        'filteredstats': 'reviews',
+        'Stats': 'Reviews',
+        'include': 'authors,products,comments',
+        'limit': String(PAGE_SIZE),
+        'offset': String(offset),
+        'limit_comments': '3',
+        'sort': 'submissiontime:desc',
+      })
+      // BV API needs the contentlocale filter twice — once for stats, once for reviews
+      params.append('filter', `contentlocale:eq:${ROSSMANN_BV_LOCALES}`)
+      params.append('filter_reviews', `isratingsonly:eq:false`)
+
+      const url = `${ROSSMANN_BV_API}?${params.toString()}`
+      const res = await stealthFetch(url, {
+        headers: {
+          'bv-bfd-token': ROSSMANN_BV_TOKEN,
+          'Origin': 'https://www.rossmann.de',
+          'Referer': 'https://www.rossmann.de/',
+        },
+      })
+      if (!res.ok) {
+        log.info('BazaarVoice API returned error', { status: res.status, gtin, offset })
+        break
+      }
+      const data = await res.json()
+      const response = data?.response ?? data
+      totalResults = response?.TotalResults ?? 0
+      const results: RossmannBvReview[] = response?.Results ?? []
+
+      if (results.length === 0) break
+
+      for (const r of results) {
+        allReviews.push({
+          externalId: r.Id,
+          rating: r.Rating * 2, // Normalize 1-5 stars to 0-10 scale
+          title: r.Title ?? undefined,
+          reviewText: r.ReviewText ?? undefined,
+          userNickname: r.UserNickname ?? undefined,
+          submittedAt: r.SubmissionTime ?? undefined,
+          isRecommended: r.IsRecommended ?? null,
+          positiveFeedbackCount: r.TotalPositiveFeedbackCount ?? 0,
+          negativeFeedbackCount: r.TotalNegativeFeedbackCount ?? 0,
+          reviewerAge: r.ContextDataValues?.Age?.Value?.replace('to', '-') ?? undefined,
+          reviewerGender: r.ContextDataValues?.Gender?.Value ?? undefined,
+        })
+      }
+
+      offset += results.length
+
+      if (offset < totalResults) {
+        await sleep(randomDelay(400, 600))
+      }
+    }
+  } catch (error) {
+    log.info('Failed to fetch reviews from BazaarVoice', { gtin, fetched: allReviews.length, error: String(error) })
+  }
+
+  return allReviews
+}
 
 function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -602,7 +699,7 @@ export const rossmannDriver: SourceDriver = {
           }
 
           let rating: number | null = null
-          let ratingNum: number | null = null
+          let ratingCount: number | null = null
           const bvRatingEl = document.querySelector('.bv_avgRating_component_container') as HTMLElement | null
           if (bvRatingEl) {
             const val = parseFloat(bvRatingEl.innerText.trim())
@@ -611,7 +708,7 @@ export const rossmannDriver: SourceDriver = {
           const bvCountEl = document.querySelector('.bv_numReviews_component_container') as HTMLElement | null
           if (bvCountEl) {
             const countMatch = bvCountEl.innerText.match(/(\d+)/)
-            if (countMatch) ratingNum = parseInt(countMatch[1], 10)
+            if (countMatch) ratingCount = parseInt(countMatch[1], 10)
           }
 
           let categoryPath: string[] | null = null
@@ -647,7 +744,7 @@ export const rossmannDriver: SourceDriver = {
             images,
             variants,
             rating,
-            ratingNum,
+            ratingCount,
             categoryPath,
           }
         })
@@ -671,6 +768,12 @@ export const rossmannDriver: SourceDriver = {
 
         const warnings: string[] = []
 
+        // Fetch reviews from BazaarVoice (uses GTIN as product ID)
+        const reviews = gtin ? await fetchReviews(gtin) : []
+        if (reviews.length > 0) {
+          log.info('Fetched reviews', { gtin, count: reviews.length })
+        }
+
         const scrapeDurationMs = Date.now() - scrapeStartMs
         logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'rossmann', name: scraped.name, variants: scraped.variants.length, durationMs: scrapeDurationMs, images: scraped.images.length, hasIngredients: !!ingredientsText })
 
@@ -688,10 +791,11 @@ export const rossmannDriver: SourceDriver = {
           images: scraped.images,
           variants: scraped.variants,
           rating: scraped.rating ?? undefined,
-          ratingNum: scraped.ratingNum ?? undefined,
+          ratingCount: scraped.ratingCount ?? undefined,
           sourceArticleNumber: scraped.sourceArticleNumber ?? undefined,
           categoryBreadcrumbs: scraped.categoryPath ?? undefined,
           warnings,
+          reviews,
         }
       } finally {
         await browser.close()

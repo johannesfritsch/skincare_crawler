@@ -322,6 +322,87 @@ function extractGtinFromDmUrl(url: string): string | null {
   }
 }
 
+// BazaarVoice review API for DM
+const BV_API = 'https://apps.bazaarvoice.com/bfd/v1/clients/dm-de/api-products/cv2/resources/data/reviews.json'
+const BV_TOKEN = '18357,main_site,de_DE'
+
+interface BvReview {
+  Id: string
+  Rating: number
+  Title?: string
+  ReviewText?: string
+  UserNickname?: string
+  SubmissionTime?: string
+  IsRecommended?: boolean | null
+  TotalPositiveFeedbackCount?: number
+  TotalNegativeFeedbackCount?: number
+  ContextDataValues?: Record<string, { Value?: string }>
+}
+
+async function fetchReviews(dan: string, logger?: import('@/lib/logger').Logger): Promise<ScrapedProductData['reviews']> {
+  const PAGE_SIZE = 100
+  const allReviews: NonNullable<ScrapedProductData['reviews']> = []
+
+  try {
+    let offset = 0
+    let totalResults = Infinity
+
+    while (offset < totalResults) {
+      const params = new URLSearchParams({
+        'apiVersion': '5.4',
+        'filter': `productid:eq:${dan}`,
+        'limit': String(PAGE_SIZE),
+        'offset': String(offset),
+        'sort': 'submissiontime:desc',
+      })
+      const url = `${BV_API}?${params.toString()}`
+      const res = await stealthFetch(url, {
+        headers: {
+          'bv-bfd-token': BV_TOKEN,
+          'Origin': 'https://www.dm.de',
+          'Referer': 'https://www.dm.de/',
+        },
+      })
+      if (!res.ok) {
+        log.info('BazaarVoice API returned error', { status: res.status, dan, offset })
+        break
+      }
+      const data = await res.json()
+      const response = data?.response ?? data
+      totalResults = response?.TotalResults ?? 0
+      const results: BvReview[] = response?.Results ?? []
+
+      if (results.length === 0) break
+
+      for (const r of results) {
+        allReviews.push({
+          externalId: r.Id,
+          rating: r.Rating * 2, // Normalize 1-5 stars to 0-10 scale
+          title: r.Title ?? undefined,
+          reviewText: r.ReviewText ?? undefined,
+          userNickname: r.UserNickname ?? undefined,
+          submittedAt: r.SubmissionTime ?? undefined,
+          isRecommended: r.IsRecommended ?? null,
+          positiveFeedbackCount: r.TotalPositiveFeedbackCount ?? 0,
+          negativeFeedbackCount: r.TotalNegativeFeedbackCount ?? 0,
+          reviewerAge: r.ContextDataValues?.Age?.Value?.replace('to', '-') ?? undefined,
+          reviewerGender: r.ContextDataValues?.Gender?.Value ?? undefined,
+        })
+      }
+
+      offset += results.length
+
+      if (offset < totalResults) {
+        await sleep(jitteredDelay(500))
+      }
+    }
+  } catch (error) {
+    log.info('Failed to fetch reviews from BazaarVoice', { dan, fetched: allReviews.length, error: String(error) })
+  }
+
+  return allReviews
+}
+
 export const dmDriver: SourceDriver = {
   slug: 'dm',
   label: 'DM',
@@ -727,6 +808,12 @@ export const dmDriver: SourceDriver = {
         ? data.breadcrumbs
         : undefined
 
+      // Fetch reviews from BazaarVoice
+      const reviews = sourceArticleNumber ? (await fetchReviews(sourceArticleNumber, logger)) ?? [] : []
+      if (reviews.length > 0) {
+        log.info('Fetched reviews', { dan: sourceArticleNumber, count: reviews.length })
+      }
+
       const scrapeDurationMs = Date.now() - scrapeStartMs
       logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'dm', name, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText })
 
@@ -747,7 +834,7 @@ export const dmDriver: SourceDriver = {
         variants,
         labels,
         rating: data.rating?.ratingValue || undefined,
-        ratingNum: data.rating?.ratingCount || undefined,
+        ratingCount: data.rating?.ratingCount || undefined,
         sourceArticleNumber,
         categoryBreadcrumbs,
         canonicalUrl,
@@ -756,6 +843,7 @@ export const dmDriver: SourceDriver = {
         perUnitUnit: perUnit?.unit ?? undefined,
         availability: productAvailability,
         warnings,
+        reviews,
       }
     } catch (error) {
       log.error('Error scraping product', { url: sourceUrl, error: String(error) })

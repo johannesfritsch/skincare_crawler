@@ -28,7 +28,7 @@ export default async function DiscoverPage() {
     gtin: sql<string | null>`min(${t.product_variants.gtin})`,
     brandName: t.brands.name,
     productTypeName: t.product_types.name,
-    avgRating: sql<number | null>`round(avg(${t.source_products.rating})::numeric, 1)`,
+    avgRating: sql<number | null>`round(avg(${t.source_products.averageRating})::numeric, 1)`,
     creatorScore: creatorScoreSub,
     imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_card_url, ${t.product_media}.url)`,
   }
@@ -54,9 +54,9 @@ export default async function DiscoverPage() {
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
     .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
-    .where(sql`${t.source_products.rating} > 0`)
+    .where(sql`${t.source_products.averageRating} > 0`)
     .groupBy(...groupCols)
-    .orderBy(desc(sql`avg(${t.source_products.rating})`))
+    .orderBy(desc(sql`avg(${t.source_products.averageRating})`))
     .limit(100)
 
   // Group by product type

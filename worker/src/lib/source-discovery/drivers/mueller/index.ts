@@ -821,7 +821,7 @@ export const muellerDriver: SourceDriver = {
 
           // --- Rating: DOM only ---
           let rating: number | null = null
-          const ratingNum: number | null = null
+          const ratingCount: number | null = null
           const ratingContainer = document.querySelector('[class*="product-rating"]')
           if (ratingContainer) {
             const starImgs = ratingContainer.querySelectorAll('img')
@@ -1042,7 +1042,7 @@ export const muellerDriver: SourceDriver = {
             images,
             variants,
             rating,
-            ratingNum,
+            ratingCount,
             availability,
             hasRscData: rscProduct !== null,
           }
@@ -1093,7 +1093,7 @@ export const muellerDriver: SourceDriver = {
             })),
           })),
           rating: scraped.rating ?? undefined,
-          ratingNum: scraped.ratingNum ?? undefined,
+          ratingCount: scraped.ratingCount ?? undefined,
           sourceArticleNumber: scraped.sourceArticleNumber ?? undefined,
           categoryBreadcrumbs: scraped.categoryBreadcrumbs ?? undefined,
           categoryUrl: scraped.categoryUrl ?? undefined,

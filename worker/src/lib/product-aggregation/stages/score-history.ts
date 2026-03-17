@@ -35,10 +35,10 @@ export async function executeScoreHistory(ctx: StageContext, workItem: Aggregati
       where: { id: { in: sourceProductIds } },
       limit: sourceProductIds.length,
     })
-    const rated = (sourceProducts.docs as Array<{ rating?: number | null; ratingNum?: number | null }>)
-      .filter(sp => sp.rating != null && sp.ratingNum != null && Number(sp.ratingNum) > 0)
+    const rated = (sourceProducts.docs as Array<{ averageRating?: number | null; ratingCount?: number | null }>)
+      .filter(sp => sp.averageRating != null && sp.ratingCount != null && Number(sp.ratingCount) > 0)
     if (rated.length > 0) {
-      const avgRating = rated.reduce((sum, sp) => sum + Number(sp.rating), 0) / rated.length
+      const avgRating = rated.reduce((sum, sp) => sum + Number(sp.averageRating), 0) / rated.length
       storeScore = Math.round(avgRating * 2 * 10) / 10
     }
   }

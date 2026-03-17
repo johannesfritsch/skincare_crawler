@@ -83,6 +83,7 @@ export interface Config {
     'source-products': SourceProduct;
     'source-brands': SourceBrand;
     'source-variants': SourceVariant;
+    'source-reviews': SourceReview;
     'product-discoveries': ProductDiscovery;
     'product-searches': ProductSearch;
     'product-crawls': ProductCrawl;
@@ -116,6 +117,9 @@ export interface Config {
     };
     'source-products': {
       sourceVariants: 'source-variants';
+    };
+    'source-variants': {
+      sourceReviews: 'source-reviews';
     };
     'product-discoveries': {
       events: 'events';
@@ -168,6 +172,7 @@ export interface Config {
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
     'source-brands': SourceBrandsSelect<false> | SourceBrandsSelect<true>;
     'source-variants': SourceVariantsSelect<false> | SourceVariantsSelect<true>;
+    'source-reviews': SourceReviewsSelect<false> | SourceReviewsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
     'product-searches': ProductSearchesSelect<false> | ProductSearchesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
@@ -1685,6 +1690,11 @@ export interface SourceVariant {
         id?: string | null;
       }[]
     | null;
+  sourceReviews?: {
+    docs?: (number | SourceReview)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   /**
    * Timestamped price & availability entries from each crawl of this variant
    */
@@ -1744,11 +1754,11 @@ export interface SourceProduct {
   /**
    * Average rating (0-5)
    */
-  rating?: number | null;
+  averageRating?: number | null;
   /**
    * Total number of reviews
    */
-  ratingNum?: number | null;
+  ratingCount?: number | null;
   name?: string | null;
   sourceVariants?: {
     docs?: (number | SourceVariant)[];
@@ -1776,6 +1786,41 @@ export interface SourceBrand {
    * Brand logo/image URL from the source store
    */
   imageUrl?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Individual reviews crawled from source stores
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-reviews".
+ */
+export interface SourceReview {
+  id: number;
+  sourceVariant: number | SourceVariant;
+  /**
+   * External review ID (e.g. BazaarVoice review ID)
+   */
+  externalId?: string | null;
+  /**
+   * Normalized rating (0-10 scale)
+   */
+  rating: number;
+  submittedAt?: string | null;
+  title?: string | null;
+  reviewText?: string | null;
+  userNickname?: string | null;
+  /**
+   * Age range, e.g. "25to34"
+   */
+  reviewerAge?: string | null;
+  /**
+   * Gender, e.g. "Female"
+   */
+  reviewerGender?: string | null;
+  isRecommended?: boolean | null;
+  positiveFeedbackCount?: number | null;
+  negativeFeedbackCount?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2215,6 +2260,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'source-variants';
         value: number | SourceVariant;
+      } | null)
+    | ({
+        relationTo: 'source-reviews';
+        value: number | SourceReview;
       } | null)
     | ({
         relationTo: 'product-discoveries';
@@ -2755,8 +2804,8 @@ export interface SourceProductsSelect<T extends boolean = true> {
   source?: T;
   sourceBrand?: T;
   categoryBreadcrumb?: T;
-  rating?: T;
-  ratingNum?: T;
+  averageRating?: T;
+  ratingCount?: T;
   name?: T;
   sourceVariants?: T;
   updatedAt?: T;
@@ -2803,6 +2852,7 @@ export interface SourceVariantsSelect<T extends boolean = true> {
         label?: T;
         id?: T;
       };
+  sourceReviews?: T;
   priceHistory?:
     | T
     | {
@@ -2817,6 +2867,26 @@ export interface SourceVariantsSelect<T extends boolean = true> {
         change?: T;
         id?: T;
       };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-reviews_select".
+ */
+export interface SourceReviewsSelect<T extends boolean = true> {
+  sourceVariant?: T;
+  externalId?: T;
+  rating?: T;
+  submittedAt?: T;
+  title?: T;
+  reviewText?: T;
+  userNickname?: T;
+  reviewerAge?: T;
+  reviewerGender?: T;
+  isRecommended?: T;
+  positiveFeedbackCount?: T;
+  negativeFeedbackCount?: T;
   updatedAt?: T;
   createdAt?: T;
 }

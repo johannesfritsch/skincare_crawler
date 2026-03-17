@@ -112,6 +112,18 @@ From BazaarVoice widgets (loaded asynchronously):
 
 The driver waits up to 15 seconds for the BazaarVoice widget to render before scraping.
 
+### Reviews (BazaarVoice)
+
+Fetched from BazaarVoice API after DOM scraping (outside browser context):
+- **API**: `apps.bazaarvoice.com/bfd/v1/clients/rossmann-de/api-products/cv2/resources/data/reviews.json`
+- **Auth**: `bv-bfd-token: 16671,main_site,de_DE` header + rossmann.de origin/referer
+- **Key param**: `filter=productid:eq:{GTIN}` — keyed by GTIN (not DAN like DM)
+- **Extra params**: `apiversion=5.5`, `displaycode=16671-de_de`, `resource=reviews`, `action=REVIEWS_N_STATS`, content locale filter for DE/AT/CH variants, `isratingsonly:eq:false` to exclude rating-only entries
+- **Pagination**: `limit=100`, paginated with `offset`, sorted by `submissiontime:desc`
+- **Rating normalization**: BazaarVoice ratings (1-5 stars) are normalized to 0-10 scale (`rating * 2`)
+- **Failure handling**: wrapped in try/catch — returns `[]` on failure, never fails the scrape
+- **Dedup**: reviews are persisted by `externalId` (BazaarVoice review ID, globally unique)
+
 ## Discovery (`discoverProducts`)
 
 Playwright-based BFS category tree traversal:

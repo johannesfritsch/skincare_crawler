@@ -38,8 +38,8 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
       name: t.products.name,
       gtin: sql<string | null>`min(${t.product_variants.gtin})`,
       brandName: t.brands.name,
-      avgRating: sql<number>`round(avg(${t.source_products.rating})::numeric, 1)`,
-      totalReviews: sql<number>`sum(${t.source_products.ratingNum})::int`,
+      avgRating: sql<number>`round(avg(${t.source_products.averageRating})::numeric, 1)`,
+      totalReviews: sql<number>`sum(${t.source_products.ratingCount})::int`,
       creatorScore: creatorScoreSub,
       imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_thumbnail_url, ${t.product_media}.url)`,
     })
@@ -52,7 +52,7 @@ export default async function TopListPage({ params }: { params: Promise<{ slug: 
     .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .where(sql`${t.products.productType} = ${productType.id}`)
     .groupBy(t.products.id, t.products.name, t.brands.name, sql`${t.product_media}.sizes_thumbnail_url`, t.product_media.url)
-    .orderBy(desc(sql`avg(${t.source_products.rating})`))
+    .orderBy(desc(sql`avg(${t.source_products.averageRating})`))
     .limit(50)
 
   return (

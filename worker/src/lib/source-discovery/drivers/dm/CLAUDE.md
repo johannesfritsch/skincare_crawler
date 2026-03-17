@@ -4,12 +4,13 @@ German drugstore chain (dm-drogerie markt). Fully API-based driver — no browse
 
 ## Data Sources
 
-Each `scrapeProduct()` call makes **two API requests + one browser page load** (hybrid approach):
+Each `scrapeProduct()` call makes **three API requests + one browser page load** (hybrid approach):
 
 | Request | URL | Returns |
 |---------|-----|---------|
 | Product detail API | `products.dm.de/product/products/detail/DE/gtin/{gtin}` | Full product data (name, brand with image, price, description, images, variants, pills/labels, breadcrumbs) |
 | Availability API | `products.dm.de/availability/api/v1/tiles/DE/{dan1},{dan2},...` | Per-DAN availability (`isPurchasable` boolean) |
+| BazaarVoice reviews API | `apps.bazaarvoice.com/bfd/v1/clients/dm-de/api-products/cv2/resources/data/reviews.json?filter=productid:eq:{dan}` | Individual reviews (rating, text, reviewer info) |
 | Browser page load | `www.dm.de{canonicalPath}` (via Playwright) | Brand page URL (from rendered `h1 > span > a` link) |
 
 The GTIN is extracted from the product URL pattern: `/produkt-name-p{GTIN}.html`.
@@ -116,6 +117,18 @@ From `data.breadcrumbs[]` — array of strings (e.g. `["Pflege", "Körperpflege"
 
 Built from `data.self` (relative path from API response) → `https://www.dm.de{self}`, normalized.
 Falls back to the input `sourceUrl`.
+
+### Reviews (BazaarVoice)
+
+Fetched from BazaarVoice API after the main product scrape:
+- **API**: `apps.bazaarvoice.com/bfd/v1/clients/dm-de/api-products/cv2/resources/data/reviews.json`
+- **Auth**: `bv-bfd-token: 18357,main_site,de_DE` header + dm.de origin/referer
+- **Key params**: `apiVersion=5.4` (required), `filter=productid:eq:{DAN}` — keyed by DM article number (DAN), not GTIN
+- **Pagination**: `limit=100`, `offset=0`, sorted by `submissiontime:desc`. Single request captures most products.
+- **Response**: `Results[]` array of review objects with `Id`, `Rating`, `Title`, `ReviewText`, `UserNickname`, `SubmissionTime`, `IsRecommended`, `TotalPositiveFeedbackCount`, `TotalNegativeFeedbackCount`, `ContextDataValues` (contains `Age.Value`, `Gender.Value`)
+- **Failure handling**: wrapped in try/catch — returns `[]` on failure, never fails the scrape
+- **Rating normalization**: BazaarVoice ratings (1-5 stars) are normalized to 0-10 scale (`rating * 2`) before persistence. All source-reviews use a unified 0-10 scale regardless of source store.
+- **Dedup**: reviews are persisted by `externalId` (BazaarVoice review ID, globally unique)
 
 ## Discovery (`discoverProducts`)
 

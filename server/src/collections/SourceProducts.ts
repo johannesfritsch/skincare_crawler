@@ -84,9 +84,9 @@ export const SourceProducts: CollectionConfig = {
       },
     },
     {
-      name: 'rating',
+      name: 'averageRating',
       type: 'number',
-      label: 'Rating',
+      label: 'Average Rating',
       min: 0,
       max: 5,
       admin: {
@@ -95,9 +95,9 @@ export const SourceProducts: CollectionConfig = {
       },
     },
     {
-      name: 'ratingNum',
+      name: 'ratingCount',
       type: 'number',
-      label: 'Reviews',
+      label: 'Review Count',
       admin: {
         position: 'sidebar',
         description: 'Total number of reviews',

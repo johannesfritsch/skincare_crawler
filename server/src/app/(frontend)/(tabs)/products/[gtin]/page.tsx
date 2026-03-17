@@ -125,8 +125,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       name: t.source_products.name,
       sourceUrl: t.source_variants.sourceUrl,
       sourceVariantId: t.source_variants.id,
-      rating: t.source_products.rating,
-      ratingNum: t.source_products.ratingNum,
+      rating: t.source_products.averageRating,
+      ratingNum: t.source_products.ratingCount,
     }).from(t.source_variants)
       .innerJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
       .where(eq(t.source_variants.gtin, gtin)),

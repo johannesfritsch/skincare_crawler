@@ -61,7 +61,7 @@ export interface ScrapedProductData {
   }>
   labels?: string[]
   rating?: number
-  ratingNum?: number
+  ratingCount?: number
   sourceArticleNumber?: string
   categoryBreadcrumbs?: string[]
   categoryUrl?: string
@@ -71,6 +71,19 @@ export interface ScrapedProductData {
   perUnitUnit?: string
   availability?: 'available' | 'unavailable' | 'unknown'
   warnings: string[]
+  reviews?: Array<{
+    externalId: string
+    rating: number
+    title?: string
+    reviewText?: string
+    userNickname?: string
+    submittedAt?: string
+    isRecommended?: boolean | null
+    positiveFeedbackCount?: number
+    negativeFeedbackCount?: number
+    reviewerAge?: string
+    reviewerGender?: string
+  }>
 }
 
 export interface ProductSearchOptions {

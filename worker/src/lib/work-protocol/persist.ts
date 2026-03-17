@@ -88,7 +88,7 @@ interface ScrapedProductData {
   }>
   labels?: string[]
   rating?: number
-  ratingNum?: number
+  ratingCount?: number
   sourceArticleNumber?: string
   categoryBreadcrumbs?: string[]
   categoryUrl?: string
@@ -98,6 +98,19 @@ interface ScrapedProductData {
   perUnitUnit?: string
   availability?: 'available' | 'unavailable' | 'unknown'
   warnings: string[]
+  reviews?: Array<{
+    externalId: string
+    rating: number
+    title?: string
+    reviewText?: string
+    userNickname?: string
+    submittedAt?: string
+    isRecommended?: boolean | null
+    positiveFeedbackCount?: number
+    negativeFeedbackCount?: number
+    reviewerAge?: string
+    reviewerGender?: string
+  }>
 }
 
 type Availability = 'available' | 'unavailable' | 'unknown'
@@ -292,8 +305,8 @@ export async function persistCrawlResult(
     sourceBrand: sourceBrandId,
     name: data.name,
     ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
-    rating: data.rating || null,
-    ratingNum: data.ratingNum || null,
+    averageRating: data.rating || null,
+    ratingCount: data.ratingCount || null,
   }
 
   log.info('persistCrawlResult: updating source-product', { sourceProductId })
@@ -389,6 +402,41 @@ export async function persistCrawlResult(
       } else {
         log.warn('persistCrawlResult: failed to create variant for crawled URL', { error: e instanceof Error ? e.message : String(e) })
       }
+    }
+  }
+
+  // Persist reviews if provided (linked to the crawled variant)
+  if (data.reviews && data.reviews.length > 0 && sourceVariantId) {
+    let reviewsCreated = 0
+    for (const review of data.reviews) {
+      const existing = await payload.find({
+        collection: 'source-reviews',
+        where: { externalId: { equals: review.externalId } },
+        limit: 1,
+      })
+      if (existing.totalDocs === 0) {
+        await payload.create({
+          collection: 'source-reviews',
+          data: {
+            sourceVariant: sourceVariantId,
+            externalId: review.externalId,
+            rating: review.rating,
+            title: review.title ?? null,
+            reviewText: review.reviewText ?? null,
+            userNickname: review.userNickname ?? null,
+            submittedAt: review.submittedAt ?? null,
+            isRecommended: review.isRecommended ?? false,
+            positiveFeedbackCount: review.positiveFeedbackCount ?? 0,
+            negativeFeedbackCount: review.negativeFeedbackCount ?? 0,
+            reviewerAge: review.reviewerAge ?? null,
+            reviewerGender: review.reviewerGender ?? null,
+          },
+        })
+        reviewsCreated++
+      }
+    }
+    if (reviewsCreated > 0) {
+      jlog.event('persist.reviews_created', { url: variantUrl, source, count: reviewsCreated })
     }
   }
 
@@ -1493,10 +1541,10 @@ export async function persistProductAggregationResult(
         where: { id: { in: sourceProductIds } },
         limit: sourceProductIds.length,
       })
-      const rated = (sourceProducts.docs as Array<{ rating?: number | null; ratingNum?: number | null }>)
-        .filter(sp => sp.rating != null && sp.ratingNum != null && Number(sp.ratingNum) > 0)
+      const rated = (sourceProducts.docs as Array<{ averageRating?: number | null; ratingCount?: number | null }>)
+        .filter(sp => sp.averageRating != null && sp.ratingCount != null && Number(sp.ratingCount) > 0)
       if (rated.length > 0) {
-        const avgRating = rated.reduce((sum, sp) => sum + Number(sp.rating), 0) / rated.length
+        const avgRating = rated.reduce((sum, sp) => sum + Number(sp.averageRating), 0) / rated.length
         storeScore = Math.round(avgRating * 2 * 10) / 10
       }
     }

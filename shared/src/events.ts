@@ -188,6 +188,7 @@ export interface EventRegistry {
     source: string
     brandUrl: string
   }
+  'persist.reviews_created': { url: string; source: string; count: number }
 
   // ─── Product Discovery ─────────────────────────────────────────────────
   // worker.ts: handler start
@@ -745,6 +746,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'debug',
     labels: ['scraping', 'source-brand'],
+  },
+  'persist.reviews_created': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'reviews'],
   },
 
   // Discovery

@@ -52,7 +52,7 @@ interface ScrapedProductData {
   }>
   labels?: string[]
   rating?: number
-  ratingNum?: number
+  ratingCount?: number
   sourceArticleNumber?: string
   categoryBreadcrumbs?: string[]
   categoryUrl?: string

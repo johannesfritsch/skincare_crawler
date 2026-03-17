@@ -20,6 +20,7 @@ import { ProductVariants } from './collections/ProductVariants'
 import { SourceProducts } from './collections/SourceProducts'
 import { SourceBrands } from './collections/SourceBrands'
 import { SourceVariants } from './collections/SourceVariants'
+import { SourceReviews } from './collections/SourceReviews'
 
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
 import { ProductSearches } from './collections/ProductSearches'
@@ -217,6 +218,7 @@ export default buildConfig({
     SourceProducts,
     SourceBrands,
     SourceVariants,
+    SourceReviews,
     ProductDiscoveries,
     ProductSearches,
     ProductCrawls,
