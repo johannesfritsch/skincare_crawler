@@ -14,8 +14,8 @@
 
 import OpenAI from 'openai'
 
-/** Default timeout: 2 minutes (SDK default is 10 minutes which is way too long) */
-const DEFAULT_TIMEOUT_MS = 120_000
+/** Default timeout: 5 minutes (SDK default is 10 minutes which is too long) */
+const DEFAULT_TIMEOUT_MS = 300_000
 
 /** Default retries for transient HTTP errors (429, 500, 503) */
 const DEFAULT_MAX_RETRIES = 2

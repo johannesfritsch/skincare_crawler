@@ -81,6 +81,7 @@ export interface Config {
     products: Product;
     'product-variants': ProductVariant;
     'source-products': SourceProduct;
+    'source-brands': SourceBrand;
     'source-variants': SourceVariant;
     'product-discoveries': ProductDiscovery;
     'product-searches': ProductSearch;
@@ -110,7 +111,6 @@ export interface Config {
       events: 'events';
     };
     products: {
-      variants: 'product-variants';
       videoMentions: 'video-mentions';
       aggregations: 'product-aggregations';
     };
@@ -166,6 +166,7 @@ export interface Config {
     products: ProductsSelect<false> | ProductsSelect<true>;
     'product-variants': ProductVariantsSelect<false> | ProductVariantsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
+    'source-brands': SourceBrandsSelect<false> | SourceBrandsSelect<true>;
     'source-variants': SourceVariantsSelect<false> | SourceVariantsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
     'product-searches': ProductSearchesSelect<false> | ProductSearchesSelect<true>;
@@ -435,6 +436,10 @@ export interface DetectionMedia {
 export interface Brand {
   id: number;
   name: string;
+  /**
+   * Brand logo or image, downloaded from source stores during aggregation.
+   */
+  image?: (number | null) | ProfileMedia;
   description?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -951,6 +956,18 @@ export interface ProductAggregation {
     | boolean
     | null;
   /**
+   * Ordered list of source slugs to prefer when selecting the brand name and image. First source with a source-brand wins. Default: rossmann → purish → dm → mueller.
+   */
+  brandSourcePriority?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
    * Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.15.
    */
   detectionThreshold?: number | null;
@@ -1041,17 +1058,9 @@ export interface ProductAggregation {
  */
 export interface Product {
   id: number;
+  name?: string | null;
   brand?: (number | null) | Brand;
   productType?: (number | null) | ProductType;
-  name?: string | null;
-  /**
-   * Product variants — each has its own GTIN, ingredients, images, description, attributes, and claims
-   */
-  variants?: {
-    docs?: (number | ProductVariant)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   videoMentions?: {
     docs?: (number | VideoMention)[];
     hasNextPage?: boolean;
@@ -1090,6 +1099,332 @@ export interface Product {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-mentions".
+ */
+export interface VideoMention {
+  id: number;
+  videoScene: number | VideoScene;
+  product: number | Product;
+  /**
+   * Synthesized detection confidence (0-1)
+   */
+  confidence?: number | null;
+  /**
+   * Which detection methods identified this product
+   */
+  sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
+  /**
+   * EAN barcode if detected via barcode source
+   */
+  barcodeValue?: string | null;
+  /**
+   * Best CLIP cosine distance if detected via object detection
+   */
+  clipDistance?: number | null;
+  /**
+   * Spoken quotes about this product extracted from the scene transcript
+   */
+  quotes?:
+    | {
+        text: string;
+        /**
+         * Short key takeaways from the quote, true to original wording
+         */
+        summary?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
+        /**
+         * Score from -1 (very negative) to 1 (very positive)
+         */
+        sentimentScore?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
+  /**
+   * Aggregate score from -1 (very negative) to 1 (very positive)
+   */
+  overallSentimentScore?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-scenes".
+ */
+export interface VideoScene {
+  id: number;
+  /**
+   * Start time in seconds
+   */
+  timestampStart?: number | null;
+  /**
+   * End time in seconds
+   */
+  timestampEnd?: number | null;
+  video: number | Video;
+  image?: (number | null) | VideoMedia;
+  frames?: {
+    docs?: (number | VideoFrame)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * Barcodes found in this scene by zbarimg scanning. Each entry is a barcode detection with optional product resolution.
+   */
+  barcodes?:
+    | {
+        /**
+         * EAN-13/EAN-8 barcode value
+         */
+        barcode: string;
+        /**
+         * The frame where this barcode was detected
+         */
+        frame?: (number | null) | VideoFrame;
+        /**
+         * Resolved product-variant by GTIN lookup
+         */
+        productVariant?: (number | null) | ProductVariant;
+        /**
+         * Resolved product from the product-variant
+         */
+        product?: (number | null) | Product;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box, confidence score, and side classification (set by side_detection stage).
+   */
+  objects?:
+    | {
+        frame?: (number | null) | VideoFrame;
+        crop: number | DetectionMedia;
+        /**
+         * Grounding DINO detection confidence (0-1)
+         */
+        score?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
+        /**
+         * Packaging side classification (set by side_detection stage)
+         */
+        side?: ('front' | 'back' | 'unknown') | null;
+        /**
+         * Cluster index within same-side crops (set by side_detection stage)
+         */
+        clusterGroup?: number | null;
+        /**
+         * Whether this crop is the representative for its side-cluster (set by side_detection stage)
+         */
+        isRepresentative?: boolean | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * CLIP visual similarity search results. Each entry matches a detected object to a product via embedding cosine distance.
+   */
+  recognitions?:
+    | {
+        /**
+         * Index into the objects[] array on this scene
+         */
+        objectIndex?: number | null;
+        product?: (number | null) | Product;
+        productVariant?: (number | null) | ProductVariant;
+        /**
+         * GTIN of the matched product-variant
+         */
+        gtin?: string | null;
+        /**
+         * CLIP cosine distance (lower = better, 0 = identical)
+         */
+        distance?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Products identified by LLM visual recognition. The LLM classifies screenshots and extracts brand/product info.
+   */
+  llmMatches?:
+    | {
+        frame?: (number | null) | VideoFrame;
+        /**
+         * Brand name identified by the LLM
+         */
+        brand?: string | null;
+        /**
+         * Product name identified by the LLM
+         */
+        productName?: string | null;
+        /**
+         * Search terms extracted by the LLM for product matching
+         */
+        searchTerms?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        /**
+         * Product found/created via LLM + DB matching
+         */
+        product?: (number | null) | Product;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Transcribed spoken words for this scene (from per-scene Whisper transcription)
+   */
+  transcript?: string | null;
+  /**
+   * Unified product detections synthesized from all sources (barcode, object detection + CLIP, LLM vision). One entry per unique product.
+   */
+  detections?:
+    | {
+        product: number | Product;
+        /**
+         * Synthesized confidence score (0-1) combining all detection sources
+         */
+        confidence?: number | null;
+        /**
+         * Which detection methods identified this product
+         */
+        sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
+        /**
+         * EAN barcode if detected via barcode source
+         */
+        barcodeValue?: string | null;
+        /**
+         * Best CLIP cosine distance if detected via object detection
+         */
+        clipDistance?: number | null;
+        /**
+         * Brand name from LLM recognition
+         */
+        llmBrand?: string | null;
+        /**
+         * Product name from LLM recognition
+         */
+        llmProductName?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  videoMentions?: {
+    docs?: (number | VideoMention)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "videos".
+ */
+export interface Video {
+  id: number;
+  /**
+   * Lifecycle status: crawled → processed. Managed by the worker.
+   */
+  status?: ('crawled' | 'processed') | null;
+  channel: number | Channel;
+  externalUrl?: string | null;
+  publishedAt?: string | null;
+  /**
+   * Duration in seconds
+   */
+  duration?: number | null;
+  viewCount?: number | null;
+  likeCount?: number | null;
+  videoScenes?: {
+    docs?: (number | VideoScene)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  title: string;
+  /**
+   * Video thumbnail image (set during crawl).
+   */
+  thumbnail?: (number | null) | VideoMedia;
+  /**
+   * Downloaded MP4 file (set during crawl).
+   */
+  videoFile?: (number | null) | VideoMedia;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "channels".
+ */
+export interface Channel {
+  id: number;
+  creator: number | Creator;
+  image?: (number | null) | ProfileMedia;
+  platform: 'youtube' | 'instagram' | 'tiktok';
+  externalUrl?: string | null;
+  /**
+   * Platform-canonical URL (e.g. /channel/UC... for YouTube). Used for deduplication.
+   */
+  canonicalUrl?: string | null;
+  videos?: {
+    docs?: (number | Video)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "creators".
+ */
+export interface Creator {
+  id: number;
+  name: string;
+  image?: (number | null) | ProfileMedia;
+  channels?: {
+    docs?: (number | Channel)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-frames".
+ */
+export interface VideoFrame {
+  id: number;
+  scene: number | VideoScene;
+  image: number | VideoMedia;
+  /**
+   * Whether this frame was selected as a cluster representative for product recognition and object detection
+   */
+  isClusterRepresentative?: boolean | null;
+  /**
+   * 128x128 color thumbnail used for LLM product classification
+   */
+  clusterThumbnail?: (number | null) | VideoMedia;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "product-variants".
  */
 export interface ProductVariant {
@@ -1107,6 +1442,18 @@ export interface ProductVariant {
    * Links to retailer-specific variants for this product variant
    */
   sourceVariants?: (number | SourceVariant)[] | null;
+  /**
+   * Product amount (e.g. 100, 250)
+   */
+  amount?: number | null;
+  /**
+   * Unit of measurement (e.g. ml, g)
+   */
+  amountUnit?: string | null;
+  /**
+   * Variant dimension type (e.g. "Color", "Size")
+   */
+  variantDimension?: string | null;
   /**
    * Aggregated description (LLM consensus from source variants)
    */
@@ -1150,17 +1497,21 @@ export interface ProductVariant {
       }[]
     | null;
   /**
-   * Product amount (e.g. 100, 250)
+   * Product ingredients (parsed from source variant INCI text, matched to ingredient database)
    */
-  amount?: number | null;
-  /**
-   * Unit of measurement (e.g. ml, g)
-   */
-  amountUnit?: string | null;
-  /**
-   * Variant dimension type (e.g. "Color", "Size")
-   */
-  variantDimension?: string | null;
+  ingredients?:
+    | {
+        /**
+         * Raw ingredient name as listed on the product
+         */
+        name: string;
+        /**
+         * Link to ingredient database entry, if matched
+         */
+        ingredient?: (number | null) | Ingredient;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * Deduplicated labels from source variants (LLM-normalized to canonical German, store-specific labels removed)
    */
@@ -1179,11 +1530,11 @@ export interface ProductVariant {
    */
   skinApplicability?: ('normal' | 'sensitive' | 'mixed' | 'oily' | 'dry') | null;
   /**
-   * Minimum pH level (0–14)
+   * Minimum pH level (0-14)
    */
   phMin?: number | null;
   /**
-   * Maximum pH level (0–14)
+   * Maximum pH level (0-14)
    */
   phMax?: number | null;
   /**
@@ -1201,22 +1552,6 @@ export interface ProductVariant {
     | string
     | number
     | boolean
-    | null;
-  /**
-   * Product ingredients (parsed from source variant INCI text, matched to ingredient database)
-   */
-  ingredients?:
-    | {
-        /**
-         * Raw ingredient name as listed on the product
-         */
-        name: string;
-        /**
-         * Link to ingredient database entry, if matched
-         */
-        ingredient?: (number | null) | Ingredient;
-        id?: string | null;
-      }[]
     | null;
   /**
    * Ingredient-based attributes with evidence from source products
@@ -1399,9 +1734,9 @@ export interface SourceProduct {
   sourceUrl?: string | null;
   source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
   /**
-   * Product brand name
+   * Brand from source store
    */
-  brandName?: string | null;
+  sourceBrand?: (number | null) | SourceBrand;
   /**
    * Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"
    */
@@ -1424,316 +1759,23 @@ export interface SourceProduct {
   createdAt: string;
 }
 /**
+ * Brands discovered from source stores
+ *
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-mentions".
+ * via the `definition` "source-brands".
  */
-export interface VideoMention {
-  id: number;
-  videoScene: number | VideoScene;
-  product: number | Product;
-  /**
-   * Synthesized detection confidence (0-1)
-   */
-  confidence?: number | null;
-  /**
-   * Which detection methods identified this product
-   */
-  sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
-  /**
-   * EAN barcode if detected via barcode source
-   */
-  barcodeValue?: string | null;
-  /**
-   * Best CLIP cosine distance if detected via object detection
-   */
-  clipDistance?: number | null;
-  /**
-   * Spoken quotes about this product extracted from the scene transcript
-   */
-  quotes?:
-    | {
-        text: string;
-        /**
-         * Short key takeaways from the quote, true to original wording
-         */
-        summary?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
-        /**
-         * Score from -1 (very negative) to 1 (very positive)
-         */
-        sentimentScore?: number | null;
-        id?: string | null;
-      }[]
-    | null;
-  overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
-  /**
-   * Aggregate score from -1 (very negative) to 1 (very positive)
-   */
-  overallSentimentScore?: number | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-scenes".
- */
-export interface VideoScene {
-  id: number;
-  /**
-   * Start time in seconds
-   */
-  timestampStart?: number | null;
-  /**
-   * End time in seconds
-   */
-  timestampEnd?: number | null;
-  video: number | Video;
-  image?: (number | null) | VideoMedia;
-  frames?: {
-    docs?: (number | VideoFrame)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * Barcodes found in this scene by zbarimg scanning. Each entry is a barcode detection with optional product resolution.
-   */
-  barcodes?:
-    | {
-        /**
-         * EAN-13/EAN-8 barcode value
-         */
-        barcode: string;
-        /**
-         * The frame where this barcode was detected
-         */
-        frame?: (number | null) | VideoFrame;
-        /**
-         * Resolved product-variant by GTIN lookup
-         */
-        productVariant?: (number | null) | ProductVariant;
-        /**
-         * Resolved product from the product-variant
-         */
-        product?: (number | null) | Product;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box and confidence score.
-   */
-  objects?:
-    | {
-        frame?: (number | null) | VideoFrame;
-        crop: number | DetectionMedia;
-        /**
-         * Grounding DINO detection confidence (0-1)
-         */
-        score?: number | null;
-        boxXMin?: number | null;
-        boxYMin?: number | null;
-        boxXMax?: number | null;
-        boxYMax?: number | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * CLIP visual similarity search results. Each entry matches a detected object to a product via embedding cosine distance.
-   */
-  recognitions?:
-    | {
-        /**
-         * Index into the objects[] array on this scene
-         */
-        objectIndex?: number | null;
-        product?: (number | null) | Product;
-        productVariant?: (number | null) | ProductVariant;
-        /**
-         * GTIN of the matched product-variant
-         */
-        gtin?: string | null;
-        /**
-         * CLIP cosine distance (lower = better, 0 = identical)
-         */
-        distance?: number | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Products identified by LLM visual recognition. The LLM classifies screenshots and extracts brand/product info.
-   */
-  llmMatches?:
-    | {
-        frame?: (number | null) | VideoFrame;
-        /**
-         * Brand name identified by the LLM
-         */
-        brand?: string | null;
-        /**
-         * Product name identified by the LLM
-         */
-        productName?: string | null;
-        /**
-         * Search terms extracted by the LLM for product matching
-         */
-        searchTerms?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        /**
-         * Product found/created via LLM + DB matching
-         */
-        product?: (number | null) | Product;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Transcribed spoken words for this scene (from per-scene Whisper transcription)
-   */
-  transcript?: string | null;
-  /**
-   * Unified product detections synthesized from all sources (barcode, object detection + CLIP, LLM vision). One entry per unique product.
-   */
-  detections?:
-    | {
-        product: number | Product;
-        /**
-         * Synthesized confidence score (0-1) combining all detection sources
-         */
-        confidence?: number | null;
-        /**
-         * Which detection methods identified this product
-         */
-        sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
-        /**
-         * EAN barcode if detected via barcode source
-         */
-        barcodeValue?: string | null;
-        /**
-         * Best CLIP cosine distance if detected via object detection
-         */
-        clipDistance?: number | null;
-        /**
-         * Brand name from LLM recognition
-         */
-        llmBrand?: string | null;
-        /**
-         * Product name from LLM recognition
-         */
-        llmProductName?: string | null;
-        id?: string | null;
-      }[]
-    | null;
-  videoMentions?: {
-    docs?: (number | VideoMention)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "videos".
- */
-export interface Video {
-  id: number;
-  /**
-   * Lifecycle status: discovered → crawled → processed. Managed by the worker.
-   */
-  status?: ('discovered' | 'crawled' | 'processed') | null;
-  channel: number | Channel;
-  externalUrl?: string | null;
-  publishedAt?: string | null;
-  /**
-   * Duration in seconds
-   */
-  duration?: number | null;
-  viewCount?: number | null;
-  likeCount?: number | null;
-  title: string;
-  /**
-   * Video thumbnail image (set during crawl).
-   */
-  thumbnail?: (number | null) | VideoMedia;
-  /**
-   * Downloaded MP4 file (set during crawl).
-   */
-  videoFile?: (number | null) | VideoMedia;
-  videoScenes?: {
-    docs?: (number | VideoScene)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "channels".
- */
-export interface Channel {
-  id: number;
-  creator: number | Creator;
-  image?: (number | null) | ProfileMedia;
-  platform: 'youtube' | 'instagram' | 'tiktok';
-  externalUrl?: string | null;
-  /**
-   * Platform-canonical URL (e.g. /channel/UC... for YouTube). Used for deduplication.
-   */
-  canonicalUrl?: string | null;
-  videos?: {
-    docs?: (number | Video)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "creators".
- */
-export interface Creator {
+export interface SourceBrand {
   id: number;
   name: string;
-  image?: (number | null) | ProfileMedia;
-  channels?: {
-    docs?: (number | Channel)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-frames".
- */
-export interface VideoFrame {
-  id: number;
-  scene: number | VideoScene;
-  image: number | VideoMedia;
+  source: 'dm' | 'rossmann' | 'mueller' | 'purish';
   /**
-   * Whether this frame was selected as a cluster representative for product recognition and object detection
+   * The brand page URL on the source store (dedup key)
    */
-  isClusterRepresentative?: boolean | null;
+  sourceUrl?: string | null;
   /**
-   * 128x128 color thumbnail used for LLM product classification
+   * Brand logo/image URL from the source store
    */
-  clusterThumbnail?: (number | null) | VideoMedia;
+  imageUrl?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1908,11 +1950,15 @@ export interface VideoProcessing {
    */
   stageBarcodeScan?: boolean | null;
   /**
-   * Grounding DINO zero-shot object detection on frames.
+   * Grounding DINO zero-shot object detection on all deduplicated frames.
    */
   stageObjectDetection?: boolean | null;
   /**
-   * CLIP visual similarity search against product embeddings.
+   * Classify detection crops as front/back, cluster per side, pick representatives.
+   */
+  stageSideDetection?: boolean | null;
+  /**
+   * DINOv2 visual similarity search against product embeddings (on representative crops).
    */
   stageVisualSearch?: boolean | null;
   /**
@@ -2161,6 +2207,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'source-products';
         value: number | SourceProduct;
+      } | null)
+    | ({
+        relationTo: 'source-brands';
+        value: number | SourceBrand;
       } | null)
     | ({
         relationTo: 'source-variants';
@@ -2480,6 +2530,7 @@ export interface DetectionMediaSelect<T extends boolean = true> {
  */
 export interface BrandsSelect<T extends boolean = true> {
   name?: T;
+  image?: T;
   description?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2587,10 +2638,9 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
  * via the `definition` "products_select".
  */
 export interface ProductsSelect<T extends boolean = true> {
+  name?: T;
   brand?: T;
   productType?: T;
-  name?: T;
-  variants?: T;
   videoMentions?: T;
   scoreHistory?:
     | T
@@ -2616,6 +2666,9 @@ export interface ProductVariantsSelect<T extends boolean = true> {
   gtin?: T;
   label?: T;
   sourceVariants?: T;
+  amount?: T;
+  amountUnit?: T;
+  variantDimension?: T;
   description?: T;
   images?:
     | T
@@ -2637,9 +2690,13 @@ export interface ProductVariantsSelect<T extends boolean = true> {
         hasEmbedding?: T;
         id?: T;
       };
-  amount?: T;
-  amountUnit?: T;
-  variantDimension?: T;
+  ingredients?:
+    | T
+    | {
+        name?: T;
+        ingredient?: T;
+        id?: T;
+      };
   labels?:
     | T
     | {
@@ -2652,13 +2709,6 @@ export interface ProductVariantsSelect<T extends boolean = true> {
   phMax?: T;
   usageInstructions?: T;
   usageSchedule?: T;
-  ingredients?:
-    | T
-    | {
-        name?: T;
-        ingredient?: T;
-        id?: T;
-      };
   productAttributes?:
     | T
     | {
@@ -2703,12 +2753,24 @@ export interface ProductVariantsSelect<T extends boolean = true> {
 export interface SourceProductsSelect<T extends boolean = true> {
   sourceUrl?: T;
   source?: T;
-  brandName?: T;
+  sourceBrand?: T;
   categoryBreadcrumb?: T;
   rating?: T;
   ratingNum?: T;
   name?: T;
   sourceVariants?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-brands_select".
+ */
+export interface SourceBrandsSelect<T extends boolean = true> {
+  name?: T;
+  source?: T;
+  sourceUrl?: T;
+  imageUrl?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2853,6 +2915,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   maxRetries?: T;
   language?: T;
   imageSourcePriority?: T;
+  brandSourcePriority?: T;
   detectionThreshold?: T;
   minBoxArea?: T;
   stageResolve?: T;
@@ -2933,10 +2996,10 @@ export interface VideosSelect<T extends boolean = true> {
   duration?: T;
   viewCount?: T;
   likeCount?: T;
+  videoScenes?: T;
   title?: T;
   thumbnail?: T;
   videoFile?: T;
-  videoScenes?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2969,6 +3032,9 @@ export interface VideoScenesSelect<T extends boolean = true> {
         boxYMin?: T;
         boxXMax?: T;
         boxYMax?: T;
+        side?: T;
+        clusterGroup?: T;
+        isRepresentative?: T;
         id?: T;
       };
   recognitions?:
@@ -3110,6 +3176,7 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   stageSceneDetection?: T;
   stageBarcodeScan?: T;
   stageObjectDetection?: T;
+  stageSideDetection?: T;
   stageVisualSearch?: T;
   stageLlmRecognition?: T;
   stageTranscription?: T;

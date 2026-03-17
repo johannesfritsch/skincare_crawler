@@ -1,8 +1,12 @@
 /**
- * Stage 3: Visual Search
+ * Stage 4: Visual Search
  *
- * Reads detection crops from the scene's `objects[]` array (from stage 2),
- * computes transient DINOv2-small embeddings, and searches against product
+ * Reads **representative** detection crops from the scene's `objects[]` array
+ * (from stages 2+3: object_detection + side_detection). Only processes crops
+ * where `isRepresentative === true` (or all crops if side_detection hasn't run,
+ * for backward compatibility).
+ *
+ * Computes transient DINOv2-small embeddings, and searches against product
  * recognition image embeddings in pgvector to find matching products.
  *
  * Embeddings are NOT stored — they are computed in memory and discarded
@@ -64,6 +68,8 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
       frame?: number | Record<string, unknown>
       crop: number | { id: number; url?: string }
       score?: number
+      side?: string
+      isRepresentative?: boolean
     }> | null
 
     if (!objects || objects.length === 0) continue
@@ -72,6 +78,10 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
 
     for (let objIdx = 0; objIdx < objects.length; objIdx++) {
       const obj = objects[objIdx]
+
+      // Only process representative crops (set by side_detection stage)
+      // If side_detection hasn't run (no isRepresentative field), process all objects (backward compat)
+      if (obj.isRepresentative === false) continue
 
       // Resolve the crop media URL
       const cropRef = obj.crop

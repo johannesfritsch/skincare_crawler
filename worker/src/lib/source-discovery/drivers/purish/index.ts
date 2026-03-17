@@ -882,10 +882,17 @@ export const purishDriver: SourceDriver = {
     const scrapeDurationMs = Date.now() - scrapeStartMs
     logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText })
 
+    // Brand URL: Shopify collections page for the vendor
+    // Shopify handles strip special characters and collapse multiple hyphens
+    const brandUrl = product.vendor
+      ? `${BASE_URL}/collections/${product.vendor.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
+      : undefined
+
     return {
       gtin,
       name: product.title,
       brandName: product.vendor || undefined,
+      brandUrl,
       description: description || undefined,
       ingredientsText: ingredientsText || undefined,
       priceCents,

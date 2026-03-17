@@ -4,6 +4,12 @@ import { getOpenAI } from '@/lib/openai'
 
 const log = createLogger('correctTranscript')
 
+/** Max retries for the LLM correction call (configurable via OPENAI_CORRECTION_RETRIES) */
+const MAX_RETRIES = Number(process.env.OPENAI_CORRECTION_RETRIES) || 3
+
+/** Delay between retries in ms (doubles each retry: 5s, 10s, 20s) */
+const INITIAL_RETRY_DELAY_MS = 5_000
+
 const SYSTEM_PROMPT = `You are a professional skincare transcription editor. You receive a raw speech-to-text transcript from a German skincare/beauty video.
 
 Your task:
@@ -31,8 +37,11 @@ export interface CorrectionResult {
 }
 
 /**
- * Use GPT-4.1-mini to correct speech recognition errors in a transcript,
+ * Use the chat model to correct speech recognition errors in a transcript,
  * with domain knowledge of skincare brands and products.
+ *
+ * Retries up to MAX_RETRIES times on failure (timeout, network error, etc.)
+ * with exponential backoff. Throws after all retries are exhausted.
  */
 export async function correctTranscript(
   rawTranscript: string,
@@ -46,6 +55,7 @@ export async function correctTranscript(
   }
 
   const openai = getOpenAI()
+  const model = process.env.OPENAI_CHAT_MODEL || 'gpt-4.1-mini'
 
   const userMessage = `Raw transcript:
 ${rawTranscript}
@@ -56,44 +66,82 @@ ${brandNames.join(', ')}
 Product names referenced in this video:
 ${productNames.join(', ')}`
 
-  log.info('Correcting transcript', { charCount: rawTranscript.length, brandCount: brandNames.length, productCount: productNames.length })
+  const promptCharCount = SYSTEM_PROMPT.length + userMessage.length
 
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
-      temperature: 0,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    log.info('Correcting transcript', {
+      charCount: rawTranscript.length,
+      brandCount: brandNames.length,
+      productCount: productNames.length,
+      promptChars: promptCharCount,
+      model,
+      attempt,
+      maxRetries: MAX_RETRIES,
     })
 
-    tokensUsed.promptTokens += response.usage?.prompt_tokens ?? 0
-    tokensUsed.completionTokens += response.usage?.completion_tokens ?? 0
-    tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
+    const startMs = Date.now()
+    try {
+      const response = await openai.chat.completions.create({
+        model,
+        temperature: 0,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userMessage },
+        ],
+      })
+      const durationMs = Date.now() - startMs
 
-    const content = response.choices[0]?.message?.content?.trim()
-    log.info('Correction tokens', { promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
+      tokensUsed.promptTokens += response.usage?.prompt_tokens ?? 0
+      tokensUsed.completionTokens += response.usage?.completion_tokens ?? 0
+      tokensUsed.totalTokens += response.usage?.total_tokens ?? 0
 
-    if (!content) {
-      log.info('Empty response from correction LLM, returning original transcript')
-      return { correctedTranscript: rawTranscript, corrections: [], tokensUsed }
+      const content = response.choices[0]?.message?.content?.trim()
+      log.info('Correction complete', { durationMs, attempt, promptTokens: tokensUsed.promptTokens, completionTokens: tokensUsed.completionTokens, totalTokens: tokensUsed.totalTokens })
+
+      if (!content) {
+        log.info('Empty response from correction LLM, returning original transcript')
+        return { correctedTranscript: rawTranscript, corrections: [], tokensUsed }
+      }
+
+      const parsed = JSON.parse(content) as {
+        correctedTranscript: string
+        correctedWords: Array<{ original: string; corrected: string; reason: string }>
+      }
+
+      log.info('Corrections applied', { wordsChanged: parsed.correctedWords?.length ?? 0 })
+
+      return {
+        correctedTranscript: parsed.correctedTranscript ?? rawTranscript,
+        corrections: parsed.correctedWords ?? [],
+        tokensUsed,
+      }
+    } catch (error) {
+      const durationMs = Date.now() - startMs
+      lastError = error instanceof Error ? error : new Error(String(error))
+
+      if (attempt < MAX_RETRIES) {
+        const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1)
+        log.warn('Transcript correction failed, retrying', {
+          error: lastError.message,
+          durationMs,
+          attempt,
+          maxRetries: MAX_RETRIES,
+          retryInMs: delayMs,
+        })
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      } else {
+        log.error('Transcript correction failed after all retries', {
+          error: lastError.message,
+          durationMs,
+          attempt,
+          maxRetries: MAX_RETRIES,
+        })
+      }
     }
-
-    const parsed = JSON.parse(content) as {
-      correctedTranscript: string
-      correctedWords: Array<{ original: string; corrected: string; reason: string }>
-    }
-
-    log.info('Corrections applied', { wordsChanged: parsed.correctedWords?.length ?? 0 })
-
-    return {
-      correctedTranscript: parsed.correctedTranscript ?? rawTranscript,
-      corrections: parsed.correctedWords ?? [],
-      tokensUsed,
-    }
-  } catch (error) {
-    log.error('Transcript correction failed', { error: String(error) })
-    return { correctedTranscript: rawTranscript, corrections: [], tokensUsed }
   }
+
+  // All retries exhausted — throw so the stage fails
+  throw new Error(`Transcript correction failed after ${MAX_RETRIES} retries: ${lastError?.message ?? 'Unknown error'}`)
 }

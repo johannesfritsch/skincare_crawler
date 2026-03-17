@@ -38,6 +38,8 @@ export interface ScrapedProductData {
   gtin?: string
   name: string
   brandName?: string
+  brandUrl?: string
+  brandImageUrl?: string
   description?: string
   ingredientsText?: string
   priceCents?: number

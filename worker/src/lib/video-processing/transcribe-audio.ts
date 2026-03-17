@@ -102,7 +102,7 @@ export async function transcribeAudio(
   }
 
   const url = `${baseURL.replace(/\/+$/, '')}/audio/transcriptions`
-  const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS) || 120_000
+  const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS) || 300_000
 
   const rawResponse = await fetch(url, {
     method: 'POST',

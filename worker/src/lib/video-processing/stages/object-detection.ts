@@ -1,15 +1,17 @@
 /**
  * Stage 2: Object Detection
  *
- * Runs Grounding DINO zero-shot object detection on cluster representative
- * frames for each scene. Crops each detected region using sharp, uploads
- * the crops to detection-media, and writes results to the scene's
- * `objects[]` array.
+ * Runs Grounding DINO zero-shot object detection on ALL deduplicated frames
+ * for each scene (not just cluster representatives — clustering now happens
+ * at the crop level in the side_detection stage).
+ *
+ * Crops each detected region using sharp, uploads the crops to detection-media,
+ * and writes results to the scene's `objects[]` array.
  *
  * Uses the shared Grounding DINO singleton from @/lib/models/grounding-dino.
  *
  * Detection prompt and threshold are configurable via the job's Configuration
- * tab (detectionPrompt, detectionThreshold). Emits per-candidate detail events
+ * tab (detectionPrompt, detectionThreshold). Emits per-frame detail events
  * for full observability in the admin UI.
  */
 
@@ -54,15 +56,11 @@ export async function executeObjectDetection(ctx: StageContext, videoId: number)
     const scene = sceneDoc as Record<string, unknown>
     const sceneId = scene.id as number
 
-    // Fetch cluster representative frames for this scene
+    // Fetch ALL frames for this scene (no cluster representative filter —
+    // clustering now happens at the crop level in the side_detection stage)
     const framesResult = await payload.find({
       collection: 'video-frames',
-      where: {
-        and: [
-          { scene: { equals: sceneId } },
-          { isClusterRepresentative: { equals: true } },
-        ],
-      },
+      where: { scene: { equals: sceneId } },
       limit: 1000,
     })
 

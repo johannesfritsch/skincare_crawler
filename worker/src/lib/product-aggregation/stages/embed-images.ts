@@ -95,28 +95,16 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
     }
 
     // Batch write embeddings via the server endpoint
+    // The embeddings write endpoint sets BOTH the vector AND has_embedding = true
+    // in a single SQL UPDATE per item (see server/src/endpoints/embeddings.ts).
+    // We must NOT update the recognitionImages array via Payload REST API afterwards,
+    // because Payload's array handling deletes all existing rows and reinserts them
+    // with new auto-generated IDs — this would orphan the pgvector embeddings that
+    // were just written to the old row IDs.
     if (writeItems.length > 0) {
       try {
         const result = await payload.embeddings.write(EMBEDDING_NAMESPACE, writeItems)
         log.info('Embeddings written', { gtin: v.gtin, written: result.written })
-
-        // Update the hasEmbedding flags on the product-variant via Payload REST API
-        // We need to update the full recognitionImages array with hasEmbedding set to true
-        // for the items we just wrote
-        const writtenIds = new Set(writeItems.map((w) => w.id))
-        const updatedRecognitionImages = recognitionImages.map((ri) => ({
-          ...ri,
-          // Resolve image to just the ID for the update
-          image: typeof ri.image === 'number' ? ri.image : ri.image.id,
-          hasEmbedding: writtenIds.has(ri.id),
-        }))
-
-        await payload.update({
-          collection: 'product-variants',
-          id: variantId,
-          data: { recognitionImages: updatedRecognitionImages },
-        })
-
         totalEmbedded += result.written
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)

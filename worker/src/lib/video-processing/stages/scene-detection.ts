@@ -3,13 +3,16 @@
  *
  * Reads the video media from the DB, downloads it to a temp dir,
  * detects scene changes, extracts screenshots per segment,
- * clusters visually similar screenshots, uploads all screenshots
- * as media, and creates video-scenes with video-frames.
+ * deduplicates near-identical frames by perceptual hash,
+ * uploads all unique screenshots as media, and creates
+ * video-scenes with video-frames.
  *
- * Barcode scanning is handled by the separate barcode_scan stage.
+ * Unlike the previous version, this stage does NOT cluster frames
+ * or select cluster representatives. Clustering now happens at the
+ * detection-crop level in the side_detection stage (stage 3), after
+ * object detection has run on all frames.
  *
- * Transient data (hash, thumbnail, distance, screenshotGroup)
- * is used for clustering but NOT persisted on frames.
+ * Transient data (hash, hamming distance) is used for dedup only.
  */
 
 import fs from 'fs'
@@ -19,11 +22,13 @@ import {
   detectSceneChanges,
   extractScreenshots,
   createThumbnailAndHash,
-  createRecognitionThumbnail,
   hammingDistance,
   getVideoDuration,
 } from '@/lib/video-processing/process-video'
 import type { StageContext, StageResult } from './index'
+
+/** Hamming distance threshold for considering two frames as near-identical duplicates. */
+const DEDUP_THRESHOLD = 5
 
 export async function executeSceneDetection(ctx: StageContext, videoId: number): Promise<StageResult> {
   const { payload, config, log } = ctx
@@ -84,7 +89,6 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
     jlog.event('video_processing.scene_detected', { title, sceneChanges: sceneChanges.length, segments: segments.length })
 
     // Delete existing scenes for this video (idempotent re-run)
-    // The beforeDelete hook on video-scenes will cascade-delete video-frames and video-mentions
     const existingScenes = await payload.find({
       collection: 'video-scenes',
       where: { video: { equals: videoId } },
@@ -111,6 +115,9 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
       log.info('Deleted existing scenes, frames, and video-mentions', { sceneCount: existingScenes.docs.length, videoId })
     }
 
+    let totalFrames = 0
+    let totalDeduped = 0
+
     // Process each segment
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
@@ -118,58 +125,40 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
 
       log.info('Processing segment', { segment: segLabel, startS: Number(seg.start.toFixed(1)), endS: Number(seg.end.toFixed(1)) })
 
-      // Extract screenshots
+      // Extract screenshots at 1fps
       const prefix = `seg${String(i).padStart(3, '0')}`
       const screenshotFiles = await extractScreenshots(videoPath, screenshotsDir, prefix, seg.start, seg.end - seg.start)
 
-      // Cluster all screenshots by perceptual hash (transient — not persisted)
-      const hashResults: { thumbnailPath: string; hash: string; screenshotGroup: number }[] = []
-      const clusterRepresentatives: { hash: string; group: number; screenshotIndex: number }[] = []
+      // Hash-based dedup: eliminate near-identical consecutive frames
+      // We keep the first frame and skip any subsequent frames whose perceptual hash
+      // is within DEDUP_THRESHOLD of any already-kept frame in this segment.
+      const keptFrames: { file: string; hash: string }[] = []
 
       for (let j = 0; j < screenshotFiles.length; j++) {
-        const { thumbnailPath, hash } = await createThumbnailAndHash(screenshotFiles[j])
+        const { hash } = await createThumbnailAndHash(screenshotFiles[j])
 
-        let bestDistance: number | null = null
-        let bestGroup = -1
-        for (const rep of clusterRepresentatives) {
-          const d = hammingDistance(hash, rep.hash)
-          if (bestDistance === null || d < bestDistance) {
-            bestDistance = d
-            bestGroup = rep.group
+        let isDuplicate = false
+        for (const kept of keptFrames) {
+          if (hammingDistance(hash, kept.hash) <= DEDUP_THRESHOLD) {
+            isDuplicate = true
+            break
           }
         }
 
-        let assignedGroup: number
-        if (bestDistance !== null && bestDistance <= config.clusterThreshold) {
-          assignedGroup = bestGroup
-        } else {
-          assignedGroup = clusterRepresentatives.length
-          clusterRepresentatives.push({ hash, group: assignedGroup, screenshotIndex: j })
+        if (!isDuplicate) {
+          keptFrames.push({ file: screenshotFiles[j], hash })
         }
-
-        hashResults.push({ thumbnailPath, hash, screenshotGroup: assignedGroup })
       }
 
-      log.info('Clusters formed', { clusters: clusterRepresentatives.length })
-      jlog.event('video_processing.clustered', { title, segment: i + 1, clusters: clusterRepresentatives.length })
+      const removedCount = screenshotFiles.length - keptFrames.length
+      totalFrames += screenshotFiles.length
+      totalDeduped += removedCount
 
-      // Create cluster thumbnails for cluster representatives
-      const recogThumbnails: { clusterGroup: number; recogPath: string }[] = []
-      for (const rep of clusterRepresentatives) {
-        const recogPath = await createRecognitionThumbnail(screenshotFiles[rep.screenshotIndex])
-        recogThumbnails.push({ clusterGroup: rep.group, recogPath })
-      }
-
-      // Build lookup maps
-      const repScreenshotIndices = new Set(clusterRepresentatives.map((r) => r.screenshotIndex))
-      const recogPathByGroup = new Map<number, string>()
-      for (const rt of recogThumbnails) {
-        recogPathByGroup.set(rt.clusterGroup, rt.recogPath)
-      }
+      log.info('Frames deduplicated', { segment: segLabel, extracted: screenshotFiles.length, kept: keptFrames.length, removed: removedCount })
 
       // Upload first screenshot as scene image
       const firstTs = Math.floor(seg.start)
-      const firstImageMediaId = await ctx.uploadMedia(screenshotFiles[0], `${title} – ${firstTs}s`, 'image/jpeg')
+      const firstImageMediaId = await ctx.uploadMedia(keptFrames[0].file, `${title} – ${firstTs}s`, 'image/jpeg')
 
       // Create the scene
       const sceneDoc = await payload.create({
@@ -183,39 +172,28 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
       })
       const sceneId = (sceneDoc as { id: number }).id
 
-      // Create video-frame records for each screenshot
-      for (let j = 0; j < screenshotFiles.length; j++) {
-        const file = screenshotFiles[j]
-        const hr = hashResults[j]
+      // Create video-frame records for each kept (deduplicated) screenshot
+      for (let j = 0; j < keptFrames.length; j++) {
+        const file = keptFrames[j].file
         const ts = Math.floor(seg.start) + j
 
         const imageMediaId = j === 0
           ? firstImageMediaId
           : await ctx.uploadMedia(file, `${title} – ${ts}s`, 'image/jpeg')
 
-        const frameData: Record<string, unknown> = {
-          scene: sceneId,
-          image: imageMediaId,
-        }
-
-        if (repScreenshotIndices.has(j)) {
-          const recogPath = recogPathByGroup.get(hr.screenshotGroup)
-          if (recogPath) {
-            frameData.isClusterRepresentative = true
-            frameData.clusterThumbnail = await ctx.uploadMedia(recogPath, `${title} – ${ts}s recog`, 'image/png')
-          }
-        }
-
         await payload.create({
           collection: 'video-frames',
-          data: frameData,
+          data: {
+            scene: sceneId,
+            image: imageMediaId,
+          },
         })
       }
 
       await ctx.heartbeat()
     }
 
-    log.info('Scene detection stage complete', { videoId, segments: segments.length })
+    log.info('Scene detection stage complete', { videoId, segments: segments.length, totalFrames, totalDeduped, framesKept: totalFrames - totalDeduped })
     return { success: true }
   } finally {
     try {

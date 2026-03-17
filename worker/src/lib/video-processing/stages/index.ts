@@ -12,14 +12,15 @@
  * processing pipeline assumes videos already have their MP4 downloaded.
  *
  * Stage ordering (by index in STAGES array):
- *   0. scene_detection      — Detect scenes, extract screenshots, cluster frames
+ *   0. scene_detection      — Detect scenes, extract screenshots, hash-based dedup
  *   1. barcode_scan         — Scan frames for EAN barcodes → scene.barcodes[]
- *   2. object_detection     — Grounding DINO on cluster reps → scene.objects[]
- *   3. visual_search        — DINOv2 search on object crops → scene.recognitions[]
- *   4. llm_recognition      — LLM visual classification → scene.llmMatches[]
- *   5. transcription        — Whisper STT + LLM correction → scene transcript
- *   6. compile_detections   — Synthesize all sources → scene.detections[]
- *   7. sentiment_analysis   — LLM sentiment → video-mentions
+ *   2. object_detection     — Grounding DINO on ALL deduped frames → scene.objects[]
+ *   3. side_detection       — Classify crops as front/back, cluster per side, pick reps
+ *   4. visual_search        — DINOv2 search on representative crops → scene.recognitions[]
+ *   5. llm_recognition      — LLM visual classification on representative crops → scene.llmMatches[]
+ *   6. transcription        — Whisper STT + LLM correction → scene transcript
+ *   7. compile_detections   — Synthesize all sources → scene.detections[]
+ *   8. sentiment_analysis   — LLM sentiment → video-mentions
  */
 
 import type { PayloadRestClient } from '@/lib/payload-client'
@@ -27,11 +28,12 @@ import type { Logger } from '@/lib/logger'
 
 // ─── Types ───
 
-/** The 8 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
+/** The 9 stage names (match the checkbox field names on VideoProcessings minus 'stage' prefix) */
 export type StageName =
   | 'scene_detection'
   | 'barcode_scan'
   | 'object_detection'
+  | 'side_detection'
   | 'visual_search'
   | 'llm_recognition'
   | 'transcription'
@@ -105,6 +107,7 @@ export interface StageDefinition {
 import { executeSceneDetection } from './scene-detection'
 import { executeBarcodeScan } from './barcode-scan'
 import { executeObjectDetection } from './object-detection'
+import { executeSideDetection } from './side-detection'
 import { executeVisualSearch } from './visual-search'
 import { executeLlmRecognition } from './llm-recognition'
 import { executeTranscription } from './transcription'
@@ -132,32 +135,38 @@ export const STAGES: StageDefinition[] = [
     execute: executeObjectDetection,
   },
   {
-    name: 'visual_search',
+    name: 'side_detection',
     index: 3,
+    jobField: 'stageSideDetection',
+    execute: executeSideDetection,
+  },
+  {
+    name: 'visual_search',
+    index: 4,
     jobField: 'stageVisualSearch',
     execute: executeVisualSearch,
   },
   {
     name: 'llm_recognition',
-    index: 4,
+    index: 5,
     jobField: 'stageLlmRecognition',
     execute: executeLlmRecognition,
   },
   {
     name: 'transcription',
-    index: 5,
+    index: 6,
     jobField: 'stageTranscription',
     execute: executeTranscription,
   },
   {
     name: 'compile_detections',
-    index: 6,
+    index: 7,
     jobField: 'stageCompileDetections',
     execute: executeCompileDetections,
   },
   {
     name: 'sentiment_analysis',
-    index: 7,
+    index: 8,
     jobField: 'stageSentimentAnalysis',
     execute: executeSentimentAnalysis,
   },
@@ -226,6 +235,7 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   if (job.stageSceneDetection !== false) stages.add('scene_detection')
   if (job.stageBarcodeScan !== false) stages.add('barcode_scan')
   if (job.stageObjectDetection !== false) stages.add('object_detection')
+  if (job.stageSideDetection !== false) stages.add('side_detection')
   if (job.stageVisualSearch !== false) stages.add('visual_search')
   if (job.stageLlmRecognition !== false) stages.add('llm_recognition')
   if (job.stageTranscription !== false) stages.add('transcription')

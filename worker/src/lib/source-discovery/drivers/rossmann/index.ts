@@ -496,6 +496,9 @@ export const rossmannDriver: SourceDriver = {
 
           const brandEl = document.querySelector('.rm-product__brand')
           const brandName = brandEl?.textContent?.trim() || null
+          const brandLink = document.querySelector('a.rm-product__brand[href]')
+          const brandHref = brandLink?.getAttribute('href') || null
+          const brandUrl = brandHref ? `https://www.rossmann.de${brandHref}` : null
 
           const danEl = document.querySelector('[data-jsevent="obj:product__dan"]')
           const sourceArticleNumber = danEl?.getAttribute('data-value') || null
@@ -632,6 +635,7 @@ export const rossmannDriver: SourceDriver = {
           return {
             name,
             brandName,
+            brandUrl,
             sourceArticleNumber,
             gtinFromPage,
             description,
@@ -674,6 +678,7 @@ export const rossmannDriver: SourceDriver = {
           gtin: gtin ?? undefined,
           name: scraped.name,
           brandName: scraped.brandName ?? undefined,
+          brandUrl: scraped.brandUrl ?? undefined,
           description: scraped.description ?? undefined,
           ingredientsText,
           priceCents: scraped.priceCents ?? undefined,

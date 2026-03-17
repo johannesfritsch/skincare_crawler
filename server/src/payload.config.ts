@@ -18,6 +18,7 @@ import { IngredientsDiscoveries } from './collections/IngredientsDiscoveries'
 import { Products } from './collections/Products'
 import { ProductVariants } from './collections/ProductVariants'
 import { SourceProducts } from './collections/SourceProducts'
+import { SourceBrands } from './collections/SourceBrands'
 import { SourceVariants } from './collections/SourceVariants'
 
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
@@ -214,6 +215,7 @@ export default buildConfig({
     Products,
     ProductVariants,
     SourceProducts,
+    SourceBrands,
     SourceVariants,
     ProductDiscoveries,
     ProductSearches,

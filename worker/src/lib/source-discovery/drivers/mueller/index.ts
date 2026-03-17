@@ -664,8 +664,36 @@ export const muellerDriver: SourceDriver = {
 
           // --- Brand: RSC primary, DOM fallback, JSON-LD fallback ---
           let brandName: string | null = rscProduct?.brand?.name || null
+          let brandUrl: string | null = null
+          let brandImageUrl: string | null = null
+          const brandLink = document.querySelector('a[class*="product-info"][class*="brand"][href]') as HTMLAnchorElement | null
+          if (brandLink) {
+            const href = brandLink.getAttribute('href') || ''
+            if (href.startsWith('/b/')) {
+              brandUrl = `https://www.mueller.de${href}`
+            }
+            // Extract brand image — get the raw source URL from the srcset (unwrap Next.js image proxy)
+            const brandImg = brandLink.querySelector('img')
+            if (brandImg) {
+              const srcset = brandImg.getAttribute('srcset') || ''
+              const urlMatch = srcset.match(/url=([^&]+)/)
+              if (urlMatch) {
+                try { brandImageUrl = decodeURIComponent(urlMatch[1]) } catch { /* ignore */ }
+              }
+              // Fallback: use src directly if no srcset proxy URL
+              if (!brandImageUrl) {
+                const src = brandImg.getAttribute('src') || ''
+                const srcUrlMatch = src.match(/url=([^&]+)/)
+                if (srcUrlMatch) {
+                  try { brandImageUrl = decodeURIComponent(srcUrlMatch[1]) } catch { /* ignore */ }
+                } else if (src && !src.includes('/_next/image')) {
+                  brandImageUrl = src
+                }
+              }
+            }
+          }
           if (!brandName) {
-            const brandImg = document.querySelector('a[class*="product-info"][class*="brand"] img')
+            const brandImg = brandLink?.querySelector('img') || document.querySelector('a[class*="product-info"][class*="brand"] img')
             if (brandImg) {
               const alt = brandImg.getAttribute('alt') || ''
               brandName = alt.replace(/^Markenbild von\s*/i, '').trim() || null
@@ -996,6 +1024,8 @@ export const muellerDriver: SourceDriver = {
           return {
             name,
             brandName,
+            brandUrl,
+            brandImageUrl,
             sourceArticleNumber,
             gtin,
             categoryUrl,
@@ -1046,6 +1076,8 @@ export const muellerDriver: SourceDriver = {
           gtin: scraped.gtin ?? undefined,
           name: scraped.name,
           brandName: scraped.brandName ?? undefined,
+          brandUrl: scraped.brandUrl ?? undefined,
+          brandImageUrl: scraped.brandImageUrl ?? undefined,
           description: scraped.description ?? undefined,
           ingredientsText,
           priceCents: scraped.priceCents ?? undefined,

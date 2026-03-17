@@ -1,5 +1,6 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../../types'
 import { stealthFetch } from '@/lib/stealth-fetch'
+import { launchBrowser } from '@/lib/browser'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
@@ -82,7 +83,7 @@ interface DmVariantGroup {
 interface DmProductDetail {
   gtin: number
   dan?: number
-  brand?: { name: string }
+  brand?: { name: string; image?: { alt?: string; src?: string } }
   title?: { headline: string }
   breadcrumbs?: string[]
   rating?: { ratingValue: number; ratingCount: number }
@@ -686,6 +687,41 @@ export const dmDriver: SourceDriver = {
         }
       }
 
+      // Extract brand URL from the rendered product page via Playwright.
+      // The brand link is in the first <span> inside the <h1>:
+      //   <h1 data-dmid="detail-page-headline-product-title">
+      //     <span><a href="/search?query=...&searchType=brand-search">BrandName</a></span>
+      //     Product Title
+      //   </h1>
+      let brandUrl: string | undefined
+      try {
+        const browser = await launchBrowser({ headless: true })
+        try {
+          const page = await browser.newPage()
+          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
+          await page.waitForSelector('h1[data-dmid="detail-page-headline-product-title"] a', { timeout: 10000 }).catch(() => {})
+
+          const brandHref = await page.$eval(
+            'h1[data-dmid="detail-page-headline-product-title"] span:first-child a[href]',
+            (a) => a.getAttribute('href'),
+          ).catch(() => null)
+
+          if (brandHref) {
+            brandUrl = `https://www.dm.de${brandHref}`
+            log.info('Extracted brand URL', { brandUrl })
+          } else {
+            log.info('No brand link found in rendered page', { url: canonicalUrl })
+          }
+        } finally {
+          await browser.close()
+        }
+      } catch (e) {
+        log.info('Could not extract brand URL via browser', { url: canonicalUrl, error: String(e) })
+      }
+
+      // Brand image from API
+      const brandImageUrl = data.brand?.image?.src
+
       // Category breadcrumbs
       const categoryBreadcrumbs = data.breadcrumbs && data.breadcrumbs.length > 0
         ? data.breadcrumbs
@@ -698,6 +734,8 @@ export const dmDriver: SourceDriver = {
         gtin: String(data.gtin),
         name,
         brandName: data.brand?.name ?? undefined,
+        brandUrl,
+        brandImageUrl,
         description: description ?? undefined,
         ingredientsText,
         priceCents,

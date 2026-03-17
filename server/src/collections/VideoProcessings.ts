@@ -153,17 +153,17 @@ export const VideoProcessings: CollectionConfig = {
                   label: 'Object Detection',
                   defaultValue: true,
                   admin: {
-                    description: 'Grounding DINO zero-shot object detection on frames.',
+                    description: 'Grounding DINO zero-shot object detection on all deduplicated frames.',
                     width: '25%',
                   },
                 },
                 {
-                  name: 'stageVisualSearch',
+                  name: 'stageSideDetection',
                   type: 'checkbox',
-                  label: 'Visual Search',
+                  label: 'Side Detection',
                   defaultValue: true,
                   admin: {
-                    description: 'CLIP visual similarity search against product embeddings.',
+                    description: 'Classify detection crops as front/back, cluster per side, pick representatives.',
                     width: '25%',
                   },
                 },
@@ -172,6 +172,16 @@ export const VideoProcessings: CollectionConfig = {
             {
               type: 'row',
               fields: [
+                {
+                  name: 'stageVisualSearch',
+                  type: 'checkbox',
+                  label: 'Visual Search',
+                  defaultValue: true,
+                  admin: {
+                    description: 'DINOv2 visual similarity search against product embeddings (on representative crops).',
+                    width: '25%',
+                  },
+                },
                 {
                   name: 'stageLlmRecognition',
                   type: 'checkbox',

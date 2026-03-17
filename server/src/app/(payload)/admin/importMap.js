@@ -4,6 +4,7 @@ import { default as default_823476cd455fab828471f47659d98f1e } from '@/component
 import { default as default_a2774915ad155920b0772c0286b493fc } from '@/components/bulk-actions/IngredientBulkStatus'
 import { default as default_c8b6462ae63ad1445d9415e5a3924d06 } from '@/components/IngredientSaveButton'
 import { default as default_1f4dba48f2aca046e64b7054820da12b } from '@/components/ProductJobStatus'
+import { default as default_86bc81a82081de65b416f9df8301fb33 } from '../../../components/VariantsGallery'
 import { default as default_819ef9d66822c27ca92a2904c893997c } from '@/components/bulk-actions/ProductBulkActions'
 import { default as default_56ebde3b2eb1d9ad5a98aac7de4b659e } from '@/components/bulk-actions/ProductBulkStatus'
 import { default as default_26307cb162b7a1272a178557593e5200 } from '@/components/ProductSaveButton'
@@ -22,10 +23,12 @@ import { default as default_0794882da6eab7bb4ff2423cf9aedab6 } from '@/component
 import { default as default_a8ab241c8c17c65f461a6a923e398f73 } from '@/components/ChannelSaveButton'
 import { default as default_87728572563c6e1da33eadd3a829ec3d } from '../../../components/EmbeddedVideoPlayer'
 import { default as default_4b4ffd9db6aab146d914cdb41f3a779d } from '@/components/VideoJobStatus'
+import { default as default_2c84a15da0249f0b8ee1340cd2e982ca } from '../../../components/ScenesGallery'
 import { default as default_efddd0db6825b46b8974231a9cc8f159 } from '@/components/bulk-actions/VideoBulkActions'
 import { default as default_d36a95c7b667f33a72dc38ff7d7f7916 } from '@/components/bulk-actions/VideoBulkStatus'
 import { default as default_8da85ba43770e514d85a6fec69d919f4 } from '@/components/VideoSaveButton'
 import { default as default_f0c1fcae0d28ac4b0ff05d79c223cc23 } from '../../../components/EmbeddedScenePlayer'
+import { default as default_f6707bda32eb7b214d9675b566b17227 } from '../../../components/FramesGallery'
 import { default as default_dc18604f4d78e37a674a0b8d80c9e980 } from '../../../components/VideoMentionsCell'
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
 import { default as default_e577ad08317d2e8977edf3e679038fc8 } from '../../../components/graphics/Logo'
@@ -52,6 +55,7 @@ export const importMap = {
   "@/components/bulk-actions/IngredientBulkStatus#default": default_a2774915ad155920b0772c0286b493fc,
   "@/components/IngredientSaveButton#default": default_c8b6462ae63ad1445d9415e5a3924d06,
   "@/components/ProductJobStatus#default": default_1f4dba48f2aca046e64b7054820da12b,
+  "/components/VariantsGallery#default": default_86bc81a82081de65b416f9df8301fb33,
   "@/components/bulk-actions/ProductBulkActions#default": default_819ef9d66822c27ca92a2904c893997c,
   "@/components/bulk-actions/ProductBulkStatus#default": default_56ebde3b2eb1d9ad5a98aac7de4b659e,
   "@/components/ProductSaveButton#default": default_26307cb162b7a1272a178557593e5200,
@@ -70,10 +74,12 @@ export const importMap = {
   "@/components/ChannelSaveButton#default": default_a8ab241c8c17c65f461a6a923e398f73,
   "/components/EmbeddedVideoPlayer#default": default_87728572563c6e1da33eadd3a829ec3d,
   "@/components/VideoJobStatus#default": default_4b4ffd9db6aab146d914cdb41f3a779d,
+  "/components/ScenesGallery#default": default_2c84a15da0249f0b8ee1340cd2e982ca,
   "@/components/bulk-actions/VideoBulkActions#default": default_efddd0db6825b46b8974231a9cc8f159,
   "@/components/bulk-actions/VideoBulkStatus#default": default_d36a95c7b667f33a72dc38ff7d7f7916,
   "@/components/VideoSaveButton#default": default_8da85ba43770e514d85a6fec69d919f4,
   "/components/EmbeddedScenePlayer#default": default_f0c1fcae0d28ac4b0ff05d79c223cc23,
+  "/components/FramesGallery#default": default_f6707bda32eb7b214d9675b566b17227,
   "/components/VideoMentionsCell#default": default_dc18604f4d78e37a674a0b8d80c9e980,
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,
   "/components/graphics/Logo#default": default_e577ad08317d2e8977edf3e679038fc8,

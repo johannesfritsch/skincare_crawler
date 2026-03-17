@@ -1,14 +1,18 @@
 /**
- * Stage 4: LLM Recognition
+ * Stage 5: LLM Recognition
  *
- * Reads cluster representative frames for each scene, runs a two-phase
- * LLM pipeline (classify screenshots → recognize products), and writes
- * results to the scene's `llmMatches[]` array.
+ * Reads representative detection crops from each scene's `objects[]` array
+ * (set by side_detection stage), runs a two-phase LLM pipeline
+ * (classify crops → recognize products), and writes results to the scene's
+ * `llmMatches[]` array.
  *
- * Phase 1: Classify each cluster representative thumbnail via LLM
- *          to determine which contain cosmetics products.
- * Phase 2: For each identified candidate, download the full-size image,
+ * Phase 1: Classify each representative crop via LLM to determine which
+ *          contain cosmetics products.
+ * Phase 2: For each identified candidate, download the crop image,
  *          run LLM product recognition, then match against the DB.
+ *
+ * Falls back to processing ALL objects if side_detection hasn't run
+ * (no isRepresentative field — backward compatibility).
  */
 
 import fs from 'fs'
@@ -39,63 +43,71 @@ export async function executeLlmRecognition(ctx: StageContext, videoId: number):
   }
 
   let totalTokens = 0
+  const serverUrl = payload.serverUrl
 
   for (const sceneDoc of scenesResult.docs) {
     const scene = sceneDoc as Record<string, unknown>
     const sceneId = scene.id as number
 
-    // Fetch cluster representative frames for this scene
-    const framesResult = await payload.find({
-      collection: 'video-frames',
-      where: {
-        and: [
-          { scene: { equals: sceneId } },
-          { isClusterRepresentative: { equals: true } },
-        ],
-      },
-      limit: 1000,
-    })
-    const candidateFrames = framesResult.docs as Array<Record<string, unknown>>
+    // Get representative detection crops from the scene's objects[] array
+    const objects = scene.objects as Array<{
+      id?: string
+      frame?: number | Record<string, unknown>
+      crop: number | { id: number; url?: string }
+      score?: number
+      side?: string
+      isRepresentative?: boolean
+    }> | null
 
-    if (candidateFrames.length === 0) {
-      log.info('No cluster representative frames for scene', { sceneId })
+    if (!objects || objects.length === 0) {
+      log.info('No objects in scene, skipping LLM recognition', { sceneId })
       continue
     }
 
-    // Download cluster thumbnails to temp files for LLM classification
+    // Filter to representative crops only (backward compat: if no isRepresentative field, use all)
+    const repObjects = objects.some((o) => o.isRepresentative !== undefined)
+      ? objects.filter((o) => o.isRepresentative === true)
+      : objects
+
+    if (repObjects.length === 0) {
+      log.info('No representative objects in scene, skipping LLM recognition', { sceneId })
+      continue
+    }
+
+    // Download crop images to temp files for LLM classification
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-llm-'))
 
     try {
-      const serverUrl = payload.serverUrl
-
-      // Phase 1: Classify each cluster representative independently
+      // Phase 1: Classify each representative crop independently
       const classifyInputs: { clusterGroup: number; imagePath: string }[] = []
+      const cropIndexMap: Map<number, typeof repObjects[number]> = new Map()
 
-      for (let ci = 0; ci < candidateFrames.length; ci++) {
-        const cf = candidateFrames[ci]
-        const recogRef = cf.clusterThumbnail as number | Record<string, unknown> | null
-        const recogMediaId = recogRef
-          ? (typeof recogRef === 'number' ? recogRef : (recogRef as { id: number }).id)
-          : undefined
+      for (let ci = 0; ci < repObjects.length; ci++) {
+        const obj = repObjects[ci]
+        const cropRef = obj.crop
+        let mediaUrl: string | undefined
 
-        if (recogMediaId) {
-          const mediaDoc = await payload.findByID({ collection: 'video-media', id: recogMediaId }) as Record<string, unknown>
-          const mediaUrl = mediaDoc.url as string
-          if (mediaUrl) {
-            const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
-            const res = await fetch(fullUrl)
-            if (res.ok) {
-              const localPath = path.join(tmpDir, `recog_${ci}.png`)
-              fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()))
-              // Use candidate index as "cluster group" — each candidate is independent
-              classifyInputs.push({ clusterGroup: ci, imagePath: localPath })
-            }
-          }
+        if (typeof cropRef === 'number') {
+          const mediaDoc = await payload.findByID({ collection: 'detection-media', id: cropRef }) as Record<string, unknown>
+          mediaUrl = mediaDoc.url as string | undefined
+        } else {
+          mediaUrl = cropRef.url
         }
+
+        if (!mediaUrl) continue
+
+        const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
+        const res = await fetch(fullUrl)
+        if (!res.ok) continue
+
+        const localPath = path.join(tmpDir, `crop_${ci}.png`)
+        fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()))
+        classifyInputs.push({ clusterGroup: ci, imagePath: localPath })
+        cropIndexMap.set(ci, obj)
       }
 
       if (classifyInputs.length === 0) {
-        log.info('No cluster thumbnails available for classification', { sceneId })
+        log.info('No crop images available for classification', { sceneId })
         continue
       }
 
@@ -106,30 +118,24 @@ export async function executeLlmRecognition(ctx: StageContext, videoId: number):
       jlog.event('video_processing.candidates_identified', { title, segment: sceneId, candidates: candidateIndices.size })
       await ctx.heartbeat()
 
-      // Phase 2: Recognize products from each candidate frame
+      // Phase 2: Recognize products from each candidate crop
       const llmMatchEntries: Array<Record<string, unknown>> = []
 
       for (const candidateIdx of candidateIndices) {
-        const cf = candidateFrames[candidateIdx]
-        if (!cf) continue
+        const obj = cropIndexMap.get(candidateIdx)
+        if (!obj) continue
 
-        const frameId = cf.id as number
-        const imageRef = cf.image as number | Record<string, unknown>
-        const imageMediaId = typeof imageRef === 'number' ? imageRef : (imageRef as { id: number }).id
+        // The crop image was already downloaded in Phase 1
+        const localPath = path.join(tmpDir, `crop_${candidateIdx}.png`)
+        if (!fs.existsSync(localPath)) continue
 
-        // Download the candidate's full-size image for recognition
-        const mediaDoc = await payload.findByID({ collection: 'video-media', id: imageMediaId }) as Record<string, unknown>
-        const mediaUrl = mediaDoc.url as string
-        if (!mediaUrl) continue
+        // Resolve the frame reference for the match entry
+        const frameRef = obj.frame
+        const frameId = frameRef
+          ? (typeof frameRef === 'number' ? frameRef : (frameRef as { id: number }).id)
+          : null
 
-        const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
-        const res = await fetch(fullUrl)
-        if (!res.ok) continue
-
-        const localPath = path.join(tmpDir, `ss_${candidateIdx}.jpg`)
-        fs.writeFileSync(localPath, Buffer.from(await res.arrayBuffer()))
-
-        log.info('Phase 2: recognizing product', { sceneId, candidateIdx, frameId })
+        log.info('Phase 2: recognizing product from crop', { sceneId, candidateIdx, frameId })
         const recognition = await recognizeProduct([localPath])
         if (recognition) {
           totalTokens += recognition.tokensUsed.totalTokens
