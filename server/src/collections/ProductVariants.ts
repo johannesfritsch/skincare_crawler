@@ -349,7 +349,7 @@ export const ProductVariants: CollectionConfig = {
           ],
         },
         {
-          label: 'Attributes & Claims',
+          label: 'Attributes',
           fields: [
             {
               name: 'productAttributes',
@@ -430,6 +430,11 @@ export const ProductVariants: CollectionConfig = {
                 },
               ],
             },
+          ],
+        },
+        {
+          label: 'Claims',
+          fields: [
             {
               name: 'productClaims',
               type: 'array',

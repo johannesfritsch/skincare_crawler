@@ -59,7 +59,19 @@ Then identify which product attributes and claims apply, providing evidence for 
 - containsFragrance: fragrance/parfum
 - containsMineralOil: mineral oil / petroleum-derived oils (Paraffinum Liquidum, Petrolatum)
 
-CRITICAL: "Free from X" / "Frei von X" / "ohne X" / "X-frei" means the product does NOT contain X. That is the OPPOSITE — it is a CLAIM (e.g. pegFree, mineralOilFree), NOT an attribute. Never set a "contains" attribute based on "free from" language. For example, "Frei von PEGs" → pegFree claim, NOT containsPegs attribute.
+CRITICAL — READ CAREFULLY: "contains" attributes mean the substance IS PRESENT in the product. Negation language means the OPPOSITE:
+- "Free from X" / "Frei von X" / "ohne X" / "X-frei" / "without X" → the product does NOT contain X. This is a CLAIM (e.g. fragranceFree), NEVER a "contains" attribute.
+- You MUST check the ingredient list (INCI) to confirm a "contains" attribute. Description text alone is not enough for "contains" — the substance must actually appear in the ingredients.
+
+Examples of WRONG vs CORRECT classification:
+- Description says "Ohne Parfüm" → WRONG: containsFragrance. CORRECT: fragranceFree claim.
+- Description says "Frei von PEGs" → WRONG: containsPegs. CORRECT: pegFree claim.
+- Description says "Ohne Silikone" → WRONG: containsSilicones. CORRECT: siliconeFree claim.
+- Description says "Alkoholfrei" → WRONG: containsSimpleAlcohol. CORRECT: simpleAlcoholFree claim.
+- Description says "Ohne Mineralöle" → WRONG: containsMineralOil. CORRECT: mineralOilFree claim.
+- Ingredient list contains "Parfum" or "Fragrance" → CORRECT: containsFragrance attribute (evidence type: ingredient).
+
+Think step by step for each attribute: (1) Is the substance actually listed in the INCI ingredients? If yes → containsX attribute. (2) Does the description say the product is FREE FROM this substance? If yes → XFree claim. Never confuse the two.
 
 **Product Claims** (true if the product makes or supports this claim):
 - vegan: explicitly marketed as vegan (label, description, or brand claim) — do NOT infer from ingredient analysis alone
