@@ -100,6 +100,11 @@ export const Products: CollectionConfig = {
               name: 'name',
               type: 'text',
               label: 'Product Name',
+              admin: {
+                components: {
+                  Cell: '/components/ProductNameCell',
+                },
+              },
             },
             {
               name: 'brand',

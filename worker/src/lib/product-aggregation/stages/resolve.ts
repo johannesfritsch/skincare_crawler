@@ -7,6 +7,7 @@
  */
 
 import { aggregateSourceVariantsToVariant, aggregateVariantsToProduct } from '@/lib/aggregate-product'
+import { stripBrandFromName } from '@/lib/strip-brand-from-name'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
 export async function executeResolve(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
@@ -53,7 +54,9 @@ export async function executeResolve(ctx: StageContext, workItem: AggregationWor
     return { success: false, error: 'No variant data produced from sources' }
   }
 
-  const productData = aggregateVariantsToProduct(allSources)
+  const productData = aggregateVariantsToProduct(allSources, {
+    brandSourcePriority: ctx.config.brandSourcePriority,
+  })
 
   // ── Find existing product-variants for all GTINs ──
   let productId: number | null = null
@@ -199,10 +202,20 @@ export async function executeResolve(ctx: StageContext, workItem: AggregationWor
   ).filter((id) => !isNaN(id))
   const allIds = [...new Set([...existingSourceIds, ...sourceProductIds.map(Number)])]
 
+  // Clean the product name: strip brand name and variant-specific details (LLM)
+  let cleanedName = productData?.name ?? null
+  let tokensUsed = 0
+  if (cleanedName && productData?.brandName) {
+    const stripResult = await stripBrandFromName(cleanedName, productData.brandName)
+    cleanedName = stripResult.name
+    tokensUsed = stripResult.tokensUsed.totalTokens
+    log.info('Product name cleaned', { original: productData.name, cleaned: cleanedName, brandName: productData.brandName })
+  }
+
   const productUpdateData: Record<string, unknown> = {
     sourceProducts: allIds,
   }
-  if (productData?.name) productUpdateData.name = productData.name
+  if (cleanedName) productUpdateData.name = cleanedName
 
   await payload.update({
     collection: 'products',
@@ -213,5 +226,5 @@ export async function executeResolve(ctx: StageContext, workItem: AggregationWor
   jlog.event('aggregation.resolved', { productId, gtins: perVariantData.length, variants: variantMap.size })
   log.info('Resolve stage complete', { productId, gtins: gtinLabels })
 
-  return { success: true, productId }
+  return { success: true, productId, tokensUsed }
 }
