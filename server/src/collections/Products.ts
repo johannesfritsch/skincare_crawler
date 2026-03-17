@@ -9,7 +9,7 @@ export const Products: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'brand', 'productType', 'createdAt'],
+    defaultColumns: ['productImage', 'name', 'brand', 'productStores', 'productType', 'createdAt'],
     listSearchableFields: ['name'],
     group: 'Products',
     components: {
@@ -47,6 +47,26 @@ export const Products: CollectionConfig = {
     ],
   },
   fields: [
+    {
+      name: 'productImage',
+      type: 'ui',
+      admin: {
+        disableListColumn: false,
+        components: {
+          Cell: '/components/ProductImageCell',
+        },
+      },
+    },
+    {
+      name: 'productStores',
+      type: 'ui',
+      admin: {
+        disableListColumn: false,
+        components: {
+          Cell: '/components/ProductStoresCell',
+        },
+      },
+    },
     {
       name: 'aggregateStatus',
       type: 'ui',
