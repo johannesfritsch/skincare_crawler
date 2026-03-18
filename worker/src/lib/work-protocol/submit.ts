@@ -11,6 +11,11 @@ import {
 } from './persist'
 import { retryOrFail } from './job-failure'
 import {
+  getCrawlProgress,
+  type CrawlStageName,
+  type CrawlProgress,
+} from '@/lib/product-crawl/stages'
+import {
   getVideoProgress,
   videoNeedsWork,
   incrementVideoErrorCount,
@@ -104,13 +109,23 @@ interface DiscoveredVideo {
 interface SubmitProductCrawlBody {
   type: 'product-crawl'
   jobId: number
+  stage: CrawlStageName
   crawlVariants: boolean
+  enabledStages: string[]
   results: Array<{
     sourceVariantId?: number
     sourceProductId?: number
     sourceUrl: string
     source: SourceSlug
     data: ScrapedProductData | null
+    error?: string
+  }>
+  /** Review stage results (only when stage === 'reviews') */
+  reviewResults?: Array<{
+    sourceProductId: number
+    success: boolean
+    reviewsCreated: number
+    reviewsLinked: number
     error?: string
   }>
 }
@@ -256,17 +271,103 @@ export async function submitWork(
 }
 
 async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProductCrawlBody) {
-  const { jobId, results, crawlVariants } = body
+  const { jobId, results, crawlVariants, stage, reviewResults, enabledStages: enabledStagesArr } = body
   const jlog = log.forJob('product-crawls', jobId)
   const batchStartMs = Date.now()
-  log.info('Product crawl batch received', { jobId, results: results.length })
+  log.info('Product crawl batch received', { jobId, stage, results: results.length, reviewResults: reviewResults?.length ?? 0 })
 
   const job = await payload.findByID({ collection: 'product-crawls', id: jobId }) as Record<string, unknown>
   let crawled = (job.crawled as number) ?? 0
   let errors = (job.errors as number) ?? 0
+  const enabledStages = new Set(enabledStagesArr) as Set<CrawlStageName>
+  const crawlProgress: CrawlProgress = getCrawlProgress(job)
 
   // Determine source slug from job or first result
   const source = job.source === 'all' ? (results[0]?.source ?? 'unknown') : (job.source as string)
+
+  if (stage === 'reviews' && reviewResults) {
+    // ─── Reviews stage submit ───
+    let batchReviewsCreated = 0
+    let batchReviewsLinked = 0
+    let batchReviewErrors = 0
+
+    for (const rr of reviewResults) {
+      if (rr.success) {
+        crawlProgress[String(rr.sourceProductId)] = 'reviews'
+        batchReviewsCreated += rr.reviewsCreated
+        batchReviewsLinked += rr.reviewsLinked
+      } else {
+        batchReviewErrors++
+        errors++
+      }
+    }
+
+    // Check if any reviews work remains
+    const reviewsRemaining = Object.entries(crawlProgress).some(([key, val]) => {
+      if (key.startsWith('err:') || key.startsWith('pid:')) return false
+      return val === 'scrape' // still at scrape stage, needs reviews
+    })
+
+    const batchDurationMs = Date.now() - batchStartMs
+
+    if (!reviewsRemaining) {
+      // All reviews done — check if scrape also done
+      const scrapeRemaining = await countScrapeRemaining(payload, job, crawlVariants)
+
+      if (scrapeRemaining === 0) {
+        // Both stages done
+        const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+        const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+
+        log.info('Product crawl completing (reviews done)', { jobId, crawled, errors })
+        await payload.update({
+          collection: 'product-crawls',
+          id: jobId,
+          data: {
+            status: 'completed',
+            crawled,
+            errors,
+            completedAt: new Date().toISOString(),
+            crawlProgress,
+          },
+        })
+        jlog.event('crawl.completed', { source, crawled, errors, durationMs: jobDurationMs })
+      } else {
+        // Reviews done but scrape still has work — release for next batch
+        await payload.update({
+          collection: 'product-crawls',
+          id: jobId,
+          data: { crawled, errors, crawlProgress, claimedBy: null, claimedAt: null },
+        })
+      }
+    } else {
+      // Reviews work remains — release claim
+      await payload.update({
+        collection: 'product-crawls',
+        id: jobId,
+        data: { crawled, errors, crawlProgress, claimedBy: null, claimedAt: null },
+      })
+      jlog.event('crawl.batch_done', {
+        source,
+        crawled,
+        errors,
+        remaining: 0,
+        batchSize: reviewResults.length,
+        batchSuccesses: reviewResults.length - batchReviewErrors,
+        batchErrors: batchReviewErrors,
+        errorRate: reviewResults.length > 0 ? Math.round((batchReviewErrors / reviewResults.length) * 100) : 0,
+        batchDurationMs,
+        newVariants: 0,
+        existingVariants: 0,
+        withIngredients: 0,
+        priceChanges: 0,
+      })
+    }
+
+    return { crawled, errors }
+  }
+
+  // ─── Scrape stage submit (existing logic) ───
 
   // Track batch-level variant & data quality counters
   let batchNewVariants = 0
@@ -292,6 +393,11 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         batchExistingVariants += persistResult.existingVariants
         if (persistResult.hasIngredients) batchWithIngredients++
         if (persistResult.priceChange && persistResult.priceChange !== 'stable') batchPriceChanges++
+
+        // Track progress: record source-product as scraped
+        if (persistResult.productId) {
+          crawlProgress[String(persistResult.productId)] = 'scrape'
+        }
 
         // Collect GTINs: main product GTIN + all sibling variant GTINs
         if (result.data.gtin) batchGtins.add(result.data.gtin)
@@ -327,40 +433,8 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     }
   }
 
-  // Count remaining — scoped to this job's source-product URLs (or source-product IDs when crawlVariants=true)
-  let sourceUrls: string[] | undefined
-  if (job.type === 'selected_urls') {
-    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeProductUrl(u.trim())).filter(Boolean)
-  } else if (job.type === 'from_discovery' && job.discovery) {
-    const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
-    const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
-    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
-  } else if (job.type === 'from_search' && job.search) {
-    const searchId = typeof job.search === 'number' ? job.search : (job.search as Record<string, number>).id
-    const search = await payload.findByID({ collection: 'product-searches', id: searchId }) as Record<string, unknown>
-    sourceUrls = ((search.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
-  }
-
-  // When crawlVariants=true and we have scoped URLs, resolve to source-product IDs
-  // so sibling variants are also counted as remaining work
-  let countOpts: { sourceUrls?: string[]; sourceProductIds?: number[] } | undefined
-  if (crawlVariants && sourceUrls && sourceUrls.length > 0) {
-    const spResult = await payload.find({
-      collection: 'source-products',
-      where: { sourceUrl: { in: sourceUrls.join(',') } },
-      limit: 100000,
-    })
-    const spIds = spResult.docs.map((doc) => (doc as Record<string, unknown>).id as number)
-    countOpts = { sourceProductIds: spIds }
-  } else if (sourceUrls) {
-    countOpts = { sourceUrls }
-  }
-
-  const sources = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
-  let totalRemaining = 0
-  for (const source of sources) {
-    totalRemaining += await countUncrawled(payload, source as SourceSlug, countOpts)
-  }
+  // Count remaining scrape work
+  const totalRemaining = await countScrapeRemaining(payload, job, crawlVariants)
 
   // Count how many items in this batch were errors
   const batchErrors = results.filter((r) => !r.data || r.error).length
@@ -370,7 +444,11 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   const batchSuccesses = batchSize - batchErrors
   const errorRate = batchSize > 0 ? Math.round((batchErrors / batchSize) * 100) : 0
 
-  if (totalRemaining === 0) {
+  // Check if reviews stage still has work
+  const reviewsEnabled = enabledStages.has('reviews')
+  const reviewsHaveWork = reviewsEnabled && Object.values(crawlProgress).some(v => v === 'scrape')
+
+  if (totalRemaining === 0 && !reviewsHaveWork) {
     // If the entire batch was errors, retry instead of completing
     if (batchErrors === results.length && results.length > 0) {
       log.warn('Product crawl batch was 100% errors, retrying or failing', { jobId, batchErrors })
@@ -391,15 +469,16 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         crawled,
         errors,
         completedAt: new Date().toISOString(),
+        crawlProgress,
       },
     })
     jlog.event('crawl.completed', { source, crawled, errors, durationMs: jobDurationMs })
   } else {
-    log.info('Product crawl batch done', { jobId, remaining: totalRemaining, crawled, errors })
+    log.info('Product crawl batch done', { jobId, remaining: totalRemaining, crawled, errors, reviewsRemaining: reviewsHaveWork })
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
-      data: { crawled, errors, claimedBy: null, claimedAt: null },
+      data: { crawled, errors, crawlProgress, claimedBy: null, claimedAt: null },
     })
     jlog.event('crawl.batch_done', {
       source,
@@ -419,6 +498,46 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   }
 
   return { crawled, errors, remaining: totalRemaining }
+}
+
+/** Count remaining scrape work, scoped to the job's source URLs */
+async function countScrapeRemaining(
+  payload: PayloadRestClient,
+  job: Record<string, unknown>,
+  crawlVariants: boolean,
+): Promise<number> {
+  let sourceUrls: string[] | undefined
+  if (job.type === 'selected_urls') {
+    sourceUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => normalizeProductUrl(u.trim())).filter(Boolean)
+  } else if (job.type === 'from_discovery' && job.discovery) {
+    const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
+    const discovery = await payload.findByID({ collection: 'product-discoveries', id: discoveryId }) as Record<string, unknown>
+    sourceUrls = ((discovery.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
+  } else if (job.type === 'from_search' && job.search) {
+    const searchId = typeof job.search === 'number' ? job.search : (job.search as Record<string, number>).id
+    const search = await payload.findByID({ collection: 'product-searches', id: searchId }) as Record<string, unknown>
+    sourceUrls = ((search.productUrls as string) ?? '').split('\n').filter(Boolean).map(normalizeProductUrl)
+  }
+
+  let countOpts: { sourceUrls?: string[]; sourceProductIds?: number[] } | undefined
+  if (crawlVariants && sourceUrls && sourceUrls.length > 0) {
+    const spResult = await payload.find({
+      collection: 'source-products',
+      where: { sourceUrl: { in: sourceUrls.join(',') } },
+      limit: 100000,
+    })
+    const spIds = spResult.docs.map((doc) => (doc as Record<string, unknown>).id as number)
+    countOpts = { sourceProductIds: spIds }
+  } else if (sourceUrls) {
+    countOpts = { sourceUrls }
+  }
+
+  const sources = job.source === 'all' ? [...ALL_SOURCE_SLUGS] : [job.source as string]
+  let total = 0
+  for (const s of sources) {
+    total += await countUncrawled(payload, s as SourceSlug, countOpts)
+  }
+  return total
 }
 
 async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitProductDiscoveryBody) {

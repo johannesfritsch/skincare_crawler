@@ -133,7 +133,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 
 | Collection | Key fields |
 |------------|------------|
-| `product-crawls` | source, type (all/selected_urls/from_discovery/from_search), scope, crawlVariants (default true), progress, crawledGtins (hidden, accumulated GTINs) |
+| `product-crawls` | source, type (all/selected_urls/from_discovery/from_search), scope, crawlVariants (default true), stageScrape (default true), stageReviews (default true), crawlProgress (hidden JSON, per-source-product stage tracking), progress, crawledGtins (hidden, accumulated GTINs) |
 | `product-discoveries` | sourceUrls, progress, discovered count, productUrls (hidden, accumulated URLs) |
 | `product-searches` | query, sources (dm/mueller/rossmann), maxResults, discovered count, productUrls (hidden, accumulated URLs) |
 | `ingredients-discoveries` | sourceUrl, currentTerm/Page, termQueue |
@@ -162,7 +162,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 1. Admin creates job in Payload UI (e.g. product-crawl with source=dm)
 2. Worker polls → claimWork() finds pending job → builds work unit
 3. Worker runs handler (e.g. scrapes product pages via Playwright driver)
-4. Worker calls submitWork() → persist functions create/update DB records. Reviews from BazaarVoice (DM) are persisted to source-reviews collection during crawl.
+4. Worker calls submitWork() → persist functions create/update DB records. Product crawl runs as a 2-stage pipeline: scrape (existing three-phase crawl with optional skipReviews) → reviews (standalone review fetching from BazaarVoice/Yotpo). Stages are independently toggleable via checkboxes. Reviews are persisted to source-reviews collection.
 5. Worker loops back, claims next batch until job completes
 6. Product aggregation runs as 9 independent stages (resolve → classify → match_brand → ingredients → images → object_detection → embed_images → descriptions → score_history), each persisting immediately. Progress is tracked per-product-group on the job's `aggregationProgress` JSON map (not on the product). Job selects which stages to run via checkboxes. Resolve creates/finds products and product-variants, merging duplicates if needed. Subsequent stages run LLM operations (classification, brand matching, ingredient parsing), data operations (image download, score computation), and ML operations (Grounding DINO object detection on product images, DINOv2-small embedding generation stored in the standalone `recognition_embeddings` table for visual similarity search).
 7. Video crawl downloads video metadata via yt-dlp, resolves/creates channel+creator records, downloads MP4 + thumbnail, uploads to video-media/profile-media, and sets video status to `crawled`.

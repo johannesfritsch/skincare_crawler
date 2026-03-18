@@ -27,6 +27,7 @@ worker/src/
     ├── source-discovery/
     │   ├── types.ts                  # SourceDriver, ScrapedProductData (includes brandUrl), DiscoveredProduct
     │   ├── driver.ts                 # getSourceDriver(url), getSourceDriverBySlug(slug)
+    │   ├── fetch-reviews.ts          # Standalone review-fetching dispatcher (routes to DM/Rossmann/PURISH review APIs by source slug)
     │   └── drivers/
     │       ├── dm/
     │       │   ├── index.ts          # DM drugstore driver (API-based)
@@ -87,6 +88,11 @@ worker/src/
     │       ├── embed-images.ts       # Stage 6: DINOv2-small embedding vectors for recognition image crops
     │       ├── descriptions.ts       # Stage 7: consensusDescription() + deduplicateLabels() per variant
     │       └── score-history.ts      # Stage 8: Compute store + creator scores
+    │
+    ├── product-crawl/
+    │   └── stages/
+    │       ├── index.ts              # Stage registry: CrawlStageName, CRAWL_STAGES, getNextCrawlStage(), getCrawlProgress()
+    │       └── reviews.ts            # Reviews stage: fetch reviews from BazaarVoice/Yotpo per source-product
     │
     ├── match-brand.ts                # matchBrand(client, brandName) — LLM-powered
     ├── match-ingredients.ts          # matchIngredients(client, names[]) — LLM-powered
@@ -205,6 +211,7 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 | Function | What it writes |
 |----------|---------------|
 | `persistCrawlResult()` | **Creates source-products if needed** (find-or-create by normalized URL — no stubs are pre-created; crawl is the sole creator of source-products); updates parent `source-products` with **product-level** scraped data (name, brandName, categoryBreadcrumb, averageRating, ratingCount); writes **variant-level** data (description, images, ingredientsText, amount, amountUnit, labels, priceHistory with availability) to the crawled `source-variant`; on **first crawl** (no `sourceVariantId`), creates a source-variant for the crawled URL (for all stores — DM/Rossmann get a variant matching the product URL, Mueller/PURISH get their query-param variants) — if a variant with that URL already exists (e.g. created as a sibling during another product's crawl), re-links it to the correct source-product; on **re-crawl** (existing `sourceVariantId`), updates the variant's GTIN, canonical URL, `variantLabel`, `variantDimension` (from the `isSelected` option in scraped variants), `crawledAt`, and all variant-level content fields; **availability is tracked per price entry** — each priceHistory entry includes an `availability` field (available/unavailable/unknown, defaults to `available`); creates sibling `source-variants` from variant URLs provided by the driver (all sources) with GTIN but no priceHistory (siblings get their price+availability entry when crawled directly — seeding on creation would cause duplicates) — **sibling ownership**: when a sibling URL matches an existing source-product's `sourceUrl`, the variant is linked to that source-product (not the current one), since color/shade variants on DM are separate products with their own source-products; updates metadata (GTIN, articleNumber, sourceProduct) on existing sibling variants when needed but does NOT append availability entries (to avoid N entries per variant per crawl session — availability is tracked on creation, direct crawl, and disappearance only); **reconciles disappeared variants**: when the driver returned variant data, queries all existing DB variants for the source-product and appends a `availability: 'unavailable'` priceHistory entry to any whose URL is NOT in the scraped set (skips if already marked unavailable in most recent entry; store-agnostic — works for all drivers); defers parent `crawled` status when `crawlVariants=true` and siblings need crawling; creates `crawl-results` join record; **upserts `source-brands`**: when the driver provides both `brandName` and `brandUrl`, finds-or-creates a `source-brands` record keyed by `sourceUrl` (unique constraint) — one per store+brand combination; emits `persist.source_brand_created` on creation, `persist.source_brand_exists` (debug) on skip; emits events for price changes (≥5% move), ingredient extraction, variant processing, and disappeared variant marking; persists reviews to `source-reviews` linked to `sourceProduct` (product-level owner) with optional `sourceVariants` array — find-or-create by `externalId`, appends variant ID to existing reviews if not already linked; emits `persist.reviews_created` event. Returns `{ productId, warnings, newVariants, existingVariants, hasIngredients, priceChange }` so submit can aggregate batch-level counters. |
+| `persistReviews()` | Standalone review persistence — find-or-create source-reviews by `externalId`, link variants. Extracted from `persistCrawlResult()` for reuse by the reviews stage. |
 | ~~`persistCrawlFailure()`~~ | **Removed** — no longer writes to join tables |
 | ~~`persistDiscoveredProduct()`~~ | **Removed** — discovery/search no longer create source-product stubs; they only accumulate URLs |
 
@@ -218,6 +225,16 @@ All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and
 ### 1. product-crawl
 
 **Handler**: `handleProductCrawl()`
+
+**Stage-based pipeline**: Product crawling uses a 2-stage pipeline (same pattern as video-processing and product-aggregation):
+
+| # | Stage | jobField | What it does |
+|---|-------|----------|-------------|
+| 0 | `scrape` | `stageScrape` (default true) | Existing three-phase crawl (new URLs → uncrawled products → uncrawled variants). Calls `driver.scrapeProduct()` with `skipReviews: true` when reviews stage is enabled separately. |
+| 1 | `reviews` | `stageReviews` (default true) | For each source-product scraped in this job, fetch reviews from the store's review API (BazaarVoice for DM/Rossmann, Yotpo for PURISH). Mueller has no review API and is skipped. |
+
+Progress is tracked on the job's `crawlProgress` JSON field — a `Record<string, CrawlStageName | null>` mapping source-product IDs to their last completed stage name. Scrape runs to exhaustion first, then reviews runs.
+
 **Flow**: For each work item (with `sourceProductId`, `sourceUrl`, `source`, and optionally `sourceVariantId`) → `getSourceDriverBySlug(source)` → `driver.scrapeProduct(url)` → collect results → `submitWork()`
 
 Work items come in two forms:
@@ -422,7 +439,7 @@ interface SourceDriver {
   matches(url: string): boolean
   discoverProducts(options: ProductDiscoveryOptions): Promise<ProductDiscoveryResult>
   searchProducts(options: ProductSearchOptions): Promise<ProductSearchResult>
-  scrapeProduct(url: string, options?: { debug?: boolean }): Promise<ScrapedProductData | null>
+  scrapeProduct(url: string, options?: { debug?: boolean; logger?: Logger; skipReviews?: boolean }): Promise<ScrapedProductData | null>
 }
 ```
 

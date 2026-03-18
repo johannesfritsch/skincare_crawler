@@ -123,6 +123,6 @@ export interface SourceDriver {
 
   scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
   ): Promise<ScrapedProductData | null>
 }

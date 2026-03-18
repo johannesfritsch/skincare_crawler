@@ -36,6 +36,16 @@ export const SourceProducts: CollectionConfig = {
           where: { sourceProduct: { equals: id } },
           req,
         })
+        // Clean up product-variant attribute/claim evidence rows that reference this source-product.
+        // These sub-tables have source_product_id NOT NULL with ON DELETE SET NULL — a contradiction
+        // that causes deletion to fail. Remove the evidence rows directly via SQL.
+        const db = req.payload.db
+        if ('drizzle' in db) {
+          const drizzle = db.drizzle as import('drizzle-orm/node-postgres').NodePgDatabase
+          const { sql } = await import('drizzle-orm')
+          await drizzle.execute(sql`DELETE FROM product_variants_product_attributes WHERE source_product_id = ${id}`)
+          await drizzle.execute(sql`DELETE FROM product_variants_product_claims WHERE source_product_id = ${id}`)
+        }
       },
     ],
   },

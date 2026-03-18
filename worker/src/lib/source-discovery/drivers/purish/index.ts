@@ -126,7 +126,7 @@ interface YotpoResult {
   totalReviews: number
 }
 
-async function fetchYotpoReviews(productId: string): Promise<YotpoResult> {
+export async function fetchPurishReviews(productId: string): Promise<YotpoResult> {
   const allReviews: NonNullable<ScrapedProductData['reviews']> = []
   let averageScore: number | null = null
   let totalReviews = 0
@@ -808,7 +808,7 @@ export const purishDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     const scrapeStartMs = Date.now()
@@ -966,8 +966,10 @@ export const purishDriver: SourceDriver = {
             ? (pageData.productAvailable ? 'available' : 'unavailable')
             : undefined)
 
-    // Fetch reviews from Yotpo (uses Shopify product ID)
-    const yotpo = await fetchYotpoReviews(String(product.id))
+    // Fetch reviews from Yotpo (uses Shopify product ID, skip if requested)
+    const yotpo = options?.skipReviews
+      ? { reviews: [], averageScore: null, totalReviews: 0 }
+      : await fetchPurishReviews(String(product.id))
 
     const scrapeDurationMs = Date.now() - scrapeStartMs
     logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText, reviews: yotpo.reviews.length, rating: yotpo.averageScore ?? 0 })

@@ -702,10 +702,6 @@ export interface Event {
  */
 export interface ProductDiscovery {
   id: number;
-  /**
-   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
-   */
-  sourceUrls: string;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
@@ -736,6 +732,10 @@ export interface ProductDiscovery {
    */
   debug?: boolean | null;
   productUrls?: string | null;
+  /**
+   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
+   */
+  sourceUrls: string;
   /**
    * Product URLs found
    */
@@ -768,22 +768,6 @@ export interface ProductDiscovery {
  */
 export interface ProductSearch {
   id: number;
-  /**
-   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
-   */
-  isGtinSearch?: boolean | null;
-  /**
-   * One query per line. Each line is searched independently across all selected stores.
-   */
-  query: string;
-  /**
-   * Which stores to search. All selected by default.
-   */
-  sources: ('dm' | 'rossmann' | 'mueller' | 'purish')[];
-  /**
-   * Maximum products to import per source. Default: 50.
-   */
-  maxResults?: number | null;
   status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
@@ -802,10 +786,26 @@ export interface ProductSearch {
    */
   maxRetries?: number | null;
   /**
+   * Maximum products to import per source. Default: 50.
+   */
+  maxResults?: number | null;
+  /**
    * Keep browser visible (non-headless).
    */
   debug?: boolean | null;
   productUrls?: string | null;
+  /**
+   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
+   */
+  isGtinSearch?: boolean | null;
+  /**
+   * One query per line. Each line is searched independently across all selected stores.
+   */
+  query: string;
+  /**
+   * Which stores to search. All selected by default.
+   */
+  sources: ('dm' | 'rossmann' | 'mueller' | 'purish')[];
   /**
    * Product URLs found across all sources
    */
@@ -885,6 +885,14 @@ export interface ProductCrawl {
   minCrawlAge?: number | null;
   minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
   /**
+   * Scrape product data from store pages.
+   */
+  stageScrape?: boolean | null;
+  /**
+   * Fetch reviews from store review APIs (BazaarVoice/Yotpo).
+   */
+  stageReviews?: boolean | null;
+  /**
    * Total products to crawl
    */
   total?: number | null;
@@ -898,6 +906,15 @@ export interface ProductCrawl {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  crawlProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   crawledGtins?: string | null;
   events?: {
     docs?: (number | Event)[];
@@ -2904,7 +2921,6 @@ export interface SourceReviewsSelect<T extends boolean = true> {
  * via the `definition` "product-discoveries_select".
  */
 export interface ProductDiscoveriesSelect<T extends boolean = true> {
-  sourceUrls?: T;
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
@@ -2914,6 +2930,7 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   delay?: T;
   debug?: T;
   productUrls?: T;
+  sourceUrls?: T;
   discovered?: T;
   progress?: T;
   startedAt?: T;
@@ -2927,17 +2944,17 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
  * via the `definition` "product-searches_select".
  */
 export interface ProductSearchesSelect<T extends boolean = true> {
-  isGtinSearch?: T;
-  query?: T;
-  sources?: T;
-  maxResults?: T;
   status?: T;
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  maxResults?: T;
   debug?: T;
   productUrls?: T;
+  isGtinSearch?: T;
+  query?: T;
+  sources?: T;
   discovered?: T;
   startedAt?: T;
   completedAt?: T;
@@ -2966,11 +2983,14 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   scope?: T;
   minCrawlAge?: T;
   minCrawlAgeUnit?: T;
+  stageScrape?: T;
+  stageReviews?: T;
   total?: T;
   crawled?: T;
   errors?: T;
   startedAt?: T;
   completedAt?: T;
+  crawlProgress?: T;
   crawledGtins?: T;
   events?: T;
   updatedAt?: T;

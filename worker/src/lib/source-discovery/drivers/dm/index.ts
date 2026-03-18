@@ -339,7 +339,7 @@ interface BvReview {
   ContextDataValues?: Record<string, { Value?: string }>
 }
 
-async function fetchReviews(dan: string, logger?: import('@/lib/logger').Logger): Promise<ScrapedProductData['reviews']> {
+export async function fetchDmReviews(dan: string, logger?: import('@/lib/logger').Logger): Promise<ScrapedProductData['reviews']> {
   const PAGE_SIZE = 100
   const allReviews: NonNullable<ScrapedProductData['reviews']> = []
 
@@ -648,7 +648,7 @@ export const dmDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
@@ -808,8 +808,8 @@ export const dmDriver: SourceDriver = {
         ? data.breadcrumbs
         : undefined
 
-      // Fetch reviews from BazaarVoice
-      const reviews = sourceArticleNumber ? (await fetchReviews(sourceArticleNumber, logger)) ?? [] : []
+      // Fetch reviews from BazaarVoice (skip if requested)
+      const reviews = (!options?.skipReviews && sourceArticleNumber) ? (await fetchDmReviews(sourceArticleNumber, logger)) ?? [] : []
       if (reviews.length > 0) {
         log.info('Fetched reviews', { dan: sourceArticleNumber, count: reviews.length })
       }

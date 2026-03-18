@@ -21,6 +21,11 @@ import {
   type StageName as AggregationStageName,
   type AggregationWorkItem,
 } from '@/lib/product-aggregation/stages'
+import {
+  getEnabledCrawlStages,
+  getCrawlProgress,
+  type CrawlStageName,
+} from '@/lib/product-crawl/stages'
 
 export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
@@ -376,30 +381,71 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
 
   jlog.info('Prepared work items', { jobId, count: workItems.length })
 
-  // No uncrawled products left for this job's scope — mark complete
-  if (workItems.length === 0) {
-    jlog.info('No remaining work, completing job', { jobId })
-    await payload.update({
-      collection: 'product-crawls',
-      id: jobId,
-      data: {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-      },
-    })
-    jlog.event('job.completed_empty', { collection: 'product-crawls', reason: 'No remaining uncrawled products in scope' })
-    return { type: 'none' }
+  const enabledStages = getEnabledCrawlStages(job)
+  const scrapeEnabled = enabledStages.has('scrape')
+  const reviewsEnabled = enabledStages.has('reviews')
+
+  // If scrape stage has work, return scrape work items
+  if (workItems.length > 0 && scrapeEnabled) {
+    return {
+      type: 'product-crawl',
+      jobId,
+      stage: 'scrape' as CrawlStageName,
+      workItems,
+      itemsPerTick: (job.itemsPerTick as number) ?? 10,
+      debug: (job.debug as boolean) ?? false,
+      crawlVariants: (job.crawlVariants as boolean) ?? true,
+      skipReviews: reviewsEnabled, // skip inline reviews when reviews stage will run separately
+      source: job.source,
+      enabledStages: [...enabledStages],
+    }
   }
 
-  return {
-    type: 'product-crawl',
-    jobId,
-    workItems,
-    itemsPerTick: (job.itemsPerTick as number) ?? 10,
-    debug: (job.debug as boolean) ?? false,
-    crawlVariants: (job.crawlVariants as boolean) ?? true,
-    source: job.source,
+  // Scrape stage exhausted (or disabled). Check if reviews stage has work.
+  if (reviewsEnabled) {
+    const crawlProgress = getCrawlProgress(job)
+
+    // Find source-products at stage 'scrape' (scraped, not yet reviewed)
+    const reviewWorkItems: Array<{ sourceProductId: number; source: string }> = []
+    for (const [key, stage] of Object.entries(crawlProgress)) {
+      if (key.startsWith('err:') || key.startsWith('pid:')) continue
+      if (stage !== 'scrape') continue // only products that completed scrape but not reviews
+      const spId = parseInt(key, 10)
+      if (isNaN(spId)) continue
+      if (reviewWorkItems.length >= itemsPerTick) break
+
+      // Look up source slug from source-product
+      const sp = await payload.findByID({ collection: 'source-products', id: spId }) as Record<string, unknown>
+      const spSource = sp.source as string
+      reviewWorkItems.push({ sourceProductId: spId, source: spSource })
+    }
+
+    if (reviewWorkItems.length > 0) {
+      jlog.info('Prepared review work items', { jobId, count: reviewWorkItems.length })
+      return {
+        type: 'product-crawl',
+        jobId,
+        stage: 'reviews' as CrawlStageName,
+        reviewWorkItems,
+        itemsPerTick,
+        source: job.source,
+        enabledStages: [...enabledStages],
+      }
+    }
   }
+
+  // No work remaining for any stage — mark complete
+  jlog.info('No remaining work, completing job', { jobId })
+  await payload.update({
+    collection: 'product-crawls',
+    id: jobId,
+    data: {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+    },
+  })
+  jlog.event('job.completed_empty', { collection: 'product-crawls', reason: 'No remaining uncrawled products in scope' })
+  return { type: 'none' }
 }
 
 async function buildProductDiscoveryWork(payload: PayloadRestClient, jobId: number) {

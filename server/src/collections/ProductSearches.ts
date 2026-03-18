@@ -19,49 +19,6 @@ export const ProductSearches: CollectionConfig = {
   },
   fields: [
     {
-      name: 'isGtinSearch',
-      type: 'checkbox',
-      label: 'GTIN Search',
-      defaultValue: true,
-      admin: {
-        description:
-          'When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.',
-      },
-    },
-    {
-      name: 'query',
-      type: 'textarea',
-      label: 'Search Queries',
-      required: true,
-      admin: {
-        description:
-          'One query per line. Each line is searched independently across all selected stores.',
-      },
-    },
-    {
-      name: 'sources',
-      type: 'select',
-      label: 'Sources',
-      hasMany: true,
-      required: true,
-      defaultValue: [...ALL_SOURCE_SLUGS],
-      options: [...SOURCE_OPTIONS],
-      admin: {
-        description: 'Which stores to search. All selected by default.',
-      },
-    },
-    {
-      name: 'maxResults',
-      type: 'number',
-      label: 'Max Results Per Source',
-      min: 1,
-      defaultValue: 50,
-      admin: {
-        position: 'sidebar',
-        description: 'Maximum products to import per source. Default: 50.',
-      },
-    },
-    {
       name: 'status',
       type: 'select',
       label: 'Status',
@@ -78,7 +35,17 @@ export const ProductSearches: CollectionConfig = {
       },
     },
     ...jobClaimFields,
-
+    {
+      name: 'maxResults',
+      type: 'number',
+      label: 'Max Results Per Source',
+      min: 1,
+      defaultValue: 50,
+      admin: {
+        position: 'sidebar',
+        description: 'Maximum products to import per source. Default: 50.',
+      },
+    },
     {
       name: 'debug',
       type: 'checkbox',
@@ -98,10 +65,46 @@ export const ProductSearches: CollectionConfig = {
         hidden: true,
       },
     },
-    // Everything below only shows after creation
     {
       type: 'tabs',
       tabs: [
+        {
+          label: 'Source',
+          fields: [
+            {
+              name: 'isGtinSearch',
+              type: 'checkbox',
+              label: 'GTIN Search',
+              defaultValue: true,
+              admin: {
+                description:
+                  'When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.',
+              },
+            },
+            {
+              name: 'query',
+              type: 'textarea',
+              label: 'Search Queries',
+              required: true,
+              admin: {
+                description:
+                  'One query per line. Each line is searched independently across all selected stores.',
+              },
+            },
+            {
+              name: 'sources',
+              type: 'select',
+              label: 'Sources',
+              hasMany: true,
+              required: true,
+              defaultValue: [...ALL_SOURCE_SLUGS],
+              options: [...SOURCE_OPTIONS],
+              admin: {
+                description: 'Which stores to search. All selected by default.',
+              },
+            },
+          ],
+        },
         {
           label: 'Progress',
           fields: [
@@ -188,9 +191,6 @@ export const ProductSearches: CollectionConfig = {
           ],
         },
       ],
-      admin: {
-        condition: (data) => !!data?.id,
-      },
     },
   ],
 }

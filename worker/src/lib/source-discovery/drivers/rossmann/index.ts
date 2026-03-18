@@ -27,7 +27,7 @@ interface RossmannBvReview {
   ContextDataValues?: Record<string, { Value?: string }>
 }
 
-async function fetchReviews(gtin: string): Promise<NonNullable<ScrapedProductData['reviews']>> {
+export async function fetchRossmannReviews(gtin: string): Promise<NonNullable<ScrapedProductData['reviews']>> {
   const PAGE_SIZE = 100
   const allReviews: NonNullable<ScrapedProductData['reviews']> = []
 
@@ -558,7 +558,7 @@ export const rossmannDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
@@ -768,8 +768,8 @@ export const rossmannDriver: SourceDriver = {
 
         const warnings: string[] = []
 
-        // Fetch reviews from BazaarVoice (uses GTIN as product ID)
-        const reviews = gtin ? await fetchReviews(gtin) : []
+        // Fetch reviews from BazaarVoice (uses GTIN as product ID, skip if requested)
+        const reviews = (!options?.skipReviews && gtin) ? await fetchRossmannReviews(gtin) : []
         if (reviews.length > 0) {
           log.info('Fetched reviews', { gtin, count: reviews.length })
         }

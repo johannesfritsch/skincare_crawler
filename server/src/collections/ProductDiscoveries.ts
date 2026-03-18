@@ -17,17 +17,6 @@ export const ProductDiscoveries: CollectionConfig = {
     beforeChange: [enforceJobClaim],
   },
   fields: [
-    // Main configuration - always visible
-    {
-      name: 'sourceUrls',
-      type: 'textarea',
-      label: 'Source URLs',
-      required: true,
-      admin: {
-        description:
-          'Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.',
-      },
-    },
     {
       name: 'status',
       type: 'select',
@@ -84,10 +73,24 @@ export const ProductDiscoveries: CollectionConfig = {
         hidden: true,
       },
     },
-    // Everything below only shows after creation
     {
       type: 'tabs',
       tabs: [
+        {
+          label: 'Source',
+          fields: [
+            {
+              name: 'sourceUrls',
+              type: 'textarea',
+              label: 'Source URLs',
+              required: true,
+              admin: {
+                description:
+                  'Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.',
+              },
+            },
+          ],
+        },
         {
           label: 'Progress',
           fields: [
@@ -183,9 +186,6 @@ export const ProductDiscoveries: CollectionConfig = {
           ],
         },
       ],
-      admin: {
-        condition: (data) => !!data?.id,
-      },
     },
   ],
 }

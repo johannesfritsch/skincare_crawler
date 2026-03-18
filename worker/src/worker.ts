@@ -36,6 +36,7 @@ import {
   type AggregationWorkItem,
 } from '@/lib/product-aggregation/stages'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
+import { executeReviewStage, type ReviewWorkItem } from '@/lib/product-crawl/stages/reviews'
 
 
 // ─── Config ───
@@ -124,18 +125,63 @@ async function uploadMedia(filePath: string, alt: string, mimetype: string, coll
 async function handleProductCrawl(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const jlog = log.forJob('product-crawls', jobId)
+  const stage = (work.stage as string) ?? 'scrape'
+  const enabledStagesArr = (work.enabledStages as string[]) ?? ['scrape', 'reviews']
+  const crawlVariants = (work.crawlVariants as boolean) ?? true
+
+  if (stage === 'reviews') {
+    // ─── Reviews stage ───
+    const reviewWorkItems = work.reviewWorkItems as Array<{ sourceProductId: number; source: string }>
+
+    log.info('Product crawl job (reviews stage)', { jobId, items: reviewWorkItems.length })
+    jlog.event('crawl.started', { source: 'reviews', items: reviewWorkItems.length, crawlVariants: false })
+
+    if (reviewWorkItems.length === 0) {
+      log.warn('No review work items, releasing claim', { jobId })
+      await client.update({ collection: 'product-crawls', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
+      return
+    }
+
+    const reviewResults: Array<{
+      sourceProductId: number
+      success: boolean
+      reviewsCreated: number
+      reviewsLinked: number
+      error?: string
+    }> = []
+
+    for (const item of reviewWorkItems) {
+      log.info('Fetching reviews', { sourceProductId: item.sourceProductId, source: item.source })
+      const result = await executeReviewStage(client, item as ReviewWorkItem, jlog)
+      reviewResults.push(result)
+      await heartbeat(jobId, 'product-crawl')
+    }
+
+    await submitWork(client, worker, {
+      type: 'product-crawl',
+      jobId,
+      stage: 'reviews',
+      results: [],
+      reviewResults,
+      crawlVariants,
+      enabledStages: enabledStagesArr,
+    } as Parameters<typeof submitWork>[2])
+    log.info('Submitted review results', { jobId })
+    return
+  }
+
+  // ─── Scrape stage ───
   const workItems = work.workItems as Array<{
     sourceVariantId?: number
     sourceProductId?: number
     sourceUrl: string
     source: string
   }>
-  const debug = work.debug as boolean
-  const crawlVariants = work.crawlVariants as boolean
+  const debug = (work.debug as boolean) ?? false
+  const skipReviews = (work.skipReviews as boolean) ?? false
 
-  log.info('Product crawl job', { jobId, items: workItems.length })
+  log.info('Product crawl job (scrape stage)', { jobId, items: workItems.length, skipReviews })
 
-  // Determine source slug from first work item
   const crawlSource = workItems.length > 0 ? workItems[0].source : 'unknown'
   jlog.event('crawl.started', { source: crawlSource, items: workItems.length, crawlVariants })
 
@@ -168,7 +214,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
 
     log.info('Scraping source URL', { sourceUrl: item.sourceUrl })
     try {
-      const data = await driver.scrapeProduct(item.sourceUrl, { debug, logger: jlog })
+      const data = await driver.scrapeProduct(item.sourceUrl, { debug, logger: jlog, skipReviews })
       results.push({ ...item, data })
       if (!data) {
         results[results.length - 1].error = 'scrapeProduct returned null'
@@ -180,7 +226,14 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
     }
   }
 
-  await submitWork(client, worker, { type: 'product-crawl', jobId, results, crawlVariants } as Parameters<typeof submitWork>[2])
+  await submitWork(client, worker, {
+    type: 'product-crawl',
+    jobId,
+    stage: 'scrape',
+    results,
+    crawlVariants,
+    enabledStages: enabledStagesArr,
+  } as Parameters<typeof submitWork>[2])
   log.info('Submitted crawl results', { jobId })
 }
 

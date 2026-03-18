@@ -71,7 +71,7 @@ export const ProductCrawls: CollectionConfig = {
       type: 'tabs',
       tabs: [
         {
-          label: 'Configuration',
+          label: 'Source',
           fields: [
             {
               name: 'type',
@@ -188,6 +188,36 @@ export const ProductCrawls: CollectionConfig = {
           ],
         },
         {
+          label: 'Stages',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageScrape',
+                  type: 'checkbox',
+                  label: 'Scrape',
+                  defaultValue: true,
+                  admin: {
+                    width: '50%',
+                    description: 'Scrape product data from store pages.',
+                  },
+                },
+                {
+                  name: 'stageReviews',
+                  type: 'checkbox',
+                  label: 'Reviews',
+                  defaultValue: true,
+                  admin: {
+                    width: '50%',
+                    description: 'Fetch reviews from store review APIs (BazaarVoice/Yotpo).',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
           label: 'Progress',
           fields: [
             {
@@ -260,6 +290,13 @@ export const ProductCrawls: CollectionConfig = {
         {
           label: 'Output',
           fields: [
+            {
+              name: 'crawlProgress',
+              type: 'json',
+              admin: {
+                hidden: true,
+              },
+            },
             {
               name: 'crawledGtins',
               type: 'textarea',

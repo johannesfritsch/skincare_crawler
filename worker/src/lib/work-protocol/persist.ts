@@ -409,54 +409,9 @@ export async function persistCrawlResult(
 
   // Persist reviews if provided (linked to source-product + optionally the crawled variant)
   if (data.reviews && data.reviews.length > 0 && sourceProductId) {
-    let reviewsCreated = 0
-    let reviewsLinked = 0
-    for (const review of data.reviews) {
-      const existing = await payload.find({
-        collection: 'source-reviews',
-        where: { externalId: { equals: review.externalId } },
-        limit: 1,
-      })
-      if (existing.totalDocs === 0) {
-        await payload.create({
-          collection: 'source-reviews',
-          data: {
-            sourceProduct: sourceProductId,
-            ...(sourceVariantId ? { sourceVariants: [sourceVariantId] } : {}),
-            externalId: review.externalId,
-            rating: review.rating,
-            title: review.title ?? null,
-            reviewText: review.reviewText ?? null,
-            userNickname: review.userNickname ?? null,
-            submittedAt: review.submittedAt ?? null,
-            isRecommended: review.isRecommended ?? false,
-            positiveFeedbackCount: review.positiveFeedbackCount ?? 0,
-            negativeFeedbackCount: review.negativeFeedbackCount ?? 0,
-            reviewerAge: review.reviewerAge ?? null,
-            reviewerGender: review.reviewerGender ?? null,
-          },
-        })
-        reviewsCreated++
-      } else if (sourceVariantId) {
-        // Review already exists — append this variant if not already linked
-        const existingReview = existing.docs[0]
-        const existingVariantIds: number[] = Array.isArray(existingReview.sourceVariants)
-          ? existingReview.sourceVariants.map((v: any) => (typeof v === 'object' ? v.id : v))
-          : []
-        if (!existingVariantIds.includes(sourceVariantId)) {
-          await payload.update({
-            collection: 'source-reviews',
-            id: existingReview.id as number,
-            data: {
-              sourceVariants: [...existingVariantIds, sourceVariantId],
-            },
-          })
-          reviewsLinked++
-        }
-      }
-    }
-    if (reviewsCreated > 0 || reviewsLinked > 0) {
-      jlog.event('persist.reviews_created', { url: variantUrl, source, count: reviewsCreated + reviewsLinked })
+    const reviewResult = await persistReviews(payload, sourceProductId, sourceVariantId, data.reviews)
+    if (reviewResult.created > 0 || reviewResult.linked > 0) {
+      jlog.event('persist.reviews_created', { url: variantUrl, source, count: reviewResult.created + reviewResult.linked })
     }
   }
 
@@ -663,6 +618,68 @@ export async function persistCrawlResult(
 }
 
 
+
+// ─── Reviews ───
+
+/**
+ * Persist reviews to source-reviews collection.
+ * Find-or-create by externalId; appends variant ID to existing reviews if not already linked.
+ * Callable both from persistCrawlResult (inline reviews) and from the standalone reviews stage.
+ */
+export async function persistReviews(
+  payload: PayloadRestClient,
+  sourceProductId: number,
+  sourceVariantId: number | undefined,
+  reviews: NonNullable<ScrapedProductData['reviews']>,
+): Promise<{ created: number; linked: number }> {
+  let created = 0
+  let linked = 0
+  for (const review of reviews) {
+    const existing = await payload.find({
+      collection: 'source-reviews',
+      where: { externalId: { equals: review.externalId } },
+      limit: 1,
+    })
+    if (existing.totalDocs === 0) {
+      await payload.create({
+        collection: 'source-reviews',
+        data: {
+          sourceProduct: sourceProductId,
+          ...(sourceVariantId ? { sourceVariants: [sourceVariantId] } : {}),
+          externalId: review.externalId,
+          rating: review.rating,
+          title: review.title ?? null,
+          reviewText: review.reviewText ?? null,
+          userNickname: review.userNickname ?? null,
+          submittedAt: review.submittedAt ?? null,
+          isRecommended: review.isRecommended ?? false,
+          positiveFeedbackCount: review.positiveFeedbackCount ?? 0,
+          negativeFeedbackCount: review.negativeFeedbackCount ?? 0,
+          reviewerAge: review.reviewerAge ?? null,
+          reviewerGender: review.reviewerGender ?? null,
+        },
+      })
+      created++
+    } else if (sourceVariantId) {
+      // Review already exists — append this variant if not already linked
+      const existingReview = existing.docs[0]
+      const existingVariantIds: number[] = Array.isArray(existingReview.sourceVariants)
+        ? existingReview.sourceVariants.map((v: any) => (typeof v === 'object' ? v.id : v))
+        : []
+      if (!existingVariantIds.includes(sourceVariantId)) {
+        await payload.update({
+          collection: 'source-reviews',
+          id: existingReview.id as number,
+          data: {
+            sourceVariants: [...existingVariantIds, sourceVariantId],
+          },
+        })
+        linked++
+      }
+    }
+  }
+  return { created, linked }
+}
 
 // ─── Ingredients Discovery ───
 
