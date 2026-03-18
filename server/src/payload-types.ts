@@ -114,7 +114,6 @@ export interface Config {
     };
     products: {
       videoMentions: 'video-mentions';
-      sentiments: 'product-sentiments';
       aggregations: 'product-aggregations';
     };
     'source-products': {
@@ -1131,11 +1130,6 @@ export interface Product {
         id?: string | null;
       }[]
     | null;
-  sentiments?: {
-    docs?: (number | ProductSentiment)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   aggregations?: {
     docs?: (number | ProductAggregation)[];
     hasNextPage?: boolean;
@@ -1877,40 +1871,6 @@ export interface SourceReview {
   createdAt: string;
 }
 /**
- * Aggregated per-product topic sentiment counts from source reviews
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-sentiments".
- */
-export interface ProductSentiment {
-  id: number;
-  product: number | Product;
-  topic:
-    | 'smell'
-    | 'texture'
-    | 'color'
-    | 'consistency'
-    | 'absorption'
-    | 'stickiness'
-    | 'lather'
-    | 'efficacy'
-    | 'longevity'
-    | 'finish'
-    | 'afterFeel'
-    | 'skinTolerance'
-    | 'allergenPotential'
-    | 'dispensing'
-    | 'travelSafety'
-    | 'animalTesting';
-  sentiment: 'positive' | 'neutral' | 'negative';
-  /**
-   * Count of reviews with this topic+sentiment combination
-   */
-  amount: number;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "video-discoveries".
  */
@@ -2260,6 +2220,40 @@ export interface IngredientCrawl {
     totalDocs?: number;
   };
   lastCheckedIngredientId?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Aggregated per-product topic sentiment counts from source reviews
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiments".
+ */
+export interface ProductSentiment {
+  id: number;
+  product: number | Product;
+  topic:
+    | 'smell'
+    | 'texture'
+    | 'color'
+    | 'consistency'
+    | 'absorption'
+    | 'stickiness'
+    | 'lather'
+    | 'efficacy'
+    | 'longevity'
+    | 'finish'
+    | 'afterFeel'
+    | 'skinTolerance'
+    | 'allergenPotential'
+    | 'dispensing'
+    | 'travelSafety'
+    | 'animalTesting';
+  sentiment: 'positive' | 'neutral' | 'negative';
+  /**
+   * Count of reviews with this topic+sentiment combination
+   */
+  amount: number;
   updatedAt: string;
   createdAt: string;
 }
@@ -2791,7 +2785,6 @@ export interface ProductsSelect<T extends boolean = true> {
         creatorScoreChange?: T;
         id?: T;
       };
-  sentiments?: T;
   aggregations?: T;
   sourceProducts?: T;
   updatedAt?: T;

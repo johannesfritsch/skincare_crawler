@@ -214,13 +214,12 @@ export const Products: CollectionConfig = {
           label: 'Sentiments',
           fields: [
             {
-              name: 'sentiments',
-              type: 'join',
-              collection: 'product-sentiments',
-              on: 'product',
+              name: 'sentimentChart',
+              type: 'ui',
               admin: {
-                defaultColumns: ['topic', 'sentiment', 'amount'],
-                allowCreate: false,
+                components: {
+                  Field: '@/components/SentimentPyramid',
+                },
               },
             },
           ],
