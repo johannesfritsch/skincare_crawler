@@ -23,7 +23,7 @@ import type { AggregationSource } from '@/lib/aggregate-product'
 
 // ─── Types ───
 
-/** The 9 stage names (match the checkbox field names on ProductAggregations minus 'stage' prefix, in camelCase→snake_case) */
+/** The 10 stage names (match the checkbox field names on ProductAggregations minus 'stage' prefix, in camelCase→snake_case) */
 export type StageName =
   | 'resolve'
   | 'classify'
@@ -34,6 +34,7 @@ export type StageName =
   | 'embed_images'
   | 'descriptions'
   | 'score_history'
+  | 'review_sentiment'
 
 /**
  * Per-product progress map stored on the job's `aggregationProgress` JSON field.
@@ -115,6 +116,7 @@ import { executeObjectDetection } from './object-detection'
 import { executeEmbedImages } from './embed-images'
 import { executeDescriptions } from './descriptions'
 import { executeScoreHistory } from './score-history'
+import { executeReviewSentiment } from './review-sentiment'
 
 /** All stages in pipeline order */
 export const STAGES: StageDefinition[] = [
@@ -171,6 +173,12 @@ export const STAGES: StageDefinition[] = [
     index: 8,
     jobField: 'stageScoreHistory',
     execute: executeScoreHistory,
+  },
+  {
+    name: 'review_sentiment',
+    index: 9,
+    jobField: 'stageReviewSentiment',
+    execute: executeReviewSentiment,
   },
 ]
 
@@ -238,6 +246,7 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   if (job.stageEmbedImages !== false) stages.add('embed_images')
   if (job.stageDescriptions !== false) stages.add('descriptions')
   if (job.stageScoreHistory !== false) stages.add('score_history')
+  if (job.stageReviewSentiment !== false) stages.add('review_sentiment')
   return stages
 }
 

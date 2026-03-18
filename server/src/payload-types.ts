@@ -88,6 +88,7 @@ export interface Config {
     'product-searches': ProductSearch;
     'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
+    'product-sentiments': ProductSentiment;
     events: Event;
     creators: Creator;
     channels: Channel;
@@ -113,6 +114,7 @@ export interface Config {
     };
     products: {
       videoMentions: 'video-mentions';
+      sentiments: 'product-sentiments';
       aggregations: 'product-aggregations';
     };
     'source-products': {
@@ -178,6 +180,7 @@ export interface Config {
     'product-searches': ProductSearchesSelect<false> | ProductSearchesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
+    'product-sentiments': ProductSentimentsSelect<false> | ProductSentimentsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
@@ -995,6 +998,10 @@ export interface ProductAggregation {
    */
   detectionThreshold?: number | null;
   /**
+   * Number of reviews per LLM call for the review sentiment stage. Default: 50.
+   */
+  reviewSentimentChunkSize?: number | null;
+  /**
    * Minimum detection box area as a percentage of the source image area. Detections smaller than this are discarded as background noise. Default: 5%.
    */
   minBoxArea?: number | null;
@@ -1035,6 +1042,10 @@ export interface ProductAggregation {
    */
   stageScoreHistory?: boolean | null;
   /**
+   * LLM analysis of source reviews to extract per-topic sentiment counts (smell, texture, efficacy, etc.).
+   */
+  stageReviewSentiment?: boolean | null;
+  /**
    * Total products to aggregate
    */
   total?: number | null;
@@ -1054,6 +1065,18 @@ export interface ProductAggregation {
    * Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }
    */
   aggregationProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Maps product IDs to number of source-reviews already processed. Used by the review sentiment stage for incremental processing.
+   */
+  reviewState?:
     | {
         [k: string]: unknown;
       }
@@ -1108,6 +1131,11 @@ export interface Product {
         id?: string | null;
       }[]
     | null;
+  sentiments?: {
+    docs?: (number | ProductSentiment)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   aggregations?: {
     docs?: (number | ProductAggregation)[];
     hasNextPage?: boolean;
@@ -1849,6 +1877,40 @@ export interface SourceReview {
   createdAt: string;
 }
 /**
+ * Aggregated per-product topic sentiment counts from source reviews
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiments".
+ */
+export interface ProductSentiment {
+  id: number;
+  product: number | Product;
+  topic:
+    | 'smell'
+    | 'texture'
+    | 'color'
+    | 'consistency'
+    | 'absorption'
+    | 'stickiness'
+    | 'lather'
+    | 'efficacy'
+    | 'longevity'
+    | 'finish'
+    | 'afterFeel'
+    | 'skinTolerance'
+    | 'allergenPotential'
+    | 'dispensing'
+    | 'travelSafety'
+    | 'animalTesting';
+  sentiment: 'positive' | 'neutral' | 'negative';
+  /**
+   * Count of reviews with this topic+sentiment combination
+   */
+  amount: number;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "video-discoveries".
  */
@@ -2306,6 +2368,10 @@ export interface PayloadLockedDocument {
         value: number | ProductAggregation;
       } | null)
     | ({
+        relationTo: 'product-sentiments';
+        value: number | ProductSentiment;
+      } | null)
+    | ({
         relationTo: 'events';
         value: number | Event;
       } | null)
@@ -2725,6 +2791,7 @@ export interface ProductsSelect<T extends boolean = true> {
         creatorScoreChange?: T;
         id?: T;
       };
+  sentiments?: T;
   aggregations?: T;
   sourceProducts?: T;
   updatedAt?: T;
@@ -3016,6 +3083,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   imageSourcePriority?: T;
   brandSourcePriority?: T;
   detectionThreshold?: T;
+  reviewSentimentChunkSize?: T;
   minBoxArea?: T;
   stageResolve?: T;
   stageClassify?: T;
@@ -3026,14 +3094,28 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   stageEmbedImages?: T;
   stageDescriptions?: T;
   stageScoreHistory?: T;
+  stageReviewSentiment?: T;
   total?: T;
   aggregated?: T;
   errors?: T;
   tokensUsed?: T;
   aggregationProgress?: T;
+  reviewState?: T;
   products?: T;
   events?: T;
   lastCheckedSourceId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiments_select".
+ */
+export interface ProductSentimentsSelect<T extends boolean = true> {
+  product?: T;
+  topic?: T;
+  sentiment?: T;
+  amount?: T;
   updatedAt?: T;
   createdAt?: T;
 }

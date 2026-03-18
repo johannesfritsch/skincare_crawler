@@ -380,7 +380,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 4. Each stage runs independently, persists its own data outputs inline.
 5. `submitProductAggregation()` updates the progress map entry for each product group (`progress[progressKey] = stageName`) after successful stage execution, stores the product ID for quick lookup (`progress[pid:${progressKey}] = productId`), and uses the progress map for remaining work checks.
 
-**9 stages** (in order):
+**10 stages** (in order):
 
 | # | Stage name | Checkbox field | What it does | LLM? |
 |---|------------|---------------|--------------|------|
@@ -393,10 +393,11 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 6 | `embed_images` | `stageEmbedImages` | Per variant: DINOv2-small embedding vectors for recognition image crops → upserted into `recognition_embeddings` table via embeddings API by `(product_variant_id, detection_media_id)` | No (ML) |
 | 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
 | 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
+| 9 | `review_sentiment` | `stageReviewSentiment` | GPT 4.1-mini analysis of source-reviews → per-topic sentiment counts → upsert product-sentiments. Incremental via `reviewState` (skips already-processed reviews). Configurable: `reviewSentimentChunkSize` (default 50). | Yes |
 
 **Progress tracking**: Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys (sorted GTIN list joined by commas) to their last completed stage name. After resolve, the product ID is stored under `pid:<progressKey>` for quick lookup. `stages/index.ts` exports: `AggregationProgress` type, `stageIndex()`, `getFinalStage()`, `getAggregationProgress()`, `getNextStage(lastCompleted)`, `productNeedsWork(lastCompleted)`. `StageDefinition` has `index: number`.
 
-**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageResolve`, `stageClassify`, `stageMatchBrand`, `stageIngredients`, `stageImages`, `stageObjectDetection`, `stageEmbedImages`, `stageDescriptions`, `stageScoreHistory`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageResolve`, `stageClassify`, `stageMatchBrand`, `stageIngredients`, `stageImages`, `stageObjectDetection`, `stageEmbedImages`, `stageDescriptions`, `stageScoreHistory`, `stageReviewSentiment`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted`.
 
 **Sister variant grouping** (`includeSisterVariants` field on job, default: true):
 - When enabled, the claim phase discovers all sibling GTINs that share a source-product. For example, if GTIN-A (50ml) and GTIN-B (100ml) both have source-variants under the same source-product, they are grouped into one work item and become variants of the same unified product.

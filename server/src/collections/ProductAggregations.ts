@@ -24,6 +24,7 @@ export const ProductAggregations: CollectionConfig = {
         errors: 0,
         tokensUsed: 0,
         aggregationProgress: null,
+        reviewState: null,
         products: [],
         lastCheckedSourceId: 0,
       }),
@@ -188,6 +189,16 @@ export const ProductAggregations: CollectionConfig = {
               },
             },
             {
+              name: 'reviewSentimentChunkSize',
+              type: 'number',
+              label: 'Review Sentiment Chunk Size',
+              defaultValue: 50,
+              min: 1,
+              admin: {
+                description: 'Number of reviews per LLM call for the review sentiment stage. Default: 50.',
+              },
+            },
+            {
               name: 'minBoxArea',
               type: 'number',
               label: 'Min Detection Box Area (%)',
@@ -307,6 +318,17 @@ export const ProductAggregations: CollectionConfig = {
                     width: '25%',
                   },
                 },
+                {
+                  name: 'stageReviewSentiment',
+                  type: 'checkbox',
+                  label: 'Review Sentiment',
+                  defaultValue: true,
+                  admin: {
+                    description:
+                      'LLM analysis of source reviews to extract per-topic sentiment counts (smell, texture, efficacy, etc.).',
+                    width: '25%',
+                  },
+                },
               ],
             },
           ],
@@ -369,6 +391,16 @@ export const ProductAggregations: CollectionConfig = {
                 readOnly: true,
                 description:
                   'Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }',
+              },
+            },
+            {
+              name: 'reviewState',
+              type: 'json',
+              label: 'Review State',
+              admin: {
+                readOnly: true,
+                description:
+                  'Maps product IDs to number of source-reviews already processed. Used by the review sentiment stage for incremental processing.',
               },
             },
           ],

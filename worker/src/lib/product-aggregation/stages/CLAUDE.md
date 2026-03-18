@@ -1,6 +1,6 @@
 # Product Aggregation — Stage Pipeline
 
-9-stage pipeline that transforms crawled source data into unified products. Each stage is a self-contained module that reads from the DB, does its work, and persists results immediately. Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys to the last completed stage name.
+10-stage pipeline that transforms crawled source data into unified products. Each stage is a self-contained module that reads from the DB, does its work, and persists results immediately. Progress is tracked on the job's `aggregationProgress` JSON field — a `Record<string, StageName | null>` mapping product group keys to the last completed stage name.
 
 ## Architecture
 
@@ -8,14 +8,14 @@
 
 Central orchestration file. Exports:
 
-- **`StageName`** — union of all 9 stage names
+- **`StageName`** — union of all 10 stage names
 - **`AggregationProgress`** — `Record<string, StageName | null>` progress map type
 - **`StageConfig`** — job-level config: `jobId`, `language`, `imageSourcePriority`, `detectionThreshold` (0-1, default 0.3), `minBoxArea` (fraction, default 0.05)
 - **`StageContext`** — injected into every stage: `payload` (REST client), `config`, `log` (Logger), `uploadMedia()`, `heartbeat()`
 - **`StageResult`** — `{ success, error?, productId?, tokensUsed? }`
 - **`AggregationWorkItem`** — `{ productId: number | null, gtins: string[], variants: Array<{ gtin, sources }> }`
 - **`StageDefinition`** — `{ name, index, jobField, execute }` — the `jobField` maps to the checkbox on the ProductAggregations collection (e.g. `stageResolve`)
-- **`STAGES`** — ordered array of all 8 stage definitions
+- **`STAGES`** — ordered array of all 10 stage definitions
 - **`getNextStage(lastCompleted, enabledStages)`** — finds the next enabled stage after `lastCompleted`
 - **`getEnabledStages(job)`** — reads checkbox fields from the job document, returns `Set<StageName>`
 - **`productNeedsWork(lastCompleted, enabledStages)`** — true if the product has more stages to run
@@ -244,6 +244,38 @@ Computes store scores (from retailer ratings) and creator scores (from video men
 6. Prepend new entry: `{ recordedAt, storeScore, creatorScore, change }`
 
 **Writes to**: `products`
+
+---
+
+### Stage 9: `review_sentiment` — LLM Review Topic Sentiment Analysis
+
+**File**: `review-sentiment.ts`
+**Checkbox**: `stageReviewSentiment`
+**LLM**: Yes — GPT 4.1-mini
+**Event**: None (logs only)
+
+Analyzes source-reviews via GPT 4.1-mini to extract per-topic sentiment counts. Each review can contribute +1 to multiple topic-sentiment pairs (e.g., a review can be positive about smell AND negative about texture). Results are stored in the `product-sentiments` collection. Incremental: a `reviewState` JSON field on the job tracks how many reviews have already been processed per product, so re-runs only analyze new reviews.
+
+**Topics**: smell, texture, color, consistency, absorption, stickiness, lather, efficacy, longevity, finish, afterFeel, skinTolerance, allergenPotential, dispensing, travelSafety, animalTesting
+
+**Sentiments**: positive, neutral, negative
+
+**Flow**:
+1. Collect source-product IDs from work item
+2. Read `reviewState[productId]` from job — the number of reviews already processed
+3. Count total source-reviews across those source-products
+4. If count == stored → skip (no new reviews)
+5. Fetch ALL source-reviews (sorted by ID, limit 10000)
+6. Skip first N (already processed), keep only new reviews
+7. Batch new reviews into chunks of `reviewSentimentChunkSize` (job config, default 50)
+8. For each chunk → single GPT 4.1-mini call → extract topics per review (compact JSON keys: `i`, `t`, `s`)
+9. Aggregate topic-sentiment counts from new reviews
+10. Upsert `product-sentiments` records (increment existing amounts, create missing ones)
+11. Update `reviewState[productId]` = new total count
+
+**Writes to**: `product-sentiments`, `product-aggregations` (reviewState)
+
+**Configuration**: `reviewSentimentChunkSize` (number field on job, default 50, min 1) — controls how many reviews are sent per LLM call.
 
 ---
 

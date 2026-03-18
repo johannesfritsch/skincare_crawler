@@ -21,6 +21,7 @@ import { SourceProducts } from './collections/SourceProducts'
 import { SourceBrands } from './collections/SourceBrands'
 import { SourceVariants } from './collections/SourceVariants'
 import { SourceReviews } from './collections/SourceReviews'
+import { ProductSentiments } from './collections/ProductSentiments'
 
 import { ProductDiscoveries } from './collections/ProductDiscoveries'
 import { ProductSearches } from './collections/ProductSearches'
@@ -223,6 +224,7 @@ export default buildConfig({
     ProductSearches,
     ProductCrawls,
     ProductAggregations,
+    ProductSentiments,
     Events,
     Creators,
     Channels,

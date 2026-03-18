@@ -43,6 +43,11 @@ export const Products: CollectionConfig = {
           where: { product: { equals: id } },
           req,
         })
+        await req.payload.delete({
+          collection: 'product-sentiments',
+          where: { product: { equals: id } },
+          req,
+        })
       },
     ],
   },
@@ -202,6 +207,21 @@ export const Products: CollectionConfig = {
                   ],
                 },
               ],
+            },
+          ],
+        },
+        {
+          label: 'Sentiments',
+          fields: [
+            {
+              name: 'sentiments',
+              type: 'join',
+              collection: 'product-sentiments',
+              on: 'product',
+              admin: {
+                defaultColumns: ['topic', 'sentiment', 'amount'],
+                allowCreate: false,
+              },
             },
           ],
         },
