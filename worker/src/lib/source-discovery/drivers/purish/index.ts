@@ -102,6 +102,93 @@ interface ShopifySearchPageProduct {
   options: string[]
 }
 
+// ─── Yotpo Reviews ──────────────────────────────────────────────────────────
+
+const YOTPO_STORE_KEY = 'EDc1vj8PTmjuHuo0cUBNf3lXQbrV6sAyTLXRuqBM'
+const YOTPO_API = `https://api-cdn.yotpo.com/v3/storefront/store/${YOTPO_STORE_KEY}/product`
+const YOTPO_PAGE_SIZE = 100
+
+interface YotpoReview {
+  id: number
+  score: number
+  votesUp: number
+  votesDown: number
+  content: string | null
+  title: string | null
+  createdAt: string // ISO-ish "2026-03-03T13:48:29"
+  verifiedBuyer: boolean
+  user: { displayName: string | null }
+}
+
+interface YotpoResult {
+  reviews: NonNullable<ScrapedProductData['reviews']>
+  averageScore: number | null
+  totalReviews: number
+}
+
+async function fetchYotpoReviews(productId: string): Promise<YotpoResult> {
+  const allReviews: NonNullable<ScrapedProductData['reviews']> = []
+  let averageScore: number | null = null
+  let totalReviews = 0
+
+  try {
+    let page = 1
+    let totalResults = Infinity
+
+    while (allReviews.length < totalResults) {
+      const url = `${YOTPO_API}/${productId}/reviews?page=${page}&perPage=${YOTPO_PAGE_SIZE}&sort=date&lang=de`
+      const res = await stealthFetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Origin': 'https://purish.com',
+          'Referer': 'https://purish.com/',
+        },
+      })
+      if (!res.ok) {
+        log.info('Yotpo API returned error', { status: res.status, productId, page })
+        break
+      }
+      const data = await res.json()
+      totalResults = data?.pagination?.total ?? 0
+      const reviews: YotpoReview[] = data?.reviews ?? []
+
+      // Capture bottomline from first page
+      if (page === 1 && data?.bottomline) {
+        averageScore = data.bottomline.averageScore ?? null
+        totalReviews = data.bottomline.totalReview ?? 0
+        log.info('Yotpo bottomline', { productId, averageScore, totalReviews })
+      }
+
+      if (reviews.length === 0) break
+      log.info('Yotpo reviews page fetched', { productId, page, reviews: reviews.length, total: totalResults })
+
+      for (const r of reviews) {
+        allReviews.push({
+          externalId: String(r.id),
+          rating: r.score * 2, // Normalize 1-5 stars to 0-10 scale
+          title: r.title ?? undefined,
+          reviewText: r.content ?? undefined,
+          userNickname: r.user?.displayName ?? undefined,
+          submittedAt: r.createdAt ?? undefined,
+          positiveFeedbackCount: r.votesUp ?? 0,
+          negativeFeedbackCount: r.votesDown ?? 0,
+        })
+      }
+
+      page++
+
+      if (allReviews.length < totalResults) {
+        await jitteredDelay(400)
+      }
+    }
+  } catch (error) {
+    log.info('Failed to fetch reviews from Yotpo', { productId, fetched: allReviews.length, error: String(error) })
+  }
+
+  return { reviews: allReviews, averageScore, totalReviews }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function jitteredDelay(baseMs: number): Promise<void> {
@@ -842,7 +929,7 @@ export const purishDriver: SourceDriver = {
             gtin: v.barcode || null,
             isSelected: v.id === selectedVariant?.id,
             availability: v.available != null ? (v.available ? 'available' as const : 'unavailable' as const) : undefined,
-            sourceArticleNumber: v.sku,
+            sourceArticleNumber: String(v.id),
           }
         })
         // Deduplicate by label
@@ -879,8 +966,11 @@ export const purishDriver: SourceDriver = {
             ? (pageData.productAvailable ? 'available' : 'unavailable')
             : undefined)
 
+    // Fetch reviews from Yotpo (uses Shopify product ID)
+    const yotpo = await fetchYotpoReviews(String(product.id))
+
     const scrapeDurationMs = Date.now() - scrapeStartMs
-    logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText })
+    logger?.event('scraper.product_scraped', { url: sourceUrl, source: 'purish', name: product.title, variants: variants.length, durationMs: scrapeDurationMs, images: images.length, hasIngredients: !!ingredientsText, reviews: yotpo.reviews.length, rating: yotpo.averageScore ?? 0 })
 
     // Brand URL: Shopify collections page for the vendor
     // Shopify handles strip special characters and collapse multiple hyphens
@@ -902,14 +992,18 @@ export const purishDriver: SourceDriver = {
       images,
       variants,
       labels: labels.length > 0 ? labels : undefined,
-      sourceArticleNumber: selectedVariant?.sku || undefined,
+      sourceArticleNumber: selectedVariant ? String(selectedVariant.id) : undefined,
+      sourceProductArticleNumber: String(product.id),
       categoryBreadcrumbs,
       canonicalUrl,
       perUnitAmount,
       perUnitQuantity,
       perUnitUnit,
+      rating: yotpo.averageScore ?? undefined,
+      ratingCount: yotpo.totalReviews || undefined,
       availability: productAvailability,
       warnings: [],
+      reviews: yotpo.reviews.length > 0 ? yotpo.reviews : undefined,
     }
   },
 }

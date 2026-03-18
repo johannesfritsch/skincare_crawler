@@ -135,7 +135,7 @@ Each variant produces:
 - `gtin`: barcode from productJson or .json API
 - `isSelected`: true for the currently crawled variant
 - `availability`: from productJson's `available` boolean
-- `sourceArticleNumber`: Shopify SKU
+- `sourceArticleNumber`: Shopify variant ID (numeric, used in `?variant=` URLs)
 
 Variant options with `name === "Title"` and single value `"Default Title"` are skipped (Shopify pseudo-option for single-variant products). Duplicate labels within an option are deduplicated.
 
@@ -145,9 +145,31 @@ From the embedded `productJson` in the page HTML:
 - Per-variant: `productJson.variants[].available` boolean → `Map<variantId, boolean>`
 - Product-level: `productJson.available` boolean (fallback when variant-specific data unavailable)
 
+### Rating
+
+From the Yotpo reviews API bottomline (first page response):
+- **averageScore**: `bottomline.averageScore` (float, e.g. 4.873418) — stored as-is (0-5 scale) on `source-products.averageRating`
+- **totalReview**: `bottomline.totalReview` (integer) — stored on `source-products.ratingCount`
+
+### Reviews (Yotpo)
+
+Fetched from Yotpo storefront API after product data scraping:
+- **API**: `api-cdn.yotpo.com/v3/storefront/store/{storeKey}/product/{productId}/reviews`
+- **Store key**: `EDc1vj8PTmjuHuo0cUBNf3lXQbrV6sAyTLXRuqBM`
+- **Key param**: `productId` = Shopify product ID (from `product.id`)
+- **Pagination**: `page=N&perPage=100`, sorted by `date`, `lang=de`
+- **Headers**: Origin/Referer from `purish.com`
+- **Rating normalization**: Yotpo scores (1-5) are normalized to 0-10 scale (`score * 2`)
+- **Failure handling**: wrapped in try/catch — returns empty reviews on failure, never fails the scrape
+- **Dedup**: reviews are persisted by `externalId` (Yotpo review ID, globally unique)
+
 ### Source Article Number
 
-Shopify SKU from the selected variant (`variant.sku`).
+Shopify variant ID from the selected variant (`String(variant.id)`) — the numeric ID used in `?variant=` URLs, not the SKU.
+
+### Source Product Article Number
+
+Shopify product ID (`String(product.id)`) — stored on `source-products.sourceArticleNumber`. Used as the key for Yotpo review API requests.
 
 ## Discovery (`discoverProducts`)
 

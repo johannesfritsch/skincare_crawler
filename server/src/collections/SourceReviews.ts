@@ -15,11 +15,20 @@ export const SourceReviews: CollectionConfig = {
   fields: [
     // ── Sidebar ──
     {
-      name: 'sourceVariant',
+      name: 'sourceProduct',
       type: 'relationship',
-      relationTo: 'source-variants',
+      relationTo: 'source-products',
       required: true,
       index: true,
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'sourceVariants',
+      type: 'relationship',
+      relationTo: 'source-variants',
+      hasMany: true,
       admin: {
         position: 'sidebar',
       },

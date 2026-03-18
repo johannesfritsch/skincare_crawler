@@ -117,6 +117,7 @@ export interface Config {
     };
     'source-products': {
       sourceVariants: 'source-variants';
+      sourceReviews: 'source-reviews';
     };
     'source-variants': {
       sourceReviews: 'source-reviews';
@@ -1464,69 +1465,6 @@ export interface ProductVariant {
    */
   description?: string | null;
   /**
-   * All variant images from all stores. The first "public" entry is the primary display image. "recognition_only" images are used for object detection + embedding but not shown in the frontend.
-   */
-  images?:
-    | {
-        image: number | ProductMedia;
-        /**
-         * Public images are shown in the frontend. Recognition-only images are used for object detection + embedding only.
-         */
-        visibility?: ('public' | 'recognition_only') | null;
-        /**
-         * Which store this image was sourced from.
-         */
-        source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Cropped product packaging regions detected by Grounding DINO object detection
-   */
-  recognitionImages?:
-    | {
-        image: number | DetectionMedia;
-        /**
-         * Object detection confidence (0-1)
-         */
-        score?: number | null;
-        boxXMin?: number | null;
-        boxYMin?: number | null;
-        boxXMax?: number | null;
-        boxYMax?: number | null;
-        /**
-         * Whether an embedding vector has been computed for this crop.
-         */
-        hasEmbedding?: boolean | null;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Product ingredients (parsed from source variant INCI text, matched to ingredient database)
-   */
-  ingredients?:
-    | {
-        /**
-         * Raw ingredient name as listed on the product
-         */
-        name: string;
-        /**
-         * Link to ingredient database entry, if matched
-         */
-        ingredient?: (number | null) | Ingredient;
-        id?: string | null;
-      }[]
-    | null;
-  /**
-   * Deduplicated labels from source variants (LLM-normalized to canonical German, store-specific labels removed)
-   */
-  labels?:
-    | {
-        label: string;
-        id?: string | null;
-      }[]
-    | null;
-  /**
    * Product warnings extracted from descriptions (e.g. "Avoid contact with eyes")
    */
   warnings?: string | null;
@@ -1557,6 +1495,65 @@ export interface ProductVariant {
     | string
     | number
     | boolean
+    | null;
+  /**
+   * All variant images from all stores. The first "public" entry is the primary display image. "recognition_only" images are used for object detection + embedding but not shown in the frontend.
+   */
+  images?:
+    | {
+        image: number | ProductMedia;
+        /**
+         * Public images are shown in the frontend. Recognition-only images are used for object detection + embedding only.
+         */
+        visibility?: ('public' | 'recognition_only') | null;
+        /**
+         * Which store this image was sourced from.
+         */
+        source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Cropped product packaging regions detected by Grounding DINO object detection. Embeddings are stored in the separate recognition_embeddings table.
+   */
+  recognitionImages?:
+    | {
+        image: number | DetectionMedia;
+        /**
+         * Object detection confidence (0-1)
+         */
+        score?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Product ingredients (parsed from source variant INCI text, matched to ingredient database)
+   */
+  ingredients?:
+    | {
+        /**
+         * Raw ingredient name as listed on the product
+         */
+        name: string;
+        /**
+         * Link to ingredient database entry, if matched
+         */
+        ingredient?: (number | null) | Ingredient;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Deduplicated labels from source variants (LLM-normalized to canonical German, store-specific labels removed)
+   */
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
     | null;
   /**
    * Ingredient-based attributes with evidence from source products
@@ -1748,6 +1745,10 @@ export interface SourceProduct {
    */
   sourceBrand?: (number | null) | SourceBrand;
   /**
+   * Store-specific product-level ID (e.g., Shopify product ID for PURISH)
+   */
+  sourceArticleNumber?: string | null;
+  /**
    * Category breadcrumb, e.g. "Pflege -> Körperpflege -> Handcreme"
    */
   categoryBreadcrumb?: string | null;
@@ -1762,6 +1763,11 @@ export interface SourceProduct {
   name?: string | null;
   sourceVariants?: {
     docs?: (number | SourceVariant)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  sourceReviews?: {
+    docs?: (number | SourceReview)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -1797,7 +1803,8 @@ export interface SourceBrand {
  */
 export interface SourceReview {
   id: number;
-  sourceVariant: number | SourceVariant;
+  sourceProduct: number | SourceProduct;
+  sourceVariants?: (number | SourceVariant)[] | null;
   /**
    * External review ID (e.g. BazaarVoice review ID)
    */
@@ -2719,6 +2726,12 @@ export interface ProductVariantsSelect<T extends boolean = true> {
   amountUnit?: T;
   variantDimension?: T;
   description?: T;
+  warnings?: T;
+  skinApplicability?: T;
+  phMin?: T;
+  phMax?: T;
+  usageInstructions?: T;
+  usageSchedule?: T;
   images?:
     | T
     | {
@@ -2736,7 +2749,6 @@ export interface ProductVariantsSelect<T extends boolean = true> {
         boxYMin?: T;
         boxXMax?: T;
         boxYMax?: T;
-        hasEmbedding?: T;
         id?: T;
       };
   ingredients?:
@@ -2752,12 +2764,6 @@ export interface ProductVariantsSelect<T extends boolean = true> {
         label?: T;
         id?: T;
       };
-  warnings?: T;
-  skinApplicability?: T;
-  phMin?: T;
-  phMax?: T;
-  usageInstructions?: T;
-  usageSchedule?: T;
   productAttributes?:
     | T
     | {
@@ -2803,11 +2809,13 @@ export interface SourceProductsSelect<T extends boolean = true> {
   sourceUrl?: T;
   source?: T;
   sourceBrand?: T;
+  sourceArticleNumber?: T;
   categoryBreadcrumb?: T;
   averageRating?: T;
   ratingCount?: T;
   name?: T;
   sourceVariants?: T;
+  sourceReviews?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2875,7 +2883,8 @@ export interface SourceVariantsSelect<T extends boolean = true> {
  * via the `definition` "source-reviews_select".
  */
 export interface SourceReviewsSelect<T extends boolean = true> {
-  sourceVariant?: T;
+  sourceProduct?: T;
+  sourceVariants?: T;
   externalId?: T;
   rating?: T;
   submittedAt?: T;

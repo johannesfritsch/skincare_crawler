@@ -131,6 +131,8 @@ export interface EventRegistry {
     durationMs: number
     images: number
     hasIngredients: boolean
+    reviews?: number
+    rating?: number
   }
   'scraper.failed': {
     url: string

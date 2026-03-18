@@ -63,6 +63,7 @@ export interface ScrapedProductData {
   rating?: number
   ratingCount?: number
   sourceArticleNumber?: string
+  sourceProductArticleNumber?: string
   categoryBreadcrumbs?: string[]
   categoryUrl?: string
   canonicalUrl?: string

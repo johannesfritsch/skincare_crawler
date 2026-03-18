@@ -13,18 +13,7 @@ export const SourceVariants: CollectionConfig = {
     group: 'Source Products',
     description: 'Individual purchasable variants of source products, each with a unique URL',
   },
-  hooks: {
-    beforeDelete: [
-      async ({ id, req }) => {
-        // Cascade delete: remove child source-reviews
-        await req.payload.delete({
-          collection: 'source-reviews',
-          where: { sourceVariant: { equals: id } },
-          req,
-        })
-      },
-    ],
-  },
+  hooks: {},
   fields: [
     // ── Sidebar ──
     {
@@ -209,7 +198,7 @@ export const SourceVariants: CollectionConfig = {
               name: 'sourceReviews',
               type: 'join',
               collection: 'source-reviews',
-              on: 'sourceVariant',
+              on: 'sourceVariants',
               admin: {
                 defaultColumns: ['rating', 'title', 'userNickname', 'submittedAt'],
               },

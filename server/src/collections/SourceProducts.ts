@@ -24,7 +24,13 @@ export const SourceProducts: CollectionConfig = {
   hooks: {
     beforeDelete: [
       async ({ id, req }) => {
-        // Cascade delete: remove child records that have required (NOT NULL) references
+        // Cascade delete: remove child source-reviews (owned by source-product)
+        await req.payload.delete({
+          collection: 'source-reviews',
+          where: { sourceProduct: { equals: id } },
+          req,
+        })
+        // Cascade delete: remove child source-variants (required NOT NULL reference)
         await req.payload.delete({
           collection: 'source-variants',
           where: { sourceProduct: { equals: id } },
@@ -72,6 +78,15 @@ export const SourceProducts: CollectionConfig = {
       admin: {
         position: 'sidebar',
         description: 'Brand from source store',
+      },
+    },
+    {
+      name: 'sourceArticleNumber',
+      type: 'text',
+      label: 'Article Number',
+      admin: {
+        position: 'sidebar',
+        description: 'Store-specific product-level ID (e.g., Shopify product ID for PURISH)',
       },
     },
     {
@@ -145,7 +160,20 @@ export const SourceProducts: CollectionConfig = {
             },
           ],
         },
-
+        {
+          label: 'Reviews',
+          fields: [
+            {
+              name: 'sourceReviews',
+              type: 'join',
+              collection: 'source-reviews',
+              on: 'sourceProduct',
+              admin: {
+                defaultColumns: ['rating', 'title', 'userNickname', 'submittedAt'],
+              },
+            },
+          ],
+        },
       ],
     },
   ],

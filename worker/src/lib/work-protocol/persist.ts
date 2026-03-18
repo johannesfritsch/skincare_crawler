@@ -90,6 +90,7 @@ interface ScrapedProductData {
   rating?: number
   ratingCount?: number
   sourceArticleNumber?: string
+  sourceProductArticleNumber?: string
   categoryBreadcrumbs?: string[]
   categoryUrl?: string
   canonicalUrl?: string
@@ -307,6 +308,7 @@ export async function persistCrawlResult(
     ...(categoryBreadcrumb ? { categoryBreadcrumb } : {}),
     averageRating: data.rating || null,
     ratingCount: data.ratingCount || null,
+    ...(data.sourceProductArticleNumber ? { sourceArticleNumber: data.sourceProductArticleNumber } : {}),
   }
 
   log.info('persistCrawlResult: updating source-product', { sourceProductId })
@@ -405,9 +407,10 @@ export async function persistCrawlResult(
     }
   }
 
-  // Persist reviews if provided (linked to the crawled variant)
-  if (data.reviews && data.reviews.length > 0 && sourceVariantId) {
+  // Persist reviews if provided (linked to source-product + optionally the crawled variant)
+  if (data.reviews && data.reviews.length > 0 && sourceProductId) {
     let reviewsCreated = 0
+    let reviewsLinked = 0
     for (const review of data.reviews) {
       const existing = await payload.find({
         collection: 'source-reviews',
@@ -418,7 +421,8 @@ export async function persistCrawlResult(
         await payload.create({
           collection: 'source-reviews',
           data: {
-            sourceVariant: sourceVariantId,
+            sourceProduct: sourceProductId,
+            ...(sourceVariantId ? { sourceVariants: [sourceVariantId] } : {}),
             externalId: review.externalId,
             rating: review.rating,
             title: review.title ?? null,
@@ -433,10 +437,26 @@ export async function persistCrawlResult(
           },
         })
         reviewsCreated++
+      } else if (sourceVariantId) {
+        // Review already exists — append this variant if not already linked
+        const existingReview = existing.docs[0]
+        const existingVariantIds: number[] = Array.isArray(existingReview.sourceVariants)
+          ? existingReview.sourceVariants.map((v: any) => (typeof v === 'object' ? v.id : v))
+          : []
+        if (!existingVariantIds.includes(sourceVariantId)) {
+          await payload.update({
+            collection: 'source-reviews',
+            id: existingReview.id as number,
+            data: {
+              sourceVariants: [...existingVariantIds, sourceVariantId],
+            },
+          })
+          reviewsLinked++
+        }
       }
     }
-    if (reviewsCreated > 0) {
-      jlog.event('persist.reviews_created', { url: variantUrl, source, count: reviewsCreated })
+    if (reviewsCreated > 0 || reviewsLinked > 0) {
+      jlog.event('persist.reviews_created', { url: variantUrl, source, count: reviewsCreated + reviewsLinked })
     }
   }
 
