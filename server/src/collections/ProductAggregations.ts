@@ -189,14 +189,31 @@ export const ProductAggregations: CollectionConfig = {
               },
             },
             {
-              name: 'reviewSentimentChunkSize',
-              type: 'number',
-              label: 'Review Sentiment Chunk Size',
-              defaultValue: 50,
-              min: 1,
-              admin: {
-                description: 'Number of reviews per LLM call for the review sentiment stage. Default: 50.',
-              },
+              type: 'row',
+              fields: [
+                {
+                  name: 'reviewSentimentChunkSize',
+                  type: 'number',
+                  label: 'Review Sentiment Chunk Size',
+                  defaultValue: 20,
+                  min: 1,
+                  admin: {
+                    width: '50%',
+                    description: 'Number of reviews per LLM call for the review sentiment stage.',
+                  },
+                },
+                {
+                  name: 'reviewSentimentTimeoutSec',
+                  type: 'number',
+                  label: 'Review Sentiment Timeout (sec)',
+                  defaultValue: 60,
+                  min: 10,
+                  admin: {
+                    width: '50%',
+                    description: 'Timeout in seconds for each LLM call. Retries up to 3 times on timeout.',
+                  },
+                },
+              ],
             },
             {
               name: 'minBoxArea',

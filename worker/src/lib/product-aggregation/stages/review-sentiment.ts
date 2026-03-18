@@ -9,6 +9,7 @@
 
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 import { getOpenAI } from '@/lib/openai'
+import OpenAI from 'openai'
 
 const TOPICS = [
   'smell', 'texture', 'color', 'consistency', 'absorption', 'stickiness',
@@ -135,8 +136,10 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
     return { success: true, productId }
   }
 
-  // 6. Read chunk size from job config
-  const chunkSize = (job.reviewSentimentChunkSize as number) || 50
+  // 6. Read chunk size and timeout from job config
+  const chunkSize = (job.reviewSentimentChunkSize as number) || 20
+  const timeoutMs = ((job.reviewSentimentTimeoutSec as number) || 60) * 1000
+  const maxChunkRetries = 3
 
   // 7. Batch into chunks and process with LLM
   const chunks = chunkArray(newReviews, chunkSize)
@@ -174,132 +177,166 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
       productId,
       chunkReviews: chunk.length,
       inputChars: userMessage.length,
+      timeoutMs,
     })
 
-    try {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4.1-mini',
-        temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-      })
+    // Retry loop for transient failures (timeouts, rate limits)
+    let content: string | null = null
+    let chunkTokens = 0
+    let succeeded = false
 
-      const chunkTokens = response.usage?.total_tokens ?? 0
-      tokensUsed += chunkTokens
-
-      const content = response.choices[0]?.message?.content
-      if (!content) {
-        log.warn(`Review sentiment: chunk ${chunkIdx + 1} returned empty content`, { productId })
-        chunkErrors++
-        continue
-      }
-
-      // Parse LLM response — json_object mode always returns an object wrapper,
-      // so we need to find the array inside whatever key the LLM chose
-      let parsed: LLMReviewResult[]
+    for (let attempt = 1; attempt <= maxChunkRetries; attempt++) {
       try {
-        const raw = JSON.parse(content)
-        if (Array.isArray(raw)) {
-          parsed = raw
-        } else if (typeof raw === 'object' && raw !== null) {
-          // Find the first array value in the object (LLM may use any key)
-          const arrayValue = Object.values(raw).find((v) => Array.isArray(v))
-          if (arrayValue) {
-            parsed = arrayValue as LLMReviewResult[]
-          } else {
-            log.warn(`Review sentiment: chunk ${chunkIdx + 1} no array found in response`, {
-              productId,
-              responseKeys: Object.keys(raw).join(', '),
-              contentPreview: content.slice(0, 500),
-            })
-            parseErrors++
-            continue
-          }
-        } else {
-          parsed = []
+        const response = await openai.chat.completions.create({
+          model: 'gpt-4.1-mini',
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userMessage },
+          ],
+        }, { timeout: timeoutMs })
+
+        chunkTokens = response.usage?.total_tokens ?? 0
+        tokensUsed += chunkTokens
+        content = response.choices[0]?.message?.content ?? null
+        succeeded = true
+        break
+      } catch (err) {
+        const isTimeout = err instanceof OpenAI.APIConnectionTimeoutError
+          || (err instanceof Error && err.message.includes('timeout'))
+        const isRetryable = isTimeout
+          || err instanceof OpenAI.RateLimitError
+          || err instanceof OpenAI.InternalServerError
+
+        if (isRetryable && attempt < maxChunkRetries) {
+          const waitMs = attempt * 2000
+          log.warn(`Review sentiment: chunk ${chunkIdx + 1} attempt ${attempt}/${maxChunkRetries} failed, retrying in ${waitMs}ms`, {
+            productId,
+            error: String(err),
+            isTimeout,
+          })
+          await new Promise((resolve) => setTimeout(resolve, waitMs))
+          continue
         }
-      } catch {
-        log.warn(`Review sentiment: chunk ${chunkIdx + 1} JSON parse failed`, {
+
+        log.warn(`Review sentiment: chunk ${chunkIdx + 1} failed after ${attempt} attempt(s)`, {
           productId,
-          contentPreview: content.slice(0, 500),
+          error: String(err),
+          isTimeout,
         })
-        parseErrors++
+        break
+      }
+    }
+
+    if (!succeeded) {
+      chunkErrors++
+      ctx.heartbeat()
+      continue
+    }
+
+    if (!content) {
+      log.warn(`Review sentiment: chunk ${chunkIdx + 1} returned empty content`, { productId })
+      chunkErrors++
+      ctx.heartbeat()
+      continue
+    }
+
+    // Parse LLM response — json_object mode always returns an object wrapper,
+    // so we need to find the array inside whatever key the LLM chose
+    let parsed: LLMReviewResult[]
+    try {
+      const raw = JSON.parse(content)
+      if (Array.isArray(raw)) {
+        parsed = raw
+      } else if (typeof raw === 'object' && raw !== null) {
+        // Find the first array value in the object (LLM may use any key)
+        const arrayValue = Object.values(raw).find((v) => Array.isArray(v))
+        if (arrayValue) {
+          parsed = arrayValue as LLMReviewResult[]
+        } else {
+          log.warn(`Review sentiment: chunk ${chunkIdx + 1} no array found in response`, {
+            productId,
+            responseKeys: Object.keys(raw).join(', '),
+            contentPreview: content.slice(0, 500),
+          })
+          parseErrors++
+          ctx.heartbeat()
+          continue
+        }
+      } else {
+        parsed = []
+      }
+    } catch {
+      log.warn(`Review sentiment: chunk ${chunkIdx + 1} JSON parse failed`, {
+        productId,
+        contentPreview: content.slice(0, 500),
+      })
+      parseErrors++
+      ctx.heartbeat()
+      continue
+    }
+
+    log.debug(`Review sentiment: chunk ${chunkIdx + 1} parsed`, {
+      productId,
+      parsedEntries: parsed.length,
+      sampleEntry: parsed.length > 0 ? JSON.stringify(parsed[0]).slice(0, 200) : 'none',
+    })
+
+    // Aggregate topic-sentiment counts from this chunk
+    let chunkTopicEntries = 0
+    let chunkReviewsWithTopics = 0
+    let chunkReviewsWithoutTopics = 0
+    let chunkInvalidTopics = 0
+
+    for (const entry of parsed) {
+      if (!Array.isArray(entry.t)) {
+        chunkReviewsWithoutTopics++
+        continue
+      }
+      if (entry.t.length === 0) {
+        chunkReviewsWithoutTopics++
         continue
       }
 
-      log.debug(`Review sentiment: chunk ${chunkIdx + 1} parsed`, {
-        productId,
-        parsedEntries: parsed.length,
-        sampleEntry: parsed.length > 0 ? JSON.stringify(parsed[0]).slice(0, 200) : 'none',
-      })
-
-      // Aggregate topic-sentiment counts from this chunk
-      let chunkTopicEntries = 0
-      let chunkReviewsWithTopics = 0
-      let chunkReviewsWithoutTopics = 0
-      let chunkInvalidTopics = 0
-
-      for (const entry of parsed) {
-        if (!Array.isArray(entry.t)) {
-          chunkReviewsWithoutTopics++
+      let hasValidTopic = false
+      for (const topicEntry of entry.t) {
+        const topic = topicEntry.t as Topic
+        const sentiment = topicEntry.s as Sentiment
+        if (!TOPICS.includes(topic) || !SENTIMENTS.includes(sentiment)) {
+          chunkInvalidTopics++
           continue
         }
-        if (entry.t.length === 0) {
-          chunkReviewsWithoutTopics++
-          continue
-        }
-
-        let hasValidTopic = false
-        for (const topicEntry of entry.t) {
-          const topic = topicEntry.t as Topic
-          const sentiment = topicEntry.s as Sentiment
-          if (!TOPICS.includes(topic) || !SENTIMENTS.includes(sentiment)) {
-            chunkInvalidTopics++
-            continue
-          }
-          const key = `${topic}:${sentiment}`
-          topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1)
-          chunkTopicEntries++
-          hasValidTopic = true
-        }
-
-        if (hasValidTopic) {
-          chunkReviewsWithTopics++
-        } else {
-          chunkReviewsWithoutTopics++
-        }
+        const key = `${topic}:${sentiment}`
+        topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1)
+        chunkTopicEntries++
+        hasValidTopic = true
       }
 
-      totalTopicEntries += chunkTopicEntries
-      reviewsWithTopics += chunkReviewsWithTopics
-      reviewsWithoutTopics += chunkReviewsWithoutTopics
-      skippedInvalidTopics += chunkInvalidTopics
-
-      const chunkDurationMs = Date.now() - chunkStartMs
-
-      log.debug(`Review sentiment: chunk ${chunkIdx + 1}/${chunks.length} done`, {
-        productId,
-        chunkDurationMs,
-        chunkTokens,
-        parsedEntries: parsed.length,
-        chunkTopicEntries,
-        chunkReviewsWithTopics,
-        chunkReviewsWithoutTopics,
-        chunkInvalidTopics,
-      })
-    } catch (err) {
-      const chunkDurationMs = Date.now() - chunkStartMs
-      log.warn(`Review sentiment: chunk ${chunkIdx + 1}/${chunks.length} LLM call failed`, {
-        productId,
-        chunkDurationMs,
-        error: String(err),
-      })
-      chunkErrors++
-      // Continue with remaining chunks
+      if (hasValidTopic) {
+        chunkReviewsWithTopics++
+      } else {
+        chunkReviewsWithoutTopics++
+      }
     }
+
+    totalTopicEntries += chunkTopicEntries
+    reviewsWithTopics += chunkReviewsWithTopics
+    reviewsWithoutTopics += chunkReviewsWithoutTopics
+    skippedInvalidTopics += chunkInvalidTopics
+
+    const chunkDurationMs = Date.now() - chunkStartMs
+
+    log.debug(`Review sentiment: chunk ${chunkIdx + 1}/${chunks.length} done`, {
+      productId,
+      chunkDurationMs,
+      chunkTokens,
+      parsedEntries: parsed.length,
+      chunkTopicEntries,
+      chunkReviewsWithTopics,
+      chunkReviewsWithoutTopics,
+      chunkInvalidTopics,
+    })
 
     ctx.heartbeat()
   }
