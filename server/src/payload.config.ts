@@ -42,7 +42,7 @@ import { Workers } from './collections/Workers'
 
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
-import { embeddingsWriteHandler, embeddingsSearchHandler } from './endpoints/embeddings'
+import { embeddingsWriteHandler, embeddingsSearchHandler, embeddingsDeleteHandler } from './endpoints/embeddings'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -255,6 +255,11 @@ export default buildConfig({
       path: '/embeddings/:namespace/search',
       method: 'get',
       handler: embeddingsSearchHandler,
+    },
+    {
+      path: '/embeddings/:namespace/delete',
+      method: 'post',
+      handler: embeddingsDeleteHandler,
     },
   ],
   editor: lexicalEditor(),

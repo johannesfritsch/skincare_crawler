@@ -59,12 +59,13 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
 
     if (!images || images.length === 0) {
       log.info('No images on variant, skipping object detection', { gtin: v.gtin })
-      // Clear any existing recognitionImages
+      // Clear any existing recognitionImages and their embeddings
       await payload.update({
         collection: 'product-variants',
         id: variantId,
         data: { recognitionImages: [] },
       })
+      await payload.embeddings.delete('recognition-images', { product_variant_id: variantId })
       continue
     }
 
@@ -196,6 +197,10 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         log.debug('Object detection failed for image', { gtin: v.gtin, imgIdx, error: msg })
       }
     }
+
+    // Clean up old embeddings before rewriting recognitionImages
+    // (new detection crops may have different detection_media_ids)
+    await payload.embeddings.delete('recognition-images', { product_variant_id: variantId })
 
     // Update product-variant with recognition images from ALL source images
     await payload.update({

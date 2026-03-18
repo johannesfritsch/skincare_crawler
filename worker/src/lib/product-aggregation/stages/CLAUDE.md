@@ -170,10 +170,11 @@ This gives detection crops from every store's image of the product — not just 
    - Run detection: `detector(imageUrl, ["cosmetics packaging."], { threshold })`
    - For each detection: clamp box coordinates, crop via `sharp().extract().png().toBuffer()`, upload crop to `detection-media`
 4. Accumulate all detection crops across all images into one `recognitionImages` array
-5. Update product-variant: `recognitionImages` array of `{ image, score, boxXMin, boxYMin, boxXMax, boxYMax }`
-6. If no images or no detections found across any image, clear `recognitionImages: []`
+5. Delete existing `recognition_embeddings` rows for this variant via `POST /api/embeddings/recognition-images/delete` with `{ filter: { product_variant_id: variantId } }` — clears stale embeddings before the array is rewritten
+6. Update product-variant: `recognitionImages` array of `{ image, score, boxXMin, boxYMin, boxXMax, boxYMax }`
+7. If no images or no detections found across any image, clear `recognitionImages: []`
 
-**Writes to**: `product-variants`, `detection-media`
+**Writes to**: `product-variants`, `detection-media`, `recognition_embeddings` (deletes stale rows)
 
 **Note**: Field names use `boxXMin`/`boxYMin`/`boxXMax`/`boxYMax` (not `xmin`/`xmax`) because PostgreSQL reserves `xmin`/`xmax` as system column names.
 
@@ -197,13 +198,11 @@ Per variant: takes the recognition image crops (from stage 5 object detection), 
    a. Resolve the detection-media URL
    b. Run DINOv2 feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
    c. Extract the 384-dim embedding vector
-4. Batch write embeddings via `POST /api/embeddings/recognition-images/write` — this endpoint sets both the pgvector embedding AND `has_embedding = true` in a single SQL UPDATE per row
+4. Batch upsert embeddings via `POST /api/embeddings/recognition-images/write` — each item carries `upsertValues: { product_variant_id, detection_media_id }` so the row is inserted or updated by that unique key pair
 
-**Writes to**: `product_variants_recognition_images.embedding` + `product_variants_recognition_images.has_embedding` (both via raw SQL in the embeddings API endpoint)
+**Writes to**: `recognition_embeddings` table (standalone pgvector table keyed by `(product_variant_id, detection_media_id)`)
 
-**IMPORTANT**: The stage must NOT update the `recognitionImages` array via Payload REST API after writing embeddings. Payload's array field handling deletes all existing rows and reinserts them with new auto-generated IDs — this would orphan the pgvector embeddings that were just written to the old row IDs. The embeddings write endpoint already sets `has_embedding = true` alongside the vector, so no separate Payload update is needed.
-
-**Note**: The `embedding vector(384)` column is NOT managed by Payload — it was added via a manual migration. Only the `hasEmbedding` boolean is a Payload field visible in the admin UI. The embeddings API (`/api/embeddings/:namespace/write`) handles writing both the vector and the flag in a single SQL UPDATE.
+**Note**: The `recognition_embeddings` table is NOT a Payload-managed array sub-table — it is a standalone table added via manual migration. Embeddings survive Payload array rewrites because they are keyed by `(product_variant_id, detection_media_id)`, not by ephemeral array row IDs.
 
 ---
 

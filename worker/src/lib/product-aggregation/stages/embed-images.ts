@@ -42,13 +42,12 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
     const pv = pvResult.docs[0] as Record<string, unknown>
     const variantId = (pv as { id: number }).id
 
-    // Get recognition images that don't have embeddings yet
+    // Get recognition images
     const recognitionImages = pv.recognitionImages as
       | Array<{
           id: string
           image: number | { id: number; url?: string }
           score: number
-          hasEmbedding?: boolean
         }>
       | null
 
@@ -59,17 +58,20 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
 
     log.info('Computing image embeddings', { gtin: v.gtin, count: recognitionImages.length })
 
-    const writeItems: Array<{ id: string; embedding: number[] }> = []
+    const writeItems: Array<Record<string, unknown>> = []
 
     for (const ri of recognitionImages) {
-      // Resolve the media URL for this crop
+      // Resolve the media URL and ID for this crop
       const imageRef = ri.image
       let mediaUrl: string | undefined
+      let detectionMediaId: number
 
       if (typeof imageRef === 'number') {
+        detectionMediaId = imageRef
         const mediaDoc = (await payload.findByID({ collection: 'detection-media', id: imageRef })) as Record<string, unknown>
         mediaUrl = mediaDoc.url as string | undefined
       } else {
+        detectionMediaId = imageRef.id
         mediaUrl = imageRef.url
       }
 
@@ -87,20 +89,20 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
           jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding returned null for recognition image ${ri.id}` })
           continue
         }
-        writeItems.push({ id: ri.id, embedding })
+        writeItems.push({
+          product_variant_id: variantId,
+          detection_media_id: detectionMediaId,
+          embedding,
+        })
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
           jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding failed for recognition image ${ri.id}: ${msg}` })
       }
     }
 
-    // Batch write embeddings via the server endpoint
-    // The embeddings write endpoint sets BOTH the vector AND has_embedding = true
-    // in a single SQL UPDATE per item (see server/src/endpoints/embeddings.ts).
-    // We must NOT update the recognitionImages array via Payload REST API afterwards,
-    // because Payload's array handling deletes all existing rows and reinserts them
-    // with new auto-generated IDs — this would orphan the pgvector embeddings that
-    // were just written to the old row IDs.
+    // Batch write embeddings via the server endpoint.
+    // Uses INSERT ... ON CONFLICT (product_variant_id, detection_media_id) DO UPDATE
+    // so embeddings are keyed by stable identifiers that survive Payload array rewrites.
     if (writeItems.length > 0) {
       try {
         const result = await payload.embeddings.write(EMBEDDING_NAMESPACE, writeItems)

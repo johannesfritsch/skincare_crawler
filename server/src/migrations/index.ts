@@ -17,6 +17,10 @@ import * as migration_20260316_195915 from './20260316_195915';
 import * as migration_20260316_213914 from './20260316_213914';
 import * as migration_20260317_153336 from './20260317_153336';
 import * as migration_20260317_181255 from './20260317_181255';
+import * as migration_20260318_002552 from './20260318_002552';
+import * as migration_20260318_094324 from './20260318_094324';
+import * as migration_20260318_103424 from './20260318_103424';
+import * as migration_20260318_120000_recognition_embeddings_table from './20260318_120000_recognition_embeddings_table';
 
 export const migrations = [
   {
@@ -112,6 +116,26 @@ export const migrations = [
   {
     up: migration_20260317_181255.up,
     down: migration_20260317_181255.down,
-    name: '20260317_181255'
+    name: '20260317_181255',
+  },
+  {
+    up: migration_20260318_002552.up,
+    down: migration_20260318_002552.down,
+    name: '20260318_002552',
+  },
+  {
+    up: migration_20260318_094324.up,
+    down: migration_20260318_094324.down,
+    name: '20260318_094324',
+  },
+  {
+    up: migration_20260318_103424.up,
+    down: migration_20260318_103424.down,
+    name: '20260318_103424',
+  },
+  {
+    up: migration_20260318_120000_recognition_embeddings_table.up,
+    down: migration_20260318_120000_recognition_embeddings_table.down,
+    name: '20260318_120000_recognition_embeddings_table'
   },
 ];

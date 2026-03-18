@@ -201,9 +201,14 @@ export class PayloadRestClient {
 
   /** The embeddings sub-client for vector operations */
   readonly embeddings = {
-    /** Write embedding vectors for items in a namespace */
-    write: async (namespace: string, items: Array<{ id: string; embedding: number[] }>): Promise<{ written: number }> => {
+    /** Write embedding vectors for items in a namespace (supports both id-based and upsert-based writes) */
+    write: async (namespace: string, items: Array<Record<string, unknown>>): Promise<{ written: number }> => {
       return this.request('POST', `/embeddings/${namespace}/write`, { items }) as Promise<{ written: number }>
+    },
+
+    /** Delete embeddings by filter criteria */
+    delete: async (namespace: string, where: Record<string, unknown>): Promise<{ deleted: number }> => {
+      return this.request('POST', `/embeddings/${namespace}/delete`, { where }) as Promise<{ deleted: number }>
     },
 
     /** Search for nearest neighbors by cosine similarity */

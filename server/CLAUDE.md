@@ -1975,30 +1975,32 @@ Generic API for storing and searching embedding vectors in pgvector columns. The
 ```typescript
 const NAMESPACES: Record<string, EmbeddingNamespace> = {
   'recognition-images': {
-    table: 'product_variants_recognition_images',
+    table: 'recognition_embeddings',
     embeddingColumn: 'embedding',        // vector(384) — manual migration, NOT managed by Payload
-    flagColumn: 'has_embedding',         // boolean — managed by Payload (on ProductVariants.recognitionImages)
     dimensions: 384,                     // DINOv2-small
     idColumn: 'id',
-    returnColumns: ['_parent_id', 'score'],
-    join: { table: 'product_variants', on: ['_parent_id', 'id'], columns: ['gtin'] },
+    upsertColumns: ['product_variant_id', 'detection_media_id'],
+    returnColumns: ['product_variant_id'],
+    join: { table: 'product_variants', on: ['product_variant_id', 'id'], columns: ['gtin'] },
   },
 }
 ```
 
-To add a new embedding target: add a namespace entry + create a migration that adds `embedding vector(N)` and an HNSW index to the target table. The `flagColumn` (boolean) should be a Payload-managed field so it's visible in the admin UI.
+To add a new embedding target: add a namespace entry + create a migration that adds `embedding vector(N)` and an HNSW index to the target table.
 
 ### Endpoints
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| `POST` | `/api/embeddings/:namespace/write` | `req.user` required | Batch write embedding vectors. Body: `{ items: Array<{ id, embedding: number[] }> }`. Validates dimensions match namespace config. Sets both `embedding` and `flagColumn` in a single UPDATE per item. |
+| `POST` | `/api/embeddings/:namespace/write` | `req.user` required | Batch write embedding vectors. Body: `{ items: Array<{ id, embedding: number[] }> }` (plain INSERT/UPDATE by ID) or `{ items: Array<{ upsertValues: Record<string, unknown>, embedding: number[] }> }` (upsert by `upsertColumns` for namespaces that define them). Validates dimensions match namespace config. |
+| `POST` | `/api/embeddings/:namespace/delete` | `req.user` required | Delete rows by filter criteria. Body: `{ filter: Record<string, unknown> }` — deletes all rows where columns match the filter values (e.g. `{ product_variant_id: 42 }`). |
 | `GET` | `/api/embeddings/:namespace/search` | `req.user` required | Cosine similarity search. Query params: `vector` (JSON array), `limit` (default 10, max 100), `threshold` (max cosine distance, optional). Returns `{ results: Array<{ id, distance, ...returnColumns, ...joinColumns }> }`. Uses pgvector `<=>` operator (cosine distance). |
 
 ### Key Details
 
 - **Vector columns are NOT managed by Payload** — they are added via manual migrations (`ALTER TABLE ... ADD COLUMN embedding vector(384)`). Payload ignores them; the embeddings endpoint handles all reads/writes via raw SQL.
-- **Flag columns ARE managed by Payload** — the `hasEmbedding` boolean on `recognitionImages` is a normal Payload checkbox field, visible in the admin UI (read-only). The `write` endpoint sets this flag alongside the vector in the same SQL UPDATE.
+- **The `recognition_embeddings` table is standalone** — it is not a Payload array sub-table. Row existence IS the embedding flag; there is no separate boolean column. This decouples embeddings from Payload's array rewrite behavior.
+- **Upsert mode**: namespaces with `upsertColumns` use `INSERT ... ON CONFLICT (col1, col2) DO UPDATE SET embedding = EXCLUDED.embedding` instead of UPDATE by row ID.
 - **HNSW index** on the vector column for fast approximate nearest neighbor search. Created in the migration.
 - **pgvector extension** is enabled via `extensions: ['vector']` on the postgresAdapter in `payload.config.ts`.
 
