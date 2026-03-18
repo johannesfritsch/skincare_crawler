@@ -24,3 +24,11 @@
 - Implement isGtinSearch for non-Rossmann drivers (not needed actually)
 - ✅ Rework searches and discovery to not create SourceProducts? All SPs are always crawled?
 - Why do creator scores not update
+- Ingest video captions and analyze for advertisement relationships
+- Attributes as a reverse-search 
+- Review crawl from purish
+- Review aggregation
+- Product crawl in stages
+- ✅ Embeddings of images are overwritten
+- Rate-limiting of bazaar API (don't get blocked)
+- Reviewer age "17orUnder" is not handled properly
