@@ -346,6 +346,17 @@ export const ProductAggregations: CollectionConfig = {
                     width: '25%',
                   },
                 },
+                {
+                  name: 'stageSentimentConclusion',
+                  type: 'checkbox',
+                  label: 'Sentiment Conclusion',
+                  defaultValue: true,
+                  admin: {
+                    description:
+                      'Derive overall conclusions per topic from sentiment counts (positive/negative/divided with strength).',
+                    width: '25%',
+                  },
+                },
               ],
             },
           ],

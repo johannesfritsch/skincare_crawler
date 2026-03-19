@@ -48,6 +48,11 @@ export const Products: CollectionConfig = {
           where: { product: { equals: id } },
           req,
         })
+        await req.payload.delete({
+          collection: 'product-sentiment-conclusions',
+          where: { product: { equals: id } },
+          req,
+        })
       },
     ],
   },
@@ -219,6 +224,15 @@ export const Products: CollectionConfig = {
               admin: {
                 components: {
                   Field: '@/components/SentimentPyramid',
+                },
+              },
+            },
+            {
+              name: 'sentimentConclusions',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '@/components/SentimentConclusions',
                 },
               },
             },

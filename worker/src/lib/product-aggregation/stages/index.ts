@@ -35,6 +35,7 @@ export type StageName =
   | 'descriptions'
   | 'score_history'
   | 'review_sentiment'
+  | 'sentiment_conclusion'
 
 /**
  * Per-product progress map stored on the job's `aggregationProgress` JSON field.
@@ -117,6 +118,7 @@ import { executeEmbedImages } from './embed-images'
 import { executeDescriptions } from './descriptions'
 import { executeScoreHistory } from './score-history'
 import { executeReviewSentiment } from './review-sentiment'
+import { executeSentimentConclusion } from './sentiment-conclusion'
 
 /** All stages in pipeline order */
 export const STAGES: StageDefinition[] = [
@@ -179,6 +181,12 @@ export const STAGES: StageDefinition[] = [
     index: 9,
     jobField: 'stageReviewSentiment',
     execute: executeReviewSentiment,
+  },
+  {
+    name: 'sentiment_conclusion',
+    index: 10,
+    jobField: 'stageSentimentConclusion',
+    execute: executeSentimentConclusion,
   },
 ]
 
@@ -247,6 +255,7 @@ export function getEnabledStages(job: Record<string, unknown>): Set<StageName> {
   if (job.stageDescriptions !== false) stages.add('descriptions')
   if (job.stageScoreHistory !== false) stages.add('score_history')
   if (job.stageReviewSentiment !== false) stages.add('review_sentiment')
+  if (job.stageSentimentConclusion !== false) stages.add('sentiment_conclusion')
   return stages
 }
 

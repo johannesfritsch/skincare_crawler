@@ -89,6 +89,7 @@ export interface Config {
     'product-crawls': ProductCrawl;
     'product-aggregations': ProductAggregation;
     'product-sentiments': ProductSentiment;
+    'product-sentiment-conclusions': ProductSentimentConclusion;
     events: Event;
     creators: Creator;
     channels: Channel;
@@ -180,6 +181,7 @@ export interface Config {
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
     'product-aggregations': ProductAggregationsSelect<false> | ProductAggregationsSelect<true>;
     'product-sentiments': ProductSentimentsSelect<false> | ProductSentimentsSelect<true>;
+    'product-sentiment-conclusions': ProductSentimentConclusionsSelect<false> | ProductSentimentConclusionsSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     creators: CreatorsSelect<false> | CreatorsSelect<true>;
     channels: ChannelsSelect<false> | ChannelsSelect<true>;
@@ -997,9 +999,13 @@ export interface ProductAggregation {
    */
   detectionThreshold?: number | null;
   /**
-   * Number of reviews per LLM call for the review sentiment stage. Default: 50.
+   * Number of reviews per LLM call for the review sentiment stage.
    */
   reviewSentimentChunkSize?: number | null;
+  /**
+   * Timeout in seconds for each LLM call. Retries up to 3 times on timeout.
+   */
+  reviewSentimentTimeoutSec?: number | null;
   /**
    * Minimum detection box area as a percentage of the source image area. Detections smaller than this are discarded as background noise. Default: 5%.
    */
@@ -1044,6 +1050,10 @@ export interface ProductAggregation {
    * LLM analysis of source reviews to extract per-topic sentiment counts (smell, texture, efficacy, etc.).
    */
   stageReviewSentiment?: boolean | null;
+  /**
+   * Derive overall conclusions per topic from sentiment counts (positive/negative/divided with strength).
+   */
+  stageSentimentConclusion?: boolean | null;
   /**
    * Total products to aggregate
    */
@@ -2259,6 +2269,45 @@ export interface ProductSentiment {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiment-conclusions".
+ */
+export interface ProductSentimentConclusion {
+  id: number;
+  product: number | Product;
+  topic:
+    | 'smell'
+    | 'texture'
+    | 'color'
+    | 'consistency'
+    | 'absorption'
+    | 'stickiness'
+    | 'lather'
+    | 'efficacy'
+    | 'longevity'
+    | 'finish'
+    | 'afterFeel'
+    | 'skinTolerance'
+    | 'allergenPotential'
+    | 'dispensing'
+    | 'travelSafety'
+    | 'animalTesting';
+  /**
+   * Overall sentiment direction for this topic based on review analysis
+   */
+  conclusion: 'positive' | 'negative' | 'divided';
+  /**
+   * Strength of the conclusion based on review volume (low: 5-9, medium: 10-24, high: 25-49, ultra: 50+)
+   */
+  strength: 'low' | 'medium' | 'high' | 'ultra';
+  /**
+   * Total number of reviews mentioning this topic
+   */
+  volume?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -2364,6 +2413,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'product-sentiments';
         value: number | ProductSentiment;
+      } | null)
+    | ({
+        relationTo: 'product-sentiment-conclusions';
+        value: number | ProductSentimentConclusion;
       } | null)
     | ({
         relationTo: 'events';
@@ -3077,6 +3130,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   brandSourcePriority?: T;
   detectionThreshold?: T;
   reviewSentimentChunkSize?: T;
+  reviewSentimentTimeoutSec?: T;
   minBoxArea?: T;
   stageResolve?: T;
   stageClassify?: T;
@@ -3088,6 +3142,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   stageDescriptions?: T;
   stageScoreHistory?: T;
   stageReviewSentiment?: T;
+  stageSentimentConclusion?: T;
   total?: T;
   aggregated?: T;
   errors?: T;
@@ -3109,6 +3164,19 @@ export interface ProductSentimentsSelect<T extends boolean = true> {
   topic?: T;
   sentiment?: T;
   amount?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiment-conclusions_select".
+ */
+export interface ProductSentimentConclusionsSelect<T extends boolean = true> {
+  product?: T;
+  topic?: T;
+  conclusion?: T;
+  strength?: T;
+  volume?: T;
   updatedAt?: T;
   createdAt?: T;
 }

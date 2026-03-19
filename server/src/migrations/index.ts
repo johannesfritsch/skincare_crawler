@@ -23,6 +23,9 @@ import * as migration_20260318_103424 from './20260318_103424';
 import * as migration_20260318_120000_recognition_embeddings_table from './20260318_120000_recognition_embeddings_table';
 import * as migration_20260318_153916 from './20260318_153916';
 import * as migration_20260318_183127 from './20260318_183127';
+import * as migration_20260318_210630 from './20260318_210630';
+import * as migration_20260319_084209 from './20260319_084209';
+import * as migration_20260319_121439 from './20260319_121439';
 
 export const migrations = [
   {
@@ -148,6 +151,21 @@ export const migrations = [
   {
     up: migration_20260318_183127.up,
     down: migration_20260318_183127.down,
-    name: '20260318_183127'
+    name: '20260318_183127',
+  },
+  {
+    up: migration_20260318_210630.up,
+    down: migration_20260318_210630.down,
+    name: '20260318_210630',
+  },
+  {
+    up: migration_20260319_084209.up,
+    down: migration_20260319_084209.down,
+    name: '20260319_084209',
+  },
+  {
+    up: migration_20260319_121439.up,
+    down: migration_20260319_121439.down,
+    name: '20260319_121439'
   },
 ];
