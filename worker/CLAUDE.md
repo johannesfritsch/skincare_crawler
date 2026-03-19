@@ -73,7 +73,7 @@ worker/src/
     │
     ├── models/
     │   ├── grounding-dino.ts         # Shared Grounding DINO singleton (zero-shot object detection)
-    │   └── clip.ts                   # Shared DINOv2-small singleton (image embeddings + search helper)
+    │   └── clip.ts                   # Shared DINOv2-base singleton (image embeddings + search helper)
     │
     ├── product-aggregation/
     │   └── stages/                   # Stage-based pipeline — see stages/CLAUDE.md for detailed docs
@@ -85,7 +85,7 @@ worker/src/
     │       ├── ingredients.ts        # Stage 3: parseIngredients() + matchIngredients() per variant
     │       ├── images.ts             # Stage 4: Download + upload best image per variant
     │       ├── object-detection.ts   # Stage 5: Grounding DINO detection + crop per variant
-    │       ├── embed-images.ts       # Stage 6: DINOv2-small embedding vectors for recognition image crops
+    │       ├── embed-images.ts       # Stage 6: DINOv2-base embedding vectors for recognition image crops
     │       ├── descriptions.ts       # Stage 7: consensusDescription() + deduplicateLabels() per variant
     │       └── score-history.ts      # Stage 8: Compute store + creator scores
     │
@@ -347,7 +347,7 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 | 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, clusters by perceptual hash, uploads to video-media | `video-scenes` (timestamps), `video-frames` (image, isClusterRepresentative, clusterThumbnail) |
 | 1 | `barcode_scan` | Scans frame images for barcodes via `zbarimg`, looks up product-variants by GTIN | `video-scenes.barcodes[]` |
 | 2 | `object_detection` | Per scene: Grounding DINO detection on cluster representative frames, crop + upload to detection-media. Configurable: `detectionPrompt` (default "cosmetics packaging."), `detectionThreshold` (default 0.3), `minBoxArea` (default 25%). Emits per-candidate detail events. | `video-scenes.objects[]` (crops as detection-media, bounding boxes) |
-| 3 | `visual_search` | Per scene: DINOv2-small transient embeddings for object detection crops → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). | `video-scenes.recognitions[]` |
+| 3 | `visual_search` | Per scene: DINOv2-base transient embeddings for object detection crops → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). | `video-scenes.recognitions[]` |
 | 4 | `llm_recognition` | Per scene: LLM classification of cluster rep frames + product matching via `recognizeProduct()` + `matchProduct()` | `video-scenes.llmMatches[]` |
 | 5 | `transcription` | Extracts full audio (ffmpeg), then per scene: extracts audio clip via `ffmpeg -ss -t`, transcribes clip via OpenAI Whisper API, LLM-corrects each scene's text (gpt-4.1-mini). Keywords passed as vocabulary hints via Whisper's `prompt` parameter. | `video-scenes.transcript` |
 | 6 | `compile_detections` | Synthesizes all detection sources (barcodes, objects+recognitions, llmMatches) into unified detections[] with confidence scores. Barcode: 1.0, DINOv2: 1.0-distance, LLM: 0.6, multi-source bonus: +0.1 per additional source (capped at 1.0). | `video-scenes.detections[]` |
@@ -392,7 +392,7 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 | 3 | `ingredients` | `stageIngredients` | Per variant: `parseIngredients()` + `matchIngredients()` → linked ingredient IDs | Yes |
 | 4 | `images` | `stageImages` | Per variant: download ALL images from all stores, upload to product-media with visibility (public/recognition_only) and source metadata. Public image first, then recognition-only. | No |
 | 5 | `object_detection` | `stageObjectDetection` | Per variant: Grounding DINO detection on ALL variant images (public + recognition_only) — "cosmetics packaging" prompt + sharp crop + upload crops to detection-media as `recognitionImages`. Accumulates detections across all store images. Filters by `minBoxArea` (default 5%). Also deletes existing `recognition_embeddings` rows for the variant before rewriting `recognitionImages` (to avoid stale embeddings for removed crops). | No (ML) |
-| 6 | `embed_images` | `stageEmbedImages` | Per variant: DINOv2-small embedding vectors for recognition image crops → upserted into `recognition_embeddings` table via embeddings API by `(product_variant_id, detection_media_id)` | No (ML) |
+| 6 | `embed_images` | `stageEmbedImages` | Per variant: DINOv2-base embedding vectors for recognition image crops → upserted into `recognition_embeddings` table via embeddings API by `(product_variant_id, detection_media_id)` | No (ML) |
 | 7 | `descriptions` | `stageDescriptions` | Per variant: `consensusDescription()` + `deduplicateLabels()` | Yes |
 | 8 | `score_history` | `stageScoreHistory` | Compute store + creator scores, prepend to scoreHistory[] | No |
 | 9 | `review_sentiment` | `stageReviewSentiment` | GPT 4.1-mini analysis of source-reviews → per-topic sentiment counts → upsert product-sentiments. Incremental via `reviewState` (skips already-processed reviews). Configurable: `reviewSentimentChunkSize` (default 50). | Yes |
@@ -709,7 +709,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
 - **External APIs**: Deepgram REST API (full-audio speech-to-text with word timestamps, nova-3 model, requires `DEEPGRAM_API_KEY`), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching). LLM call sites use the centralized `getOpenAI()` singleton from `lib/openai.ts`, which reads `OPENAI_API_KEY` and optional `OPENAI_BASE_URL`.
-- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`object_detection` stage). (2) DINOv2-small (`Xenova/dinov2-small`, ~90MB, `lib/models/clip.ts`) for computing 384-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`visual_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
+- **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`object_detection` stage). (2) DINOv2-base (`Xenova/dinov2-base`, ~300MB, `lib/models/clip.ts`) for computing 768-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`visual_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
 
 ## Per-Driver Documentation
 

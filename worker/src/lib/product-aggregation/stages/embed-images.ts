@@ -2,12 +2,14 @@
  * Stage 6: Embed Images
  *
  * Per variant: takes recognition image crops (from stage 5 object detection),
- * computes DINOv2-small embedding vectors (384-dim), and
- * writes them to pgvector via the server's /api/embeddings/:namespace/write
- * endpoint.
+ * generates 8 perspective augmentations per crop (original + 7 transforms via sharp),
+ * computes DINOv2-base embedding vectors (768-dim) for each, and writes them to
+ * pgvector via the server's /api/embeddings/:namespace/write endpoint.
  *
- * These embeddings enable visual similarity search — given a video screenshot,
- * you can find the closest product-variant by cosine distance in the DB.
+ * The augmentations (rotations, flips, perspective skews) help match products
+ * seen at angles in video frames against clean store product photos.
+ * Augmented images are transient — generated in memory, embedded, then discarded.
+ * Only the embedding vectors are stored.
  *
  * Model is selected via EMBEDDING_MODEL env var (default: 'dinov2').
  * Uses @huggingface/transformers with onnxruntime-node for local inference.
@@ -15,10 +17,29 @@
  * invocations (cached in .cache/huggingface).
  */
 
-import { computeImageEmbedding } from '@/lib/models/clip'
+import sharp from 'sharp'
+import { computeImageEmbedding, computeImageEmbeddingFromBuffer } from '@/lib/models/clip'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
 const EMBEDDING_NAMESPACE = 'recognition-images'
+
+/**
+ * Augmentation definitions. Each produces a transformed PNG buffer from the original.
+ * The 'original' type uses the source URL directly (no sharp transform).
+ */
+const AUGMENTATIONS: Array<{
+  type: string
+  transform: ((img: sharp.Sharp) => sharp.Sharp) | null
+}> = [
+  { type: 'original', transform: null },
+  { type: 'rot15', transform: (img) => img.rotate(15, { background: '#000' }) },
+  { type: 'rot-15', transform: (img) => img.rotate(-15, { background: '#000' }) },
+  { type: 'rot30', transform: (img) => img.rotate(30, { background: '#000' }) },
+  { type: 'rot-30', transform: (img) => img.rotate(-30, { background: '#000' }) },
+  { type: 'flip', transform: (img) => img.flop() },
+  { type: 'skew-l', transform: (img) => img.affine([[0.9, 0.1], [0, 1]]) },
+  { type: 'skew-r', transform: (img) => img.affine([[0.9, -0.1], [0, 1]]) },
+]
 
 export async function executeEmbedImages(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, config, log } = ctx
@@ -56,7 +77,12 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
       continue
     }
 
-    log.info('Computing image embeddings', { gtin: v.gtin, count: recognitionImages.length })
+    log.info('Computing image embeddings with augmentations', {
+      gtin: v.gtin,
+      crops: recognitionImages.length,
+      augmentations: AUGMENTATIONS.length,
+      totalEmbeddings: recognitionImages.length * AUGMENTATIONS.length,
+    })
 
     const writeItems: Array<Record<string, unknown>> = []
 
@@ -83,25 +109,55 @@ export async function executeEmbedImages(ctx: StageContext, workItem: Aggregatio
       // Construct full URL if relative
       const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${payload.serverUrl}${mediaUrl}`
 
+      // Download the image buffer once for all augmentations
+      let imageBuffer: Buffer | null = null
       try {
-        const embedding = await computeImageEmbedding(fullUrl)
-        if (!embedding) {
-          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding returned null for recognition image ${ri.id}` })
+        const response = await fetch(fullUrl)
+        if (!response.ok) {
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Failed to fetch image ${ri.id}: HTTP ${response.status}` })
           continue
         }
-        writeItems.push({
-          product_variant_id: variantId,
-          detection_media_id: detectionMediaId,
-          embedding,
-        })
+        imageBuffer = Buffer.from(await response.arrayBuffer())
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding failed for recognition image ${ri.id}: ${msg}` })
+        jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Failed to fetch image ${ri.id}: ${msg}` })
+        continue
+      }
+
+      // Generate embeddings for each augmentation
+      for (const aug of AUGMENTATIONS) {
+        try {
+          let embedding: number[] | null
+
+          if (!aug.transform) {
+            // Original — embed from URL directly (no transform needed)
+            embedding = await computeImageEmbedding(fullUrl)
+          } else {
+            // Apply sharp transform → PNG buffer → embed from buffer
+            const augBuffer = await aug.transform(sharp(imageBuffer)).png().toBuffer()
+            embedding = await computeImageEmbeddingFromBuffer(augBuffer)
+          }
+
+          if (!embedding) {
+            jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding returned null for ${ri.id}/${aug.type}` })
+            continue
+          }
+
+          writeItems.push({
+            product_variant_id: variantId,
+            detection_media_id: detectionMediaId,
+            augmentation_type: aug.type,
+            embedding,
+          })
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          jlog.event('aggregation.warning', { gtin: v.gtin, warning: `Embedding failed for ${ri.id}/${aug.type}: ${msg}` })
+        }
       }
     }
 
     // Batch write embeddings via the server endpoint.
-    // Uses INSERT ... ON CONFLICT (product_variant_id, detection_media_id) DO UPDATE
+    // Uses INSERT ... ON CONFLICT (product_variant_id, detection_media_id, augmentation_type) DO UPDATE
     // so embeddings are keyed by stable identifiers that survive Payload array rewrites.
     if (writeItems.length > 0) {
       try {

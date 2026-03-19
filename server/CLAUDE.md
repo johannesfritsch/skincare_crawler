@@ -1976,10 +1976,10 @@ Generic API for storing and searching embedding vectors in pgvector columns. The
 const NAMESPACES: Record<string, EmbeddingNamespace> = {
   'recognition-images': {
     table: 'recognition_embeddings',
-    embeddingColumn: 'embedding',        // vector(384) — manual migration, NOT managed by Payload
-    dimensions: 384,                     // DINOv2-small
+    embeddingColumn: 'embedding',        // vector(768) — manual migration, NOT managed by Payload
+    dimensions: 768,                     // DINOv2-small
     idColumn: 'id',
-    upsertColumns: ['product_variant_id', 'detection_media_id'],
+    upsertColumns: ['product_variant_id', 'detection_media_id', 'augmentation_type'],
     returnColumns: ['product_variant_id'],
     join: { table: 'product_variants', on: ['product_variant_id', 'id'], columns: ['gtin'] },
   },
@@ -1998,7 +1998,7 @@ To add a new embedding target: add a namespace entry + create a migration that a
 
 ### Key Details
 
-- **Vector columns are NOT managed by Payload** — they are added via manual migrations (`ALTER TABLE ... ADD COLUMN embedding vector(384)`). Payload ignores them; the embeddings endpoint handles all reads/writes via raw SQL.
+- **Vector columns are NOT managed by Payload** — they are added via manual migrations (`ALTER TABLE ... ADD COLUMN embedding vector(768)`). Payload ignores them; the embeddings endpoint handles all reads/writes via raw SQL.
 - **The `recognition_embeddings` table is standalone** — it is not a Payload array sub-table. Row existence IS the embedding flag; there is no separate boolean column. This decouples embeddings from Payload's array rewrite behavior.
 - **Upsert mode**: namespaces with `upsertColumns` use `INSERT ... ON CONFLICT (col1, col2) DO UPDATE SET embedding = EXCLUDED.embedding` instead of UPDATE by row ID.
 - **HNSW index** on the vector column for fast approximate nearest neighbor search. Created in the migration.

@@ -16,7 +16,7 @@ interface EmbeddingNamespace {
   table: string
   /** Column name for the vector (must be type vector(N)) */
   embeddingColumn: string
-  /** Vector dimensions (384 for DINOv2-small) */
+  /** Vector dimensions (768 for DINOv2-base) */
   dimensions: number
   /** Primary key column name */
   idColumn: string
@@ -42,10 +42,10 @@ const NAMESPACES: Record<string, EmbeddingNamespace> = {
   'recognition-images': {
     table: 'recognition_embeddings',
     embeddingColumn: 'embedding',
-    dimensions: 384,
+    dimensions: 768,
     idColumn: 'id',
     returnColumns: ['product_variant_id'],
-    upsertColumns: ['product_variant_id', 'detection_media_id'],
+    upsertColumns: ['product_variant_id', 'detection_media_id', 'augmentation_type'],
     join: {
       table: 'product_variants',
       on: ['product_variant_id', 'id'],

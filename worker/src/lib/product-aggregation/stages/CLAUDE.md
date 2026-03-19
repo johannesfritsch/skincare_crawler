@@ -180,27 +180,41 @@ This gives detection crops from every store's image of the product — not just 
 
 ---
 
-### Stage 6: `embed_images` — DINOv2 Embedding Vectors
+### Stage 6: `embed_images` — DINOv2 Embedding Vectors with Perspective Augmentation
 
-**File**: `embed-images.ts` (~135 lines)
+**File**: `embed-images.ts`
 **Checkbox**: `stageEmbedImages`
 **LLM**: No (ML inference via ONNX)
 **Event**: `aggregation.images_embedded`
 
-Per variant: takes the recognition image crops (from stage 5 object detection), computes DINOv2-small embedding vectors (384-dim), and writes them to pgvector via the server's generic embeddings API.
+Per variant: takes the recognition image crops (from stage 5 object detection), generates **8 perspective augmentations** per crop (original + 7 transforms via sharp), computes DINOv2-base embedding vectors (768-dim) for each, and writes them to pgvector via the server's generic embeddings API. The augmentations help match products seen at angles in video frames against clean store product photos.
 
-**Model**: `Xenova/dinov2-small` (ONNX version of Meta's DINOv2-small). Lazy-loaded singleton — first call downloads ~90MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only. Same pattern as the Grounding DINO singleton.
+**Model**: `Xenova/dinov2-base` (ONNX version of Meta's DINOv2-base). Lazy-loaded singleton — first call downloads ~300MB model to `.cache/huggingface`, subsequent calls reuse the loaded model. Uses dynamic `import()` because `@huggingface/transformers` is ESM-only. Same pattern as the Grounding DINO singleton.
+
+**Augmentations** (8 per crop, transient — only embedding vectors are stored):
+
+| Type | sharp operation | Purpose |
+|------|----------------|---------|
+| `original` | (none) | Existing straight-on view |
+| `rot15` | `.rotate(15, { background: '#000' })` | Slight clockwise tilt |
+| `rot-15` | `.rotate(-15, { background: '#000' })` | Slight counter-clockwise tilt |
+| `rot30` | `.rotate(30, { background: '#000' })` | Moderate clockwise tilt |
+| `rot-30` | `.rotate(-30, { background: '#000' })` | Moderate counter-clockwise tilt |
+| `flip` | `.flop()` | Horizontal mirror |
+| `skew-l` | `.affine([[0.9, 0.1], [0, 1]])` | Left perspective skew |
+| `skew-r` | `.affine([[0.9, -0.1], [0, 1]])` | Right perspective skew |
 
 **Flow** (per variant):
 1. Find the `product-variant` by GTIN
 2. Get `recognitionImages` array
 3. For each recognition image:
-   a. Resolve the detection-media URL
-   b. Run DINOv2 feature extraction: `extractor(imageUrl, { pooling: 'mean', normalize: true })`
-   c. Extract the 384-dim embedding vector
-4. Batch upsert embeddings via `POST /api/embeddings/recognition-images/write` — each item carries `upsertValues: { product_variant_id, detection_media_id }` so the row is inserted or updated by that unique key pair
+   a. Resolve the detection-media URL, download image buffer via `fetch()`
+   b. For `original`: embed from URL directly via `computeImageEmbedding()`
+   c. For each augmentation: apply sharp transform → PNG buffer → `computeImageEmbeddingFromBuffer()`
+   d. Collect items with `{ product_variant_id, detection_media_id, augmentation_type, embedding }`
+4. Batch upsert embeddings via `POST /api/embeddings/recognition-images/write` — each item is keyed by `(product_variant_id, detection_media_id, augmentation_type)`
 
-**Writes to**: `recognition_embeddings` table (standalone pgvector table keyed by `(product_variant_id, detection_media_id)`)
+**Writes to**: `recognition_embeddings` table (standalone pgvector table keyed by `(product_variant_id, detection_media_id, augmentation_type)`)
 
 **Note**: The `recognition_embeddings` table is NOT a Payload-managed array sub-table — it is a standalone table added via manual migration. Embeddings survive Payload array rewrites because they are keyed by `(product_variant_id, detection_media_id)`, not by ephemeral array row IDs.
 
