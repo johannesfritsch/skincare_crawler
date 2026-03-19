@@ -26,6 +26,14 @@ import {
   getCrawlProgress,
   type CrawlStageName,
 } from '@/lib/product-crawl/stages'
+import {
+  getNextVideoCrawlStage,
+  getEnabledVideoCrawlStages,
+  getVideoCrawlProgress,
+  videoNeedsCrawlWork,
+  getVideoCrawlProgressKey,
+  type VideoCrawlStageName,
+} from '@/lib/video-crawl/stages'
 
 export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
 
@@ -677,9 +685,40 @@ async function buildVideoCrawlWork(payload: PayloadRestClient, jobId: number) {
     jlog.event('job.claimed', { collection: 'video-crawls', jobId, total })
   }
 
-  // Find videos to crawl
-  // Work items may have a videoId (existing DB record) or just an externalUrl (new URL, no record yet)
-  const workItems: Array<{ videoId?: number; externalUrl: string; title: string }> = []
+  // Read progress map and enabled stages
+  const progress = getVideoCrawlProgress(job)
+  const enabledStages = getEnabledVideoCrawlStages(job)
+
+  // Build stage work items
+  const stageItems: Array<{
+    videoId?: number
+    externalUrl: string
+    title: string
+    stageName: VideoCrawlStageName
+  }> = []
+
+  const addStageItem = (videoId: number | undefined, externalUrl: string, title: string) => {
+    if (stageItems.length >= itemsPerTick) return
+    const progressKey = getVideoCrawlProgressKey(videoId, externalUrl)
+    // For URL-keyed items that already got a videoId from a prior metadata run, recover the ID
+    let resolvedVideoId = videoId
+    if (!resolvedVideoId) {
+      const storedId = progress[`vid:${progressKey}`]
+      if (storedId && typeof storedId === 'string') {
+        resolvedVideoId = parseInt(storedId, 10) || undefined
+      }
+    }
+    const lastCompleted = progress[progressKey] ?? null
+    if (!videoNeedsCrawlWork(lastCompleted, enabledStages)) return
+    const nextStage = getNextVideoCrawlStage(lastCompleted, enabledStages)
+    if (!nextStage) return
+    stageItems.push({
+      videoId: resolvedVideoId,
+      externalUrl,
+      title,
+      stageName: nextStage.name,
+    })
+  }
 
   if (job.type === 'all') {
     // Crawl all discovered videos (or all if recrawl)
@@ -690,21 +729,17 @@ async function buildVideoCrawlWork(payload: PayloadRestClient, jobId: number) {
     const result = await payload.find({
       collection: 'videos',
       where,
-      limit: itemsPerTick,
+      limit: itemsPerTick * 3, // fetch more to account for already-done items
       sort: 'createdAt',
     })
     for (const doc of result.docs) {
       const v = doc as Record<string, unknown>
-      workItems.push({
-        videoId: v.id as number,
-        externalUrl: v.externalUrl as string,
-        title: (v.title as string) ?? '',
-      })
+      addStageItem(v.id as number, v.externalUrl as string, (v.title as string) ?? '')
     }
   } else {
-    // selected_urls or from_discovery — find videos by URL
+    // selected_urls or from_discovery — look up videos by URL
     for (const url of videoUrls) {
-      if (workItems.length >= itemsPerTick) break
+      if (stageItems.length >= itemsPerTick) break
       const existing = await payload.find({
         collection: 'videos',
         where: { externalUrl: { equals: url } },
@@ -712,26 +747,16 @@ async function buildVideoCrawlWork(payload: PayloadRestClient, jobId: number) {
       })
       if (existing.docs.length > 0) {
         const v = existing.docs[0] as Record<string, unknown>
-        // Skip if already crawled (unless recrawl scope)
-        if ((job.scope as string) !== 'recrawl' && (v.status as string) === 'crawled') continue
-        workItems.push({
-          videoId: v.id as number,
-          externalUrl: v.externalUrl as string,
-          title: (v.title as string) ?? '',
-        })
+        addStageItem(v.id as number, v.externalUrl as string, (v.title as string) ?? '')
       } else {
-        // Video doesn't exist in DB yet — the handler will resolve channel+creator
-        // and create the video record during crawl
-        workItems.push({
-          externalUrl: url,
-          title: url,
-        })
+        // Video doesn't exist in DB yet — metadata stage will create it
+        addStageItem(undefined, url, url)
       }
     }
   }
 
   // No work items — complete the job
-  if (workItems.length === 0) {
+  if (stageItems.length === 0) {
     jlog.info('No remaining work, completing job', { jobId })
     await payload.update({
       collection: 'video-crawls',
@@ -745,12 +770,13 @@ async function buildVideoCrawlWork(payload: PayloadRestClient, jobId: number) {
     return { type: 'none' }
   }
 
-  jlog.info('Prepared video crawl work items', { jobId, count: workItems.length })
+  jlog.info('Prepared video crawl stage items', { jobId, count: stageItems.length })
 
   return {
     type: 'video-crawl',
     jobId,
-    workItems,
+    stageItems,
+    enabledStages: [...enabledStages],
     itemsPerTick,
   }
 }

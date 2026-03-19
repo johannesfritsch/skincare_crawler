@@ -37,6 +37,14 @@ import {
 } from '@/lib/product-aggregation/stages'
 import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
 import { executeReviewStage, type ReviewWorkItem } from '@/lib/product-crawl/stages/reviews'
+import {
+  type VideoCrawlStageName,
+  type VideoCrawlStageContext,
+  type VideoCrawlWorkItem,
+} from '@/lib/video-crawl/stages'
+import { executeMetadata } from '@/lib/video-crawl/stages/metadata'
+import { executeDownload } from '@/lib/video-crawl/stages/download'
+import { executeAudio } from '@/lib/video-crawl/stages/audio'
 
 
 // ─── Config ───
@@ -505,226 +513,97 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
 async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const jlog = log.forJob('video-crawls', jobId)
-  const workItems = work.workItems as Array<{
+  const stageItems = work.stageItems as Array<{
     videoId?: number
     externalUrl: string
     title: string
+    stageName: VideoCrawlStageName
   }>
+  const enabledStagesArr = work.enabledStages as string[]
 
-  log.info('Video crawl job', { jobId, items: workItems.length })
-  jlog.event('video_crawl.started', { items: workItems.length })
+  log.info('Video crawl job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr?.join(',') })
+  jlog.event('video_crawl.started', { items: stageItems.length })
 
-  if (workItems.length === 0) {
-    log.warn('No work items, releasing claim', { jobId })
+  if (stageItems.length === 0) {
+    log.warn('No stage items, releasing claim', { jobId })
     await client.update({ collection: 'video-crawls', id: jobId, data: { claimedBy: null, claimedAt: null } }).catch(() => {})
     return
+  }
+
+  const stageExecutors: Record<VideoCrawlStageName, (ctx: VideoCrawlStageContext, item: VideoCrawlWorkItem) => Promise<{ success: boolean; error?: string; videoId?: number }>> = {
+    metadata: executeMetadata,
+    download: executeDownload,
+    audio: executeAudio,
   }
 
   const results: Array<{
     videoId: number
     externalUrl: string
+    stageName: string
     success: boolean
     error?: string
+    createdVideoId?: number
   }> = []
 
-  for (const item of workItems) {
-    log.info('Crawling video', { videoId: item.videoId ?? 'new', url: item.externalUrl })
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-video-crawl-'))
+  for (const item of stageItems) {
+    const itemLabel = item.title ? `"${item.title}"` : (item.videoId ? `video #${item.videoId}` : item.externalUrl)
+    log.banner(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, { videoId: item.videoId ?? 'new' })
+    jlog.event('stage.started', { pipeline: 'video-crawl', stage: item.stageName, item: item.title || item.externalUrl })
 
+    const executor = stageExecutors[item.stageName]
+    if (!executor) {
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, false, { error: 'unknown stage' })
+      results.push({ videoId: item.videoId ?? 0, externalUrl: item.externalUrl, stageName: item.stageName, success: false, error: `Unknown stage: ${item.stageName}` })
+      continue
+    }
+
+    const stageCtx: VideoCrawlStageContext = {
+      payload: client,
+      config: { jobId },
+      log,
+      uploadMedia,
+      heartbeat: () => heartbeat(jobId, 'video-crawl'),
+    }
+
+    const stageStartMs = Date.now()
     try {
-      // Step 1: Get metadata via yt-dlp --dump-json (no download)
-      const { execSync } = await import('child_process')
-      const metadataJson = execSync(
-        `yt-dlp --dump-json --no-download ${JSON.stringify(item.externalUrl)}`,
-        { timeout: 60000, maxBuffer: 50 * 1024 * 1024 },
-      ).toString('utf-8')
-      const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+      const stageResult = await executor(stageCtx, item)
+      const durationMs = Date.now() - stageStartMs
+      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
 
-      const title = (metadata.title as string) ?? item.title
-      const duration = (metadata.duration as number) ?? undefined
-      const viewCount = (metadata.view_count as number) ?? undefined
-      const likeCount = (metadata.like_count as number) ?? undefined
-      const uploadDate = metadata.upload_date as string | undefined
-      const thumbnailUrl = (metadata.thumbnail as string) ?? undefined
-      const channelName = (metadata.channel as string) ?? (metadata.uploader as string) ?? undefined
-      const channelUrl = (metadata.channel_url as string) ?? undefined
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, stageResult.success, { duration: durationStr })
+      jlog.event('stage.completed', { pipeline: 'video-crawl', stage: item.stageName, item: item.title || item.externalUrl, durationMs, tokens: 0 })
 
-      await heartbeat(jobId, 'video-crawl')
+      results.push({
+        videoId: item.videoId ?? 0,
+        externalUrl: item.externalUrl,
+        stageName: item.stageName,
+        success: stageResult.success,
+        error: stageResult.error,
+        // Pass back the newly created videoId for URL-keyed items
+        createdVideoId: !item.videoId && stageResult.videoId ? stageResult.videoId : undefined,
+      })
+    } catch (error) {
+      const durationMs = Date.now() - stageStartMs
+      const msg = error instanceof Error ? error.message : String(error)
+      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
 
-      // Step 2: Resolve/create channel + creator (required — channel is NOT NULL on videos)
-      let channelId: number | undefined
-      if (channelUrl) {
-        // Find existing channel by URL
-        const existingChannel = await client.find({
-          collection: 'channels',
-          where: {
-            or: [
-              { externalUrl: { equals: channelUrl } },
-              { canonicalUrl: { equals: channelUrl } },
-            ],
-          },
-          limit: 1,
-        })
+      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, false, { duration: durationStr, error: msg.slice(0, 80) })
+      jlog.event('stage.failed', { pipeline: 'video-crawl', stage: item.stageName, item: item.title || item.externalUrl, durationMs, error: msg })
 
-        if (existingChannel.docs.length > 0) {
-          channelId = (existingChannel.docs[0] as Record<string, unknown>).id as number
-        } else {
-          // Create creator + channel
-          const creatorName = channelName ?? 'Unknown'
-          const existingCreator = await client.find({
-            collection: 'creators',
-            where: { name: { equals: creatorName } },
-            limit: 1,
-          })
-          let creatorId: number
-          if (existingCreator.docs.length > 0) {
-            creatorId = (existingCreator.docs[0] as Record<string, unknown>).id as number
-          } else {
-            const newCreator = await client.create({
-              collection: 'creators',
-              data: { name: creatorName },
-            }) as { id: number }
-            creatorId = newCreator.id
-          }
-
-          // Download channel avatar
-          let channelImageId: number | undefined
-          const channelAvatarUrl = metadata.channel_thumbnail_url as string | undefined
-          if (channelAvatarUrl) {
-            try {
-              const avatarRes = await fetch(channelAvatarUrl)
-              if (avatarRes.ok) {
-                const buffer = Buffer.from(await avatarRes.arrayBuffer())
-                const contentType = avatarRes.headers.get('content-type') || 'image/jpeg'
-                const ext = contentType.includes('png') ? 'png' : 'jpg'
-                const avatarPath = path.join(tmpDir, `avatar.${ext}`)
-                fs.writeFileSync(avatarPath, buffer)
-                channelImageId = await uploadMedia(avatarPath, channelName ?? 'Channel avatar', contentType, 'profile-media')
-              }
-            } catch (e) {
-              log.warn('Failed to download channel avatar', { error: String(e) })
-            }
-          }
-
-          // Determine platform
-          let platform: 'youtube' | 'instagram' | 'tiktok' = 'youtube'
-          try {
-            const host = new URL(channelUrl).hostname.toLowerCase()
-            if (host.includes('instagram')) platform = 'instagram'
-            else if (host.includes('tiktok')) platform = 'tiktok'
-          } catch { /* default youtube */ }
-
-          const newChannel = await client.create({
-            collection: 'channels',
-            data: {
-              creator: creatorId,
-              platform,
-              externalUrl: channelUrl,
-              ...(channelImageId ? { image: channelImageId } : {}),
-            },
-          }) as { id: number }
-          channelId = newChannel.id
-        }
-      }
-
-      if (!channelId) {
-        throw new Error(`Could not resolve channel for video ${item.externalUrl} — yt-dlp returned no channel_url`)
-      }
-
-      await heartbeat(jobId, 'video-crawl')
-
-      // Step 3: Download video MP4
-      const videoPath = path.join(tmpDir, 'video.mp4')
-      const { downloadVideo, getVideoDuration } = await import('@/lib/video-processing/process-video')
-      await downloadVideo(item.externalUrl, videoPath)
-      const actualDuration = await getVideoDuration(videoPath).catch(() => duration)
-
-      await heartbeat(jobId, 'video-crawl')
-
-      // Step 4: Upload video MP4 as media (videoFile)
-      const videoMediaId = await uploadMedia(videoPath, title, 'video/mp4', 'video-media')
-
-      // Step 5: Download and upload thumbnail
-      let thumbnailMediaId: number | undefined
-      if (thumbnailUrl) {
-        try {
-          const thumbRes = await fetch(thumbnailUrl)
-          if (thumbRes.ok) {
-            const buffer = Buffer.from(await thumbRes.arrayBuffer())
-            const contentType = thumbRes.headers.get('content-type') || 'image/jpeg'
-            const ext = contentType.includes('png') ? 'png' : 'jpg'
-            const thumbPath = path.join(tmpDir, `thumbnail.${ext}`)
-            fs.writeFileSync(thumbPath, buffer)
-            thumbnailMediaId = await uploadMedia(thumbPath, `${title} thumbnail`, contentType, 'video-media')
-          }
-        } catch (e) {
-          log.warn('Failed to download thumbnail', { url: thumbnailUrl, error: String(e) })
-        }
-      }
-
-      // Step 6: Build publishedAt
-      let publishedAt: string | undefined
-      if (uploadDate && /^\d{8}$/.test(uploadDate)) {
-        // yt-dlp returns YYYYMMDD format
-        publishedAt = new Date(
-          `${uploadDate.slice(0, 4)}-${uploadDate.slice(4, 6)}-${uploadDate.slice(6, 8)}`,
-        ).toISOString()
-      }
-
-      // Step 7: Create or update video record with full data + status='crawled'
-      const videoData = {
-        title,
-        channel: channelId,
-        ...(publishedAt ? { publishedAt } : {}),
-        ...(actualDuration ? { duration: actualDuration } : {}),
-        ...(viewCount != null ? { viewCount } : {}),
-        ...(likeCount != null ? { likeCount } : {}),
-        videoFile: videoMediaId,
-        ...(thumbnailMediaId ? { thumbnail: thumbnailMediaId } : {}),
-        status: 'crawled' as const,
-      }
-
-      let videoId: number
-      if (item.videoId) {
-        // Existing video record — update it
-        await client.update({
-          collection: 'videos',
-          id: item.videoId,
-          data: videoData,
-        })
-        videoId = item.videoId
-      } else {
-        // New URL with no DB record — create the video with all data including channel
-        const newVideo = await client.create({
-          collection: 'videos',
-          data: {
-            ...videoData,
-            externalUrl: item.externalUrl,
-          },
-        }) as { id: number }
-        videoId = newVideo.id
-      }
-
-      log.info('Video crawled successfully', { videoId, title })
-      jlog.event('video_crawl.video_crawled', { videoId, title, durationMs: 0 })
-      results.push({ videoId, externalUrl: item.externalUrl, success: true })
-    } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
-      log.error('Video crawl error', { videoId: item.videoId ?? 0, url: item.externalUrl, error })
-      jlog.event('video_crawl.error', { url: item.externalUrl, error })
-      results.push({ videoId: item.videoId ?? 0, externalUrl: item.externalUrl, success: false, error })
-    } finally {
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true })
-      } catch (e) {
-        log.warn('Cleanup failed', { error: e instanceof Error ? e.message : String(e) })
-      }
+      results.push({
+        videoId: item.videoId ?? 0,
+        externalUrl: item.externalUrl,
+        stageName: item.stageName,
+        success: false,
+        error: msg,
+      })
     }
 
     await heartbeat(jobId, 'video-crawl')
   }
 
-  await submitWork(client, worker, { type: 'video-crawl', jobId, results } as Parameters<typeof submitWork>[2])
+  await submitWork(client, worker, { type: 'video-crawl', jobId, results, enabledStages: enabledStagesArr } as Parameters<typeof submitWork>[2])
   log.info('Submitted video crawl results', { jobId, items: results.length })
 }
 

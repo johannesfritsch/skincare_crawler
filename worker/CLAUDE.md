@@ -133,8 +133,10 @@ WORKER_JOB_TIMEOUT_MINUTES     Minutes before abandoned job can be reclaimed (de
 EVENT_RETENTION_DAYS           Days before old events are purged (default: 30)
 LOG_LEVEL                      debug|info|warn|error (default: info)
 LOG_FORMAT                     text|json (default: text; json = newline-delimited JSON for log aggregators)
-OPENAI_API_KEY                 For LLM tasks (matching, classification, video recognition) and Whisper transcription
+OPENAI_API_KEY                 For LLM tasks (matching, classification, video recognition, transcript correction)
 OPENAI_BASE_URL                Optional: custom OpenAI-compatible endpoint (default: OpenAI's API). Used by the centralized getOpenAI() client in lib/openai.ts
+DEEPGRAM_API_KEY               For full-audio transcription with word-level timestamps (Deepgram nova-3 model)
+DEEPGRAM_TIMEOUT_MS            Optional: timeout for Deepgram API calls in ms (default: 300000)
 ```
 
 ## REST Client (`PayloadRestClient`)
@@ -706,7 +708,7 @@ All events below are emitted to the server's `events` collection (visible in adm
 - **No join tables**: The `crawl-results`, `discovery-results`, and `search-results` collections have been removed. Discovery/search jobs accumulate URLs in their `productUrls` field. Crawl jobs create source-products directly during persist (find-or-create by normalized URL).
 - **Browser stealth**: `browser.ts` uses `playwright-extra` with `puppeteer-extra-plugin-stealth` to evade bot detection. The stealth plugin patches `navigator.webdriver`, Chrome runtime, plugins, WebGL, permissions, and other fingerprinting vectors. Applied globally to all Playwright-based drivers (Mueller, Rossmann).
 - **External CLIs**: `yt-dlp`, `ffmpeg`, `ffprobe`, `zbarimg` (video processing)
-- **External APIs**: OpenAI Whisper API (speech-to-text transcription via `audio.transcriptions.create`), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching). All 12 LLM/API call sites use the centralized `getOpenAI()` singleton from `lib/openai.ts`, which reads `OPENAI_API_KEY` and optional `OPENAI_BASE_URL`.
+- **External APIs**: Deepgram REST API (full-audio speech-to-text with word timestamps, nova-3 model, requires `DEEPGRAM_API_KEY`), OpenAI gpt-4.1-mini (LLM correction, sentiment analysis, recognition, matching). LLM call sites use the centralized `getOpenAI()` singleton from `lib/openai.ts`, which reads `OPENAI_API_KEY` and optional `OPENAI_BASE_URL`.
 - **ML models**: `@huggingface/transformers` + `onnxruntime-node` for local inference. Two models extracted as shared singletons in `lib/models/`: (1) Grounding DINO (`onnx-community/grounding-dino-tiny-ONNX`, ~700MB, `lib/models/grounding-dino.ts`) for zero-shot object detection — used by both product aggregation (`object-detection` stage) and video processing (`object_detection` stage). (2) DINOv2-small (`Xenova/dinov2-small`, ~90MB, `lib/models/clip.ts`) for computing 384-dim embedding vectors — used by both product aggregation (`embed_images` stage) and video processing (`visual_search` stage). Both models are lazy-loaded as singletons on first use, cached in `.cache/huggingface`. `sharp` handles image cropping.
 
 ## Per-Driver Documentation

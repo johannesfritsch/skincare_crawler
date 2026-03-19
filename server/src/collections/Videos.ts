@@ -171,6 +171,15 @@ export const Videos: CollectionConfig = {
                 description: 'Downloaded MP4 file (set during crawl).',
               },
             },
+            {
+              name: 'audioFile',
+              type: 'upload',
+              relationTo: 'video-media',
+              label: 'Audio File',
+              admin: {
+                description: 'Extracted WAV audio (set during crawl, used by transcription).',
+              },
+            },
           ],
         },
       ],

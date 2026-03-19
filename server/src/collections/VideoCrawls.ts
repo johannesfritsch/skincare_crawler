@@ -22,6 +22,7 @@ export const VideoCrawls: CollectionConfig = {
         crawled: 0,
         errors: 0,
         crawledVideoUrls: null,
+        crawlProgress: null,
       }),
     ],
   },
@@ -101,6 +102,46 @@ export const VideoCrawls: CollectionConfig = {
                   'Crawl the video URLs found by this discovery job.',
                 condition: (data) => data?.type === 'from_discovery',
               },
+            },
+          ],
+        },
+        {
+          label: 'Stages',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageMetadata',
+                  type: 'checkbox',
+                  label: 'Metadata',
+                  defaultValue: true,
+                  admin: {
+                    width: '33%',
+                    description: 'Fetch yt-dlp metadata, resolve channel/creator, upload thumbnail, create/update video record.',
+                  },
+                },
+                {
+                  name: 'stageDownload',
+                  type: 'checkbox',
+                  label: 'Download',
+                  defaultValue: true,
+                  admin: {
+                    width: '33%',
+                    description: 'Download MP4 via yt-dlp, upload to video-media, update videoFile.',
+                  },
+                },
+                {
+                  name: 'stageAudio',
+                  type: 'checkbox',
+                  label: 'Audio',
+                  defaultValue: true,
+                  admin: {
+                    width: '33%',
+                    description: 'Extract audio via ffmpeg, upload WAV, update audioFile and set status=crawled.',
+                  },
+                },
+              ],
             },
           ],
         },
@@ -208,6 +249,15 @@ export const VideoCrawls: CollectionConfig = {
         {
           label: 'Output',
           fields: [
+            {
+              name: 'crawlProgress',
+              type: 'json',
+              label: 'Crawl Progress',
+              admin: {
+                hidden: true,
+                description: 'Per-video stage progress map. Keys are videoId strings or url:<externalUrl>. Values are last completed stage name.',
+              },
+            },
             {
               name: 'crawledVideoUrls',
               type: 'textarea',

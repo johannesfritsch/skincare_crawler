@@ -23,6 +23,15 @@ import {
   type StageName,
 } from '@/lib/video-processing/stages'
 import {
+  getVideoCrawlProgress,
+  videoNeedsCrawlWork,
+  incrementVideoErrorCount as incrementVideoCrawlErrorCount,
+  markVideoCrawlFailed,
+  getVideoCrawlProgressKey,
+  type VideoCrawlStageName,
+  type VideoCrawlProgress,
+} from '@/lib/video-crawl/stages'
+import {
   getAggregationProgress,
   productNeedsWork,
   incrementProductErrorCount,
@@ -173,11 +182,16 @@ interface SubmitVideoDiscoveryBody {
 interface SubmitVideoCrawlBody {
   type: 'video-crawl'
   jobId: number
+  enabledStages: string[]
   results: Array<{
+    /** videoId — may be 0 for new-URL items that failed before getting an ID */
     videoId: number
     externalUrl: string
+    stageName: string
     success: boolean
     error?: string
+    /** Set when metadata stage creates a new DB record for a URL-keyed item */
+    createdVideoId?: number
   }>
 }
 
@@ -812,38 +826,74 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
 }
 
 async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCrawlBody) {
-  const { jobId, results } = body
+  const { jobId, results, enabledStages } = body
   const jlog = log.forJob('video-crawls', jobId)
   const batchStartMs = Date.now()
-  log.info('Video crawl batch received', { jobId, results: results.length })
+  log.info('Video crawl batch received (stage-based)', { jobId, stageExecs: results.length })
 
   const job = await payload.findByID({ collection: 'video-crawls', id: jobId }) as Record<string, unknown>
   let crawled = (job.crawled as number) ?? 0
   let errors = (job.errors as number) ?? 0
 
-  // Accumulate crawled video URLs
+  const maxRetries = (job.maxRetries as number) ?? 3
+
+  // Read current crawlProgress map and update it with results
+  const progress = getVideoCrawlProgress(job)
+  const enabledSet = new Set(enabledStages) as Set<VideoCrawlStageName>
+
+  // Accumulate crawled video URLs (only URLs of fully-completed videos)
   const existingCrawledUrls = ((job.crawledVideoUrls as string) ?? '').trim()
   const crawledUrlSet = new Set<string>(existingCrawledUrls ? existingCrawledUrls.split('\n') : [])
   const newCrawledUrls: string[] = []
 
   for (const result of results) {
+    const progressKey = getVideoCrawlProgressKey(
+      result.videoId || undefined,
+      result.externalUrl,
+    )
+
     if (result.success) {
       crawled++
-      if (!crawledUrlSet.has(result.externalUrl)) {
-        crawledUrlSet.add(result.externalUrl)
-        newCrawledUrls.push(result.externalUrl)
+      // Update progress map
+      progress[progressKey] = result.stageName as VideoCrawlStageName
+      // If metadata stage created a new videoId, store the mapping
+      if (result.createdVideoId) {
+        progress[`vid:${progressKey}`] = String(result.createdVideoId) as VideoCrawlStageName
+        // Also set progress under the numeric key now that we have an ID
+        progress[String(result.createdVideoId)] = result.stageName as VideoCrawlStageName
       }
+      // Clear error count on success
+      delete progress[`err:${progressKey}`]
+
+      // If this was the final stage, record the URL as crawled
+      const lastCompleted = progress[progressKey] ?? null
+      if (!videoNeedsCrawlWork(lastCompleted, enabledSet)) {
+        if (!crawledUrlSet.has(result.externalUrl)) {
+          crawledUrlSet.add(result.externalUrl)
+          newCrawledUrls.push(result.externalUrl)
+        }
+      }
+
+      log.info('Video crawl stage complete', { jobId, videoId: result.videoId, stage: result.stageName })
     } else {
       errors++
+
+      const errCount = incrementVideoCrawlErrorCount(progress, progressKey)
+      log.info('Video crawl stage failed', { jobId, videoId: result.videoId, stage: result.stageName, error: result.error, consecutiveErrors: errCount, maxRetries })
+      jlog.event('video_crawl.error', { url: result.externalUrl, error: `[${result.stageName}] ${result.error ?? 'Unknown error'}` })
+
+      if (errCount > maxRetries) {
+        markVideoCrawlFailed(progress, progressKey)
+        log.warn('Video permanently failed after max retries', { jobId, videoId: result.videoId, stage: result.stageName, consecutiveErrors: errCount })
+      }
     }
   }
 
-  // Update crawled URLs on the job
   const updatedCrawledUrls = newCrawledUrls.length > 0
     ? (existingCrawledUrls ? existingCrawledUrls + '\n' + newCrawledUrls.join('\n') : newCrawledUrls.join('\n'))
     : existingCrawledUrls
 
-  // Check remaining work
+  // Check remaining work using the updated progress map
   let totalRemaining = 0
   if (job.type === 'all') {
     const scope = (job.scope as string) ?? 'uncrawled_only'
@@ -853,7 +903,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
     const count = await payload.count({ collection: 'videos', where })
     totalRemaining = count.totalDocs
   } else {
-    // For selected_urls/from_discovery, count how many of the target URLs are still not crawled
+    // For selected_urls/from_discovery, check progress for each target URL
     let targetUrls: string[] = []
     if (job.type === 'selected_urls') {
       targetUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
@@ -863,19 +913,21 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
       targetUrls = ((discovery.videoUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
     }
 
-    // Count target URLs whose video is still not crawled
     for (const url of targetUrls) {
-      if (crawledUrlSet.has(url)) continue
+      // Look up videoId for this URL (may be in DB or only in progress map)
+      let videoId: number | undefined
       const existing = await payload.find({
         collection: 'videos',
         where: { externalUrl: { equals: url } },
         limit: 1,
       })
       if (existing.docs.length > 0) {
-        const v = existing.docs[0] as Record<string, unknown>
-        if ((v.status as string) !== 'crawled') totalRemaining++
-      } else {
-        totalRemaining++ // URL not yet created as video record
+        videoId = (existing.docs[0] as Record<string, unknown>).id as number
+      }
+      const progressKey = getVideoCrawlProgressKey(videoId, url)
+      const lastCompleted = (progress[progressKey] ?? null) as VideoCrawlStageName | null
+      if (videoNeedsCrawlWork(lastCompleted, enabledSet)) {
+        totalRemaining++
       }
     }
   }
@@ -886,6 +938,11 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
   if (totalRemaining === 0) {
     if (batchErrors === results.length && results.length > 0) {
       log.warn('Video crawl batch was 100% errors, retrying or failing', { jobId, batchErrors })
+      await payload.update({
+        collection: 'video-crawls',
+        id: jobId,
+        data: { crawlProgress: progress, crawled, errors, crawledVideoUrls: updatedCrawledUrls },
+      })
       await retryOrFail(payload, 'video-crawls', jobId, `Batch of ${batchErrors} items all failed`)
       return { crawled, errors, remaining: totalRemaining }
     }
@@ -902,6 +959,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
         crawled,
         errors,
         crawledVideoUrls: updatedCrawledUrls,
+        crawlProgress: progress,
         completedAt: new Date().toISOString(),
       },
     })
@@ -911,7 +969,14 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
     await payload.update({
       collection: 'video-crawls',
       id: jobId,
-      data: { crawled, errors, crawledVideoUrls: updatedCrawledUrls, claimedBy: null, claimedAt: null },
+      data: {
+        crawled,
+        errors,
+        crawledVideoUrls: updatedCrawledUrls,
+        crawlProgress: progress,
+        claimedBy: null,
+        claimedAt: null,
+      },
     })
     jlog.event('video_crawl.batch_done', {
       crawled,

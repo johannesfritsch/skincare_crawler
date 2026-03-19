@@ -17,6 +17,7 @@ export const VideoMedia: CollectionConfig = {
     },
   ],
   upload: {
+    mimeTypes: ['image/*', 'video/*', 'audio/*'],
     imageSizes: [
       {
         name: 'thumbnail',

@@ -95,8 +95,9 @@ WORKER_JOB_TIMEOUT_MINUTES=30   # minutes before abandoned job can be reclaimed
 EVENT_RETENTION_DAYS=30          # days before old events are purged (default: 30)
 LOG_LEVEL=debug|info|warn|error  # default: info
 LOG_FORMAT=text|json             # default: text; json for log aggregators
-OPENAI_API_KEY=sk-...            # for LLM tasks and Whisper transcription
+OPENAI_API_KEY=sk-...            # for LLM tasks (matching, classification, transcript correction)
 OPENAI_BASE_URL=...              # optional: custom OpenAI-compatible endpoint (default: OpenAI's API)
+DEEPGRAM_API_KEY=...             # for full-audio transcription with word timestamps (nova-3)
 ```
 
 ## Database Schema (29 Collections)

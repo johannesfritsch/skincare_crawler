@@ -1,19 +1,20 @@
 /**
- * Stage 5: Transcription
+ * Stage 6: Transcription
  *
- * Downloads the video media, extracts full audio, then transcribes
- * each scene individually via the Whisper API. Each scene gets its
- * own audio clip (ffmpeg -ss -t), its own transcription call, and
- * its own LLM correction pass.
+ * Downloads the video media, extracts full audio, transcribes the entire
+ * audio in a single Deepgram API call with word-level timestamps, splits
+ * the transcript into per-scene segments by timestamp, then runs one LLM
+ * correction pass on the full transcript and distributes corrected text
+ * back to each scene.
  *
- * The full video transcript is assembled by concatenating all
- * corrected scene transcripts.
+ * This replaces the previous per-scene Whisper approach (N Whisper calls +
+ * N LLM correction calls) with 1 Deepgram call + 1 LLM correction call.
  */
 
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { extractAudio, extractAudioClip, transcribeAudio } from '@/lib/video-processing/transcribe-audio'
+import { extractAudio, transcribeWithDeepgram, splitTranscriptByScenes } from '@/lib/video-processing/transcribe-audio'
 import { correctTranscript } from '@/lib/video-processing/correct-transcript'
 import type { StageContext, StageResult } from './index'
 
@@ -24,20 +25,24 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
   const video = await payload.findByID({ collection: 'videos', id: videoId }) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
 
-  // Get the video media to download
-  const imageRef = video.videoFile as number | Record<string, unknown> | null
-  if (!imageRef) {
+  // Prefer audioFile (WAV, extracted during crawl) over videoFile (MP4, much larger)
+  const audioRef = video.audioFile as number | Record<string, unknown> | null
+  const videoRef = video.videoFile as number | Record<string, unknown> | null
+  const hasAudioFile = !!audioRef
+
+  const mediaRef = audioRef ?? videoRef
+  if (!mediaRef) {
     return { success: false, error: 'Video has no media file (video must be crawled first)' }
   }
 
-  const mediaId = typeof imageRef === 'number' ? imageRef : (imageRef as { id: number }).id
+  const mediaId = typeof mediaRef === 'number' ? mediaRef : (mediaRef as { id: number }).id
   const mediaDoc = await payload.findByID({ collection: 'video-media', id: mediaId }) as Record<string, unknown>
   const mediaUrl = mediaDoc.url as string
   if (!mediaUrl) {
     return { success: false, error: 'Video media record has no URL' }
   }
 
-  // Fetch scenes for per-scene transcription
+  // Fetch scenes for per-scene transcript splitting
   const scenesResult = await payload.find({
     collection: 'video-scenes',
     where: { video: { equals: videoId } },
@@ -51,28 +56,38 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
   }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-transcribe-'))
-  const videoPath = path.join(tmpDir, 'video.mp4')
   const audioPath = path.join(tmpDir, 'audio.wav')
 
   let tokensTranscriptCorrection = 0
 
   try {
-    // Download video media locally
-    log.info('Downloading video for transcription', { videoId, mediaId })
+    // 1. Get audio — either download pre-extracted WAV or download video + extract
     const serverUrl = payload.serverUrl
     const fullUrl = mediaUrl.startsWith('http') ? mediaUrl : `${serverUrl}${mediaUrl}`
-    const res = await fetch(fullUrl)
-    if (!res.ok) {
-      return { success: false, error: `Failed to download video media: ${res.status}` }
+
+    if (hasAudioFile) {
+      log.info('Downloading pre-extracted audio for transcription', { videoId, mediaId })
+      const res = await fetch(fullUrl)
+      if (!res.ok) {
+        return { success: false, error: `Failed to download audio media: ${res.status}` }
+      }
+      fs.writeFileSync(audioPath, Buffer.from(await res.arrayBuffer()))
+    } else {
+      log.info('No audioFile — downloading video to extract audio', { videoId, mediaId })
+      const videoPath = path.join(tmpDir, 'video.mp4')
+      const res = await fetch(fullUrl)
+      if (!res.ok) {
+        return { success: false, error: `Failed to download video media: ${res.status}` }
+      }
+      fs.writeFileSync(videoPath, Buffer.from(await res.arrayBuffer()))
+      await ctx.heartbeat()
+      await extractAudio(videoPath, audioPath)
+      // Clean up video file immediately — we only need the audio from here
+      try { fs.unlinkSync(videoPath) } catch { /* ignore */ }
     }
-    fs.writeFileSync(videoPath, Buffer.from(await res.arrayBuffer()))
     await ctx.heartbeat()
 
-    // Extract full audio track
-    await extractAudio(videoPath, audioPath)
-    await ctx.heartbeat()
-
-    // Collect keyword hints from detection stages
+    // 3. Collect keyword hints from detection stages
     const productIds = new Set<number>()
     const productKeywords: string[] = []
 
@@ -121,67 +136,68 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
 
     const uniqueKeywords = [...new Set(productKeywords)]
 
-    // Fetch all brand names for LLM correction context
-    const brandsResult = await payload.find({ collection: 'brands', limit: 500 })
-    const allBrandNames = brandsResult.docs.map((b) => (b as { name: string }).name).filter(Boolean)
+    // 4. Transcribe full audio in one Deepgram call with word timestamps
+    const deepgramResult = await transcribeWithDeepgram(audioPath, {
+      language: config.transcriptionLanguage,
+      keywords: uniqueKeywords,
+    })
+    await ctx.heartbeat()
 
-    // Transcribe each scene individually
-    const sceneTranscripts: string[] = []
-
-    for (let i = 0; i < scenesResult.docs.length; i++) {
-      const scene = scenesResult.docs[i] as Record<string, unknown>
-      const sceneId = scene.id as number
-      const start = scene.timestampStart as number
-      const end = scene.timestampEnd as number
-      const duration = end - start
-
-      if (duration < 0.5) {
-        log.info('Scene too short, skipping transcription', { sceneId, duration })
-        sceneTranscripts.push('')
-        continue
+    // 5. Split transcript into per-scene segments by word timestamps
+    const sceneTimestamps = scenesResult.docs.map((s) => {
+      const scene = s as Record<string, unknown>
+      return {
+        start: scene.timestampStart as number,
+        end: scene.timestampEnd as number,
       }
+    })
+    const sceneTranscripts = splitTranscriptByScenes(deepgramResult.words, sceneTimestamps)
 
-      // Extract audio clip for this scene
-      const clipPath = path.join(tmpDir, `scene_${i}.wav`)
-      const clipOk = await extractAudioClip(audioPath, clipPath, start, duration)
+    log.info('Transcript split into scenes', {
+      totalWords: deepgramResult.words.length,
+      scenes: sceneTranscripts.length,
+      scenesWithText: sceneTranscripts.filter((t) => t.trim().length > 0).length,
+    })
 
-      if (!clipOk) {
-        log.warn('Audio clip extraction failed or empty', { sceneId, start, duration })
-        sceneTranscripts.push('')
-        continue
-      }
+    // 6. LLM-correct the full transcript in one pass
+    const fullTranscript = deepgramResult.transcript
+    let correctedFull = fullTranscript
 
-      // Transcribe the scene clip
-      log.info('Transcribing scene', { sceneId, sceneIndex: i, start, duration, language: config.transcriptionLanguage })
-      const rawText = await transcribeAudio(clipPath, {
-        language: config.transcriptionLanguage,
-        model: config.transcriptionModel,
-        keywords: uniqueKeywords,
-      })
+    if (fullTranscript.trim()) {
+      // Fetch all brand names for LLM correction context
+      const brandsResult = await payload.find({ collection: 'brands', limit: 500 })
+      const allBrandNames = brandsResult.docs.map((b) => (b as { name: string }).name).filter(Boolean)
 
-      // LLM-correct the scene transcript
-      let correctedText = rawText
-      if (rawText.trim()) {
-        const correction = await correctTranscript(rawText, allBrandNames, uniqueKeywords)
-        tokensTranscriptCorrection += correction.tokensUsed.totalTokens
-        correctedText = correction.correctedTranscript
-      }
-
-      sceneTranscripts.push(correctedText)
-
-      // Update the scene with its transcript
-      await payload.update({
-        collection: 'video-scenes',
-        id: sceneId,
-        data: { transcript: correctedText },
-      })
-
-      // Clean up clip file
-      try { fs.unlinkSync(clipPath) } catch { /* ignore */ }
+      const correction = await correctTranscript(fullTranscript, allBrandNames, uniqueKeywords)
+      tokensTranscriptCorrection += correction.tokensUsed.totalTokens
+      correctedFull = correction.correctedTranscript
       await ctx.heartbeat()
     }
 
-    const totalCharCount = sceneTranscripts.reduce((sum, t) => sum + t.length, 0)
+    // 7. Map corrections back to per-scene transcripts
+    // Strategy: if the LLM changed the full transcript, re-split by finding each
+    // scene's raw segment in the corrected text. If that fails, use a proportional
+    // character-based split as fallback.
+    const correctedSceneTranscripts = mapCorrectionsToScenes(
+      sceneTranscripts,
+      fullTranscript,
+      correctedFull,
+    )
+
+    // 8. Write per-scene transcripts to DB
+    for (let i = 0; i < scenesResult.docs.length; i++) {
+      const scene = scenesResult.docs[i] as Record<string, unknown>
+      const sceneId = scene.id as number
+      const transcript = correctedSceneTranscripts[i] ?? ''
+
+      await payload.update({
+        collection: 'video-scenes',
+        id: sceneId,
+        data: { transcript },
+      })
+    }
+
+    const totalCharCount = correctedSceneTranscripts.reduce((sum, t) => sum + t.length, 0)
 
     jlog.event('video_processing.transcribed', { title, scenes: scenesResult.docs.length, charCount: totalCharCount })
 
@@ -197,4 +213,72 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       log.warn('Cleanup failed', { error: e instanceof Error ? e.message : String(e) })
     }
   }
+}
+
+/**
+ * Map a corrected full transcript back to per-scene segments.
+ *
+ * Uses character-offset proportional mapping: each scene's raw segment
+ * occupied a known fraction of the raw full text. We apply the same
+ * fractions to the corrected text (which has roughly the same length
+ * and structure since the LLM only fixes individual words).
+ */
+function mapCorrectionsToScenes(
+  rawSceneTranscripts: string[],
+  rawFull: string,
+  correctedFull: string,
+): string[] {
+  // If nothing was corrected or the transcript is empty, return raw segments
+  if (!correctedFull.trim() || correctedFull === rawFull) {
+    return rawSceneTranscripts
+  }
+
+  // Build cumulative character offsets from raw scene segments
+  // The raw full transcript is the scene segments joined by spaces (from Deepgram word splitting)
+  const rawTotal = rawSceneTranscripts.reduce((sum, t) => sum + t.length, 0)
+  if (rawTotal === 0) return rawSceneTranscripts
+
+  const correctedTotal = correctedFull.length
+  const result: string[] = []
+  let correctedPos = 0
+
+  for (let i = 0; i < rawSceneTranscripts.length; i++) {
+    const rawLen = rawSceneTranscripts[i].length
+    if (rawLen === 0) {
+      result.push('')
+      continue
+    }
+
+    // Proportional share of the corrected text
+    const share = rawLen / rawTotal
+    const correctedLen = i === rawSceneTranscripts.length - 1
+      ? correctedTotal - correctedPos // last scene gets the remainder
+      : Math.round(share * correctedTotal)
+
+    let segment = correctedFull.slice(correctedPos, correctedPos + correctedLen)
+
+    // Adjust to nearest word boundary (don't split mid-word)
+    if (i < rawSceneTranscripts.length - 1) {
+      const endPos = correctedPos + correctedLen
+      // Expand to the next space or end
+      const nextSpace = correctedFull.indexOf(' ', endPos)
+      const prevSpace = correctedFull.lastIndexOf(' ', endPos)
+      // Pick whichever boundary is closer
+      if (nextSpace !== -1 && (nextSpace - endPos) < (endPos - prevSpace)) {
+        segment = correctedFull.slice(correctedPos, nextSpace)
+        correctedPos = nextSpace + 1
+      } else if (prevSpace > correctedPos) {
+        segment = correctedFull.slice(correctedPos, prevSpace)
+        correctedPos = prevSpace + 1
+      } else {
+        correctedPos = correctedPos + correctedLen
+      }
+    } else {
+      correctedPos = correctedTotal
+    }
+
+    result.push(segment.trim())
+  }
+
+  return result
 }

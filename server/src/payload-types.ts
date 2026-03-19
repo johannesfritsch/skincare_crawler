@@ -1418,6 +1418,10 @@ export interface Video {
    * Downloaded MP4 file (set during crawl).
    */
   videoFile?: (number | null) | VideoMedia;
+  /**
+   * Extracted WAV audio (set during crawl, used by transcription).
+   */
+  audioFile?: (number | null) | VideoMedia;
   updatedAt: string;
   createdAt: string;
 }
@@ -1978,6 +1982,18 @@ export interface VideoCrawl {
    */
   discovery?: (number | null) | VideoDiscovery;
   /**
+   * Fetch yt-dlp metadata, resolve channel/creator, upload thumbnail, create/update video record.
+   */
+  stageMetadata?: boolean | null;
+  /**
+   * Download MP4 via yt-dlp, upload to video-media, update videoFile.
+   */
+  stageDownload?: boolean | null;
+  /**
+   * Extract audio via ffmpeg, upload WAV, update audioFile and set status=crawled.
+   */
+  stageAudio?: boolean | null;
+  /**
    * Videos to crawl per batch.
    */
   itemsPerTick?: number | null;
@@ -1999,6 +2015,18 @@ export interface VideoCrawl {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /**
+   * Per-video stage progress map. Keys are videoId strings or url:<externalUrl>. Values are last completed stage name.
+   */
+  crawlProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   crawledVideoUrls?: string | null;
   events?: {
     docs?: (number | Event)[];
@@ -3242,6 +3270,7 @@ export interface VideosSelect<T extends boolean = true> {
   title?: T;
   thumbnail?: T;
   videoFile?: T;
+  audioFile?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3388,6 +3417,9 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   scope?: T;
   urls?: T;
   discovery?: T;
+  stageMetadata?: T;
+  stageDownload?: T;
+  stageAudio?: T;
   itemsPerTick?: T;
   maxRetries?: T;
   total?: T;
@@ -3395,6 +3427,7 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
+  crawlProgress?: T;
   crawledVideoUrls?: T;
   events?: T;
   updatedAt?: T;

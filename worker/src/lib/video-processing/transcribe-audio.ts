@@ -69,7 +69,7 @@ export async function extractAudioClip(
 
 /**
  * Transcribe an audio file using the OpenAI-compatible Whisper API.
- * Returns the transcript text.
+ * Returns the transcript text (no word timestamps).
  */
 export async function transcribeAudio(
   audioPath: string,
@@ -126,4 +126,117 @@ export async function transcribeAudio(
   }
 
   return transcript
+}
+
+// ─── Deepgram ───
+
+export interface TranscriptWord {
+  word: string
+  start: number
+  end: number
+  confidence: number
+}
+
+export interface DeepgramTranscriptionResult {
+  transcript: string
+  words: TranscriptWord[]
+}
+
+/**
+ * Transcribe full audio via Deepgram's REST API with word-level timestamps.
+ * Returns the full transcript text plus a words array with start/end times,
+ * which can be split into per-scene segments using `splitTranscriptByScenes()`.
+ *
+ * Uses the Deepgram nova-3 model by default. Requires DEEPGRAM_API_KEY env var.
+ */
+export async function transcribeWithDeepgram(
+  audioPath: string,
+  options: {
+    language: string
+    keywords?: string[]
+  },
+): Promise<DeepgramTranscriptionResult> {
+  const apiKey = process.env.DEEPGRAM_API_KEY
+  if (!apiKey) {
+    throw new Error('DEEPGRAM_API_KEY environment variable is not set')
+  }
+
+  const audioBuffer = fs.readFileSync(audioPath)
+  const audioSizeKB = (audioBuffer.length / 1024).toFixed(0)
+  log.info('Transcribing audio via Deepgram', { language: options.language, sizeKB: Number(audioSizeKB) })
+
+  const params = new URLSearchParams({
+    model: 'nova-3',
+    language: options.language,
+    smart_format: 'true',
+    punctuate: 'true',
+    utterances: 'false',
+  })
+
+  // Deepgram nova-3 uses keyterm for keyword boosting
+  if (options.keywords?.length) {
+    for (const kw of options.keywords) {
+      params.append('keyterm', `${kw}:2`)
+    }
+  }
+
+  const url = `https://api.deepgram.com/v1/listen?${params.toString()}`
+  const timeoutMs = Number(process.env.DEEPGRAM_TIMEOUT_MS) || 300_000
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Token ${apiKey}`,
+      'Content-Type': 'audio/wav',
+    },
+    body: audioBuffer,
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.text()
+    log.error('Deepgram request failed', { status: response.status, body: errorBody })
+    throw new Error(`Deepgram API returned ${response.status}: ${errorBody || '(empty body)'}`)
+  }
+
+  const result = await response.json() as {
+    results?: {
+      channels?: Array<{
+        alternatives?: Array<{
+          transcript?: string
+          words?: Array<{ word: string; start: number; end: number; confidence: number }>
+        }>
+      }>
+    }
+  }
+
+  const alt = result.results?.channels?.[0]?.alternatives?.[0]
+  const transcript = alt?.transcript ?? ''
+  const words: TranscriptWord[] = (alt?.words ?? []).map((w) => ({
+    word: w.word,
+    start: w.start,
+    end: w.end,
+    confidence: w.confidence,
+  }))
+
+  log.info('Deepgram transcription complete', { charCount: transcript.length, words: words.length })
+  if (transcript.length > 0) {
+    log.debug('Transcript preview', { preview: transcript.slice(0, 200) })
+  }
+
+  return { transcript, words }
+}
+
+/**
+ * Split a word-level transcript into per-scene segments using scene timestamps.
+ * Each scene gets the words whose start time falls within its [start, end) range.
+ */
+export function splitTranscriptByScenes(
+  words: TranscriptWord[],
+  scenes: Array<{ start: number; end: number }>,
+): string[] {
+  return scenes.map((scene) => {
+    const sceneWords = words.filter((w) => w.start >= scene.start && w.start < scene.end)
+    return sceneWords.map((w) => w.word).join(' ')
+  })
 }

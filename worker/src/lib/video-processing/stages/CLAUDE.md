@@ -227,35 +227,38 @@ Reads representative detection crops from each scene's `objects[]` array (set by
 
 ---
 
-### Stage 6: `transcription` — Per-Scene OpenAI Whisper STT + LLM Correction
+### Stage 6: `transcription` — Deepgram Full-Audio STT + Single LLM Correction
 
 **File**: `transcription.ts`
 **Checkbox**: `stageTranscription`
-**LLM**: Yes — `correctTranscript()`
-**External**: `ffmpeg` (audio extraction + per-scene clip extraction), OpenAI Whisper API (STT via `audio.transcriptions.create`), OpenAI gpt-4.1-mini (correction)
-**Event**: `video_processing.transcribed`, `video_processing.transcript_corrected`
+**LLM**: Yes — `correctTranscript()` (1 call for full transcript)
+**External**: `ffmpeg` (audio extraction), Deepgram REST API (STT with word timestamps), OpenAI gpt-4.1-mini (correction)
+**Event**: `video_processing.transcribed`
 
-Downloads the video, extracts full audio, then transcribes each scene individually by extracting audio clips and running Whisper + LLM correction per scene.
+Downloads the video, extracts full audio, transcribes the entire audio in a **single Deepgram API call** with word-level timestamps, splits the transcript into per-scene segments by timestamp, then runs **one LLM correction pass** on the full transcript and distributes corrected text back to each scene.
+
+This replaced the previous per-scene Whisper approach (N Whisper calls + N LLM correction calls → 1 Deepgram call + 1 LLM correction call).
 
 **Flow**:
 1. Download video from video-media to temp directory (reads `videos.videoFile`)
 2. Extract full audio via `ffmpeg` → WAV
-3. Collect product/brand names from scenes' `barcodes[]`, `recognitions[]`, and `llmMatches[]` for vocabulary hints
-4. Fetch all brand names for LLM correction context
-5. For each scene:
-   a. Extract audio clip via `extractAudioClip(audioPath, clipPath, startSeconds, durationSeconds)` — uses `ffmpeg -ss {start} -t {duration}` to extract the scene's time range from the full audio
-   b. Transcribe clip via `transcribeAudio(clipPath, { language, model, keywords })` → returns text string (no word timestamps)
-   c. Call `correctTranscript(rawTranscript, brandNames, productKeywords)` — LLM fixes misheard brand/product names
-   d. Update scene with `transcript` field
+3. Collect product/brand names from scenes' `barcodes[]`, `recognitions[]`, and `llmMatches[]` for keyword boosting
+4. Transcribe full audio via `transcribeWithDeepgram()` — single API call, returns transcript + word-level timestamps
+5. Split transcript into per-scene segments via `splitTranscriptByScenes()` — maps words to scenes by comparing word start times against scene timestamp ranges
+6. Fetch all brand names, run one `correctTranscript()` call on the full transcript
+7. Map corrected text back to per-scene segments via proportional character-offset mapping
+8. Update each scene with its transcript
 
 **Writes to**: `video-scenes.transcript`
 
-**Config**: `transcriptionLanguage` (default 'de'), `transcriptionModel` (text field, default 'whisper-1' — free-form since local OpenAI-compatible servers may use different model names)
+**Config**: `transcriptionLanguage` (default 'de'). Deepgram model is hardcoded to `nova-3`.
+
+**Env**: `DEEPGRAM_API_KEY` (required), `DEEPGRAM_TIMEOUT_MS` (optional, default 300000)
 
 **Key functions**:
-- `transcribeAudio(audioPath, options)` → `Promise<string>` — calls OpenAI Whisper API, returns plain text
-- `extractAudioClip(audioPath, outputPath, startSeconds, durationSeconds)` → `Promise<boolean>` — extracts a time-range clip from audio using `ffmpeg -ss -t`
-- `correctTranscript(rawTranscript, brandNames, productNames)` → `{ correctedTranscript, corrections[], tokensUsed }` — LLM correction
+- `transcribeWithDeepgram(audioPath, options)` → `{ transcript, words: TranscriptWord[] }` — single Deepgram REST API call with word timestamps
+- `splitTranscriptByScenes(words, scenes)` → `string[]` — maps words to scenes by timestamp
+- `correctTranscript(rawTranscript, brandNames, productNames)` → `{ correctedTranscript, corrections[], tokensUsed }` — LLM correction (1 call for full transcript)
 
 ---
 
