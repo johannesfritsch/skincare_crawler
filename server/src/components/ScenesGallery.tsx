@@ -56,7 +56,7 @@ function SceneCard({ scene, onOpen }: { scene: Scene; onOpen: (id: number) => vo
   const img = scene.image
   const src =
     img && typeof img !== 'number'
-      ? img.sizes?.card?.url ?? img.url ?? null
+      ? img.sizes?.detail?.url ?? img.sizes?.card?.url ?? img.url ?? null
       : null
 
   const mentions = (scene.videoMentions?.docs ?? [])
