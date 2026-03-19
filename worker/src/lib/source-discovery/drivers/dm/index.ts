@@ -385,7 +385,7 @@ export async function fetchDmReviews(dan: string, logger?: import('@/lib/logger'
           isRecommended: r.IsRecommended ?? null,
           positiveFeedbackCount: r.TotalPositiveFeedbackCount ?? 0,
           negativeFeedbackCount: r.TotalNegativeFeedbackCount ?? 0,
-          reviewerAge: r.ContextDataValues?.Age?.Value?.replace('to', '-') ?? undefined,
+          reviewerAge: r.ContextDataValues?.Age?.Value ?? undefined,
           reviewerGender: r.ContextDataValues?.Gender?.Value ?? undefined,
         })
       }

@@ -11,6 +11,50 @@ import { createLogger } from '@/lib/logger'
 const log = createLogger('Persist')
 
 /**
+ * Normalize reviewer age strings from various sources into a consistent format:
+ *   <=17, >=18&<=24, >=25&<=34, ..., >=70
+ * Handles BazaarVoice formats (17orUnder, 18to24, 18-24, 65orOver),
+ * German formats (70JahreUndAlter), and bare range formats (6069).
+ */
+export function normalizeReviewerAge(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const s = raw.trim()
+  if (!s) return null
+
+  // Already normalized
+  if (/^[><=&\d]+$/.test(s) && (s.startsWith('>=') || s.startsWith('<='))) return s
+
+  // "17orUnder" / "unter18" patterns → <=N
+  const underMatch = s.match(/^(\d+)\s*or\s*Under$/i) || s.match(/^unter\s*(\d+)$/i)
+  if (underMatch) return `<=${underMatch[1]}`
+
+  // "65orOver" / "70JahreUndAlter" / "über65" patterns → >=N
+  const overMatch =
+    s.match(/^(\d+)\s*or\s*Over$/i) ||
+    s.match(/^(\d+)\s*Jahre\s*[Uu]nd\s*[ÄäAa]lter$/i) ||
+    s.match(/^[Üü]ber\s*(\d+)$/i)
+  if (overMatch) return `>=${overMatch[1]}`
+
+  // "18-24" / "18to24" / "1824" (4-digit bare) / "18 bis 24" patterns → >=N&<=M
+  const rangeMatch =
+    s.match(/^(\d{1,3})\s*[-–]\s*(\d{1,3})$/) ||
+    s.match(/^(\d{1,3})\s*to\s*(\d{1,3})$/i) ||
+    s.match(/^(\d{1,3})\s*bis\s*(\d{1,3})$/i)
+  if (rangeMatch) return `>=${rangeMatch[1]}&<=${rangeMatch[2]}`
+
+  // Bare 4-digit number like "6069" → split in half as two 2-digit ages
+  const bareMatch = s.match(/^(\d{2})(\d{2})$/)
+  if (bareMatch) {
+    const lo = parseInt(bareMatch[1], 10)
+    const hi = parseInt(bareMatch[2], 10)
+    if (lo < hi && lo >= 10 && hi <= 99) return `>=${lo}&<=${hi}`
+  }
+
+  // Unrecognized — return as-is
+  return s
+}
+
+/**
  * Extract amount and unit from a free-text string (e.g. "100 ml", "1,5l", "Tagescreme 50 ml").
  * Supports German (comma) and international (dot) decimals with up to 2 decimal places.
  * Units: mg, g, kg, ml, l (case-insensitive). The unit must be followed by a word boundary
@@ -655,7 +699,7 @@ export async function persistReviews(
           isRecommended: review.isRecommended ?? false,
           positiveFeedbackCount: review.positiveFeedbackCount ?? 0,
           negativeFeedbackCount: review.negativeFeedbackCount ?? 0,
-          reviewerAge: review.reviewerAge ?? null,
+          reviewerAge: normalizeReviewerAge(review.reviewerAge),
           reviewerGender: review.reviewerGender ?? null,
         },
       })
