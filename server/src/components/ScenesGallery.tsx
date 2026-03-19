@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useDocumentDrawer, useDocumentInfo } from '@payloadcms/ui'
 
 interface SceneImage {
@@ -52,18 +52,113 @@ const sentimentColor: Record<string, string> = {
   mixed: '#f59e0b',
 }
 
+/** Interval between frame flips on hover (ms) */
+const FLIP_INTERVAL_MS = 250
+
+function resolveImageUrl(img: SceneImage | number | null | undefined, size: 'detail' | 'card'): string | null {
+  if (!img || typeof img === 'number') return null
+  if (size === 'detail') return img.sizes?.detail?.url ?? img.sizes?.card?.url ?? img.url ?? null
+  return img.sizes?.card?.url ?? img.url ?? null
+}
+
+/**
+ * Cache of frame image URLs per scene ID.
+ * Shared across all SceneCard instances to survive re-renders.
+ */
+const frameCache = new Map<number, string[]>()
+/** Tracks in-flight fetches to avoid duplicate requests. */
+const frameFetchPromises = new Map<number, Promise<string[]>>()
+
+async function fetchFrameUrls(sceneId: number): Promise<string[]> {
+  if (frameCache.has(sceneId)) return frameCache.get(sceneId)!
+
+  // Deduplicate concurrent fetches for the same scene
+  if (frameFetchPromises.has(sceneId)) return frameFetchPromises.get(sceneId)!
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(
+        `/api/video-frames?where[scene][equals]=${sceneId}&depth=1&limit=100&sort=id` +
+          `&select[image]=true`,
+      )
+      if (!res.ok) return []
+      const data = await res.json()
+      const urls: string[] = (data.docs ?? [])
+        .map((frame: { image?: SceneImage | number | null }) => {
+          const img = frame.image
+          if (!img || typeof img === 'number') return null
+          return img.sizes?.card?.url ?? img.url ?? null
+        })
+        .filter(Boolean) as string[]
+      frameCache.set(sceneId, urls)
+      return urls
+    } catch {
+      return []
+    } finally {
+      frameFetchPromises.delete(sceneId)
+    }
+  })()
+
+  frameFetchPromises.set(sceneId, promise)
+  return promise
+}
+
 function SceneCard({ scene, onOpen }: { scene: Scene; onOpen: (id: number) => void }) {
-  const img = scene.image
-  const src =
-    img && typeof img !== 'number'
-      ? img.sizes?.detail?.url ?? img.sizes?.card?.url ?? img.url ?? null
-      : null
+  const restingSrc = resolveImageUrl(scene.image as SceneImage | number | null, 'detail')
+
+  const [frameUrls, setFrameUrls] = useState<string[] | null>(null)
+  const [frameIndex, setFrameIndex] = useState(0)
+  const [isHovering, setIsHovering] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const mentions = (scene.videoMentions?.docs ?? [])
     .filter((m): m is Mention => typeof m !== 'number')
     .slice(0, 3)
 
   const timeRange = formatTimeRange(scene.timestampStart, scene.timestampEnd)
+
+  const handleMouseEnter = useCallback(() => {
+    setIsHovering(true)
+    setFrameIndex(0)
+
+    // Lazy-load frames on first hover
+    fetchFrameUrls(scene.id).then((urls) => {
+      if (urls.length > 1) {
+        setFrameUrls(urls)
+      }
+    })
+  }, [scene.id])
+
+  const handleMouseLeave = useCallback(() => {
+    setIsHovering(false)
+    setFrameIndex(0)
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+  }, [])
+
+  // Start/stop cycling when hovering state or frame URLs change
+  useEffect(() => {
+    if (isHovering && frameUrls && frameUrls.length > 1) {
+      intervalRef.current = setInterval(() => {
+        setFrameIndex((prev) => (prev + 1) % frameUrls.length)
+      }, FLIP_INTERVAL_MS)
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [isHovering, frameUrls])
+
+  const displaySrc = isHovering && frameUrls && frameUrls.length > 1
+    ? frameUrls[frameIndex]
+    : restingSrc
+
+  const totalFrames = frameUrls?.length ?? 0
 
   return (
     <div
@@ -77,30 +172,62 @@ function SceneCard({ scene, onOpen }: { scene: Scene; onOpen: (id: number) => vo
         flexDirection: 'column',
       }}
       onClick={() => onOpen(scene.id)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       className="scenes-gallery__item"
     >
-      {src ? (
-        <img
-          src={src}
-          alt={`Scene ${scene.id}`}
-          style={{ display: 'block', width: '100%', height: 'auto' }}
-        />
-      ) : (
-        <div
-          style={{
-            width: '100%',
-            aspectRatio: '16/9',
-            background: 'var(--theme-elevation-200)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--theme-elevation-500)',
-            fontSize: '13px',
-          }}
-        >
-          No image
-        </div>
-      )}
+      <div style={{ position: 'relative' }}>
+        {displaySrc ? (
+          <img
+            src={displaySrc}
+            alt={`Scene ${scene.id}`}
+            style={{ display: 'block', width: '100%', height: 'auto' }}
+          />
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              aspectRatio: '16/9',
+              background: 'var(--theme-elevation-200)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--theme-elevation-500)',
+              fontSize: '13px',
+            }}
+          >
+            No image
+          </div>
+        )}
+        {/* Frame progress dots — shown during hover flip-through */}
+        {isHovering && totalFrames > 1 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 4,
+              left: 0,
+              right: 0,
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 3,
+              pointerEvents: 'none',
+            }}
+          >
+            {frameUrls!.map((_, i) => (
+              <span
+                key={i}
+                style={{
+                  width: i === frameIndex ? 12 : 5,
+                  height: 5,
+                  borderRadius: 3,
+                  background: i === frameIndex ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.45)',
+                  transition: 'width 0.15s, background 0.15s',
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
         {timeRange && (
           <span
