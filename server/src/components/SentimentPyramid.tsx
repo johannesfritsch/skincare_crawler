@@ -62,7 +62,7 @@ function buildPyramidData(records: SentimentRecord[]): PyramidRow[] {
       negative: -counts.negative, // negative for left side
     }))
     .filter((row) => row.positive > 0 || row.negative < 0)
-    .sort((a, b) => (b.positive - b.negative) - (a.positive - a.negative))
+    .sort((a, b) => (a.positive - a.negative) - (b.positive - b.negative))
 }
 
 const formatAbs = (v: unknown) => String(Math.abs(Number(v) || 0))
@@ -148,10 +148,7 @@ export default function SentimentPyramid() {
     )
   }
 
-  const maxVal = Math.max(
-    ...data.map((d) => Math.max(d.positive, Math.abs(d.negative))),
-    1,
-  )
+  const maxVal = Math.max(...data.map((d) => Math.max(d.positive, Math.abs(d.negative))), 1)
   const domainMax = Math.ceil(maxVal * 1.1)
 
   return (
@@ -199,7 +196,12 @@ export default function SentimentPyramid() {
             dataKey="positive"
             fill="#22c55e"
             radius={[0, 5, 5, 0]}
-            label={{ position: 'right', formatter: formatAbs, fontSize: 11, fill: 'var(--theme-elevation-500)' }}
+            label={{
+              position: 'right',
+              formatter: formatAbs,
+              fontSize: 11,
+              fill: 'var(--theme-elevation-500)',
+            }}
           />
           <Bar
             stackId="sentiment"
@@ -207,7 +209,12 @@ export default function SentimentPyramid() {
             dataKey="negative"
             fill="#ef4444"
             radius={[0, 5, 5, 0]}
-            label={{ position: 'right', formatter: formatAbs, fontSize: 11, fill: 'var(--theme-elevation-500)' }}
+            label={{
+              position: 'right',
+              formatter: formatAbs,
+              fontSize: 11,
+              fill: 'var(--theme-elevation-500)',
+            }}
           />
         </BarChart>
       </ResponsiveContainer>
