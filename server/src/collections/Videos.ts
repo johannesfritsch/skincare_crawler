@@ -180,6 +180,14 @@ export const Videos: CollectionConfig = {
                 description: 'Extracted WAV audio (set during crawl, used by transcription).',
               },
             },
+            {
+              name: 'transcript',
+              type: 'textarea',
+              label: 'Transcript',
+              admin: {
+                description: 'Full corrected transcript of the entire video (set during transcription stage).',
+              },
+            },
           ],
         },
       ],

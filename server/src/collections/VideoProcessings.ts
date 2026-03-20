@@ -158,12 +158,12 @@ export const VideoProcessings: CollectionConfig = {
                   },
                 },
                 {
-                  name: 'stageSideDetection',
+                  name: 'stageOcrExtraction',
                   type: 'checkbox',
-                  label: 'Side Detection',
+                  label: 'OCR Extraction',
                   defaultValue: true,
                   admin: {
-                    description: 'Classify detection crops as front/back, cluster per side, pick representatives.',
+                    description: 'Read text from detection crops via GPT-4.1-mini vision.',
                     width: '25%',
                   },
                 },
@@ -178,17 +178,7 @@ export const VideoProcessings: CollectionConfig = {
                   label: 'Visual Search',
                   defaultValue: true,
                   admin: {
-                    description: 'DINOv2 visual similarity search against product embeddings (on representative crops).',
-                    width: '25%',
-                  },
-                },
-                {
-                  name: 'stageLlmRecognition',
-                  type: 'checkbox',
-                  label: 'LLM Recognition',
-                  defaultValue: true,
-                  admin: {
-                    description: 'LLM visual classification and product matching.',
+                    description: 'DINOv2 visual similarity search against product embeddings (top-N candidates per crop).',
                     width: '25%',
                   },
                 },
@@ -332,13 +322,13 @@ export const VideoProcessings: CollectionConfig = {
                   name: 'searchThreshold',
                   type: 'number',
                   label: 'Search Threshold',
-                  defaultValue: 0.3,
+                  defaultValue: 0.8,
                   min: 0.01,
                   max: 2,
                   admin: {
                     description:
-                      'Maximum cosine distance for CLIP similarity search (0-2). ' +
-                      'Lower = stricter matching. Default: 0.3. Try 0.5-0.7 for video screenshots.',
+                      'Maximum cosine distance for DINOv2 similarity search (0-2). ' +
+                      'Pre-filter on pgvector query. Default: 0.8.',
                     width: '50%',
                   },
                 },
@@ -346,13 +336,13 @@ export const VideoProcessings: CollectionConfig = {
                   name: 'searchLimit',
                   type: 'number',
                   label: 'Search Limit',
-                  defaultValue: 1,
+                  defaultValue: 3,
                   min: 1,
                   max: 20,
                   admin: {
                     description:
-                      'Number of nearest neighbors to return per detection. ' +
-                      'Only the top-1 is used for matching; others are logged for diagnostics. Default: 1.',
+                      'Number of nearest neighbor candidates to store per detection crop. ' +
+                      'All candidates are passed to the LLM consolidation stage. Default: 3.',
                     width: '50%',
                   },
                 },

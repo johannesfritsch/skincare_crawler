@@ -53,10 +53,12 @@ export const VideoMentions: CollectionConfig = {
         { label: 'Barcode', value: 'barcode' },
         { label: 'Object Detection', value: 'object_detection' },
         { label: 'Vision LLM', value: 'vision_llm' },
+        { label: 'OCR', value: 'ocr' },
+        { label: 'Transcript', value: 'transcript' },
       ],
       admin: {
         position: 'sidebar',
-        description: 'Which detection methods identified this product',
+        description: 'Which detection methods contributed evidence for this product',
       },
     },
     {

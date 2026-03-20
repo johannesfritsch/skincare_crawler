@@ -1169,9 +1169,9 @@ export interface VideoMention {
    */
   confidence?: number | null;
   /**
-   * Which detection methods identified this product
+   * Which detection methods contributed evidence for this product
    */
-  sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
+  sources?: ('barcode' | 'object_detection' | 'vision_llm' | 'ocr' | 'transcript')[] | null;
   /**
    * EAN barcode if detected via barcode source
    */
@@ -1260,7 +1260,7 @@ export interface VideoScene {
       }[]
     | null;
   /**
-   * Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box, confidence score, and side classification (set by side_detection stage).
+   * Object detection results from Grounding DINO. Each entry is a cropped region from a frame with bounding box, confidence score, and OCR text (set by ocr_extraction stage).
    */
   objects?:
     | {
@@ -1275,17 +1275,17 @@ export interface VideoScene {
         boxXMax?: number | null;
         boxYMax?: number | null;
         /**
-         * Packaging side classification (set by side_detection stage)
+         * Brand name read from packaging via OCR (set by ocr_extraction stage)
          */
-        side?: ('front' | 'back' | 'unknown') | null;
+        ocrBrand?: string | null;
         /**
-         * Cluster index within same-side crops (set by side_detection stage)
+         * Product name read from packaging via OCR (set by ocr_extraction stage)
          */
-        clusterGroup?: number | null;
+        ocrProductName?: string | null;
         /**
-         * Whether this crop is the representative for its side-cluster (set by side_detection stage)
+         * All visible text read from packaging via OCR (set by ocr_extraction stage)
          */
-        isRepresentative?: boolean | null;
+        ocrText?: string | null;
         id?: string | null;
       }[]
     | null;
@@ -1345,29 +1345,37 @@ export interface VideoScene {
       }[]
     | null;
   /**
-   * Transcribed spoken words for this scene (from per-scene Whisper transcription)
+   * Last sentence from the previous scene — provides context for LLM stages.
+   */
+  preTranscript?: string | null;
+  /**
+   * Transcribed spoken words for this scene.
    */
   transcript?: string | null;
   /**
-   * Unified product detections synthesized from all sources (barcode, object detection + CLIP, LLM vision). One entry per unique product.
+   * First sentence from the next scene — provides context for LLM stages.
+   */
+  postTranscript?: string | null;
+  /**
+   * Unified product detections consolidated by LLM from all sources (barcode, visual search, OCR, LLM vision, transcript). One entry per unique product.
    */
   detections?:
     | {
         product: number | Product;
         /**
-         * Synthesized confidence score (0-1) combining all detection sources
+         * Confidence score (0-1). Barcode matches = 1.0, others assigned by LLM consolidation.
          */
         confidence?: number | null;
         /**
-         * Which detection methods identified this product
+         * Which detection methods contributed evidence for this product
          */
-        sources?: ('barcode' | 'object_detection' | 'vision_llm')[] | null;
+        sources?: ('barcode' | 'object_detection' | 'vision_llm' | 'ocr' | 'transcript')[] | null;
         /**
          * EAN barcode if detected via barcode source
          */
         barcodeValue?: string | null;
         /**
-         * Best CLIP cosine distance if detected via object detection
+         * Best DINOv2 cosine distance if detected via visual search
          */
         clipDistance?: number | null;
         /**
@@ -1378,6 +1386,10 @@ export interface VideoScene {
          * Product name from LLM recognition
          */
         llmProductName?: string | null;
+        /**
+         * LLM consolidation reasoning for this detection (not set for barcode matches)
+         */
+        reasoning?: string | null;
         id?: string | null;
       }[]
     | null;
@@ -1426,6 +1438,10 @@ export interface Video {
    * Extracted WAV audio (set during crawl, used by transcription).
    */
   audioFile?: (number | null) | VideoMedia;
+  /**
+   * Full corrected transcript of the entire video (set during transcription stage).
+   */
+  transcript?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2095,17 +2111,13 @@ export interface VideoProcessing {
    */
   stageObjectDetection?: boolean | null;
   /**
-   * Classify detection crops as front/back, cluster per side, pick representatives.
+   * Read text from detection crops via GPT-4.1-mini vision.
    */
-  stageSideDetection?: boolean | null;
+  stageOcrExtraction?: boolean | null;
   /**
-   * DINOv2 visual similarity search against product embeddings (on representative crops).
+   * DINOv2 visual similarity search against product embeddings (top-N candidates per crop).
    */
   stageVisualSearch?: boolean | null;
-  /**
-   * LLM visual classification and product matching.
-   */
-  stageLlmRecognition?: boolean | null;
   /**
    * Speech-to-text via Whisper API with LLM correction.
    */
@@ -2147,11 +2159,11 @@ export interface VideoProcessing {
    */
   detectionPrompt?: string | null;
   /**
-   * Maximum cosine distance for CLIP similarity search (0-2). Lower = stricter matching. Default: 0.3. Try 0.5-0.7 for video screenshots.
+   * Maximum cosine distance for DINOv2 similarity search (0-2). Pre-filter on pgvector query. Default: 0.8.
    */
   searchThreshold?: number | null;
   /**
-   * Number of nearest neighbors to return per detection. Only the top-1 is used for matching; others are logged for diagnostics. Default: 1.
+   * Number of nearest neighbor candidates to store per detection crop. All candidates are passed to the LLM consolidation stage. Default: 3.
    */
   searchLimit?: number | null;
   /**
@@ -3284,6 +3296,7 @@ export interface VideosSelect<T extends boolean = true> {
   thumbnail?: T;
   videoFile?: T;
   audioFile?: T;
+  transcript?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3316,9 +3329,9 @@ export interface VideoScenesSelect<T extends boolean = true> {
         boxYMin?: T;
         boxXMax?: T;
         boxYMax?: T;
-        side?: T;
-        clusterGroup?: T;
-        isRepresentative?: T;
+        ocrBrand?: T;
+        ocrProductName?: T;
+        ocrText?: T;
         id?: T;
       };
   recognitions?:
@@ -3341,7 +3354,9 @@ export interface VideoScenesSelect<T extends boolean = true> {
         product?: T;
         id?: T;
       };
+  preTranscript?: T;
   transcript?: T;
+  postTranscript?: T;
   detections?:
     | T
     | {
@@ -3352,6 +3367,7 @@ export interface VideoScenesSelect<T extends boolean = true> {
         clipDistance?: T;
         llmBrand?: T;
         llmProductName?: T;
+        reasoning?: T;
         id?: T;
       };
   videoMentions?: T;
@@ -3466,9 +3482,8 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   stageSceneDetection?: T;
   stageBarcodeScan?: T;
   stageObjectDetection?: T;
-  stageSideDetection?: T;
+  stageOcrExtraction?: T;
   stageVisualSearch?: T;
-  stageLlmRecognition?: T;
   stageTranscription?: T;
   stageCompileDetections?: T;
   stageSentimentAnalysis?: T;

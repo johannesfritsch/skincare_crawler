@@ -400,17 +400,6 @@ export interface EventRegistry {
     segment: number
     clusters: number
   }
-  'video_processing.candidates_identified': {
-    title: string
-    segment: number
-    candidates: number
-  }
-  'video_processing.product_recognized': {
-    title: string
-    segment: number
-    brand: string
-    product: string
-  }
   'video_processing.object_detection_detail': {
     title: string
     sceneId: number
@@ -431,23 +420,12 @@ export interface EventRegistry {
     candidatesProcessed: number
     candidatesWithDetections: number
   }
-  'video_processing.side_classified': {
+  'video_processing.ocr_extracted': {
     title: string
-    sceneId: number
-    objectIndex: number
-    side: string
-    frontScore: number
-    backScore: number
-    representativeScore: number
-  }
-  'video_processing.side_detection_complete': {
-    title: string
-    totalObjects: number
-    front: number
-    back: number
-    unknown: number
-    clusters: number
-    representatives: number
+    scenes: number
+    cropsProcessed: number
+    cropsWithText: number
+    tokens: number
   }
   'video_processing.visual_search_detail': {
     title: string
@@ -936,16 +914,6 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     level: 'info',
     labels: ['video-processing'],
   },
-  'video_processing.candidates_identified': {
-    type: 'info',
-    level: 'info',
-    labels: ['video-processing', 'recognition'],
-  },
-  'video_processing.product_recognized': {
-    type: 'info',
-    level: 'info',
-    labels: ['video-processing', 'recognition'],
-  },
   'video_processing.object_detection_detail': {
     type: 'info',
     level: 'debug',
@@ -956,15 +924,10 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     level: 'info',
     labels: ['video-processing', 'object-detection'],
   },
-  'video_processing.side_classified': {
-    type: 'info',
-    level: 'debug',
-    labels: ['video-processing', 'side-detection'],
-  },
-  'video_processing.side_detection_complete': {
+  'video_processing.ocr_extracted': {
     type: 'info',
     level: 'info',
-    labels: ['video-processing', 'side-detection'],
+    labels: ['video-processing', 'ocr'],
   },
   'video_processing.visual_search_detail': {
     type: 'info',

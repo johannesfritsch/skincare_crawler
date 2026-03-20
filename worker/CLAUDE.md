@@ -64,11 +64,11 @@ worker/src/
     │       ├── download.ts           # (Legacy) Download video — moved to video-crawl handler, no longer in pipeline
     │       ├── scene-detection.ts    # Stage 0: Scene detection, screenshots, clustering (no barcode scanning)
     │       ├── barcode-scan.ts       # Stage 1: Barcode scanning on frame images → scene.barcodes[]
-    │       ├── object-detection.ts   # Stage 2: Grounding DINO detection on cluster reps → scene.objects[]
+    │       ├── object-detection.ts   # Stage 2: Grounding DINO detection on ALL frames → scene.objects[]
     │       ├── visual-search.ts      # Stage 3: DINOv2 visual similarity search → scene.recognitions[]
-    │       ├── llm-recognition.ts    # Stage 4: LLM classification + product matching → scene.llmMatches[]
-    │       ├── transcription.ts      # Stage 5: OpenAI Whisper STT + LLM correction
-    │       ├── compile-detections.ts # Stage 6: Synthesize all detection sources → scene.detections[]
+    │       ├── ocr-extraction.ts     # Stage 4: Read text from detection crops via gpt-4.1-mini vision → scene.objects[].ocrText
+    │       ├── transcription.ts      # Stage 5: Deepgram full-audio STT + LLM correction → scene.transcript
+    │       ├── compile-detections.ts # Stage 6: matchProduct() for OCR text + LLM consolidation → scene.detections[]
     │       └── sentiment-analysis.ts # Stage 7: LLM quote extraction + sentiment → video-mentions
     │
     ├── models/
@@ -346,16 +346,16 @@ The video processing pipeline is a **stage-based architecture**. Instead of a mo
 |---|------------|--------------|-------------|
 | 0 | `scene_detection` | Detects scene changes (threshold=0.4), extracts screenshots, clusters by perceptual hash, uploads to video-media | `video-scenes` (timestamps), `video-frames` (image, isClusterRepresentative, clusterThumbnail) |
 | 1 | `barcode_scan` | Scans frame images for barcodes via `zbarimg`, looks up product-variants by GTIN | `video-scenes.barcodes[]` |
-| 2 | `object_detection` | Per scene: Grounding DINO detection on cluster representative frames, crop + upload to detection-media. Configurable: `detectionPrompt` (default "cosmetics packaging."), `detectionThreshold` (default 0.3), `minBoxArea` (default 25%). Emits per-candidate detail events. | `video-scenes.objects[]` (crops as detection-media, bounding boxes) |
-| 3 | `visual_search` | Per scene: DINOv2-base transient embeddings for object detection crops → cosine search vs product embeddings → match products. Configurable: `searchThreshold` (default 0.3, try 0.5-0.7 for video), `searchLimit` (default 1). | `video-scenes.recognitions[]` |
-| 4 | `llm_recognition` | Per scene: LLM classification of cluster rep frames + product matching via `recognizeProduct()` + `matchProduct()` | `video-scenes.llmMatches[]` |
-| 5 | `transcription` | Extracts full audio (ffmpeg), then per scene: extracts audio clip via `ffmpeg -ss -t`, transcribes clip via OpenAI Whisper API, LLM-corrects each scene's text (gpt-4.1-mini). Keywords passed as vocabulary hints via Whisper's `prompt` parameter. | `video-scenes.transcript` |
-| 6 | `compile_detections` | Synthesizes all detection sources (barcodes, objects+recognitions, llmMatches) into unified detections[] with confidence scores. Barcode: 1.0, DINOv2: 1.0-distance, LLM: 0.6, multi-source bonus: +0.1 per additional source (capped at 1.0). | `video-scenes.detections[]` |
+| 2 | `object_detection` | Per scene: Grounding DINO detection on ALL frames, crop + upload to detection-media. Configurable: `detectionPrompt` (default "cosmetics packaging."), `detectionThreshold` (default 0.3), `minBoxArea` (default 25%). Emits per-candidate detail events. | `video-scenes.objects[]` (crops as detection-media, bounding boxes) |
+| 3 | `visual_search` | Per scene: DINOv2-base transient embeddings for ALL object detection crops → cosine search vs product embeddings → top-N candidates per crop. Configurable: `searchThreshold` (default 0.8), `searchLimit` (default 3). | `video-scenes.recognitions[]` |
+| 4 | `ocr_extraction` | Read text from ALL detection crops via gpt-4.1-mini vision → stores extracted text per crop | `video-scenes.objects[].ocrText` |
+| 5 | `transcription` | Extracts full audio (ffmpeg) → single Deepgram nova-3 API call with word timestamps → split into per-scene segments → one LLM correction pass (gpt-4.1-mini) on full transcript → distribute corrected text back to scenes. | `video-scenes.transcript` |
+| 6 | `compile_detections` | `matchProduct()` on OCR text (ocrBrand/ocrProductName) to find/create products, then LLM consolidation (gpt-4.1-mini) of all evidence (barcodes, DINOv2 matches, OCR matches) → unified detections[] with confidence + reasoning. Barcode matches bypass LLM (confidence 1.0). Falls back to formula scoring if LLM fails. | `video-scenes.detections[]` (includes `reasoning` field), `products` (may create) |
 | 7 | `sentiment_analysis` | Extracts product quotes + sentiment scores via LLM (gpt-4.1-mini) per scene, creates video-mentions with detection provenance | `video-mentions` (quotes, sentiment, confidence, sources, barcodeValue, clipDistance) |
 
 **Progress tracking**: Progress is tracked on the job's `videoProgress` JSON field — a `Record<string, StageName | null>` mapping video IDs to their last completed stage name (or `null` for videos that haven't started). `stages/index.ts` exports: `VideoProgress` type, `stageIndex()`, `getFinalStage()`, `getVideoProgress()`, `getNextStage(lastCompleted)`, `videoNeedsWork(lastCompleted)`. `StageDefinition` has `index: number` (no `requiredStatus`/`resultStatus`).
 
-**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageSceneDetection`, `stageBarcodeScan`, `stageObjectDetection`, `stageVisualSearch`, `stageLlmRecognition`, `stageTranscription`, `stageCompileDetections`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
+**Stage selection**: Each stage has a corresponding checkbox on the job (all default true): `stageSceneDetection`, `stageBarcodeScan`, `stageObjectDetection`, `stageVisualSearch`, `stageOcrExtraction`, `stageTranscription`, `stageCompileDetections`, `stageSentimentAnalysis`. Disabled stages are skipped — `getNextStage()` finds the first enabled stage after `lastCompleted` (a `StageName | null`).
 
 **Processing types**: `all_unprocessed`, `single_video`, `selected_urls`, `from_crawl`
 
@@ -367,7 +367,7 @@ Note: The old `transcriptionEnabled` field has been replaced by the `stageTransc
 
 **Counters**: `completed` and `errors` counters on the job's progress field are incremented per stage execution.
 
-**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-scenes, video-frames, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` or `transcript` on the video. Transcripts are stored only on video-scenes (no video-level transcript field). The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Detection data is stored on video-scenes in tabbed arrays (barcodes[], objects[], recognitions[], llmMatches[], detections[]). Video-frames are pure frame records with no detection data. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches via DINOv2, products are resolved from product-variants. For LLM matches, calls `matchProduct()` to find/create product records. The compile_detections stage synthesizes all sources into a unified detections[] array with confidence scores. The sentiment_analysis stage concatenates scene transcripts on-the-fly to derive the full transcript context, then creates video-mentions with full detection provenance (confidence, sources, barcodeValue, clipDistance).
+**Persistence**: Each stage file persists its own data outputs inline (creates/updates video-scenes, video-frames, video-mentions, video-media, detection-media, transcript fields directly) — stages do NOT write `processingStatus` or `transcript` on the video. Transcripts are stored only on video-scenes (no video-level transcript field). The old monolithic `persistVideoProcessingResult()` in `persist.ts` still exists for backward compatibility but is deprecated — new stage code does not use it. Detection data is stored on video-scenes in tabbed arrays (barcodes[], objects[], recognitions[], detections[]). `llmMatches[]` also exists on video-scenes for backward compatibility with data written by the removed `llm_recognition` stage. Video-frames are pure frame records with no detection data. Barcode matches look up `product-variants` by GTIN to find the parent product. For visual matches via DINOv2, products are resolved from product-variants. The compile_detections stage calls `matchProduct()` on OCR text (ocrBrand/ocrProductName) to find/create products, then uses LLM (gpt-4.1-mini) to consolidate all evidence (barcodes, DINOv2 matches, OCR matches) into a unified detections[] array; each entry includes a `reasoning` field explaining the match. Barcode matches bypass the LLM entirely (confidence 1.0); the stage falls back to formula scoring if the LLM call fails. The sentiment_analysis stage concatenates scene transcripts on-the-fly to derive the full transcript context, then creates video-mentions with full detection provenance (confidence, sources, barcodeValue, clipDistance).
 
 ### 8. product-aggregation
 
@@ -509,7 +509,7 @@ All use OpenAI via `OPENAI_API_KEY`. Each returns a `tokensUsed` object.
 |----------|-------|--------|-----------|
 | `matchBrand(client, brandName, logger)` | brand name string | `{ brandId, tokensUsed }` | `product-aggregation/stages/match-brand.ts` |
 | `matchIngredients(client, names[], logger)` | raw ingredient names | `{ matched[], unmatched[], tokensUsed }` | `product-aggregation/stages/ingredients.ts` |
-| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `video-processing/stages/llm-recognition.ts` |
+| `matchProduct(client, brand, name, terms, logger)` | brand + product name + search terms | `{ productId, productName }` | `video-processing/stages/compile-detections.ts` |
 | `classifyProduct(client, sources, lang)` | source-product descriptions + ingredients | `{ description, productType, warnings, skinApplicability, phMin, phMax, usageInstructions, usageSchedule, productAttributes[], productClaims[], tokensUsed }` — detail fields extracted from descriptions by LLM; evidence entries include `sourceIndex`, `type`, `snippet`, `start`/`end` (char offsets), `ingredientNames` | `product-aggregation/stages/classify.ts` |
 | `cleanProductName(rawName, variantLabels, cache)` | raw product name + variant labels (e.g. "50ml", "Rose Gold") | `{ name, tokensUsed, cacheHit }` — strips variant-specific info (sizes, colors, shade numbers) to produce a clean generic product name | `product-aggregation/stages/classify.ts` |
 | `correctTranscript(rawTranscript, brands, products)` | raw STT transcript + brand/product names | `{ correctedTranscript, corrections[], tokensUsed }` | `handleVideoProcessing` |

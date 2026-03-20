@@ -1,44 +1,36 @@
 /**
- * Stage 4: Visual Search
+ * Stage 3: Visual Search
  *
- * Reads **representative** detection crops from the scene's `objects[]` array
- * (from stages 2+3: object_detection + side_detection). Only processes crops
- * where `isRepresentative === true` (or all crops if side_detection hasn't run,
- * for backward compatibility).
+ * Reads ALL detection crops from the scene's `objects[]` array (from stage 2:
+ * object_detection). Computes transient DINOv2-base embeddings (768-dim), and
+ * searches against product recognition image embeddings in pgvector.
  *
- * Computes transient DINOv2-base embeddings (768-dim), and searches against product
- * recognition image embeddings in pgvector to find matching products.
+ * Stores **top-N candidates** per crop (up to searchLimit, default 3) in the
+ * scene's `recognitions[]` array — not just the best match. The searchThreshold
+ * acts as a pre-filter on the pgvector query to avoid totally irrelevant results.
+ * Final product decisions are made by the compile_detections stage (LLM consolidation).
  *
  * Embeddings are NOT stored — they are computed in memory and discarded
- * after the search. Matched products are written to the scene's
- * `recognitions[]` array.
+ * after the search.
  *
  * Uses the shared DINOv2 singleton from @/lib/models/clip.
- *
- * Search threshold and limit are configurable via the job's Configuration
- * tab (searchThreshold, searchLimit). Emits per-detection detail events
- * for full observability.
  */
 
 import { computeImageEmbedding } from '@/lib/models/clip'
 import type { StageContext, StageResult } from './index'
 
 const SEARCH_NAMESPACE = 'recognition-images'
-/** How many results to fetch for diagnostic logging (always >= searchLimit) */
-const DIAGNOSTIC_LIMIT = 3
 
 export async function executeVisualSearch(ctx: StageContext, videoId: number): Promise<StageResult> {
   const { payload, config, log } = ctx
   const jlog = log.forJob('video-processings', config.jobId)
-  const searchThreshold = config.searchThreshold ?? 0.3
-  const searchLimit = config.searchLimit ?? 1
-  // Always fetch at least DIAGNOSTIC_LIMIT results so we can log near-misses
-  const fetchLimit = Math.max(searchLimit, DIAGNOSTIC_LIMIT)
+  const searchThreshold = config.searchThreshold ?? 0.8
+  const searchLimit = config.searchLimit ?? 3
 
   const video = (await payload.findByID({ collection: 'videos', id: videoId })) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
 
-  jlog.info('Starting DINOv2 visual search', { threshold: searchThreshold, searchLimit, fetchLimit, namespace: SEARCH_NAMESPACE })
+  jlog.info('Starting DINOv2 visual search', { threshold: searchThreshold, searchLimit, namespace: SEARCH_NAMESPACE })
 
   // Fetch all scenes for this video
   const scenesResult = await payload.find({
@@ -54,7 +46,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
   }
 
   let totalSearched = 0
-  let totalMatched = 0
+  let totalCandidates = 0
   let embeddingsFailed = 0
   const allMatchedProductIds = new Set<number>()
   const allBestDistances: number[] = []
@@ -68,8 +60,6 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
       frame?: number | Record<string, unknown>
       crop: number | { id: number; url?: string }
       score?: number
-      side?: string
-      isRepresentative?: boolean
     }> | null
 
     if (!objects || objects.length === 0) continue
@@ -78,10 +68,6 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
 
     for (let objIdx = 0; objIdx < objects.length; objIdx++) {
       const obj = objects[objIdx]
-
-      // Only process representative crops (set by side_detection stage)
-      // If side_detection hasn't run (no isRepresentative field), process all objects (backward compat)
-      if (obj.isRepresentative === false) continue
 
       // Resolve the crop media URL
       const cropRef = obj.crop
@@ -127,9 +113,10 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
         log.debug('Embedding computed', { sceneId, objIdx, dimensions: embedding.length })
 
         // Search against product recognition image embeddings
+        // searchThreshold acts as a pre-filter on pgvector to exclude irrelevant results
         const searchResult = await payload.embeddings.search(SEARCH_NAMESPACE, embedding, {
-          limit: fetchLimit,
-          threshold: undefined, // Don't filter server-side — we want to see all top-N for diagnostics
+          limit: searchLimit,
+          threshold: searchThreshold,
         })
 
         const allResults = searchResult.results || []
@@ -138,9 +125,8 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
         const bestDistance = bestResult ? (bestResult.distance as number) : 0
         const bestGtin = bestResult ? ((bestResult.gtin as string) || '-') : '-'
 
-        // Log search results for diagnostics
         if (allResults.length === 0) {
-          log.warn('Search returned zero results — recognition_embeddings table may be empty or dimensions may mismatch', { sceneId, objIdx })
+          log.debug('Search returned zero results', { sceneId, objIdx, threshold: searchThreshold })
         } else {
           log.info('Search results', {
             sceneId,
@@ -148,8 +134,6 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
             results: allResults.length,
             bestDistance: bestDistance.toFixed(4),
             bestGtin,
-            threshold: searchThreshold,
-            wouldMatch: bestDistance <= searchThreshold,
             topDistances,
           })
         }
@@ -158,35 +142,38 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
           allBestDistances.push(bestDistance)
         }
 
-        // Only match if the best result is within the configured threshold
-        let matchedProduct: number | null = null
-        let matchedVariant: number | null = null
-        let matchedGtin: string | null = null
-        let didMatch = false
+        // Store ALL results as recognition candidates (not just the best one)
+        // The compile_detections stage (LLM consolidation) will make the final decision
+        for (const result of allResults) {
+          const gtin = (result.gtin as string) || null
+          if (!gtin) continue
 
-        if (bestResult && bestDistance <= searchThreshold) {
-          matchedGtin = (bestResult.gtin as string) || null
+          const pvResult = await payload.find({
+            collection: 'product-variants',
+            where: { gtin: { equals: gtin } },
+            limit: 1,
+          })
+          if (pvResult.docs.length === 0) continue
 
-          // Look up the product from the product-variant via GTIN
-          if (matchedGtin) {
-            const pvResult = await payload.find({
-              collection: 'product-variants',
-              where: { gtin: { equals: matchedGtin } },
-              limit: 1,
-            })
-            if (pvResult.docs.length > 0) {
-              const pv = pvResult.docs[0] as Record<string, unknown>
-              matchedVariant = pv.id as number
-              const productRef = pv.product as number | Record<string, unknown>
-              matchedProduct = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
-              allMatchedProductIds.add(matchedProduct)
-              totalMatched++
-              didMatch = true
-            }
-          }
+          const pv = pvResult.docs[0] as Record<string, unknown>
+          const variantId = pv.id as number
+          const productRef = pv.product as number | Record<string, unknown>
+          const productId = typeof productRef === 'number' ? productRef : (productRef as { id: number }).id
+          const distance = result.distance as number
+
+          allMatchedProductIds.add(productId)
+          totalCandidates++
+
+          recognitionEntries.push({
+            object: obj.id,
+            product: productId,
+            productVariant: variantId,
+            gtin,
+            distance: Math.round(distance * 10000) / 10000,
+          })
         }
 
-        // Emit per-detection detail event (always — even on no match)
+        // Emit per-detection detail event
         jlog.event('video_processing.visual_search_detail', {
           title,
           sceneId,
@@ -196,20 +183,10 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
           resultsReturned: allResults.length,
           bestDistance: Math.round(bestDistance * 10000) / 10000,
           bestGtin,
-          matched: didMatch,
-          matchedProductId: matchedProduct ?? 0,
+          matched: allResults.length > 0,
+          matchedProductId: bestResult ? (allResults[0] as Record<string, unknown>).product_variant_id as number ?? 0 : 0,
           topDistances,
         })
-
-        if (didMatch && matchedProduct) {
-          recognitionEntries.push({
-            object: obj.id,
-            product: matchedProduct,
-            productVariant: matchedVariant,
-            gtin: matchedGtin,
-            distance: Math.round(bestDistance * 10000) / 10000,
-          })
-        }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         jlog.event('video_processing.warning', { title, warning: `Visual search failed for object ${objIdx} in scene ${sceneId}: ${msg}` })
@@ -236,7 +213,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
   jlog.event('video_processing.visual_search_complete', {
     title,
     searched: totalSearched,
-    matched: totalMatched,
+    matched: totalCandidates,
     productsFound: allMatchedProductIds.size,
     embeddingsFailed,
     avgBestDistance,
@@ -245,7 +222,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
   jlog.info('Visual search complete', {
     videoId,
     searched: totalSearched,
-    matched: totalMatched,
+    candidates: totalCandidates,
     products: allMatchedProductIds.size,
     embeddingsFailed,
     avgBestDistance,

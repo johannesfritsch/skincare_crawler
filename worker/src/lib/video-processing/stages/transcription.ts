@@ -184,16 +184,33 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       correctedFull,
     )
 
-    // 8. Write per-scene transcripts to DB
+    // 8. Write full transcript to the video record
+    if (correctedFull.trim()) {
+      await payload.update({
+        collection: 'videos',
+        id: videoId,
+        data: { transcript: correctedFull },
+      })
+    }
+
+    // 9. Write per-scene transcripts with pre/post context to DB
     for (let i = 0; i < scenesResult.docs.length; i++) {
       const scene = scenesResult.docs[i] as Record<string, unknown>
       const sceneId = scene.id as number
       const transcript = correctedSceneTranscripts[i] ?? ''
 
+      // Pre-context: last sentence from previous scene
+      const prevText = i > 0 ? (correctedSceneTranscripts[i - 1] ?? '') : ''
+      const preTranscript = prevText ? getLastSentence(prevText) : ''
+
+      // Post-context: first sentence from next scene
+      const nextText = i < correctedSceneTranscripts.length - 1 ? (correctedSceneTranscripts[i + 1] ?? '') : ''
+      const postTranscript = nextText ? getFirstSentence(nextText) : ''
+
       await payload.update({
         collection: 'video-scenes',
         id: sceneId,
-        data: { transcript },
+        data: { transcript, preTranscript, postTranscript },
       })
     }
 
@@ -213,6 +230,30 @@ export async function executeTranscription(ctx: StageContext, videoId: number): 
       log.warn('Cleanup failed', { error: e instanceof Error ? e.message : String(e) })
     }
   }
+}
+
+/**
+ * Extract the last sentence from a text block.
+ * Splits on sentence-ending punctuation and returns the final sentence.
+ */
+function getLastSentence(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  // Split on sentence boundaries (. ! ? …) followed by whitespace
+  const sentences = trimmed.split(/(?<=[.!?…])\s+/)
+  return sentences[sentences.length - 1]?.trim() ?? ''
+}
+
+/**
+ * Extract the first sentence from a text block.
+ * Returns text up to and including the first sentence-ending punctuation.
+ */
+function getFirstSentence(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  // Find the first sentence boundary
+  const match = trimmed.match(/^.*?[.!?…]+/)
+  return match ? match[0].trim() : trimmed
 }
 
 /**
