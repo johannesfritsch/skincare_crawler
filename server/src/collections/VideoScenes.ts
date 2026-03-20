@@ -125,7 +125,12 @@ export const VideoScenes: CollectionConfig = {
                   type: 'relationship',
                   relationTo: 'video-frames',
                   label: 'Frame',
-                  admin: { description: 'The frame where this barcode was detected' },
+                  admin: {
+                    description: 'The frame where this barcode was detected',
+                    components: {
+                      Field: '@/components/DetectionFrameField',
+                    },
+                  },
                 },
                 {
                   name: 'productVariant',
@@ -163,6 +168,11 @@ export const VideoScenes: CollectionConfig = {
                   type: 'relationship',
                   relationTo: 'video-frames',
                   label: 'Source Frame',
+                  admin: {
+                    components: {
+                      Field: '@/components/DetectionFrameField',
+                    },
+                  },
                 },
                 {
                   name: 'crop',
@@ -301,6 +311,11 @@ export const VideoScenes: CollectionConfig = {
                   type: 'relationship',
                   relationTo: 'video-frames',
                   label: 'Source Frame',
+                  admin: {
+                    components: {
+                      Field: '@/components/DetectionFrameField',
+                    },
+                  },
                 },
                 {
                   name: 'brand',

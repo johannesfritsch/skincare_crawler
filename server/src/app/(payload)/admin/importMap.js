@@ -34,6 +34,7 @@ import { default as default_d36a95c7b667f33a72dc38ff7d7f7916 } from '@/component
 import { default as default_8da85ba43770e514d85a6fec69d919f4 } from '@/components/VideoSaveButton'
 import { default as default_f0c1fcae0d28ac4b0ff05d79c223cc23 } from '../../../components/EmbeddedScenePlayer'
 import { default as default_f6707bda32eb7b214d9675b566b17227 } from '../../../components/FramesGallery'
+import { default as default_3368fcd293a0b5d5dc7f3b9607258e74 } from '@/components/DetectionFrameField'
 import { default as default_dc18604f4d78e37a674a0b8d80c9e980 } from '../../../components/VideoMentionsCell'
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
 import { default as default_e577ad08317d2e8977edf3e679038fc8 } from '../../../components/graphics/Logo'
@@ -90,6 +91,7 @@ export const importMap = {
   "@/components/VideoSaveButton#default": default_8da85ba43770e514d85a6fec69d919f4,
   "/components/EmbeddedScenePlayer#default": default_f0c1fcae0d28ac4b0ff05d79c223cc23,
   "/components/FramesGallery#default": default_f6707bda32eb7b214d9675b566b17227,
+  "@/components/DetectionFrameField#default": default_3368fcd293a0b5d5dc7f3b9607258e74,
   "/components/VideoMentionsCell#default": default_dc18604f4d78e37a674a0b8d80c9e980,
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,
   "/components/graphics/Logo#default": default_e577ad08317d2e8977edf3e679038fc8,
