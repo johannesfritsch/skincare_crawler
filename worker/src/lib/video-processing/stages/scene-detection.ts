@@ -187,7 +187,7 @@ export async function executeSceneDetection(ctx: StageContext, videoId: number):
             scene: sceneId,
             image: imageMediaId,
             frameIndex: j,
-            frameTime: Math.floor(seg.start) + j,
+            videoTime: Math.floor(seg.start) + j,
           },
         })
       }

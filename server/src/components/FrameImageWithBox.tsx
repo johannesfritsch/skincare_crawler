@@ -25,7 +25,7 @@ export default function FrameImageWithBox({ frameId, box, label = 'Source Frame'
   const [origWidth, setOrigWidth] = useState(0)
   const [origHeight, setOrigHeight] = useState(0)
   const [frameIndex, setFrameIndex] = useState<number | null>(null)
-  const [frameTime, setFrameTime] = useState<number | null>(null)
+  const [videoTime, setFrameTime] = useState<number | null>(null)
 
   useEffect(() => {
     if (!frameId) {
@@ -55,7 +55,7 @@ export default function FrameImageWithBox({ frameId, box, label = 'Source Frame'
           setOrigWidth(w)
           setOrigHeight(h)
           setFrameIndex(typeof frameDoc.frameIndex === 'number' ? frameDoc.frameIndex : null)
-          setFrameTime(typeof frameDoc.frameTime === 'number' ? frameDoc.frameTime : null)
+          setFrameTime(typeof frameDoc.videoTime === 'number' ? frameDoc.videoTime : null)
         }
       } catch {
         // silently fail
@@ -78,14 +78,7 @@ export default function FrameImageWithBox({ frameId, box, label = 'Source Frame'
 
   return (
     <div style={{ marginBottom: 'var(--spacing-field)' }}>
-      <label className="field-label" style={{ display: 'block', marginBottom: 4 }}>
-        {label}
-        <span style={{ color: 'var(--theme-elevation-500)', fontWeight: 'normal' }}>
-          {' '}#{frameId}
-          {frameTime != null && ` · ${Math.floor(frameTime / 60)}:${String(frameTime % 60).padStart(2, '0')}`}
-          {frameIndex != null && ` · frame ${frameIndex}`}
-        </span>
-      </label>
+      <label className="field-label" style={{ display: 'block', marginBottom: 4 }}>{label}</label>
       {imageUrl ? (
         <div
           style={{
@@ -116,6 +109,24 @@ export default function FrameImageWithBox({ frameId, box, label = 'Source Frame'
                 boxShadow: '0 0 0 1px rgba(0,0,0,0.3)',
               }}
             />
+          )}
+          {videoTime != null && (
+            <span
+              style={{
+                position: 'absolute',
+                bottom: 6,
+                left: 6,
+                background: 'rgba(0,0,0,0.7)',
+                color: '#fff',
+                fontSize: 11,
+                padding: '2px 6px',
+                borderRadius: 4,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {Math.floor(videoTime / 60)}:{String(videoTime % 60).padStart(2, '0')}
+              {frameIndex != null && ` · #${frameIndex}`}
+            </span>
           )}
         </div>
       ) : (

@@ -1482,7 +1482,7 @@ export interface VideoFrame {
   /**
    * Approximate timestamp in the video (seconds from start)
    */
-  frameTime?: number | null;
+  videoTime?: number | null;
   /**
    * Whether this frame was selected as a cluster representative for product recognition and object detection
    */
@@ -3366,7 +3366,7 @@ export interface VideoFramesSelect<T extends boolean = true> {
   scene?: T;
   image?: T;
   frameIndex?: T;
-  frameTime?: T;
+  videoTime?: T;
   isClusterRepresentative?: T;
   clusterThumbnail?: T;
   updatedAt?: T;

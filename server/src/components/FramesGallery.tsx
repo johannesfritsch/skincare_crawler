@@ -15,7 +15,7 @@ interface Frame {
   image?: FrameImage | number | null
   isClusterRepresentative?: boolean | null
   frameIndex?: number | null
-  frameTime?: number | null
+  videoTime?: number | null
 }
 
 export default function FramesGallery() {
@@ -26,7 +26,7 @@ export default function FramesGallery() {
   useEffect(() => {
     if (!id) return
     fetch(
-      `/api/video-frames?where[scene][equals]=${id}&depth=1&limit=100&sort=frameIndex&select[image]=true&select[isClusterRepresentative]=true&select[frameIndex]=true&select[frameTime]=true`,
+      `/api/video-frames?where[scene][equals]=${id}&depth=1&limit=100&sort=frameIndex&select[image]=true&select[isClusterRepresentative]=true&select[frameIndex]=true&select[videoTime]=true`,
     )
       .then((res) => res.json())
       .then((data) => setFrames(data.docs ?? []))
@@ -158,7 +158,7 @@ export default function FramesGallery() {
                 alt={`Frame ${frame.id}`}
                 style={{ display: 'block', width: '100%', height: 'auto' }}
               />
-              {frame.frameTime != null && (
+              {frame.videoTime != null && (
                 <span
                   style={{
                     position: 'absolute',
@@ -172,7 +172,7 @@ export default function FramesGallery() {
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  {Math.floor(frame.frameTime / 60)}:{String(frame.frameTime % 60).padStart(2, '0')}
+                  {Math.floor(frame.videoTime / 60)}:{String(frame.videoTime % 60).padStart(2, '0')}
                   {frame.frameIndex != null && ` · #${frame.frameIndex}`}
                 </span>
               )}

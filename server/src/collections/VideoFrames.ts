@@ -35,9 +35,9 @@ export const VideoFrames: CollectionConfig = {
       admin: { description: 'Zero-based index of this frame within its scene (after dedup)' },
     },
     {
-      name: 'frameTime',
+      name: 'videoTime',
       type: 'number',
-      label: 'Frame Time (s)',
+      label: 'Video Time (s)',
       admin: { description: 'Approximate timestamp in the video (seconds from start)' },
     },
     {
