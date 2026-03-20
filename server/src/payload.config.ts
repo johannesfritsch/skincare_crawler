@@ -257,7 +257,7 @@ export default buildConfig({
     },
     {
       path: '/embeddings/:namespace/search',
-      method: 'get',
+      method: 'post',
       handler: embeddingsSearchHandler,
     },
     {

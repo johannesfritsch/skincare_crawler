@@ -217,10 +217,10 @@ export class PayloadRestClient {
       vector: number[],
       options?: { limit?: number; threshold?: number },
     ): Promise<{ results: Array<Record<string, unknown>> }> => {
-      const parts = [`vector=${encodeURIComponent(JSON.stringify(vector))}`]
-      if (options?.limit) parts.push(`limit=${options.limit}`)
-      if (options?.threshold !== undefined) parts.push(`threshold=${options.threshold}`)
-      return this.request('GET', `/embeddings/${namespace}/search?${parts.join('&')}`) as Promise<{
+      const body: Record<string, unknown> = { vector }
+      if (options?.limit) body.limit = options.limit
+      if (options?.threshold !== undefined) body.threshold = options.threshold
+      return this.request('POST', `/embeddings/${namespace}/search`, body) as Promise<{
         results: Array<Record<string, unknown>>
       }>
     },

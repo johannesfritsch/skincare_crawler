@@ -166,10 +166,10 @@ export const embeddingsWriteHandler: PayloadHandler = async (req) => {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/embeddings/:namespace/search
+// POST /api/embeddings/:namespace/search
 //
-// Query params:
-//   vector    — JSON array of floats (required)
+// Body: { vector: number[], limit?: number, threshold?: number }
+//   vector    — array of floats (required, must match namespace dimensions)
 //   limit     — max results (default 10, max 100)
 //   threshold — max cosine distance (optional, 0-2 range)
 // ---------------------------------------------------------------------------
@@ -184,31 +184,23 @@ export const embeddingsSearchHandler: PayloadHandler = async (req) => {
     return Response.json({ error: 'Unknown namespace' }, { status: 404 })
   }
 
-  const url = new URL(req.url!)
-  const vectorParam = url.searchParams.get('vector')
-  const limitParam = url.searchParams.get('limit')
-  const thresholdParam = url.searchParams.get('threshold')
-
-  if (!vectorParam) {
-    return Response.json({ error: 'vector query param is required (JSON array)' }, { status: 400 })
-  }
-
-  let vector: number[]
+  let body: { vector?: unknown; limit?: number; threshold?: number }
   try {
-    vector = JSON.parse(vectorParam)
+    body = await req.json!()
   } catch {
-    return Response.json({ error: 'vector must be a valid JSON array' }, { status: 400 })
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
+  const vector = body?.vector
   if (!Array.isArray(vector) || vector.length !== ns.dimensions) {
     return Response.json(
-      { error: `Expected ${ns.dimensions}-dim vector, got ${Array.isArray(vector) ? vector.length : 'non-array'}` },
+      { error: `Expected ${ns.dimensions}-dim vector array, got ${Array.isArray(vector) ? vector.length : 'non-array'}` },
       { status: 400 },
     )
   }
 
-  const limit = Math.min(Math.max(parseInt(limitParam || '10', 10) || 10, 1), 100)
-  const threshold = thresholdParam ? parseFloat(thresholdParam) : null
+  const limit = Math.min(Math.max(body?.limit || 10, 1), 100)
+  const threshold = body?.threshold != null ? body.threshold : null
 
   const db = req.payload.db.drizzle
   const vec = vectorLiteral(vector)

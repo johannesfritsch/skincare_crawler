@@ -6,7 +6,7 @@
  * where `isRepresentative === true` (or all crops if side_detection hasn't run,
  * for backward compatibility).
  *
- * Computes transient DINOv2-small embeddings, and searches against product
+ * Computes transient DINOv2-base embeddings (768-dim), and searches against product
  * recognition image embeddings in pgvector to find matching products.
  *
  * Embeddings are NOT stored — they are computed in memory and discarded
@@ -38,7 +38,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
   const video = (await payload.findByID({ collection: 'videos', id: videoId })) as Record<string, unknown>
   const title = (video.title as string) || `Video ${videoId}`
 
-  jlog.info('Starting DINOv2 visual search', { threshold: searchThreshold, searchLimit, fetchLimit })
+  jlog.info('Starting DINOv2 visual search', { threshold: searchThreshold, searchLimit, fetchLimit, namespace: SEARCH_NAMESPACE })
 
   // Fetch all scenes for this video
   const scenesResult = await payload.find({
@@ -124,6 +124,8 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
 
         totalSearched++
 
+        log.debug('Embedding computed', { sceneId, objIdx, dimensions: embedding.length })
+
         // Search against product recognition image embeddings
         const searchResult = await payload.embeddings.search(SEARCH_NAMESPACE, embedding, {
           limit: fetchLimit,
@@ -135,6 +137,22 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
         const bestResult = allResults.length > 0 ? allResults[0] : null
         const bestDistance = bestResult ? (bestResult.distance as number) : 0
         const bestGtin = bestResult ? ((bestResult.gtin as string) || '-') : '-'
+
+        // Log search results for diagnostics
+        if (allResults.length === 0) {
+          log.warn('Search returned zero results — recognition_embeddings table may be empty or dimensions may mismatch', { sceneId, objIdx })
+        } else {
+          log.info('Search results', {
+            sceneId,
+            objIdx,
+            results: allResults.length,
+            bestDistance: bestDistance.toFixed(4),
+            bestGtin,
+            threshold: searchThreshold,
+            wouldMatch: bestDistance <= searchThreshold,
+            topDistances,
+          })
+        }
 
         if (bestDistance > 0) {
           allBestDistances.push(bestDistance)
