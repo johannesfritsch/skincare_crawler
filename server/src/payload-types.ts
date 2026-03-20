@@ -1295,9 +1295,9 @@ export interface VideoScene {
   recognitions?:
     | {
         /**
-         * Index into the objects[] array on this scene
+         * Stable ID of the detected object in this scene's objects[] array
          */
-        objectIndex?: number | null;
+        object?: string | null;
         product?: (number | null) | Product;
         productVariant?: (number | null) | ProductVariant;
         /**
@@ -3316,7 +3316,7 @@ export interface VideoScenesSelect<T extends boolean = true> {
   recognitions?:
     | T
     | {
-        objectIndex?: T;
+        object?: T;
         product?: T;
         productVariant?: T;
         gtin?: T;

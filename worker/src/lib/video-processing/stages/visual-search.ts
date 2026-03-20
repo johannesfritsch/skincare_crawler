@@ -203,7 +203,7 @@ export async function executeVisualSearch(ctx: StageContext, videoId: number): P
 
         if (didMatch && matchedProduct) {
           recognitionEntries.push({
-            objectIndex: objIdx,
+            object: obj.id,
             product: matchedProduct,
             productVariant: matchedVariant,
             gtin: matchedGtin,

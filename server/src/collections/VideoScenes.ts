@@ -257,10 +257,10 @@ export const VideoScenes: CollectionConfig = {
               },
               fields: [
                 {
-                  name: 'objectIndex',
-                  type: 'number',
-                  label: 'Object Index',
-                  admin: { description: 'Index into the objects[] array on this scene' },
+                  name: 'object',
+                  type: 'text',
+                  label: 'Object ID',
+                  admin: { description: 'Stable ID of the detected object in this scene\'s objects[] array' },
                 },
                 {
                   name: 'product',
