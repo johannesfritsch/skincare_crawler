@@ -717,8 +717,9 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     language: (work.language as string) ?? 'de',
     imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
     brandSourcePriority: (work.brandSourcePriority as string[]) ?? DEFAULT_BRAND_SOURCE_PRIORITY,
-    detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
+    detectionThreshold: (work.detectionThreshold as number) ?? 0.7,
     minBoxArea: ((work.minBoxArea as number) ?? 5) / 100,
+    fallbackDetectionThreshold: (work.fallbackDetectionThreshold as boolean) ?? true,
   }
 
   log.info('Product aggregation job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })

@@ -1383,7 +1383,8 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     stageItems,
     enabledStages: enabledStagesArr,
     minBoxArea: (job.minBoxArea as number) ?? 5,
-    detectionThreshold: (job.detectionThreshold as number) ?? 0.3,
+    detectionThreshold: (job.detectionThreshold as number) ?? 0.7,
+    fallbackDetectionThreshold: (job.fallbackDetectionThreshold as boolean) ?? true,
   }
 }
 

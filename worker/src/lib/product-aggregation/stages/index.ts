@@ -51,10 +51,12 @@ export interface StageConfig {
   imageSourcePriority: string[]
   /** Ordered list of source slugs to prefer when selecting the brand. First source with a source-brand wins. */
   brandSourcePriority: string[]
-  /** Grounding DINO box confidence threshold (0-1). Detections below this are discarded. Default: 0.3. */
+  /** Grounding DINO box confidence threshold (0-1). Detections below this are discarded. Default: 0.7. */
   detectionThreshold: number
   /** Minimum detection box area as a fraction (0-1) of the source image area. Default: 0.05 (5%). */
   minBoxArea: number
+  /** When true, retry with lower thresholds (50% → 25% → all) if fewer than 3 recognition images qualify. */
+  fallbackDetectionThreshold: boolean
 }
 
 /** Context available to all stage functions */

@@ -21,11 +21,25 @@ import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
 const DETECTION_PROMPT = 'cosmetics packaging.'
 
+/** Minimum number of recognition images before fallback kicks in */
+const MIN_RECOGNITION_IMAGES = 3
+
+interface RawDetection {
+  score: number
+  box: { xmin: number; ymin: number; xmax: number; ymax: number }
+  imgIdx: number
+  imageBuffer: Buffer
+  imgWidth: number
+  imgHeight: number
+  source: string
+}
+
 export async function executeObjectDetection(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, config, log } = ctx
   const jlog = log.forJob('product-aggregations', config.jobId)
-  const detectionThreshold = config.detectionThreshold ?? 0.3
+  const detectionThreshold = config.detectionThreshold ?? 0.7
   const minBoxArea = config.minBoxArea ?? 0.05
+  const fallbackEnabled = config.fallbackDetectionThreshold ?? true
   const productId = workItem.productId
 
   if (!productId) {
@@ -71,15 +85,10 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
 
     log.info('Running object detection on all variant images', { gtin: v.gtin, imageCount: images.length })
 
-    // Accumulate all detection crops across all images
-    const recognitionImages: Array<{
-      image: number
-      score: number
-      boxXMin: number
-      boxYMin: number
-      boxXMax: number
-      boxYMax: number
-    }> = []
+    // Run detection at a low threshold to collect ALL candidates, then filter by score
+    // This avoids re-running the model at each fallback tier
+    const rawThreshold = fallbackEnabled ? detectionThreshold * 0.25 : detectionThreshold
+    const allDetections: RawDetection[] = []
 
     for (let imgIdx = 0; imgIdx < images.length; imgIdx++) {
       const imageEntry = images[imgIdx]
@@ -120,9 +129,9 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         const imgHeight = metadata.height ?? 0
         if (imgWidth === 0 || imgHeight === 0) continue
 
-        // Run Grounding DINO detection
+        // Run Grounding DINO detection at the lowest threshold we might need
         const detections = await detector(fullImageUrl, [DETECTION_PROMPT], {
-          threshold: detectionThreshold,
+          threshold: rawThreshold,
         })
 
         if (!detections || detections.length === 0) {
@@ -138,9 +147,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
           scores: detections.map((d) => d.score.toFixed(2)).join(', '),
         })
 
-        for (let i = 0; i < detections.length; i++) {
-          const det = detections[i]
-
+        for (const det of detections) {
           const xmin = Math.max(0, Math.round(det.box.xmin))
           const ymin = Math.max(0, Math.round(det.box.ymin))
           const xmax = Math.min(imgWidth, Math.round(det.box.xmax))
@@ -162,39 +169,114 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
             continue
           }
 
-          // Crop the region using sharp
-          const croppedBuffer = await sharp(imageBuffer)
-            .extract({ left: xmin, top: ymin, width: cropWidth, height: cropHeight })
-            .png()
-            .toBuffer()
-
-          // Upload cropped image to media
-          const cropMediaDoc = await payload.create({
-            collection: 'detection-media',
-            data: { alt: `Product detection img${imgIdx}/${i + 1} (${det.score.toFixed(2)}) — ${v.gtin}` },
-            file: {
-              data: croppedBuffer,
-              mimetype: 'image/png',
-              name: `detection-${v.gtin}-img${imgIdx}-${i + 1}.png`,
-              size: croppedBuffer.length,
-            },
+          allDetections.push({
+            score: det.score,
+            box: { xmin, ymin, xmax, ymax },
+            imgIdx,
+            imageBuffer,
+            imgWidth,
+            imgHeight,
+            source: imageEntry.source ?? '?',
           })
-          const cropMediaId = (cropMediaDoc as { id: number }).id
-
-          recognitionImages.push({
-            image: cropMediaId,
-            score: Math.round(det.score * 1000) / 1000,
-            boxXMin: xmin,
-            boxYMin: ymin,
-            boxXMax: xmax,
-            boxYMax: ymax,
-          })
-
-          totalDetections++
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         log.debug('Object detection failed for image', { gtin: v.gtin, imgIdx, error: msg })
+      }
+    }
+
+    // Apply cascading threshold: filter detections at the configured threshold,
+    // then fall back to lower thresholds if fewer than MIN_RECOGNITION_IMAGES qualify.
+    let usedThreshold = detectionThreshold
+    let qualified = allDetections.filter((d) => d.score >= usedThreshold)
+
+    if (fallbackEnabled && qualified.length < MIN_RECOGNITION_IMAGES) {
+      const tier2 = detectionThreshold * 0.5
+      qualified = allDetections.filter((d) => d.score >= tier2)
+      if (qualified.length >= MIN_RECOGNITION_IMAGES || qualified.length > 0) {
+        jlog.event('aggregation.warning', {
+          gtin: v.gtin,
+          warning: `Only ${allDetections.filter((d) => d.score >= detectionThreshold).length} detections at threshold ${detectionThreshold.toFixed(2)}, falling back to ${tier2.toFixed(2)} (${qualified.length} detections)`,
+        })
+        usedThreshold = tier2
+      }
+
+      if (qualified.length < MIN_RECOGNITION_IMAGES) {
+        const tier3 = detectionThreshold * 0.25
+        qualified = allDetections.filter((d) => d.score >= tier3)
+        if (qualified.length >= MIN_RECOGNITION_IMAGES || qualified.length > 0) {
+          jlog.event('aggregation.warning', {
+            gtin: v.gtin,
+            warning: `Only ${allDetections.filter((d) => d.score >= tier2).length} detections at threshold ${tier2.toFixed(2)}, falling back to ${tier3.toFixed(2)} (${qualified.length} detections)`,
+          })
+          usedThreshold = tier3
+        }
+
+        if (qualified.length < MIN_RECOGNITION_IMAGES && allDetections.length > 0) {
+          jlog.event('aggregation.warning', {
+            gtin: v.gtin,
+            warning: `Only ${qualified.length} detections at threshold ${tier3.toFixed(2)}, taking all ${allDetections.length} detections`,
+          })
+          qualified = allDetections
+          usedThreshold = 0
+        }
+      }
+    }
+
+    log.info('Detection threshold applied', {
+      gtin: v.gtin,
+      configuredThreshold: detectionThreshold,
+      usedThreshold,
+      totalCandidates: allDetections.length,
+      qualified: qualified.length,
+      fallback: usedThreshold < detectionThreshold,
+    })
+
+    // Crop and upload the qualified detections
+    const recognitionImages: Array<{
+      image: number
+      score: number
+      boxXMin: number
+      boxYMin: number
+      boxXMax: number
+      boxYMax: number
+    }> = []
+
+    for (const det of qualified) {
+      const cropWidth = det.box.xmax - det.box.xmin
+      const cropHeight = det.box.ymax - det.box.ymin
+
+      try {
+        const croppedBuffer = await sharp(det.imageBuffer)
+          .extract({ left: det.box.xmin, top: det.box.ymin, width: cropWidth, height: cropHeight })
+          .png()
+          .toBuffer()
+
+        const cropMediaDoc = await payload.create({
+          collection: 'detection-media',
+          data: { alt: `Product detection img${det.imgIdx} (${det.score.toFixed(2)}) — ${v.gtin}` },
+          file: {
+            data: croppedBuffer,
+            mimetype: 'image/png',
+            name: `detection-${v.gtin}-img${det.imgIdx}-${det.score.toFixed(2)}.png`,
+            size: croppedBuffer.length,
+          },
+        })
+        const cropMediaId = (cropMediaDoc as { id: number }).id
+
+        recognitionImages.push({
+          image: cropMediaId,
+          score: Math.round(det.score * 1000) / 1000,
+          boxXMin: det.box.xmin,
+          boxYMin: det.box.ymin,
+          boxXMax: det.box.xmax,
+          boxYMax: det.box.ymax,
+        })
+
+        totalDetections++
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        log.debug('Failed to crop/upload detection', { gtin: v.gtin, imgIdx: det.imgIdx, error: msg })
       }
     }
 

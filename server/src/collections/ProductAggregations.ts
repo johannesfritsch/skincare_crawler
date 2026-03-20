@@ -179,13 +179,23 @@ export const ProductAggregations: CollectionConfig = {
               name: 'detectionThreshold',
               type: 'number',
               label: 'Detection Confidence Threshold',
-              defaultValue: 0.15,
+              defaultValue: 0.7,
               min: 0,
               max: 1,
               admin: {
                 step: 0.05,
                 description:
-                  'Grounding DINO box confidence threshold. Detections below this score are discarded. Default: 0.15.',
+                  'Grounding DINO box confidence threshold for recognition images. Detections below this score are discarded. Default: 0.7.',
+              },
+            },
+            {
+              name: 'fallbackDetectionThreshold',
+              type: 'checkbox',
+              label: 'Fallback Detection Threshold',
+              defaultValue: true,
+              admin: {
+                description:
+                  'When fewer than 3 recognition images qualify at the configured threshold, automatically retry with progressively lower thresholds (50% → 25% → all detections). Each fallback emits a warning event. Disable to use only the configured threshold with no fallback.',
               },
             },
             {
