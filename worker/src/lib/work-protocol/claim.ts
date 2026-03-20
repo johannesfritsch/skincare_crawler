@@ -403,7 +403,7 @@ async function buildProductCrawlWork(payload: PayloadRestClient, jobId: number) 
       itemsPerTick: (job.itemsPerTick as number) ?? 10,
       debug: (job.debug as boolean) ?? false,
       crawlVariants: (job.crawlVariants as boolean) ?? true,
-      skipReviews: reviewsEnabled, // skip inline reviews when reviews stage will run separately
+      skipReviews: true, // always skip inline reviews — reviews are handled by the standalone reviews stage when enabled
       source: job.source,
       enabledStages: [...enabledStages],
     }
