@@ -14,6 +14,8 @@ interface Frame {
   id: number
   image?: FrameImage | number | null
   isClusterRepresentative?: boolean | null
+  frameIndex?: number | null
+  frameTime?: number | null
 }
 
 export default function FramesGallery() {
@@ -24,7 +26,7 @@ export default function FramesGallery() {
   useEffect(() => {
     if (!id) return
     fetch(
-      `/api/video-frames?where[scene][equals]=${id}&depth=1&limit=100&select[image]=true&select[isClusterRepresentative]=true`,
+      `/api/video-frames?where[scene][equals]=${id}&depth=1&limit=100&sort=frameIndex&select[image]=true&select[isClusterRepresentative]=true&select[frameIndex]=true&select[frameTime]=true`,
     )
       .then((res) => res.json())
       .then((data) => setFrames(data.docs ?? []))
@@ -156,6 +158,24 @@ export default function FramesGallery() {
                 alt={`Frame ${frame.id}`}
                 style={{ display: 'block', width: '100%', height: 'auto' }}
               />
+              {frame.frameTime != null && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    bottom: 6,
+                    left: 6,
+                    background: 'rgba(0,0,0,0.7)',
+                    color: '#fff',
+                    fontSize: 11,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {Math.floor(frame.frameTime / 60)}:{String(frame.frameTime % 60).padStart(2, '0')}
+                  {frame.frameIndex != null && ` · #${frame.frameIndex}`}
+                </span>
+              )}
               <a
                 href={`/admin/collections/video-frames/${frame.id}`}
                 onClick={(e) => e.stopPropagation()}

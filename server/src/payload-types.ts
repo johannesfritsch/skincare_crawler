@@ -1476,6 +1476,14 @@ export interface VideoFrame {
   scene: number | VideoScene;
   image: number | VideoMedia;
   /**
+   * Zero-based index of this frame within its scene (after dedup)
+   */
+  frameIndex?: number | null;
+  /**
+   * Approximate timestamp in the video (seconds from start)
+   */
+  frameTime?: number | null;
+  /**
    * Whether this frame was selected as a cluster representative for product recognition and object detection
    */
   isClusterRepresentative?: boolean | null;
@@ -3357,6 +3365,8 @@ export interface VideoScenesSelect<T extends boolean = true> {
 export interface VideoFramesSelect<T extends boolean = true> {
   scene?: T;
   image?: T;
+  frameIndex?: T;
+  frameTime?: T;
   isClusterRepresentative?: T;
   clusterThumbnail?: T;
   updatedAt?: T;

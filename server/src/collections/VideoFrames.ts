@@ -29,6 +29,18 @@ export const VideoFrames: CollectionConfig = {
       required: true,
     },
     {
+      name: 'frameIndex',
+      type: 'number',
+      label: 'Frame Index',
+      admin: { description: 'Zero-based index of this frame within its scene (after dedup)' },
+    },
+    {
+      name: 'frameTime',
+      type: 'number',
+      label: 'Frame Time (s)',
+      admin: { description: 'Approximate timestamp in the video (seconds from start)' },
+    },
+    {
       name: 'isClusterRepresentative',
       type: 'checkbox',
       label: 'Cluster Representative',

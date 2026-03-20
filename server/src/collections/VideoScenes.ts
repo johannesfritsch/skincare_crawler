@@ -260,7 +260,12 @@ export const VideoScenes: CollectionConfig = {
                   name: 'object',
                   type: 'text',
                   label: 'Object ID',
-                  admin: { description: 'Stable ID of the detected object in this scene\'s objects[] array' },
+                  admin: {
+                    description: 'Stable ID of the detected object in this scene\'s objects[] array',
+                    components: {
+                      Field: '@/components/RecognitionObjectField',
+                    },
+                  },
                 },
                 {
                   name: 'product',
