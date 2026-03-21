@@ -4,16 +4,15 @@ import type { Field } from 'payload'
 export const DEFAULT_MAX_RETRIES = 3
 
 /**
- * Shared fields for job claim locking and retry tracking. Add these to every
- * job collection's `fields` array (typically in the sidebar).
+ * Claim tracking fields for the Progress tab. These show which worker
+ * is currently processing the job and when it was claimed.
  */
-export const jobClaimFields: Field[] = [
+export const jobClaimProgressFields: Field[] = [
   {
     name: 'claimedAt',
     type: 'date',
     label: 'Claimed At',
     admin: {
-      position: 'sidebar',
       readOnly: true,
       date: {
         pickerAppearance: 'dayAndTime',
@@ -27,11 +26,17 @@ export const jobClaimFields: Field[] = [
     relationTo: 'workers',
     label: 'Claimed By',
     admin: {
-      position: 'sidebar',
       readOnly: true,
       description: 'Worker currently processing this job',
     },
   },
+]
+
+/**
+ * Retry fields for the sidebar. These control retry behavior and
+ * show how many times the job has been retried.
+ */
+export const jobRetryFields: Field[] = [
   {
     name: 'retryCount',
     type: 'number',
@@ -54,6 +59,15 @@ export const jobClaimFields: Field[] = [
     },
   },
 ]
+
+/**
+ * Retry fields WITHOUT maxRetries — use when maxRetries is placed
+ * in a Configuration tab via `maxRetriesField` instead of the sidebar.
+ */
+export const jobRetryFieldsNoMax: Field[] = jobRetryFields.filter(
+  (f) => !('name' in f && f.name === 'maxRetries'),
+)
+
 
 /**
  * Max retries field for placement in a Configuration tab instead of the sidebar.
@@ -83,14 +97,6 @@ export const batchSizeField: Field = {
     description: 'Items to process per batch.',
   },
 }
-
-/**
- * Job claim fields WITHOUT maxRetries — use when maxRetries is placed
- * in a Configuration tab via `maxRetriesField` instead of the sidebar.
- */
-export const jobClaimFieldsNoRetries: Field[] = jobClaimFields.filter(
-  (f) => !('name' in f && f.name === 'maxRetries'),
-)
 
 /**
  * Failure fields for job collections. Place these inside the Output tab

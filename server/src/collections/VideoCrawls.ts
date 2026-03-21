@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
+import { jobRetryFieldsNoMax, jobClaimProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -34,7 +34,7 @@ export const VideoCrawls: CollectionConfig = {
   },
   fields: [
     jobStatusField,
-    ...jobClaimFieldsNoRetries,
+    ...jobRetryFieldsNoMax,
     ...jobScheduleFields,
     {
       type: 'tabs',
@@ -171,6 +171,7 @@ export const VideoCrawls: CollectionConfig = {
         {
           label: 'Progress',
           fields: [
+            ...jobClaimProgressFields,
             {
               name: 'total',
               type: 'number',

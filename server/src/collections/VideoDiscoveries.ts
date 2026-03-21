@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
-import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -30,7 +30,7 @@ export const VideoDiscoveries: CollectionConfig = {
       },
     },
     jobStatusField,
-    ...jobClaimFields,
+    ...jobRetryFields,
     ...jobScheduleFields,
     {
       name: 'itemsPerTick',
@@ -67,6 +67,7 @@ export const VideoDiscoveries: CollectionConfig = {
         {
           label: 'Progress',
           fields: [
+            ...jobClaimProgressFields,
             {
               name: 'discovered',
               type: 'number',

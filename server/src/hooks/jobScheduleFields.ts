@@ -32,60 +32,47 @@ export const jobStatusField: Field = {
  * Scheduling fields for recurring/deferred job execution. Spread these into
  * every job collection's `fields` array alongside `jobClaimFields`.
  *
+ * The 4 data fields are hidden from the form — all UI is handled by the
+ * ScheduleWidget component rendered via the `scheduleWidget` UI field.
+ *
  * - `schedule`: cron expression (UTC) for recurring execution
  * - `scheduleLimit`: max number of runs (0 = unlimited)
  * - `scheduleCount`: how many times this job has completed (auto-incremented)
  * - `scheduledFor`: computed next-run datetime (auto-set from cron)
+ * - `scheduleWidget`: UI-only field that renders the compact sidebar widget
  */
 export const jobScheduleFields: Field[] = [
   {
     name: 'schedule',
     type: 'text',
-    label: 'Cron Schedule (UTC)',
-    admin: {
-      position: 'sidebar',
-      components: {
-        Field: '@/components/CronExpressionField',
-      },
-      description: 'Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.',
-    },
+    admin: { hidden: true },
   },
   {
     name: 'scheduleLimit',
     type: 'number',
-    label: 'Run Limit',
     defaultValue: 0,
     min: 0,
-    admin: {
-      position: 'sidebar',
-      description: 'Maximum number of runs. 0 = unlimited.',
-      condition: (data) => Boolean(data?.schedule),
-    },
+    admin: { hidden: true },
   },
   {
     name: 'scheduleCount',
     type: 'number',
-    label: 'Run Count',
     defaultValue: 0,
-    admin: {
-      position: 'sidebar',
-      readOnly: true,
-      description: 'How many times this job has completed.',
-      condition: (data) => Boolean(data?.schedule),
-    },
+    admin: { hidden: true },
   },
   {
     name: 'scheduledFor',
     type: 'date',
-    label: 'Next Run',
+    admin: { hidden: true },
+  },
+  {
+    name: 'scheduleWidget',
+    type: 'ui',
     admin: {
       position: 'sidebar',
-      readOnly: true,
-      date: {
-        pickerAppearance: 'dayAndTime',
+      components: {
+        Field: '@/components/ScheduleWidget',
       },
-      description: 'When this job will transition to pending. Set automatically from cron.',
-      condition: (data) => data?.status === 'scheduled',
     },
   },
 ]

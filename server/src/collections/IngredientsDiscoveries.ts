@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
-import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -31,7 +31,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
       },
     },
     jobStatusField,
-    ...jobClaimFields,
+    ...jobRetryFields,
     ...jobScheduleFields,
     {
       name: 'pagesPerTick',
@@ -50,6 +50,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
         {
           label: 'Progress',
           fields: [
+            ...jobClaimProgressFields,
             {
               type: 'row',
               fields: [

@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
+import { jobRetryFieldsNoMax, jobClaimProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from './shared/store-fields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
@@ -38,7 +38,7 @@ export const ProductAggregations: CollectionConfig = {
   },
   fields: [
     jobStatusField,
-    ...jobClaimFieldsNoRetries,
+    ...jobRetryFieldsNoMax,
     ...jobScheduleFields,
     {
       name: 'startedAt',
@@ -366,6 +366,7 @@ export const ProductAggregations: CollectionConfig = {
         {
           label: 'Progress',
           fields: [
+            ...jobClaimProgressFields,
             {
               name: 'total',
               type: 'number',

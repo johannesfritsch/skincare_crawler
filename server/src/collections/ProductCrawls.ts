@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
-import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 import { SOURCE_OPTIONS_WITH_ALL } from './shared/store-fields'
@@ -22,7 +22,7 @@ export const ProductCrawls: CollectionConfig = {
   },
   fields: [
     jobStatusField,
-    ...jobClaimFields,
+    ...jobRetryFields,
     ...jobScheduleFields,
     {
       name: 'itemsPerTick',
@@ -209,6 +209,7 @@ export const ProductCrawls: CollectionConfig = {
         {
           label: 'Progress',
           fields: [
+            ...jobClaimProgressFields,
             {
               name: 'total',
               type: 'number',
