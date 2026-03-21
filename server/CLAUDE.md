@@ -1082,6 +1082,60 @@ export default buildConfig({
 })
 ```
 
+## Authentication & Authorization
+
+Two independent auth systems run side-by-side — JWT for admin users, API keys for workers.
+
+### Admin Users (`users` collection)
+
+- **Mechanism**: Payload CMS built-in JWT auth (`auth: true` on the collection)
+- **Login**: `/admin/login` — Payload auto-generates login UI and JWT handling
+- **Token storage**: HTTP-only cookie, auto-attached to all admin UI requests
+- **JWT secret**: `PAYLOAD_SECRET` env var (required)
+- **`req.user`**: Payload populates this on every request from the JWT cookie — all access control and custom endpoints read from it
+
+### Workers (`workers` collection)
+
+- **Mechanism**: Payload API key auth (`auth: { useAPIKey: true, disableLocalStrategy: true }`)
+- **No password login** — `disableLocalStrategy: true` means workers can only auth via API key
+- **API key generation**: Payload auto-generates a key when a worker record is created in the admin UI
+- **Header format**: `Authorization: workers API-Key <key>` (custom scheme — `workers` is the collection slug, not `Bearer`)
+- **`req.user`**: Payload populates this from the API key header, same as JWT — downstream code doesn't need to distinguish between admin and worker auth
+- **Fields**: `name` (identifier), `capabilities[]` (which job types it can process), `status` (active/disabled), `lastSeenAt` (updated by heartbeat)
+
+### Access Control Pattern
+
+All custom endpoints guard with the same check:
+
+```typescript
+if (!req.user) {
+  return Response.json({ error: 'Unauthorized' }, { status: 401 })
+}
+```
+
+This covers both auth methods — `req.user` is set by Payload for JWT cookies (admin) and API key headers (workers) alike. Collection-level access control uses Payload's standard `access` functions (see Access Control section below).
+
+### Endpoint Auth Summary
+
+| Endpoint | Auth | Consumers |
+|----------|------|-----------|
+| `/api/<collection>` (Payload REST) | JWT or API key | Admin UI, workers |
+| `/api/work-items/*` | API key (`req.user`) | Workers only |
+| `/api/embeddings/:namespace/*` | JWT or API key (`req.user`) | Workers (write/search), admin (search) |
+| `/api/dashboard/events` | JWT (`req.user`) | Admin dashboard |
+| `/api/dashboard/snapshot` | JWT (`req.user`) | Admin dashboard |
+
+### Job Claim Locking (`hooks/enforceJobClaim.ts`)
+
+A `beforeChange` hook on all job collections prevents concurrent claims:
+
+1. If no existing `claimedBy` → allow claim
+2. If same worker refreshing its own claim → allow
+3. If different worker, existing claim is fresh (within `X-Job-Timeout-Minutes`, default 30m) → **reject** (throws error)
+4. If different worker, existing claim is stale → allow takeover
+
+Workers pass the timeout via `X-Job-Timeout-Minutes` request header. The hook runs inside Payload's DB transaction for atomicity.
+
 ## Custom Endpoints
 
 ```typescript

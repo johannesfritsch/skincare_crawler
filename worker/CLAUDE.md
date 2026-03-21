@@ -143,6 +143,16 @@ DEEPGRAM_TIMEOUT_MS            Optional: timeout for Deepgram API calls in ms (d
 
 `lib/payload-client.ts` mirrors Payload's local API for use over HTTP. The worker never imports Payload directly.
 
+### Authentication
+
+Workers authenticate via Payload's API key mechanism (not JWT):
+- **Header**: `Authorization: workers API-Key <key>` — sent on every request (GET, POST, PATCH, DELETE, multipart uploads)
+- **Credential source**: `WORKER_API_KEY` env var → passed to `PayloadRestClient` constructor
+- **Identity check**: `GET /api/workers/me` on startup → returns `AuthenticatedWorker` with `id`, `name`, `capabilities[]`
+- **Server-side**: Payload validates the API key and populates `req.user` (same as JWT auth for admin users — downstream code is auth-method-agnostic)
+
+### CRUD Methods
+
 ```typescript
 const client = new PayloadRestClient(serverUrl, apiKey)
 
@@ -155,8 +165,6 @@ client.delete({ collection, where })                   → result
 client.count({ collection, where? })                   → { totalDocs }
 client.me()                                            → AuthenticatedWorker
 ```
-
-All requests use `Authorization: workers API-Key <key>` header.
 
 ## Work Protocol
 
@@ -203,6 +211,65 @@ Jobs fail in three scenarios:
 3. **Permanent error** — handler detects an unrecoverable condition (e.g. no driver for URL) and calls `failJob` immediately.
 
 All job collections have `retryCount`, `maxRetries` (default 3), `failedAt`, and `failureReason` fields via `jobClaimFields`.
+
+### Work Items — Parallel Dispatch (`/api/work-items/`)
+
+A `work_items` database table enables true parallel processing for multi-stage jobs. Multiple workers can process different items of the same job concurrently.
+
+#### Table Schema
+
+```
+work_items (
+  id, job_collection, job_id, item_key, stage_name,
+  status ('pending'|'claimed'|'completed'|'failed'),
+  claimed_by (FK → workers), claimed_at,
+  retry_count, max_retries, completed_at, error, result_data,
+  UNIQUE (job_collection, job_id, item_key, stage_name)
+)
+```
+
+#### REST Client Sub-API (`client.workItems`)
+
+```typescript
+client.workItems.claim({ workerId, allowedCollections?, limit?, timeoutMinutes? })
+  // → { items: Array<{ id, job_collection, job_id, item_key, stage_name, retry_count }> }
+client.workItems.complete({ workItemId, success, error?, resultData?, nextStageName?, counterUpdates? })
+  // → { done: boolean, remaining: number }
+client.workItems.heartbeat([itemIds])
+  // → { updated: number }
+```
+
+#### Claim Mechanics
+
+Uses `SELECT ... FOR UPDATE SKIP LOCKED` for atomic, non-blocking claims:
+
+1. Reclaim stale items (older than `timeoutMinutes`)
+2. Try to claim pending items for this worker
+3. If no pending items → find pending jobs → auto-seed work items → try again
+4. Returns claimed items (or empty array)
+
+#### Stage Advancement
+
+When a work item completes, the server inserts the next stage's work item automatically:
+- `complete({ success: true, nextStageName: 'barcode_scan' })` → inserts a new pending item for the same `item_key` with `stage_name='barcode_scan'`
+- When all items for a job reach terminal state (completed/failed) → job is marked completed/failed
+- `counterUpdates` (e.g. `{ completed: 1, tokensUsed: 150 }`) are applied atomically to the job record
+
+#### Two Processing Modes
+
+| Mode | Job types | How it works |
+|------|-----------|--------------|
+| **Multi-stage** (work_items) | video-processing (8 stages), product-aggregation (10 stages) | 1 work item per (itemKey, stage). True parallelism — multiple workers process different videos/products at different stages. |
+| **Single-stage** (legacy batch) | crawls, discoveries, searches, ingredient-crawl | 1 work item per job (`item_key='job'`). Worker runs old `claimWork() → handle() → submitWork()` loop internally. |
+
+#### Worker-Side Flow (Multi-Stage)
+
+1. `client.workItems.claim()` → get 1 item (e.g. video 123, stage `scene_detection`)
+2. Fetch job config (cached 1 minute)
+3. Run stage executor for that specific item
+4. `client.workItems.complete()` → report result + advance to next stage
+5. `client.workItems.heartbeat()` during long operations to keep claim alive
+6. Loop to step 1 (no sleep between items)
 
 ### persist (`work-protocol/persist.ts`)
 
