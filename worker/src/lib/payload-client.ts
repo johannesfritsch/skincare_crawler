@@ -225,4 +225,50 @@ export class PayloadRestClient {
       }>
     },
   }
+
+  // ─── Work Items API ───
+
+  /** Work items sub-client for parallel job processing */
+  readonly workItems = {
+    /** Seed work items for a job (idempotent) */
+    seed: async (opts: {
+      jobCollection: string
+      jobId: number
+      items: Array<{ itemKey: string; stageName: string }>
+      maxRetries?: number
+    }): Promise<{ seeded: number }> => {
+      return this.request('POST', '/work-items/seed', opts) as Promise<{ seeded: number }>
+    },
+
+    /** Atomically claim pending work items via SELECT ... FOR UPDATE SKIP LOCKED */
+    claim: async (opts: {
+      workerId: number
+      jobCollection?: string
+      jobId?: number
+      allowedCollections?: string[]
+      limit?: number
+      timeoutMinutes?: number
+    }): Promise<{ items: Array<{ id: number; job_collection: string; job_id: number; item_key: string; stage_name: string; retry_count: number }> }> => {
+      return this.request('POST', '/work-items/claim', opts) as Promise<{
+        items: Array<{ id: number; job_collection: string; job_id: number; item_key: string; stage_name: string; retry_count: number }>
+      }>
+    },
+
+    /** Report work item completion (success or failure) */
+    complete: async (opts: {
+      workItemId: number
+      success: boolean
+      error?: string
+      resultData?: Record<string, unknown>
+      nextStageName?: string | null
+      counterUpdates?: Record<string, number>
+    }): Promise<{ done: boolean; remaining: number }> => {
+      return this.request('POST', '/work-items/complete', opts) as Promise<{ done: boolean; remaining: number }>
+    },
+
+    /** Refresh claim timestamps to keep work items alive */
+    heartbeat: async (workItemIds: number[]): Promise<{ updated: number }> => {
+      return this.request('POST', '/work-items/heartbeat', { workItemIds }) as Promise<{ updated: number }>
+    },
+  }
 }

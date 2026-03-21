@@ -351,7 +351,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         await payload.update({
           collection: 'product-crawls',
           id: jobId,
-          data: { crawled, errors, crawlProgress, claimedBy: null, claimedAt: null },
+          data: { crawled, errors, crawlProgress },
         })
       }
     } else {
@@ -359,7 +359,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       await payload.update({
         collection: 'product-crawls',
         id: jobId,
-        data: { crawled, errors, crawlProgress, claimedBy: null, claimedAt: null },
+        data: { crawled, errors, crawlProgress },
       })
       jlog.event('crawl.batch_done', {
         source,
@@ -492,7 +492,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
-      data: { crawled, errors, crawlProgress, claimedBy: null, claimedAt: null },
+      data: { crawled, errors, crawlProgress },
     })
     jlog.event('crawl.batch_done', {
       source,
@@ -627,8 +627,6 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
         discovered,
         productUrls: productUrls.join('\n'),
         progress: { currentUrlIndex, driverProgress },
-        claimedBy: null,
-        claimedAt: null,
         ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
       },
     })
@@ -670,8 +668,6 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
       discovered,
       productUrls: productUrls.join('\n'),
       completedAt: new Date().toISOString(),
-      claimedBy: null,
-      claimedAt: null,
     },
   })
   jlog.event('search.completed', { sources, discovered, durationMs: batchDurationMs })
@@ -752,8 +748,6 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
         currentPage,
         totalPagesForTerm,
         termQueue,
-        claimedBy: null,
-        claimedAt: null,
         ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
       },
     })
@@ -816,8 +810,6 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
         discovered: totalDiscovered,
         videoUrls: existingUrls.join('\n'),
         progress: { currentOffset: nextOffset },
-        claimedBy: null,
-        claimedAt: null,
       },
     })
   }
@@ -974,8 +966,6 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
         errors,
         crawledVideoUrls: updatedCrawledUrls,
         crawlProgress: progress,
-        claimedBy: null,
-        claimedAt: null,
       },
     })
     jlog.event('video_crawl.batch_done', {
@@ -1171,7 +1161,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
     await payload.update({
       collection: 'video-processings',
       id: jobId,
-      data: { completed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment, videoProgress: progress, claimedBy: null, claimedAt: null },
+      data: { completed, errors, tokensUsed, tokensRecognition, tokensTranscriptCorrection, tokensSentiment, videoProgress: progress },
     })
     jlog.event('video_processing.batch_done', { completed, errors, batchSize: results.length, batchDurationMs })
   }
@@ -1350,8 +1340,6 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         tokensUsed,
         products: [...productIds],
         aggregationProgress: progress,
-        claimedBy: null,
-        claimedAt: null,
         ...(aggregationType === 'all' ? { lastCheckedSourceId } : {}),
       },
     })
@@ -1474,8 +1462,6 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
         errors,
         tokensUsed,
         ingredients: [...ingredientIds],
-        claimedBy: null,
-        claimedAt: null,
         ...(crawlType === 'all_uncrawled' ? { lastCheckedIngredientId } : {}),
       },
     })

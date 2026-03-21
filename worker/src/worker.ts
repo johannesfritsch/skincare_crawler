@@ -19,18 +19,17 @@ import path from 'path'
 import os from 'os'
 import { PayloadRestClient } from '@/lib/payload-client'
 import { initLogger, createLogger } from '@/lib/logger'
-import { claimWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
+import { rebuildJobWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
-import { failJob, retryOrFail } from '@/lib/work-protocol/job-failure'
+import { failJob } from '@/lib/work-protocol/job-failure'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
 import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
-import { STAGES, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
+import { STAGES, getEnabledStages, getNextStage, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
 import {
   STAGES as AGGREGATION_STAGES,
-  type StageName as AggregationStageName,
   type StageConfig as AggregationStageConfig,
   type StageContext as AggregationStageContext,
   type AggregationWorkItem,
@@ -607,100 +606,6 @@ async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
   log.info('Submitted video crawl results', { jobId, items: results.length })
 }
 
-async function handleVideoProcessing(work: Record<string, unknown>): Promise<void> {
-  const jobId = work.jobId as number
-  const jlog = log.forJob('video-processings', jobId)
-  const stageItems = work.stageItems as Array<{
-    videoId: number
-    title: string
-    stageName: string
-  }>
-  const enabledStagesArr = work.enabledStages as string[]
-  const enabledStages = new Set(enabledStagesArr) as Set<StageName>
-
-  const stageConfig: StageConfig = {
-    jobId,
-    sceneThreshold: (work.sceneThreshold as number) ?? 0.4,
-    clusterThreshold: (work.clusterThreshold as number) ?? 25,
-    transcriptionLanguage: (work.transcriptionLanguage as string) ?? 'de',
-    transcriptionModel: (work.transcriptionModel as string) ?? 'nova-3',
-    minBoxArea: ((work.minBoxArea as number) ?? 25) / 100,
-    detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
-    detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
-    searchThreshold: (work.searchThreshold as number) ?? 0.3,
-    searchLimit: (work.searchLimit as number) ?? 1,
-  }
-
-  log.info('Video processing job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })
-  jlog.event('video_processing.started', { videos: stageItems.length, stages: enabledStagesArr.join(',') })
-
-  const results: Array<Record<string, unknown>> = []
-
-  for (const item of stageItems) {
-    const itemLabel = item.title ? `"${item.title}"` : `video #${item.videoId}`
-    log.banner(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, { videoId: item.videoId })
-    jlog.event('stage.started', { pipeline: 'video-processing', stage: item.stageName, item: item.title || String(item.videoId) })
-
-    // Find the stage definition
-    const stageDef = STAGES.find((s) => s.name === item.stageName)
-    if (!stageDef) {
-      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, false, { error: 'unknown stage' })
-      results.push({ videoId: item.videoId, stageName: item.stageName, success: false, error: `Unknown stage: ${item.stageName}` })
-      continue
-    }
-
-    const stageCtx: StageContext = {
-      payload: client,
-      config: stageConfig,
-      log,
-      uploadMedia,
-      heartbeat: () => heartbeat(jobId, 'video-processing'),
-    }
-
-    const stageStartMs = Date.now()
-    try {
-      const stageResult = await stageDef.execute(stageCtx, item.videoId)
-      const durationMs = Date.now() - stageStartMs
-      const tokens = stageResult.tokens?.total ?? 0
-      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
-
-      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, stageResult.success, { duration: durationStr, tokens })
-      jlog.event('stage.completed', { pipeline: 'video-processing', stage: item.stageName, item: item.title || String(item.videoId), durationMs, tokens })
-
-      results.push({
-        videoId: item.videoId,
-        stageName: item.stageName,
-        success: stageResult.success,
-        error: stageResult.error,
-        tokensUsed: tokens,
-        tokensRecognition: stageResult.tokens?.recognition ?? 0,
-        tokensTranscriptCorrection: stageResult.tokens?.transcriptCorrection ?? 0,
-        tokensSentiment: stageResult.tokens?.sentiment ?? 0,
-      })
-    } catch (error) {
-      const durationMs = Date.now() - stageStartMs
-      const msg = error instanceof Error ? error.message : String(error)
-      const durationStr = `${(durationMs / 1000).toFixed(1)}s`
-
-      log.bannerEnd(`STAGE: ${item.stageName} \u2014 ${itemLabel}`, false, { duration: durationStr, error: msg.slice(0, 80) })
-      jlog.event('stage.failed', { pipeline: 'video-processing', stage: item.stageName, item: item.title || String(item.videoId), durationMs, error: msg })
-
-      results.push({
-        videoId: item.videoId,
-        stageName: item.stageName,
-        success: false,
-        error: msg,
-        tokensUsed: 0,
-        tokensRecognition: 0,
-        tokensTranscriptCorrection: 0,
-        tokensSentiment: 0,
-      })
-    }
-  }
-
-  await submitWork(client, worker, { type: 'video-processing', jobId, results, enabledStages: enabledStagesArr } as Parameters<typeof submitWork>[2])
-  log.info('Submitted video processing results', { jobId })
-}
 
 async function handleProductAggregation(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
@@ -1037,6 +942,149 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
   log.info('Submitted ingredient crawl results', { jobId, items: results.length })
 }
 
+
+
+/**
+ * Process a single claimed work item — dispatch to the right stage executor.
+ */
+async function processWorkItem(
+  jobType: JobType,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string; retry_count: number },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const jobId = work.id as number
+
+  if (jobType === 'video-processing' && item.stage_name !== 'execute') {
+    // ── Multi-stage: run one stage for one video ──
+    await processVideoStage(jobId, work, item, jlog)
+  } else {
+    // ── "Execute" stage: run the entire job using the existing batch loop ──
+    // The old build→handle→submit cycle runs inside this work item.
+    // submitWork() updates progress; buildXxxWork() finds more batches.
+    // When no more work → loop exits → work item completed.
+    let batchWork = await rebuildJobWork(client, jobType, jobId)
+    while (batchWork.type !== 'none') {
+      switch (jobType) {
+        case 'product-crawl': await handleProductCrawl(batchWork); break
+        case 'product-discovery': await handleProductDiscovery(batchWork); break
+        case 'product-search': await handleProductSearch(batchWork); break
+        case 'ingredients-discovery': await handleIngredientsDiscovery(batchWork); break
+        case 'video-discovery': await handleVideoDiscovery(batchWork); break
+        case 'video-crawl': await handleVideoCrawl(batchWork); break
+        case 'product-aggregation': await handleProductAggregation(batchWork); break
+        case 'ingredient-crawl': await handleIngredientCrawl(batchWork); break
+        default: batchWork = { type: 'none' }; continue
+      }
+      await heartbeat(jobId, jobType)
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+      batchWork = await rebuildJobWork(client, jobType, jobId)
+    }
+
+    // Job is done — mark work item complete
+    await client.workItems.complete({ workItemId: item.id, success: true })
+  }
+}
+
+/**
+ * Process a single video-processing stage (multi-stage pipeline).
+ */
+async function processVideoStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const videoId = parseInt(item.item_key, 10)
+  const stageName = item.stage_name as StageName
+
+  const enabledStages = getEnabledStages(work) as Set<StageName>
+
+  const stageDef = STAGES.find((s) => s.name === stageName)
+  if (!stageDef) {
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error: `Unknown stage: ${stageName}`,
+    })
+    return
+  }
+
+  const stageConfig: StageConfig = {
+    jobId,
+    sceneThreshold: (work.sceneThreshold as number) ?? 0.4,
+    clusterThreshold: (work.clusterThreshold as number) ?? 25,
+    transcriptionLanguage: (work.transcriptionLanguage as string) ?? 'de',
+    transcriptionModel: (work.transcriptionModel as string) ?? 'nova-3',
+    minBoxArea: ((work.minBoxArea as number) ?? 25) / 100,
+    detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
+    detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
+    searchThreshold: (work.searchThreshold as number) ?? 0.3,
+    searchLimit: (work.searchLimit as number) ?? 1,
+  }
+
+  const stageCtx: StageContext = {
+    payload: client,
+    config: stageConfig,
+    log,
+    uploadMedia,
+    heartbeat: async () => {
+      await heartbeat(jobId, 'video-processing')
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+    },
+  }
+
+  const itemLabel = `video #${videoId}`
+  log.banner(`STAGE: ${stageName} — ${itemLabel}`, { videoId })
+  jlog.event('stage.started', { pipeline: 'video-processing', stage: stageName, item: String(videoId) })
+
+  const stageStartMs = Date.now()
+  let success = false
+  let error: string | undefined
+  let tokens = 0
+  let tokensRecognition = 0
+  let tokensTranscriptCorrection = 0
+  let tokensSentiment = 0
+
+  try {
+    const result = await stageDef.execute(stageCtx, videoId)
+    success = result.success
+    error = result.error
+    tokens = result.tokens?.total ?? 0
+    tokensRecognition = result.tokens?.recognition ?? 0
+    tokensTranscriptCorrection = result.tokens?.transcriptCorrection ?? 0
+    tokensSentiment = result.tokens?.sentiment ?? 0
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`STAGE: ${stageName} — ${itemLabel}`, success, { duration: `${(durationMs / 1000).toFixed(1)}s`, tokens })
+    jlog.event('stage.completed', { pipeline: 'video-processing', stage: stageName, item: String(videoId), durationMs, tokens })
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`STAGE: ${stageName} — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'video-processing', stage: stageName, item: String(videoId), durationMs, error })
+  }
+
+  // Determine next stage (only on success)
+  const nextStage = success ? getNextStage(stageName, enabledStages) : null
+
+  // Report completion — server handles retry logic, stage advancement, and job completion
+  await client.workItems.complete({
+    workItemId: item.id,
+    success,
+    error,
+    resultData: { tokensUsed: tokens },
+    nextStageName: nextStage?.name ?? null,
+    counterUpdates: {
+      ...(success ? { completed: 1 } : { errors: 1 }),
+      tokensUsed: tokens,
+      tokensRecognition,
+      tokensTranscriptCorrection,
+      tokensSentiment,
+    },
+  })
+}
+
 // ─── Event Purge ───
 
 let lastPurgeAt = 0
@@ -1124,71 +1172,67 @@ async function main(): Promise<void> {
   // Update lastSeenAt on startup
   await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } })
 
-  while (true) {
-    let currentJobType: string | undefined
-    let currentJobId: unknown | undefined
-    try {
-      // Update worker lastSeenAt each loop iteration
-      await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } }).catch(() => {})
+  // Pre-compute which collections this worker handles (avoids re-computing every loop)
+  const workerAllowedCollections = worker.capabilities
+    .filter((cap) => cap in JOB_TYPE_TO_COLLECTION)
+    .map((cap) => JOB_TYPE_TO_COLLECTION[cap as JobType])
 
-      // Periodic maintenance: purge old events (runs at most once per hour, requires event-purge capability)
+  // Cache job configs so we don't re-fetch on every work item
+  const jobConfigCache = new Map<string, { config: Record<string, unknown>; fetchedAt: number }>()
+  const JOB_CONFIG_TTL = 60_000 // 1 minute
+
+  async function getJobConfig(collection: string, jobId: number): Promise<Record<string, unknown>> {
+    const key = `${collection}:${jobId}`
+    const cached = jobConfigCache.get(key)
+    if (cached && Date.now() - cached.fetchedAt < JOB_CONFIG_TTL) return cached.config
+    const config = await client.findByID({ collection, id: jobId }) as Record<string, unknown>
+    jobConfigCache.set(key, { config, fetchedAt: Date.now() })
+    return config
+  }
+
+  while (true) {
+    try {
+      // Periodic maintenance (lastSeenAt is updated server-side in the /claim endpoint)
       await purgeOldEvents(worker)
 
-      const work = await claimWork(client, worker, JOB_TIMEOUT_MINUTES)
+      // ── Step 1: Try to claim a work item ──
+      // The server auto-seeds pending jobs transparently during the claim call.
+      // allowedCollections filters to only job types this worker can handle.
+      const claimed = await client.workItems.claim({
+        workerId: worker.id,
+        allowedCollections: workerAllowedCollections,
+        limit: 1,
+        timeoutMinutes: JOB_TIMEOUT_MINUTES,
+      })
 
-      if (work.type === 'none') {
-        log.debug('No work, sleeping', { sleepS: DEFAULT_POLL_INTERVAL / 1000 })
-        await sleep(DEFAULT_POLL_INTERVAL)
-        continue
+      if (claimed.items.length > 0) {
+        const item = claimed.items[0]
+        const jobCollection = item.job_collection
+        const jobId = item.job_id
+
+        // Fetch job config (cached)
+        const jobConfig = await getJobConfig(jobCollection, jobId)
+        const jlog = log.forJob(jobCollection as import('@anyskin/shared').JobCollection, jobId)
+
+        // Determine job type from collection slug
+        const jobType = Object.entries(JOB_TYPE_TO_COLLECTION).find(([, col]) => col === jobCollection)?.[0] as JobType | undefined
+
+        if (jobType) {
+          await processWorkItem(jobType, jobConfig, item, jlog)
+        } else {
+          log.warn('Unknown job collection for work item', { jobCollection, jobId })
+          await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown job collection: ${jobCollection}` })
+        }
+
+        continue // immediately try to claim more work
       }
 
-      currentJobType = work.type as string
-      currentJobId = work.jobId
-      log.info('Dispatching job', { jobType: work.type as string, jobId: work.jobId as number })
-
-      switch (work.type) {
-        case 'product-crawl':
-          await handleProductCrawl(work)
-          break
-        case 'product-discovery':
-          await handleProductDiscovery(work)
-          break
-        case 'product-search':
-          await handleProductSearch(work)
-          break
-        case 'ingredients-discovery':
-          await handleIngredientsDiscovery(work)
-          break
-        case 'video-discovery':
-          await handleVideoDiscovery(work)
-          break
-        case 'video-crawl':
-          await handleVideoCrawl(work)
-          break
-        case 'video-processing':
-          await handleVideoProcessing(work)
-          break
-        case 'product-aggregation':
-          await handleProductAggregation(work)
-          break
-        case 'ingredient-crawl':
-          await handleIngredientCrawl(work)
-          break
-        default:
-          log.warn('Unknown job type', { jobType: work.type as string })
-      }
+      // ── Step 2: Nothing to do — sleep ──
+      log.debug('No work, sleeping', { sleepS: DEFAULT_POLL_INTERVAL / 1000 })
+      await sleep(DEFAULT_POLL_INTERVAL)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      log.error('Error in main loop', { jobType: currentJobType ?? null, jobId: (currentJobId as number) ?? null, error: msg })
-
-      // If we know which job failed, increment its retry count (or fail it)
-      if (currentJobType && currentJobId) {
-        const collection = JOB_TYPE_TO_COLLECTION[currentJobType as JobType]
-        if (collection) {
-          await retryOrFail(client, collection, currentJobId as number, msg)
-        }
-      }
-
+      log.error('Error in main loop', { error: msg })
       await sleep(DEFAULT_POLL_INTERVAL)
     }
   }

@@ -45,6 +45,7 @@ import { Workers } from './collections/Workers'
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
 import { embeddingsWriteHandler, embeddingsSearchHandler, embeddingsDeleteHandler } from './endpoints/embeddings'
+import { workItemsSeedHandler, workItemsClaimHandler, workItemsCompleteHandler, workItemsHeartbeatHandler } from './endpoints/work-items'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -264,6 +265,26 @@ export default buildConfig({
       path: '/embeddings/:namespace/delete',
       method: 'post',
       handler: embeddingsDeleteHandler,
+    },
+    {
+      path: '/work-items/seed',
+      method: 'post',
+      handler: workItemsSeedHandler,
+    },
+    {
+      path: '/work-items/claim',
+      method: 'post',
+      handler: workItemsClaimHandler,
+    },
+    {
+      path: '/work-items/complete',
+      method: 'post',
+      handler: workItemsCompleteHandler,
+    },
+    {
+      path: '/work-items/heartbeat',
+      method: 'post',
+      handler: workItemsHeartbeatHandler,
     },
   ],
   editor: lexicalEditor(),

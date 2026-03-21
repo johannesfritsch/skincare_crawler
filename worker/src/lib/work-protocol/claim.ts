@@ -71,10 +71,41 @@ const JOB_TYPE_TO_CAPABILITY = {
 
 const log = createLogger('Claim')
 
+/**
+ * Re-build work for an already-claimed job. Used by the main loop to
+ * continue processing the same job without releasing and re-claiming.
+ * Returns { type: 'none' } when the job has no more work (already completed).
+ */
+export async function rebuildJobWork(
+  payload: PayloadRestClient,
+  jobType: JobType,
+  jobId: number,
+): Promise<Record<string, unknown>> {
+  const collection = JOB_TYPE_TO_COLLECTION[jobType]
+  const job = await payload.findByID({ collection, id: jobId }) as Record<string, unknown>
+  if (job.status === 'completed' || job.status === 'failed') {
+    return { type: 'none' }
+  }
+
+  switch (jobType) {
+    case 'product-crawl': return buildProductCrawlWork(payload, jobId)
+    case 'product-discovery': return buildProductDiscoveryWork(payload, jobId)
+    case 'product-search': return buildProductSearchWork(payload, jobId)
+    case 'ingredients-discovery': return buildIngredientsDiscoveryWork(payload, jobId)
+    case 'video-discovery': return buildVideoDiscoveryWork(payload, jobId)
+    case 'video-crawl': return buildVideoCrawlWork(payload, jobId)
+    case 'video-processing': return buildVideoProcessingWork(payload, jobId)
+    case 'product-aggregation': return buildProductAggregationWork(payload, jobId)
+    case 'ingredient-crawl': return buildIngredientCrawlWork(payload, jobId)
+    default: return { type: 'none' }
+  }
+}
+
 export async function claimWork(
   payload: PayloadRestClient,
   worker: AuthenticatedWorker,
   jobTimeoutMinutes = 30,
+  excludeTypes?: Set<string>,
 ): Promise<Record<string, unknown>> {
   log.debug('Claim: searching for work', { worker: worker.name, capabilities: worker.capabilities.join(', '), timeoutMinutes: jobTimeoutMinutes })
 
@@ -86,6 +117,7 @@ export async function claimWork(
   const queries: Promise<void>[] = []
 
   for (const [jobType, collection] of Object.entries(JOB_TYPE_TO_COLLECTION)) {
+    if (excludeTypes?.has(jobType)) continue
     const capability = JOB_TYPE_TO_CAPABILITY[jobType as JobType]
     if (!worker.capabilities.includes(capability)) continue
 
