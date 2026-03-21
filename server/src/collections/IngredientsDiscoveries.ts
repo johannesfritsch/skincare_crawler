@@ -1,6 +1,8 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
+import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
 export const IngredientsDiscoveries: CollectionConfig = {
   slug: 'ingredients-discoveries',
@@ -14,7 +16,8 @@ export const IngredientsDiscoveries: CollectionConfig = {
     group: 'Ingredients',
   },
   hooks: {
-    beforeChange: [enforceJobClaim],
+    beforeChange: [enforceJobClaim, computeScheduledFor],
+    afterChange: [rescheduleOnComplete],
   },
   fields: [
     // Main configuration - always visible
@@ -27,23 +30,9 @@ export const IngredientsDiscoveries: CollectionConfig = {
         description: 'URL that determines which driver to use (e.g., "https://ec.europa.eu/growth/tools-databases/cosing/")',
       },
     },
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'pending',
-      options: [
-        { label: 'Pending', value: 'pending' },
-        { label: 'In Progress', value: 'in_progress' },
-        { label: 'Completed', value: 'completed' },
-        { label: 'Failed', value: 'failed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    jobStatusField,
     ...jobClaimFields,
+    ...jobScheduleFields,
     {
       name: 'pagesPerTick',
       type: 'number',

@@ -42,6 +42,7 @@ export function createResetJobOnPending(
     // Always reset timing fields
     data.startedAt = null
     data.completedAt = null
+    data.scheduledFor = null
 
     return data
   }

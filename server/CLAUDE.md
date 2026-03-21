@@ -77,7 +77,9 @@ src/
 ├── hooks/
 │   ├── enforceJobClaim.ts       # beforeChange hook: distributed job locking via claimedBy/claimedAt
 │   ├── resetJobOnPending.ts     # beforeChange hook factory: resets progress/counters when status → pending
-│   └── jobClaimFields.ts        # Shared claimedBy + claimedAt field definitions for job collections
+│   ├── jobClaimFields.ts        # Shared claimedBy + claimedAt field definitions for job collections
+│   ├── jobScheduleFields.ts     # Shared status field (5 options), schedule + scheduledFor fields, exclude-list for reschedule
+│   └── rescheduleOnComplete.ts  # afterChange hook factory: creates next scheduled job when recurring job completes
 ├── access/                      # Access control functions
 └── payload.config.ts            # Main config
 ```
@@ -1135,6 +1137,32 @@ A `beforeChange` hook on all job collections prevents concurrent claims:
 4. If different worker, existing claim is stale → allow takeover
 
 Workers pass the timeout via `X-Job-Timeout-Minutes` request header. The hook runs inside Payload's DB transaction for atomicity.
+
+### Job Scheduling
+
+All 9 job collections support deferred and recurring execution via shared scheduling infrastructure.
+
+**Shared fields** (`hooks/jobScheduleFields.ts`):
+- `jobStatusField` — select with 5 options: pending, scheduled, in_progress, completed, failed. Replaces the inline status field in each collection.
+- `jobScheduleFields` — two sidebar fields: `schedule` (cron expression with `CronExpressionField` component) and `scheduledFor` (read-only date, visible only when status=scheduled).
+- `RESCHEDULE_EXCLUDE_FIELDS` — field names never copied when rescheduling (id, status, claim fields, timing fields).
+
+**Reschedule hook** (`hooks/rescheduleOnComplete.ts`):
+- `rescheduleOnComplete: CollectionAfterChangeHook` — a plain hook, not a factory
+- Triggers on status transition to `completed` when `schedule` is set
+- Reuses the same job: sets `status: 'scheduled'` + `scheduledFor` from next cron run
+- No progress reset needed — the activation endpoint transitions to `pending`, and the worker's `build*Work()` re-initializes counters when claiming a pending job
+- Job cycles: `scheduled → pending → in_progress → completed → scheduled → ...`
+- Uses `context.skipReschedule` to prevent infinite loops
+- Emits `job.rescheduled` event
+
+**Activation endpoint** (`endpoints/activate-scheduled.ts`):
+- `POST /api/jobs/activate-scheduled` — transitions all `scheduled` jobs whose `scheduledFor ≤ now()` to `pending`
+- Runs raw SQL UPDATE on all 9 job tables for efficiency
+- Called by workers each poll cycle
+
+**Cron editor** (`components/CronExpressionField.tsx`):
+- Custom `TextFieldClientComponent` with preset buttons, human-readable description, next-3-runs preview, and validation via `croner`
 
 ## Custom Endpoints
 

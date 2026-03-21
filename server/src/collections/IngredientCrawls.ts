@@ -1,6 +1,8 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
+import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
 export const IngredientCrawls: CollectionConfig = {
   slug: 'ingredient-crawls',
@@ -14,26 +16,13 @@ export const IngredientCrawls: CollectionConfig = {
     group: 'Ingredients',
   },
   hooks: {
-    beforeChange: [enforceJobClaim],
+    beforeChange: [enforceJobClaim, computeScheduledFor],
+    afterChange: [rescheduleOnComplete],
   },
   fields: [
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'pending',
-      options: [
-        { label: 'Pending', value: 'pending' },
-        { label: 'In Progress', value: 'in_progress' },
-        { label: 'Completed', value: 'completed' },
-        { label: 'Failed', value: 'failed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    jobStatusField,
     ...jobClaimFields,
+    ...jobScheduleFields,
     {
       name: 'itemsPerTick',
       type: 'number',

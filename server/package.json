@@ -27,6 +27,7 @@
     "@tailwindcss/postcss": "^4.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "croner": "^10.0.1",
     "cross-env": "^7.0.3",
     "dotenv": "16.4.7",
     "graphql": "^16.8.1",

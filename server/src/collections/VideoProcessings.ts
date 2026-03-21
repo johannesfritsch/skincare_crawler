@@ -2,6 +2,8 @@ import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
+import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
+import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
 export const VideoProcessings: CollectionConfig = {
   slug: 'video-processings',
@@ -17,6 +19,7 @@ export const VideoProcessings: CollectionConfig = {
   hooks: {
     beforeChange: [
       enforceJobClaim,
+      computeScheduledFor,
       createResetJobOnPending({
         total: null,
         completed: 0,
@@ -28,25 +31,14 @@ export const VideoProcessings: CollectionConfig = {
         videoProgress: null,
       }),
     ],
+    afterChange: [
+      rescheduleOnComplete,
+    ],
   },
   fields: [
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'pending',
-      options: [
-        { label: 'Pending', value: 'pending' },
-        { label: 'In Progress', value: 'in_progress' },
-        { label: 'Completed', value: 'completed' },
-        { label: 'Failed', value: 'failed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    jobStatusField,
     ...jobClaimFieldsNoRetries,
+    ...jobScheduleFields,
     {
       name: 'startedAt',
       type: 'date',

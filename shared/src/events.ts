@@ -90,6 +90,7 @@ export interface EventRegistry {
   'job.failed': { reason: string }
   'job.failed_max_retries': { retryCount: number; maxRetries: number; reason: string }
   'job.retrying': { retryCount: number; maxRetries: number; reason: string }
+  'job.rescheduled': { collection: JobCollection; schedule: string; nextScheduledFor: string }
 
   // ─── Product Crawl ─────────────────────────────────────────────────────
   // worker.ts: handler start
@@ -650,6 +651,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'warning',
     level: 'warn',
     labels: ['job-retry'],
+  },
+  'job.rescheduled': {
+    type: 'info',
+    level: 'info',
+    labels: ['scheduling'],
   },
 
   // Crawl

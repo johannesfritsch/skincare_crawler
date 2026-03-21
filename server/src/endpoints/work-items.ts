@@ -2,6 +2,22 @@ import type { Payload, PayloadHandler } from 'payload'
 import { sql } from 'drizzle-orm'
 
 // ---------------------------------------------------------------------------
+// Job tables for scheduled activation
+// ---------------------------------------------------------------------------
+
+const JOB_TABLES = [
+  'product_crawls',
+  'product_discoveries',
+  'product_searches',
+  'ingredients_discoveries',
+  'product_aggregations',
+  'video_crawls',
+  'video_discoveries',
+  'video_processings',
+  'ingredient_crawls',
+] as const
+
+// ---------------------------------------------------------------------------
 // Stage Pipeline Definitions (server-side mirror of worker stage registries)
 // ---------------------------------------------------------------------------
 
@@ -304,7 +320,18 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
     UPDATE "workers" SET "last_seen_at" = now() WHERE "id" = ${workerId}
   `)
 
-  // 1. Reclaim stale items (worker crashed mid-processing)
+  // 1. Activate scheduled jobs whose scheduledFor has passed → pending
+  for (const table of JOB_TABLES) {
+    await db.execute(sql`
+      UPDATE "${sql.raw(table)}"
+      SET "status" = 'pending', "scheduled_for" = NULL
+      WHERE "status" = 'scheduled'
+        AND "scheduled_for" IS NOT NULL
+        AND "scheduled_for" <= now()
+    `)
+  }
+
+  // 2. Reclaim stale items (worker crashed mid-processing)
   await db.execute(sql`
     UPDATE "work_items" SET
       "status" = 'pending',
@@ -314,7 +341,7 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
       AND "claimed_at" < now() - interval '1 minute' * ${timeoutMinutes}
   `)
 
-  // 2. Try to claim pending items
+  // 3. Try to claim pending items
   const filter = { allowedCollections }
   let items = await claimItems(db, workerId, limit, filter)
 
@@ -322,7 +349,7 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
     return Response.json({ items })
   }
 
-  // 3. No pending items — check for pending jobs to auto-seed
+  // 4. No pending items — check for pending jobs to auto-seed
   const collectionsToCheck = allowedCollections ?? Object.keys(JOB_PIPELINES)
   const parallelCollections = collectionsToCheck.filter(c => JOB_PIPELINES[c])
 

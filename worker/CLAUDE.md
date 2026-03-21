@@ -109,18 +109,21 @@ worker/src/
                          Requires 'event-purge' capability (skipped silently if not assigned)
                          Runs at most once per hour (tracked via lastPurgeAt timestamp)
                          Emits worker.events_purged event on success
-3. claimWork(client)     Query all job collections for pending + stale in_progress
+3. activateScheduledJobs POST /api/jobs/activate-scheduled
+                         Transitions scheduled jobs whose scheduledFor ≤ now() to pending
+                         Non-blocking — errors are logged as warnings, claim continues
+4. claimWork(client)     Query all job collections for pending + stale in_progress
                          Prioritize "selected target" jobs, else random
                          Attempt to claim via PATCH (claimedBy + claimedAt)
                          Server-side hook rejects if already claimed by another worker
                          On rejection, try next candidate
                          Build work unit with all data needed by handler
-4. Run handler           handleProductCrawl / handleProductDiscovery / etc.
-5. heartbeat()           Refreshes claimedAt + lastSeenAt during long operations
-6. submitWork(client)    Persist results → update job status/progress
+5. Run handler           handleProductCrawl / handleProductDiscovery / etc.
+6. heartbeat()           Refreshes claimedAt + lastSeenAt during long operations
+7. submitWork(client)    Persist results → update job status/progress
                          If 100% errors in batch → retryOrFail (increment retryCount, fail if > maxRetries)
-7. On handler throw      Main loop catches → retryOrFail (increment retryCount, fail if > maxRetries)
-8. Sleep (POLL_INTERVAL) Repeat from step 2
+8. On handler throw      Main loop catches → retryOrFail (increment retryCount, fail if > maxRetries)
+9. Sleep (POLL_INTERVAL) Repeat from step 2
 ```
 
 ### Env vars
@@ -164,6 +167,7 @@ client.update({ collection, where, data })             → document  // bulk by 
 client.delete({ collection, where })                   → result
 client.count({ collection, where? })                   → { totalDocs }
 client.me()                                            → AuthenticatedWorker
+client.activateScheduledJobs()                         → { activated: number }  // POST /api/jobs/activate-scheduled
 ```
 
 ## Work Protocol

@@ -1,6 +1,8 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
+import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
 export const VideoDiscoveries: CollectionConfig = {
   slug: 'video-discoveries',
@@ -14,7 +16,8 @@ export const VideoDiscoveries: CollectionConfig = {
     group: 'Videos',
   },
   hooks: {
-    beforeChange: [enforceJobClaim],
+    beforeChange: [enforceJobClaim, computeScheduledFor],
+    afterChange: [rescheduleOnComplete],
   },
   fields: [
     {
@@ -26,23 +29,9 @@ export const VideoDiscoveries: CollectionConfig = {
         description: 'The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)',
       },
     },
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'pending',
-      options: [
-        { label: 'Pending', value: 'pending' },
-        { label: 'In Progress', value: 'in_progress' },
-        { label: 'Completed', value: 'completed' },
-        { label: 'Failed', value: 'failed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    jobStatusField,
     ...jobClaimFields,
+    ...jobScheduleFields,
     {
       name: 'itemsPerTick',
       type: 'number',

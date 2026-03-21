@@ -41,6 +41,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      croner:
+        specifier: ^10.0.1
+        version: 10.0.1
       cross-env:
         specifier: ^7.0.3
         version: 7.0.3
@@ -3636,6 +3639,10 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  croner@10.0.1:
+    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+    engines: {node: '>=18.0'}
 
   croner@9.1.0:
     resolution: {integrity: sha512-p9nwwR4qyT5W996vBZhdvBCnMhicY5ytZkR4D1Xj0wuTDEiMnjwR57Q3RXYY/s0EpX6Ay3vgIcfaR+ewGHsi+g==}
@@ -10868,6 +10875,8 @@ snapshots:
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.7.3
+
+  croner@10.0.1: {}
 
   croner@9.1.0: {}
 

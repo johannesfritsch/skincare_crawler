@@ -3,6 +3,7 @@ import { default as default_19a6c1d126a2f1dc4983122e34ed1356 } from '@/component
 import { default as default_823476cd455fab828471f47659d98f1e } from '@/components/bulk-actions/IngredientBulkActions'
 import { default as default_a2774915ad155920b0772c0286b493fc } from '@/components/bulk-actions/IngredientBulkStatus'
 import { default as default_c8b6462ae63ad1445d9415e5a3924d06 } from '@/components/IngredientSaveButton'
+import { default as default_0f1064b04ceb63cc8c2584a8d7cc4bf9 } from '@/components/CronExpressionField'
 import { default as default_9a7df22e3082faf90a1e72c493ebdb46 } from '../../../components/ProductImageCell'
 import { default as default_333e9ee345ae96dbf69c8da737b77da2 } from '../../../components/ProductStoresCell'
 import { default as default_1f4dba48f2aca046e64b7054820da12b } from '@/components/ProductJobStatus'
@@ -61,6 +62,7 @@ export const importMap = {
   "@/components/bulk-actions/IngredientBulkActions#default": default_823476cd455fab828471f47659d98f1e,
   "@/components/bulk-actions/IngredientBulkStatus#default": default_a2774915ad155920b0772c0286b493fc,
   "@/components/IngredientSaveButton#default": default_c8b6462ae63ad1445d9415e5a3924d06,
+  "@/components/CronExpressionField#default": default_0f1064b04ceb63cc8c2584a8d7cc4bf9,
   "/components/ProductImageCell#default": default_9a7df22e3082faf90a1e72c493ebdb46,
   "/components/ProductStoresCell#default": default_333e9ee345ae96dbf69c8da737b77da2,
   "@/components/ProductJobStatus#default": default_1f4dba48f2aca046e64b7054820da12b,

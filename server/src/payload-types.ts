@@ -551,7 +551,7 @@ export interface IngredientsDiscovery {
    * URL that determines which driver to use (e.g., "https://ec.europa.eu/growth/tools-databases/cosing/")
    */
   sourceUrl: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -568,6 +568,22 @@ export interface IngredientsDiscovery {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * Max pages per batch (default: 10).
    */
@@ -706,7 +722,7 @@ export interface Event {
  */
 export interface ProductDiscovery {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -723,6 +739,22 @@ export interface ProductDiscovery {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * Max pages per batch. Empty = unlimited.
    */
@@ -772,7 +804,7 @@ export interface ProductDiscovery {
  */
 export interface ProductSearch {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -789,6 +821,22 @@ export interface ProductSearch {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * Maximum products to import per source. Default: 50.
    */
@@ -830,7 +878,7 @@ export interface ProductSearch {
  */
 export interface ProductCrawl {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -847,6 +895,22 @@ export interface ProductCrawl {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * Products to crawl per batch.
    */
@@ -934,7 +998,7 @@ export interface ProductCrawl {
  */
 export interface ProductAggregation {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -947,6 +1011,22 @@ export interface ProductAggregation {
    * Number of times this job has been retried after failures
    */
   retryCount?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   type: 'all' | 'selected_gtins';
@@ -1922,7 +2002,7 @@ export interface VideoDiscovery {
    * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
    */
   channelUrl: string;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -1939,6 +2019,22 @@ export interface VideoDiscovery {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * Videos fetched per claim cycle. Default: 50. Empty = 50.
    */
@@ -1980,7 +2076,7 @@ export interface VideoDiscovery {
  */
 export interface VideoCrawl {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -1993,6 +2089,22 @@ export interface VideoCrawl {
    * Number of times this job has been retried after failures
    */
   retryCount?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * "All Uncrawled" finds videos with status=discovered. "From Discovery" uses URLs accumulated by a discovery job.
    */
@@ -2070,7 +2182,7 @@ export interface VideoCrawl {
  */
 export interface VideoProcessing {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -2083,6 +2195,22 @@ export interface VideoProcessing {
    * Number of times this job has been retried after failures
    */
   retryCount?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   type: 'all_unprocessed' | 'single_video' | 'selected_urls' | 'from_crawl';
@@ -2228,7 +2356,7 @@ export interface VideoProcessing {
  */
 export interface IngredientCrawl {
   id: number;
-  status?: ('pending' | 'in_progress' | 'completed' | 'failed') | null;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * When the current worker claimed this job
    */
@@ -2245,6 +2373,22 @@ export interface IngredientCrawl {
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
+  /**
+   * Cron expression in UTC (e.g. 0 6 * * * = daily at 06:00 UTC). Leave empty for one-time jobs.
+   */
+  schedule?: string | null;
+  /**
+   * Maximum number of runs. 0 = unlimited.
+   */
+  scheduleLimit?: number | null;
+  /**
+   * How many times this job has completed.
+   */
+  scheduleCount?: number | null;
+  /**
+   * When this job will transition to pending. Set automatically from cron.
+   */
+  scheduledFor?: string | null;
   /**
    * Ingredients to process per batch.
    */
@@ -2831,6 +2975,10 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   pagesPerTick?: T;
   discovered?: T;
   created?: T;
@@ -2856,6 +3004,10 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   itemsPerTick?: T;
   type?: T;
   ingredientIds?: T;
@@ -3091,6 +3243,10 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   itemsPerTick?: T;
   delay?: T;
   debug?: T;
@@ -3114,6 +3270,10 @@ export interface ProductSearchesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   maxResults?: T;
   debug?: T;
   productUrls?: T;
@@ -3137,6 +3297,10 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   itemsPerTick?: T;
   crawlVariants?: T;
   debug?: T;
@@ -3170,6 +3334,10 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   startedAt?: T;
   completedAt?: T;
   type?: T;
@@ -3424,6 +3592,10 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   claimedBy?: T;
   retryCount?: T;
   maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   itemsPerTick?: T;
   maxVideos?: T;
   videoUrls?: T;
@@ -3444,6 +3616,10 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   type?: T;
   scope?: T;
   urls?: T;
@@ -3473,6 +3649,10 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   retryCount?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
   startedAt?: T;
   completedAt?: T;
   type?: T;

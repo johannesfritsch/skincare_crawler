@@ -1,6 +1,8 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { jobClaimFields } from '@/hooks/jobClaimFields'
+import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
+import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 import { SOURCE_OPTIONS, ALL_SOURCE_SLUGS } from './shared/store-fields'
 
 export const ProductSearches: CollectionConfig = {
@@ -15,26 +17,13 @@ export const ProductSearches: CollectionConfig = {
     group: 'Source Products',
   },
   hooks: {
-    beforeChange: [enforceJobClaim],
+    beforeChange: [enforceJobClaim, computeScheduledFor],
+    afterChange: [rescheduleOnComplete],
   },
   fields: [
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'pending',
-      options: [
-        { label: 'Pending', value: 'pending' },
-        { label: 'In Progress', value: 'in_progress' },
-        { label: 'Completed', value: 'completed' },
-        { label: 'Failed', value: 'failed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    jobStatusField,
     ...jobClaimFields,
+    ...jobScheduleFields,
     {
       name: 'maxResults',
       type: 'number',

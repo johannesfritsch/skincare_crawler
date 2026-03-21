@@ -3,6 +3,8 @@ import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobClaimFieldsNoRetries, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from './shared/store-fields'
+import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
+import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
 export const ProductAggregations: CollectionConfig = {
   slug: 'product-aggregations',
@@ -18,6 +20,7 @@ export const ProductAggregations: CollectionConfig = {
   hooks: {
     beforeChange: [
       enforceJobClaim,
+      computeScheduledFor,
       createResetJobOnPending({
         total: null,
         aggregated: 0,
@@ -29,25 +32,14 @@ export const ProductAggregations: CollectionConfig = {
         lastCheckedSourceId: 0,
       }),
     ],
+    afterChange: [
+      rescheduleOnComplete,
+    ],
   },
   fields: [
-    {
-      name: 'status',
-      type: 'select',
-      label: 'Status',
-      defaultValue: 'pending',
-      options: [
-        { label: 'Pending', value: 'pending' },
-        { label: 'In Progress', value: 'in_progress' },
-        { label: 'Completed', value: 'completed' },
-        { label: 'Failed', value: 'failed' },
-      ],
-      index: true,
-      admin: {
-        position: 'sidebar',
-      },
-    },
+    jobStatusField,
     ...jobClaimFieldsNoRetries,
+    ...jobScheduleFields,
     {
       name: 'startedAt',
       type: 'date',
