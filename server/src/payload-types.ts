@@ -107,12 +107,6 @@ export interface Config {
     'payload-migrations': PayloadMigration;
   };
   collectionsJoins: {
-    'ingredients-discoveries': {
-      events: 'events';
-    };
-    'ingredient-crawls': {
-      events: 'events';
-    };
     products: {
       videoMentions: 'video-mentions';
       aggregations: 'product-aggregations';
@@ -123,18 +117,6 @@ export interface Config {
     };
     'source-variants': {
       sourceReviews: 'source-reviews';
-    };
-    'product-discoveries': {
-      events: 'events';
-    };
-    'product-searches': {
-      events: 'events';
-    };
-    'product-crawls': {
-      events: 'events';
-    };
-    'product-aggregations': {
-      events: 'events';
     };
     creators: {
       channels: 'channels';
@@ -148,15 +130,6 @@ export interface Config {
     'video-scenes': {
       frames: 'video-frames';
       videoMentions: 'video-mentions';
-    };
-    'video-discoveries': {
-      events: 'events';
-    };
-    'video-crawls': {
-      events: 'events';
-    };
-    'video-processings': {
-      events: 'events';
     };
   };
   collectionsSelect: {
@@ -597,11 +570,6 @@ export interface IngredientsDiscovery {
     | number
     | boolean
     | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -634,81 +602,9 @@ export interface Worker {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "events".
+ * via the `definition` "ingredient-crawls".
  */
-export interface Event {
-  id: number;
-  type: 'start' | 'success' | 'info' | 'warning' | 'error';
-  /**
-   * Typed event name (e.g. crawl.started, persist.price_changed)
-   */
-  name?: string | null;
-  level?: ('debug' | 'info' | 'warn' | 'error') | null;
-  component?: ('worker' | 'server') | null;
-  labels?:
-    | {
-        label: string;
-        id?: string | null;
-      }[]
-    | null;
-  message: string;
-  /**
-   * Structured metadata from the log call (key-value pairs)
-   */
-  data?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  job?:
-    | ({
-        relationTo: 'product-discoveries';
-        value: number | ProductDiscovery;
-      } | null)
-    | ({
-        relationTo: 'product-searches';
-        value: number | ProductSearch;
-      } | null)
-    | ({
-        relationTo: 'product-crawls';
-        value: number | ProductCrawl;
-      } | null)
-    | ({
-        relationTo: 'ingredients-discoveries';
-        value: number | IngredientsDiscovery;
-      } | null)
-    | ({
-        relationTo: 'product-aggregations';
-        value: number | ProductAggregation;
-      } | null)
-    | ({
-        relationTo: 'video-discoveries';
-        value: number | VideoDiscovery;
-      } | null)
-    | ({
-        relationTo: 'video-crawls';
-        value: number | VideoCrawl;
-      } | null)
-    | ({
-        relationTo: 'video-processings';
-        value: number | VideoProcessing;
-      } | null)
-    | ({
-        relationTo: 'ingredient-crawls';
-        value: number | IngredientCrawl;
-      } | null);
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-discoveries".
- */
-export interface ProductDiscovery {
+export interface IngredientCrawl {
   id: number;
   status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
@@ -724,22 +620,14 @@ export interface ProductDiscovery {
   scheduleCount?: number | null;
   scheduledFor?: string | null;
   /**
-   * Max pages per batch. Empty = unlimited.
+   * Ingredients to process per batch.
    */
   itemsPerTick?: number | null;
+  type: 'all_uncrawled' | 'selected';
   /**
-   * Milliseconds between requests. Default: 2000.
+   * Specific ingredients to crawl
    */
-  delay?: number | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  productUrls?: string | null;
-  /**
-   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
-   */
-  sourceUrls: string;
+  ingredientIds?: (number | Ingredient)[] | null;
   /**
    * When the current worker claimed this job
    */
@@ -749,385 +637,28 @@ export interface ProductDiscovery {
    */
   claimedBy?: (number | null) | Worker;
   /**
-   * Product URLs found
-   */
-  discovered?: number | null;
-  /**
-   * Internal state for resumable discovery
-   */
-  progress?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-searches".
- */
-export interface ProductSearch {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  /**
-   * Maximum products to import per source. Default: 50.
-   */
-  maxResults?: number | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  productUrls?: string | null;
-  /**
-   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
-   */
-  isGtinSearch?: boolean | null;
-  /**
-   * One query per line. Each line is searched independently across all selected stores.
-   */
-  query: string;
-  /**
-   * Which stores to search. All selected by default.
-   */
-  sources: ('dm' | 'rossmann' | 'mueller' | 'purish')[];
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Product URLs found across all sources
-   */
-  discovered?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-crawls".
- */
-export interface ProductCrawl {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  /**
-   * Products to crawl per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
-   */
-  crawlVariants?: boolean | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  /**
-   * "All in Database" processes existing source-products. The other options target specific products.
-   */
-  type: 'all' | 'selected_urls' | 'from_discovery' | 'from_search';
-  /**
-   * Which store(s) to crawl products from.
-   */
-  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish') | null;
-  /**
-   * One product URL per line. The store is detected automatically from the URL.
-   */
-  urls?: string | null;
-  /**
-   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
-   */
-  discovery?: (number | null) | ProductDiscovery;
-  /**
-   * Crawl the product URLs found by this search. Covers all stores that the search found.
-   */
-  search?: (number | null) | ProductSearch;
-  /**
-   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
-   */
-  scope?: ('uncrawled_only' | 'recrawl') | null;
-  /**
-   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
-   */
-  minCrawlAge?: number | null;
-  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
-  /**
-   * Scrape product data from store pages.
-   */
-  stageScrape?: boolean | null;
-  /**
-   * Fetch reviews from store review APIs (BazaarVoice/Yotpo).
-   */
-  stageReviews?: boolean | null;
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Total products to crawl
+   * Total ingredients to crawl
    */
   total?: number | null;
   /**
-   * Products successfully crawled
+   * Ingredients successfully crawled
    */
   crawled?: number | null;
   /**
-   * Products that failed to crawl
-   */
-  errors?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  crawlProgress?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  crawledGtins?: string | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-aggregations".
- */
-export interface ProductAggregation {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  type: 'all' | 'selected_gtins';
-  /**
-   * GTINs to aggregate, one per line
-   */
-  gtins?: string | null;
-  /**
-   * When enabled, automatically discovers and groups all sibling GTINs that share a source-product. For example, if you enter the GTIN for a 50ml moisturizer, the 100ml variant will also be included and both will become variants of the same unified product.
-   */
-  includeSisterVariants?: boolean | null;
-  /**
-   * Products to aggregate per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  /**
-   * Language for the generated product description.
-   */
-  language?: ('de' | 'en') | null;
-  /**
-   * Ordered list of source slugs to prefer when selecting a product image. First source with images wins.
-   */
-  imageSourcePriority?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Ordered list of source slugs to prefer when selecting the brand name and image. First source with a source-brand wins. Default: rossmann → purish → dm → mueller.
-   */
-  brandSourcePriority?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Grounding DINO box confidence threshold for recognition images. Detections below this score are discarded. Default: 0.7.
-   */
-  detectionThreshold?: number | null;
-  /**
-   * When fewer than 3 recognition images qualify at the configured threshold, automatically retry with progressively lower thresholds (50% → 25% → all detections). Each fallback emits a warning event. Disable to use only the configured threshold with no fallback.
-   */
-  fallbackDetectionThreshold?: boolean | null;
-  /**
-   * Number of reviews per LLM call for the review sentiment stage.
-   */
-  reviewSentimentChunkSize?: number | null;
-  /**
-   * Timeout in seconds for each LLM call. Retries up to 3 times on timeout.
-   */
-  reviewSentimentTimeoutSec?: number | null;
-  /**
-   * Minimum detection box area as a percentage of the source image area. Detections smaller than this are discarded as background noise. Default: 5%.
-   */
-  minBoxArea?: number | null;
-  /**
-   * Find/create products + variants from GTINs, merge duplicates, aggregate basic data.
-   */
-  stageResolve?: boolean | null;
-  /**
-   * LLM classification: product type, attributes, claims, warnings, pH, usage.
-   */
-  stageClassify?: boolean | null;
-  /**
-   * LLM brand matching to the brands collection.
-   */
-  stageMatchBrand?: boolean | null;
-  /**
-   * LLM ingredient parsing + matching per variant.
-   */
-  stageIngredients?: boolean | null;
-  /**
-   * Download best image per variant and upload to media.
-   */
-  stageImages?: boolean | null;
-  /**
-   * Grounding DINO detection of cosmetics packaging + crop per variant.
-   */
-  stageObjectDetection?: boolean | null;
-  /**
-   * Embedding vectors for recognition image crops (for visual similarity search).
-   */
-  stageEmbedImages?: boolean | null;
-  /**
-   * LLM consensus description + deduplicated labels per variant.
-   */
-  stageDescriptions?: boolean | null;
-  /**
-   * Compute store + creator scores and prepend to score history.
-   */
-  stageScoreHistory?: boolean | null;
-  /**
-   * LLM analysis of source reviews to extract per-topic sentiment counts (smell, texture, efficacy, etc.).
-   */
-  stageReviewSentiment?: boolean | null;
-  /**
-   * Derive overall conclusions per topic from sentiment counts (positive/negative/divided with strength).
-   */
-  stageSentimentConclusion?: boolean | null;
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Total products to aggregate
-   */
-  total?: number | null;
-  /**
-   * Stage-executions successfully completed
-   */
-  aggregated?: number | null;
-  /**
-   * Stage-executions that failed
+   * Ingredients that failed
    */
   errors?: number | null;
   /**
-   * Total LLM tokens consumed
+   * Total LLM tokens spent
    */
   tokensUsed?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   /**
-   * Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }
+   * Ingredients enriched by this crawl
    */
-  aggregationProgress?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Maps product IDs to number of source-reviews already processed. Used by the review sentiment stage for incremental processing.
-   */
-  reviewState?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Products created or updated by this aggregation
-   */
-  products?: (number | Product)[] | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  lastCheckedSourceId?: number | null;
+  ingredients?: (number | Ingredient)[] | null;
+  lastCheckedIngredientId?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1934,6 +1465,558 @@ export interface SourceReview {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-aggregations".
+ */
+export interface ProductAggregation {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  type: 'all' | 'selected_gtins';
+  /**
+   * GTINs to aggregate, one per line
+   */
+  gtins?: string | null;
+  /**
+   * When enabled, automatically discovers and groups all sibling GTINs that share a source-product. For example, if you enter the GTIN for a 50ml moisturizer, the 100ml variant will also be included and both will become variants of the same unified product.
+   */
+  includeSisterVariants?: boolean | null;
+  /**
+   * Products to aggregate per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * Language for the generated product description.
+   */
+  language?: ('de' | 'en') | null;
+  /**
+   * Ordered list of source slugs to prefer when selecting a product image. First source with images wins.
+   */
+  imageSourcePriority?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Ordered list of source slugs to prefer when selecting the brand name and image. First source with a source-brand wins. Default: rossmann → purish → dm → mueller.
+   */
+  brandSourcePriority?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Grounding DINO box confidence threshold for recognition images. Detections below this score are discarded. Default: 0.7.
+   */
+  detectionThreshold?: number | null;
+  /**
+   * When fewer than 3 recognition images qualify at the configured threshold, automatically retry with progressively lower thresholds (50% → 25% → all detections). Each fallback emits a warning event. Disable to use only the configured threshold with no fallback.
+   */
+  fallbackDetectionThreshold?: boolean | null;
+  /**
+   * Number of reviews per LLM call for the review sentiment stage.
+   */
+  reviewSentimentChunkSize?: number | null;
+  /**
+   * Timeout in seconds for each LLM call. Retries up to 3 times on timeout.
+   */
+  reviewSentimentTimeoutSec?: number | null;
+  /**
+   * Minimum detection box area as a percentage of the source image area. Detections smaller than this are discarded as background noise. Default: 5%.
+   */
+  minBoxArea?: number | null;
+  /**
+   * Find/create products + variants from GTINs, merge duplicates, aggregate basic data.
+   */
+  stageResolve?: boolean | null;
+  /**
+   * LLM classification: product type, attributes, claims, warnings, pH, usage.
+   */
+  stageClassify?: boolean | null;
+  /**
+   * LLM brand matching to the brands collection.
+   */
+  stageMatchBrand?: boolean | null;
+  /**
+   * LLM ingredient parsing + matching per variant.
+   */
+  stageIngredients?: boolean | null;
+  /**
+   * Download best image per variant and upload to media.
+   */
+  stageImages?: boolean | null;
+  /**
+   * Grounding DINO detection of cosmetics packaging + crop per variant.
+   */
+  stageObjectDetection?: boolean | null;
+  /**
+   * Embedding vectors for recognition image crops (for visual similarity search).
+   */
+  stageEmbedImages?: boolean | null;
+  /**
+   * LLM consensus description + deduplicated labels per variant.
+   */
+  stageDescriptions?: boolean | null;
+  /**
+   * Compute store + creator scores and prepend to score history.
+   */
+  stageScoreHistory?: boolean | null;
+  /**
+   * LLM analysis of source reviews to extract per-topic sentiment counts (smell, texture, efficacy, etc.).
+   */
+  stageReviewSentiment?: boolean | null;
+  /**
+   * Derive overall conclusions per topic from sentiment counts (positive/negative/divided with strength).
+   */
+  stageSentimentConclusion?: boolean | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Total products to aggregate
+   */
+  total?: number | null;
+  /**
+   * Stage-executions successfully completed
+   */
+  aggregated?: number | null;
+  /**
+   * Stage-executions that failed
+   */
+  errors?: number | null;
+  /**
+   * Total LLM tokens consumed
+   */
+  tokensUsed?: number | null;
+  /**
+   * Maps product IDs to last completed stage name. Example: { "42": "resolve", "43": "classify" }
+   */
+  aggregationProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Maps product IDs to number of source-reviews already processed. Used by the review sentiment stage for incremental processing.
+   */
+  reviewState?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Products created or updated by this aggregation
+   */
+  products?: (number | Product)[] | null;
+  lastCheckedSourceId?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-discoveries".
+ */
+export interface ProductDiscovery {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * Max pages per batch. Empty = unlimited.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Milliseconds between requests. Default: 2000.
+   */
+  delay?: number | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  productUrls?: string | null;
+  /**
+   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
+   */
+  sourceUrls: string;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Product URLs found
+   */
+  discovered?: number | null;
+  /**
+   * Internal state for resumable discovery
+   */
+  progress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-searches".
+ */
+export interface ProductSearch {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * Maximum products to import per source. Default: 50.
+   */
+  maxResults?: number | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  productUrls?: string | null;
+  /**
+   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
+   */
+  isGtinSearch?: boolean | null;
+  /**
+   * One query per line. Each line is searched independently across all selected stores.
+   */
+  query: string;
+  /**
+   * Which stores to search. All selected by default.
+   */
+  sources: ('dm' | 'rossmann' | 'mueller' | 'purish')[];
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Product URLs found across all sources
+   */
+  discovered?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-crawls".
+ */
+export interface ProductCrawl {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * Products to crawl per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
+   */
+  crawlVariants?: boolean | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  /**
+   * "All in Database" processes existing source-products. The other options target specific products.
+   */
+  type: 'all' | 'selected_urls' | 'from_discovery' | 'from_search';
+  /**
+   * Which store(s) to crawl products from.
+   */
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  /**
+   * One product URL per line. The store is detected automatically from the URL.
+   */
+  urls?: string | null;
+  /**
+   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
+   */
+  discovery?: (number | null) | ProductDiscovery;
+  /**
+   * Crawl the product URLs found by this search. Covers all stores that the search found.
+   */
+  search?: (number | null) | ProductSearch;
+  /**
+   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
+   */
+  scope?: ('uncrawled_only' | 'recrawl') | null;
+  /**
+   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
+   */
+  minCrawlAge?: number | null;
+  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
+  /**
+   * Scrape product data from store pages.
+   */
+  stageScrape?: boolean | null;
+  /**
+   * Fetch reviews from store review APIs (BazaarVoice/Yotpo).
+   */
+  stageReviews?: boolean | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Total products to crawl
+   */
+  total?: number | null;
+  /**
+   * Products successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Products that failed to crawl
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  crawlProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  crawledGtins?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Aggregated per-product topic sentiment counts from source reviews
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiments".
+ */
+export interface ProductSentiment {
+  id: number;
+  product: number | Product;
+  topic:
+    | 'smell'
+    | 'texture'
+    | 'color'
+    | 'consistency'
+    | 'absorption'
+    | 'stickiness'
+    | 'lather'
+    | 'efficacy'
+    | 'longevity'
+    | 'finish'
+    | 'afterFeel'
+    | 'skinTolerance'
+    | 'allergenPotential'
+    | 'dispensing'
+    | 'travelSafety'
+    | 'animalTesting';
+  sentiment: 'positive' | 'neutral' | 'negative';
+  /**
+   * Count of reviews with this topic+sentiment combination
+   */
+  amount: number;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-sentiment-conclusions".
+ */
+export interface ProductSentimentConclusion {
+  id: number;
+  product: number | Product;
+  topic:
+    | 'smell'
+    | 'texture'
+    | 'color'
+    | 'consistency'
+    | 'absorption'
+    | 'stickiness'
+    | 'lather'
+    | 'efficacy'
+    | 'longevity'
+    | 'finish'
+    | 'afterFeel'
+    | 'skinTolerance'
+    | 'allergenPotential'
+    | 'dispensing'
+    | 'travelSafety'
+    | 'animalTesting';
+  /**
+   * Overall sentiment direction for this topic based on review analysis
+   */
+  conclusion: 'positive' | 'negative' | 'divided';
+  /**
+   * Strength of the conclusion based on review volume (low: 5-9, medium: 10-24, high: 25-49, ultra: 50+)
+   */
+  strength: 'low' | 'medium' | 'high' | 'ultra';
+  /**
+   * Total number of reviews mentioning this topic
+   */
+  volume?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events".
+ */
+export interface Event {
+  id: number;
+  type: 'start' | 'success' | 'info' | 'warning' | 'error';
+  /**
+   * Typed event name (e.g. crawl.started, persist.price_changed)
+   */
+  name?: string | null;
+  level?: ('debug' | 'info' | 'warn' | 'error') | null;
+  component?: ('worker' | 'server') | null;
+  labels?:
+    | {
+        label: string;
+        id?: string | null;
+      }[]
+    | null;
+  message: string;
+  /**
+   * Structured metadata from the log call (key-value pairs)
+   */
+  data?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  job?:
+    | ({
+        relationTo: 'product-discoveries';
+        value: number | ProductDiscovery;
+      } | null)
+    | ({
+        relationTo: 'product-searches';
+        value: number | ProductSearch;
+      } | null)
+    | ({
+        relationTo: 'product-crawls';
+        value: number | ProductCrawl;
+      } | null)
+    | ({
+        relationTo: 'ingredients-discoveries';
+        value: number | IngredientsDiscovery;
+      } | null)
+    | ({
+        relationTo: 'product-aggregations';
+        value: number | ProductAggregation;
+      } | null)
+    | ({
+        relationTo: 'video-discoveries';
+        value: number | VideoDiscovery;
+      } | null)
+    | ({
+        relationTo: 'video-crawls';
+        value: number | VideoCrawl;
+      } | null)
+    | ({
+        relationTo: 'video-processings';
+        value: number | VideoProcessing;
+      } | null)
+    | ({
+        relationTo: 'ingredient-crawls';
+        value: number | IngredientCrawl;
+      } | null);
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "video-discoveries".
  */
 export interface VideoDiscovery {
@@ -1990,11 +2073,6 @@ export interface VideoDiscovery {
     | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -2084,11 +2162,6 @@ export interface VideoCrawl {
     | boolean
     | null;
   crawledVideoUrls?: string | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -2246,151 +2319,6 @@ export interface VideoProcessing {
     | number
     | boolean
     | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "ingredient-crawls".
- */
-export interface IngredientCrawl {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  /**
-   * Ingredients to process per batch.
-   */
-  itemsPerTick?: number | null;
-  type: 'all_uncrawled' | 'selected';
-  /**
-   * Specific ingredients to crawl
-   */
-  ingredientIds?: (number | Ingredient)[] | null;
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Total ingredients to crawl
-   */
-  total?: number | null;
-  /**
-   * Ingredients successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Ingredients that failed
-   */
-  errors?: number | null;
-  /**
-   * Total LLM tokens spent
-   */
-  tokensUsed?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Ingredients enriched by this crawl
-   */
-  ingredients?: (number | Ingredient)[] | null;
-  events?: {
-    docs?: (number | Event)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  lastCheckedIngredientId?: number | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * Aggregated per-product topic sentiment counts from source reviews
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-sentiments".
- */
-export interface ProductSentiment {
-  id: number;
-  product: number | Product;
-  topic:
-    | 'smell'
-    | 'texture'
-    | 'color'
-    | 'consistency'
-    | 'absorption'
-    | 'stickiness'
-    | 'lather'
-    | 'efficacy'
-    | 'longevity'
-    | 'finish'
-    | 'afterFeel'
-    | 'skinTolerance'
-    | 'allergenPotential'
-    | 'dispensing'
-    | 'travelSafety'
-    | 'animalTesting';
-  sentiment: 'positive' | 'neutral' | 'negative';
-  /**
-   * Count of reviews with this topic+sentiment combination
-   */
-  amount: number;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-sentiment-conclusions".
- */
-export interface ProductSentimentConclusion {
-  id: number;
-  product: number | Product;
-  topic:
-    | 'smell'
-    | 'texture'
-    | 'color'
-    | 'consistency'
-    | 'absorption'
-    | 'stickiness'
-    | 'lather'
-    | 'efficacy'
-    | 'longevity'
-    | 'finish'
-    | 'afterFeel'
-    | 'skinTolerance'
-    | 'allergenPotential'
-    | 'dispensing'
-    | 'travelSafety'
-    | 'animalTesting';
-  /**
-   * Overall sentiment direction for this topic based on review analysis
-   */
-  conclusion: 'positive' | 'negative' | 'divided';
-  /**
-   * Strength of the conclusion based on review volume (low: 5-9, medium: 10-24, high: 25-49, ultra: 50+)
-   */
-  strength: 'low' | 'medium' | 'high' | 'ultra';
-  /**
-   * Total number of reviews mentioning this topic
-   */
-  volume?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2882,7 +2810,6 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   termQueue?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2910,7 +2837,6 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   startedAt?: T;
   completedAt?: T;
   ingredients?: T;
-  events?: T;
   lastCheckedIngredientId?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -3148,7 +3074,6 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   progress?: T;
   startedAt?: T;
   completedAt?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3175,7 +3100,6 @@ export interface ProductSearchesSelect<T extends boolean = true> {
   discovered?: T;
   startedAt?: T;
   completedAt?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3213,7 +3137,6 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   completedAt?: T;
   crawlProgress?: T;
   crawledGtins?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3263,7 +3186,6 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   aggregationProgress?: T;
   reviewState?: T;
   products?: T;
-  events?: T;
   lastCheckedSourceId?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -3495,7 +3417,6 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   progress?: T;
   startedAt?: T;
   completedAt?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3528,7 +3449,6 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   completedAt?: T;
   crawlProgress?: T;
   crawledVideoUrls?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3578,7 +3498,6 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   tokensTranscriptCorrection?: T;
   tokensSentiment?: T;
   videoProgress?: T;
-  events?: T;
   updatedAt?: T;
   createdAt?: T;
 }

@@ -46,6 +46,7 @@ export async function getJobStatus(
 export type JobEvent = {
   type: string
   level: string
+  name: string | null
   message: string
   createdAt: string
   data?: Record<string, string | number | boolean> | null
@@ -77,10 +78,62 @@ export async function getJobEvents(
   return result.docs.map((e) => ({
     type: e.type,
     level: e.level as string,
+    name: (e.name as string) ?? null,
     message: e.message,
     createdAt: e.createdAt,
     data: (e.data as Record<string, string | number | boolean> | null) ?? null,
   }))
+}
+
+// ---------- Full event log (for EventsView) ----------
+
+export type FullJobEvent = {
+  id: number
+  type: string
+  name: string | null
+  level: string
+  message: string
+  createdAt: string
+  data?: Record<string, string | number | boolean> | null
+}
+
+const MAX_EVENTS = 5000
+
+export async function getAllJobEvents(
+  collection: JobCollection,
+  jobId: number,
+  afterDate?: string | null,
+): Promise<{ events: FullJobEvent[]; truncated: boolean }> {
+  const payload = await getPayload({ config })
+
+  const where: Where = {
+    and: [
+      { 'job.relationTo': { equals: collection } },
+      { 'job.value': { equals: jobId } },
+      ...(afterDate ? [{ createdAt: { greater_than: afterDate } }] : []),
+    ],
+  }
+
+  const result = await payload.find({
+    collection: 'events',
+    where,
+    sort: 'createdAt',
+    limit: afterDate ? 100 : MAX_EVENTS,
+    depth: 0,
+  })
+
+  return {
+    events: result.docs.map((e) => ({
+      id: e.id,
+      type: e.type,
+      name: (e.name as string) ?? null,
+      level: e.level as string,
+      message: e.message,
+      createdAt: e.createdAt,
+      data: (e.data as Record<string, string | number | boolean> | null) ?? null,
+    })),
+    truncated: result.totalDocs > MAX_EVENTS,
+  }
 }
 
 // ---------- Source Product → Crawl ----------

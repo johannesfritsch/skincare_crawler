@@ -484,10 +484,13 @@ export const VideoProcessings: CollectionConfig = {
           label: 'Events',
           fields: [
             {
-              name: 'events',
-              type: 'join',
-              collection: 'events',
-              on: 'job',
+              name: 'eventsView',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '@/components/EventsView',
+                },
+              },
             },
           ],
         },

@@ -521,7 +521,12 @@ async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
   const enabledStagesArr = work.enabledStages as string[]
 
   log.info('Video crawl job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr?.join(',') })
-  jlog.event('video_crawl.started', { items: stageItems.length })
+
+  // Only emit video_crawl.started for the first stage (avoid duplicates across work items)
+  const isFirstStage = stageItems.length > 0 && stageItems[0].stageName === enabledStagesArr[0]
+  if (isFirstStage) {
+    jlog.event('video_crawl.started', { items: stageItems.length })
+  }
 
   if (stageItems.length === 0) {
     log.warn('No stage items, releasing claim', { jobId })
@@ -628,7 +633,12 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
   }
 
   log.info('Product aggregation job (stage-based)', { jobId, items: stageItems.length, stages: enabledStagesArr.join(',') })
-  jlog.event('aggregation.started', { items: stageItems.length, type: (work.aggregationType as string) ?? 'all', language: stageConfig.language })
+
+  // Only emit aggregation.started for the first stage (avoid duplicates across work items)
+  const isFirstStage = stageItems.length > 0 && stageItems[0].stageName === enabledStagesArr[0]
+  if (isFirstStage) {
+    jlog.event('aggregation.started', { items: stageItems.length, type: (work.aggregationType as string) ?? 'all', language: stageConfig.language })
+  }
 
   const results: Array<Record<string, unknown>> = []
 

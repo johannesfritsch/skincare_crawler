@@ -1191,3 +1191,37 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     labels: ['maintenance'],
   },
 }
+
+// ─── Event Grouping ─────────────────────────────────────────────────────────
+
+/** Human-readable group labels for event name prefixes. Many-to-one: aggregation sub-domains collapse into 'Aggregation'. */
+export const EVENT_GROUP_LABELS: Record<string, string> = {
+  job: 'Job Lifecycle',
+  crawl: 'Crawl',
+  scraper: 'Scraper',
+  persist: 'Persist',
+  discovery: 'Discovery',
+  search: 'Search',
+  ingredients_discovery: 'Ingredients Discovery',
+  ingredient_crawl: 'Ingredient Crawl',
+  video_discovery: 'Video Discovery',
+  video_crawl: 'Video Crawl',
+  video_processing: 'Video Processing',
+  aggregation: 'Aggregation',
+  worker: 'Worker',
+  // Sub-domains collapsed into Aggregation
+  brand: 'Aggregation',
+  ingredients: 'Aggregation',
+  product_match: 'Aggregation',
+  classification: 'Aggregation',
+  labels: 'Aggregation',
+  description: 'Aggregation',
+  stage: 'Aggregation',
+}
+
+/** Derive a human-readable group label from an event name (prefix before the first dot). */
+export function eventGroup(name?: string | null): string {
+  if (!name) return 'Other'
+  const prefix = name.split('.')[0]
+  return EVENT_GROUP_LABELS[prefix] ?? 'Other'
+}
