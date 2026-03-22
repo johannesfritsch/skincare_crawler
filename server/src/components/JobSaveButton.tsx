@@ -13,6 +13,7 @@ export default function JobSaveButton(_props: SaveButtonClientProps) {
 
   const handleRerun = async () => {
     if (!id || !collectionSlug) return
+    if (!window.confirm('Re-run this job? All progress will be reset.')) return
     setRunning(true)
     try {
       const result = await rerunJob(collectionSlug as any, Number(id))
