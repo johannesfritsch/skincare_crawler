@@ -152,8 +152,10 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
     const reviewResults: Array<{
       sourceProductId: number
       success: boolean
+      reviewsFetched: number
       reviewsCreated: number
       reviewsLinked: number
+      reviewsBackfilled: number
       error?: string
     }> = []
 

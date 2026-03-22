@@ -133,8 +133,10 @@ interface SubmitProductCrawlBody {
   reviewResults?: Array<{
     sourceProductId: number
     success: boolean
+    reviewsFetched: number
     reviewsCreated: number
     reviewsLinked: number
+    reviewsBackfilled: number
     error?: string
   }>
 }
@@ -301,15 +303,19 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
 
   if (stage === 'reviews' && reviewResults) {
     // ─── Reviews stage submit ───
+    let batchReviewsFetched = 0
     let batchReviewsCreated = 0
     let batchReviewsLinked = 0
+    let batchReviewsBackfilled = 0
     let batchReviewErrors = 0
 
     for (const rr of reviewResults) {
       if (rr.success) {
         crawlProgress[String(rr.sourceProductId)] = 'reviews'
+        batchReviewsFetched += rr.reviewsFetched
         batchReviewsCreated += rr.reviewsCreated
         batchReviewsLinked += rr.reviewsLinked
+        batchReviewsBackfilled += rr.reviewsBackfilled
       } else {
         batchReviewErrors++
         errors++
@@ -361,22 +367,19 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         id: jobId,
         data: { crawled, errors, crawlProgress },
       })
-      jlog.event('crawl.batch_done', {
-        source,
-        crawled,
-        errors,
-        remaining: 0,
-        batchSize: reviewResults.length,
-        batchSuccesses: reviewResults.length - batchReviewErrors,
-        batchErrors: batchReviewErrors,
-        errorRate: reviewResults.length > 0 ? Math.round((batchReviewErrors / reviewResults.length) * 100) : 0,
-        batchDurationMs,
-        newVariants: 0,
-        existingVariants: 0,
-        withIngredients: 0,
-        priceChanges: 0,
-      })
     }
+
+    jlog.event('reviews.batch_done', {
+      source,
+      batchSize: reviewResults.length,
+      batchSuccesses: reviewResults.length - batchReviewErrors,
+      batchErrors: batchReviewErrors,
+      batchDurationMs,
+      totalFetched: batchReviewsFetched,
+      totalCreated: batchReviewsCreated,
+      totalLinked: batchReviewsLinked,
+      totalBackfilled: batchReviewsBackfilled,
+    })
 
     return { crawled, errors }
   }

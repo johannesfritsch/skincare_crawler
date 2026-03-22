@@ -84,6 +84,7 @@ export interface ScrapedProductData {
     negativeFeedbackCount?: number
     reviewerAge?: string
     reviewerGender?: string
+    reviewSource?: string
   }>
 }
 

@@ -61,6 +61,14 @@ export const SourceReviews: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    {
+      name: 'reviewSource',
+      type: 'text',
+      admin: {
+        position: 'sidebar',
+        description: 'BazaarVoice SyndicationSource name (e.g. "Home Tester Club")',
+      },
+    },
 
     // ── Main area (tabs) ──
     {

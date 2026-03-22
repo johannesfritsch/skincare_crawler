@@ -1446,6 +1446,10 @@ export interface SourceReview {
    */
   rating: number;
   submittedAt?: string | null;
+  /**
+   * BazaarVoice SyndicationSource name (e.g. "Home Tester Club")
+   */
+  reviewSource?: string | null;
   title?: string | null;
   reviewText?: string | null;
   userNickname?: string | null;
@@ -3040,6 +3044,7 @@ export interface SourceReviewsSelect<T extends boolean = true> {
   externalId?: T;
   rating?: T;
   submittedAt?: T;
+  reviewSource?: T;
   title?: T;
   reviewText?: T;
   userNickname?: T;

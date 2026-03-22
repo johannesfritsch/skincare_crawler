@@ -193,6 +193,30 @@ export interface EventRegistry {
   }
   'persist.reviews_created': { url: string; source: string; count: number }
 
+  // ─── Reviews Stage ──────────────────────────────────────────────────────
+  // reviews.ts: per-product fetch result
+  // submit.ts: batch done
+
+  'reviews.fetched': {
+    source: string
+    sourceProductId: number
+    fetched: number
+    created: number
+    linked: number
+    backfilled: number
+  }
+  'reviews.batch_done': {
+    source: string
+    batchSize: number
+    batchSuccesses: number
+    batchErrors: number
+    batchDurationMs: number
+    totalFetched: number
+    totalCreated: number
+    totalLinked: number
+    totalBackfilled: number
+  }
+
   // ─── Product Discovery ─────────────────────────────────────────────────
   // worker.ts: handler start
   // drivers: page scraped
@@ -734,6 +758,18 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     labels: ['scraping', 'source-brand'],
   },
   'persist.reviews_created': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'reviews'],
+  },
+
+  // Reviews stage
+  'reviews.fetched': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'reviews'],
+  },
+  'reviews.batch_done': {
     type: 'info',
     level: 'info',
     labels: ['scraping', 'reviews'],

@@ -25,8 +25,10 @@ export interface ReviewWorkItem {
 export interface ReviewResult {
   sourceProductId: number
   success: boolean
+  reviewsFetched: number
   reviewsCreated: number
   reviewsLinked: number
+  reviewsBackfilled: number
   error?: string
 }
 
@@ -41,9 +43,11 @@ export async function executeReviewStage(
 ): Promise<ReviewResult> {
   const { sourceProductId, source } = item
 
+  const emptyResult = { sourceProductId, success: true, reviewsFetched: 0, reviewsCreated: 0, reviewsLinked: 0, reviewsBackfilled: 0 }
+
   // Mueller has no review API — skip gracefully
   if (source === 'mueller') {
-    return { sourceProductId, success: true, reviewsCreated: 0, reviewsLinked: 0 }
+    return emptyResult
   }
 
   try {
@@ -51,14 +55,15 @@ export async function executeReviewStage(
     const reviewKey = await getReviewKey(payload, sourceProductId, source)
     if (!reviewKey) {
       log.debug('No review key found, skipping reviews', { sourceProductId, source })
-      return { sourceProductId, success: true, reviewsCreated: 0, reviewsLinked: 0 }
+      return emptyResult
     }
 
     // Fetch reviews from store API
     const fetchResult = await fetchProductReviews(source, reviewKey)
+    const fetched = fetchResult.reviews.length
 
-    if (fetchResult.reviews.length === 0) {
-      return { sourceProductId, success: true, reviewsCreated: 0, reviewsLinked: 0 }
+    if (fetched === 0) {
+      return emptyResult
     }
 
     // Look up a variant ID to link reviews to (use the first source-variant)
@@ -93,20 +98,27 @@ export async function executeReviewStage(
       }
     }
 
-    if (persistResult.created > 0 || persistResult.linked > 0) {
-      jlog.event('persist.reviews_created', { url: `source-product:${sourceProductId}`, source, count: persistResult.created + persistResult.linked })
-    }
+    jlog.event('reviews.fetched', {
+      source,
+      sourceProductId,
+      fetched,
+      created: persistResult.created,
+      linked: persistResult.linked,
+      backfilled: persistResult.backfilled,
+    })
 
     return {
       sourceProductId,
       success: true,
+      reviewsFetched: fetched,
       reviewsCreated: persistResult.created,
       reviewsLinked: persistResult.linked,
+      reviewsBackfilled: persistResult.backfilled,
     }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     log.error('Review stage error', { sourceProductId, source, error })
-    return { sourceProductId, success: false, reviewsCreated: 0, reviewsLinked: 0, error }
+    return { sourceProductId, success: false, reviewsFetched: 0, reviewsCreated: 0, reviewsLinked: 0, reviewsBackfilled: 0, error }
   }
 }
 

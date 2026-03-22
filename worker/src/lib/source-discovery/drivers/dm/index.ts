@@ -337,6 +337,7 @@ interface BvReview {
   TotalPositiveFeedbackCount?: number
   TotalNegativeFeedbackCount?: number
   ContextDataValues?: Record<string, { Value?: string }>
+  SyndicationSource?: { Name?: string } | null
 }
 
 export async function fetchDmReviews(dan: string, logger?: import('@/lib/logger').Logger): Promise<ScrapedProductData['reviews']> {
@@ -387,6 +388,7 @@ export async function fetchDmReviews(dan: string, logger?: import('@/lib/logger'
           negativeFeedbackCount: r.TotalNegativeFeedbackCount ?? 0,
           reviewerAge: r.ContextDataValues?.Age?.Value ?? undefined,
           reviewerGender: r.ContextDataValues?.Gender?.Value ?? undefined,
+          reviewSource: r.SyndicationSource?.Name ?? undefined,
         })
       }
 

@@ -155,6 +155,7 @@ interface ScrapedProductData {
     negativeFeedbackCount?: number
     reviewerAge?: string
     reviewerGender?: string
+    reviewSource?: string
   }>
 }
 
@@ -675,9 +676,10 @@ export async function persistReviews(
   sourceProductId: number,
   sourceVariantId: number | undefined,
   reviews: NonNullable<ScrapedProductData['reviews']>,
-): Promise<{ created: number; linked: number }> {
+): Promise<{ created: number; linked: number; backfilled: number }> {
   let created = 0
   let linked = 0
+  let backfilled = 0
   for (const review of reviews) {
     const existing = await payload.find({
       collection: 'source-reviews',
@@ -701,28 +703,42 @@ export async function persistReviews(
           negativeFeedbackCount: review.negativeFeedbackCount ?? 0,
           reviewerAge: normalizeReviewerAge(review.reviewerAge),
           reviewerGender: review.reviewerGender ?? null,
+          reviewSource: review.reviewSource ?? null,
         },
       })
       created++
-    } else if (sourceVariantId) {
-      // Review already exists — append this variant if not already linked
+    } else {
+      // Review already exists — backfill missing fields + append variant if not linked
       const existingReview = existing.docs[0]
-      const existingVariantIds: number[] = Array.isArray(existingReview.sourceVariants)
-        ? existingReview.sourceVariants.map((v: any) => (typeof v === 'object' ? v.id : v))
-        : []
-      if (!existingVariantIds.includes(sourceVariantId)) {
+      const updates: Record<string, unknown> = {}
+
+      // Backfill reviewSource if missing
+      if (!existingReview.reviewSource && review.reviewSource) {
+        updates.reviewSource = review.reviewSource
+      }
+
+      // Append variant if not already linked
+      if (sourceVariantId) {
+        const existingVariantIds: number[] = Array.isArray(existingReview.sourceVariants)
+          ? existingReview.sourceVariants.map((v: any) => (typeof v === 'object' ? v.id : v))
+          : []
+        if (!existingVariantIds.includes(sourceVariantId)) {
+          updates.sourceVariants = [...existingVariantIds, sourceVariantId]
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
         await payload.update({
           collection: 'source-reviews',
           id: existingReview.id as number,
-          data: {
-            sourceVariants: [...existingVariantIds, sourceVariantId],
-          },
+          data: updates,
         })
-        linked++
+        if (updates.reviewSource) backfilled++
+        if (updates.sourceVariants) linked++
       }
     }
   }
-  return { created, linked }
+  return { created, linked, backfilled }
 }
 
 // ─── Ingredients Discovery ───
