@@ -62,11 +62,12 @@ export const SourceReviews: CollectionConfig = {
       },
     },
     {
-      name: 'reviewSource',
-      type: 'text',
+      name: 'reviewOrigin',
+      type: 'relationship',
+      relationTo: 'source-review-origins',
       admin: {
         position: 'sidebar',
-        description: 'BazaarVoice SyndicationSource name (e.g. "Home Tester Club")',
+        description: 'Syndication source origin (e.g. Home Tester Club)',
       },
     },
 

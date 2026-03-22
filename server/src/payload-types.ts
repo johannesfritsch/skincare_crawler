@@ -84,6 +84,7 @@ export interface Config {
     'source-brands': SourceBrand;
     'source-variants': SourceVariant;
     'source-reviews': SourceReview;
+    'source-review-origins': SourceReviewOrigin;
     'product-discoveries': ProductDiscovery;
     'product-searches': ProductSearch;
     'product-crawls': ProductCrawl;
@@ -149,6 +150,7 @@ export interface Config {
     'source-brands': SourceBrandsSelect<false> | SourceBrandsSelect<true>;
     'source-variants': SourceVariantsSelect<false> | SourceVariantsSelect<true>;
     'source-reviews': SourceReviewsSelect<false> | SourceReviewsSelect<true>;
+    'source-review-origins': SourceReviewOriginsSelect<false> | SourceReviewOriginsSelect<true>;
     'product-discoveries': ProductDiscoveriesSelect<false> | ProductDiscoveriesSelect<true>;
     'product-searches': ProductSearchesSelect<false> | ProductSearchesSelect<true>;
     'product-crawls': ProductCrawlsSelect<false> | ProductCrawlsSelect<true>;
@@ -1447,9 +1449,9 @@ export interface SourceReview {
   rating: number;
   submittedAt?: string | null;
   /**
-   * BazaarVoice SyndicationSource name (e.g. "Home Tester Club")
+   * Syndication source origin (e.g. Home Tester Club)
    */
-  reviewSource?: string | null;
+  reviewOrigin?: (number | null) | SourceReviewOrigin;
   title?: string | null;
   reviewText?: string | null;
   userNickname?: string | null;
@@ -1464,6 +1466,33 @@ export interface SourceReview {
   isRecommended?: boolean | null;
   positiveFeedbackCount?: number | null;
   negativeFeedbackCount?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Syndication sources for reviews (e.g. Home Tester Club, The Insiders)
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-review-origins".
+ */
+export interface SourceReviewOrigin {
+  id: number;
+  /**
+   * Syndication source name (e.g. "Home Tester Club")
+   */
+  name: string;
+  /**
+   * Store this origin was discovered in
+   */
+  source: 'dm' | 'rossmann' | 'mueller' | 'purish';
+  /**
+   * Whether this origin incentivizes reviews (e.g. product testing panels)
+   */
+  incentivized?: boolean | null;
+  /**
+   * LLM reasoning for the incentivized classification
+   */
+  reasoning?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2415,6 +2444,10 @@ export interface PayloadLockedDocument {
         value: number | SourceReview;
       } | null)
     | ({
+        relationTo: 'source-review-origins';
+        value: number | SourceReviewOrigin;
+      } | null)
+    | ({
         relationTo: 'product-discoveries';
         value: number | ProductDiscovery;
       } | null)
@@ -3044,7 +3077,7 @@ export interface SourceReviewsSelect<T extends boolean = true> {
   externalId?: T;
   rating?: T;
   submittedAt?: T;
-  reviewSource?: T;
+  reviewOrigin?: T;
   title?: T;
   reviewText?: T;
   userNickname?: T;
@@ -3053,6 +3086,18 @@ export interface SourceReviewsSelect<T extends boolean = true> {
   isRecommended?: T;
   positiveFeedbackCount?: T;
   negativeFeedbackCount?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-review-origins_select".
+ */
+export interface SourceReviewOriginsSelect<T extends boolean = true> {
+  name?: T;
+  source?: T;
+  incentivized?: T;
+  reasoning?: T;
   updatedAt?: T;
   createdAt?: T;
 }

@@ -193,6 +193,21 @@ export interface EventRegistry {
   }
   'persist.reviews_created': { url: string; source: string; count: number }
 
+  // ─── Review Origins ──────────────────────────────────────────────────────
+  // persist.ts: review-origin find-or-create with LLM classification
+
+  'persist.review_origin_created': {
+    source: string
+    name: string
+    incentivized: boolean | null
+  }
+  'persist.review_origin_classified': {
+    source: string
+    name: string
+    incentivized: boolean
+    reasoning: string
+  }
+
   // ─── Reviews Stage ──────────────────────────────────────────────────────
   // reviews.ts: per-product fetch result
   // submit.ts: batch done
@@ -761,6 +776,18 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['scraping', 'reviews'],
+  },
+
+  // Review origins
+  'persist.review_origin_created': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'reviews', 'review-origin'],
+  },
+  'persist.review_origin_classified': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'reviews', 'review-origin'],
   },
 
   // Reviews stage

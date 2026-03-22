@@ -82,6 +82,8 @@ export async function executeReviewStage(
       sourceProductId,
       sourceVariantId,
       fetchResult.reviews,
+      source,
+      jlog,
     )
 
     // Update source-product rating/ratingCount if Yotpo bottomline provided

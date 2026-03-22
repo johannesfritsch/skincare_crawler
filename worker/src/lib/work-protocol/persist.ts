@@ -454,7 +454,7 @@ export async function persistCrawlResult(
 
   // Persist reviews if provided (linked to source-product + optionally the crawled variant)
   if (data.reviews && data.reviews.length > 0 && sourceProductId) {
-    const reviewResult = await persistReviews(payload, sourceProductId, sourceVariantId, data.reviews)
+    const reviewResult = await persistReviews(payload, sourceProductId, sourceVariantId, data.reviews, source as SourceSlug, jlog)
     if (reviewResult.created > 0 || reviewResult.linked > 0) {
       jlog.event('persist.reviews_created', { url: variantUrl, source, count: reviewResult.created + reviewResult.linked })
     }
@@ -669,6 +669,8 @@ export async function persistCrawlResult(
 /**
  * Persist reviews to source-reviews collection.
  * Find-or-create by externalId; appends variant ID to existing reviews if not already linked.
+ * When a review has a reviewSource (BazaarVoice SyndicationSource), finds-or-creates a
+ * review-origin record and links the source-review to it. New origins are classified via LLM.
  * Callable both from persistCrawlResult (inline reviews) and from the standalone reviews stage.
  */
 export async function persistReviews(
@@ -676,11 +678,22 @@ export async function persistReviews(
   sourceProductId: number,
   sourceVariantId: number | undefined,
   reviews: NonNullable<ScrapedProductData['reviews']>,
+  source: SourceSlug,
+  jlog?: ReturnType<typeof createLogger>,
 ): Promise<{ created: number; linked: number; backfilled: number }> {
   let created = 0
   let linked = 0
   let backfilled = 0
+  // In-memory cache for review-origin IDs within this invocation
+  const originCache = new Map<string, number>()
+
   for (const review of reviews) {
+    // Resolve review-origin if reviewSource is present
+    let reviewOriginId: number | null = null
+    if (review.reviewSource) {
+      reviewOriginId = await findOrCreateReviewOrigin(payload, review.reviewSource, source, originCache, jlog)
+    }
+
     const existing = await payload.find({
       collection: 'source-reviews',
       where: { externalId: { equals: review.externalId } },
@@ -703,7 +716,7 @@ export async function persistReviews(
           negativeFeedbackCount: review.negativeFeedbackCount ?? 0,
           reviewerAge: normalizeReviewerAge(review.reviewerAge),
           reviewerGender: review.reviewerGender ?? null,
-          reviewSource: review.reviewSource ?? null,
+          ...(reviewOriginId ? { reviewOrigin: reviewOriginId } : {}),
         },
       })
       created++
@@ -712,9 +725,10 @@ export async function persistReviews(
       const existingReview = existing.docs[0]
       const updates: Record<string, unknown> = {}
 
-      // Backfill reviewSource if missing
-      if (!existingReview.reviewSource && review.reviewSource) {
-        updates.reviewSource = review.reviewSource
+      // Backfill reviewOrigin if missing
+      if (!existingReview.reviewOrigin && reviewOriginId) {
+        updates.reviewOrigin = reviewOriginId
+        backfilled++
       }
 
       // Append variant if not already linked
@@ -733,12 +747,143 @@ export async function persistReviews(
           id: existingReview.id as number,
           data: updates,
         })
-        if (updates.reviewSource) backfilled++
         if (updates.sourceVariants) linked++
       }
     }
   }
   return { created, linked, backfilled }
+}
+
+/**
+ * Find or create a review-origin record by (name, source).
+ * On creation, classifies the origin via gpt-4.1-mini as incentivized or not.
+ * Uses an in-memory cache to avoid repeated DB queries within one persistReviews call.
+ */
+async function findOrCreateReviewOrigin(
+  payload: PayloadRestClient,
+  name: string,
+  source: SourceSlug,
+  cache: Map<string, number>,
+  jlog?: ReturnType<typeof createLogger>,
+): Promise<number> {
+  const cacheKey = `${name}|${source}`
+  const cached = cache.get(cacheKey)
+  if (cached) return cached
+
+  // Check if origin already exists
+  const existing = await payload.find({
+    collection: 'source-review-origins',
+    where: {
+      and: [
+        { name: { equals: name } },
+        { source: { equals: source } },
+      ],
+    },
+    limit: 1,
+  })
+
+  if (existing.totalDocs > 0) {
+    const id = existing.docs[0].id as number
+    cache.set(cacheKey, id)
+    return id
+  }
+
+  // Create new origin
+  let originId: number
+  try {
+    const created = await payload.create({
+      collection: 'source-review-origins',
+      data: { name, source },
+    })
+    originId = created.id as number
+  } catch (e) {
+    // Race condition: another worker created the same origin — fall back to query
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    if (errorMessage.includes('unique') || errorMessage.includes('duplicate')) {
+      const retry = await payload.find({
+        collection: 'source-review-origins',
+        where: {
+          and: [
+            { name: { equals: name } },
+            { source: { equals: source } },
+          ],
+        },
+        limit: 1,
+      })
+      if (retry.totalDocs > 0) {
+        const id = retry.docs[0].id as number
+        cache.set(cacheKey, id)
+        return id
+      }
+    }
+    log.warn('Failed to create review-origin', { name, source, error: errorMessage })
+    throw e
+  }
+
+  cache.set(cacheKey, originId)
+
+  if (jlog) {
+    jlog.event('persist.review_origin_created', { source, name, incentivized: null })
+  }
+
+  // Classify via LLM (async, non-blocking — failure leaves incentivized as null)
+  try {
+    const { getOpenAI } = await import('@/lib/openai')
+    const openai = getOpenAI()
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4.1-mini',
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are classifying review syndication sources for a beauty/skincare product database.
+
+Given the name of a review source, determine if it is an "incentivized review program" — meaning it provides free products, discounts, or other incentives to reviewers in exchange for reviews.
+
+Examples of incentivized sources: Home Tester Club, The Insiders, BzzAgent, Influenster, product testing panels, TryIt sampling programs.
+Examples of non-incentivized sources: brand's own website, other retail stores, organic review platforms.
+
+Respond as JSON: { "incentivized": true/false, "reasoning": "one sentence explanation" }`,
+        },
+        {
+          role: 'user',
+          content: `Review source name: "${name}"\nStore: ${source} (German drugstore)`,
+        },
+      ],
+    })
+
+    const content = response.choices[0]?.message?.content
+    if (content) {
+      const parsed = JSON.parse(content) as { incentivized: boolean; reasoning: string }
+      await payload.update({
+        collection: 'source-review-origins',
+        id: originId,
+        data: {
+          incentivized: parsed.incentivized,
+          reasoning: parsed.reasoning,
+        },
+      })
+      if (jlog) {
+        jlog.event('persist.review_origin_classified', {
+          source,
+          name,
+          incentivized: parsed.incentivized,
+          reasoning: parsed.reasoning,
+        })
+      }
+    }
+  } catch (e) {
+    log.warn('LLM classification failed for review-origin, leaving unclassified', {
+      name,
+      source,
+      originId,
+      error: e instanceof Error ? e.message : String(e),
+    })
+    // TODO: Consider retrying classification when finding an existing origin with incentivized === null
+  }
+
+  return originId
 }
 
 // ─── Ingredients Discovery ───
