@@ -15,6 +15,11 @@ export const VideoProcessings: CollectionConfig = {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'completed', 'errors', 'startedAt'],
     group: 'Videos',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [

@@ -715,6 +715,7 @@ async function buildVideoCrawlWork(payload: PayloadRestClient, jobId: number) {
       },
     })
     jlog.event('job.claimed', { collection: 'video-crawls', jobId, total })
+    jlog.event('video_crawl.started', { items: total })
   }
 
   // Read progress map and enabled stages
@@ -1007,6 +1008,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     })
 
     jlog.event('job.claimed', { collection: 'product-aggregations', jobId, total })
+    jlog.event('aggregation.started', { items: total ?? 0, type: aggregationType, language })
   }
 
   // AggregationSource is imported from aggregate-product.ts (single source of truth)

@@ -15,6 +15,11 @@ export const ProductCrawls: CollectionConfig = {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
     group: 'Source Products',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor],

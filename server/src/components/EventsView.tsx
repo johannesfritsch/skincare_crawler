@@ -4,7 +4,6 @@ import type { UIFieldClientComponent } from 'payload'
 import { useDocumentInfo, useFormFields } from '@payloadcms/ui'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { getAllJobEvents, type FullJobEvent } from '@/actions/job-actions'
-import { eventGroup, EVENT_GROUP_LABELS } from '@anyskin/shared'
 import { cleanMessage, filterDisplayData, formatTime, formatValue } from './event-display-utils'
 
 /** Strip the event name from the start of a message if it duplicates the badge */
@@ -48,44 +47,64 @@ interface EventGroupData {
 
 // ─── Grouping & filtering ────────────────────────────────────────────────────
 
+function formatRunLabel(createdAt: string): string {
+  try {
+    return `Run @ ${new Date(createdAt).toLocaleString()}`
+  } catch {
+    return 'Run'
+  }
+}
+
 function buildGroups(events: FullJobEvent[]): EventGroupData[] {
-  // Group by label — all events with the same label merge into one top-level group.
-  // stage.started events create sub-groups within their parent group.
-  const groupMap = new Map<string, { key: string; label: string; subGroups: SubGroup[] }>()
-  const order: string[] = []
+  // Each `job.claimed` event starts a new top-level run group.
+  // All events between two `job.claimed` events belong to the same run.
+  // `stage.started` events create sub-groups within the current run.
+  // Events before the first `job.claimed` go into a fallback group.
+  const groups: { key: string; label: string; subGroups: SubGroup[] }[] = []
+  let runCount = 0
   const subGroupCounts = new Map<string, number>()
 
   for (const event of events) {
-    const label = eventGroup(event.name)
+    const isRunStart = event.name === 'job.claimed'
     const isStageStart = event.name === 'stage.started'
 
-    // Find or create top-level group for this label
-    if (!groupMap.has(label)) {
-      groupMap.set(label, { key: label, label, subGroups: [] })
-      order.push(label)
+    // job.claimed starts a new run group
+    if (isRunStart) {
+      runCount++
+      subGroupCounts.clear()
+      groups.push({
+        key: `run#${runCount}`,
+        label: formatRunLabel(event.createdAt),
+        subGroups: [],
+      })
     }
-    const group = groupMap.get(label)!
 
-    // stage.started creates a named sub-group
+    // Ensure there's always a group (for events before first job.claimed)
+    if (groups.length === 0) {
+      groups.push({ key: 'run#0', label: 'Events', subGroups: [] })
+    }
+
+    const current = groups[groups.length - 1]
+
+    // stage.started creates a named sub-group within the current run
     if (isStageStart) {
       const stageName = (event.data?.stage as string) ?? 'Stage'
-      const subKey = `${label}/${stageName}`
+      const subKey = `run${runCount}/${stageName}`
       const subCount = (subGroupCounts.get(subKey) ?? 0) + 1
       subGroupCounts.set(subKey, subCount)
-      group.subGroups.push({ key: `${stageName}#${subCount}`, label: stageName, events: [] })
+      current.subGroups.push({ key: `${stageName}#${subCount}`, label: stageName, events: [] })
     }
 
     // Ensure there's always a sub-group to append to
-    if (group.subGroups.length === 0) {
-      group.subGroups.push({ key: `${label}/default`, label: '', events: [] })
+    if (current.subGroups.length === 0) {
+      current.subGroups.push({ key: `${current.key}/default`, label: '', events: [] })
     }
 
-    group.subGroups[group.subGroups.length - 1].events.push(event)
+    current.subGroups[current.subGroups.length - 1].events.push(event)
   }
 
-  // Reverse: newest groups first
-  return order.reverse().map((label) => {
-    const g = groupMap.get(label)!
+  // Reverse: newest runs first, newest events first within each
+  return groups.reverse().map((g) => {
     const allEvents = g.subGroups.flatMap((s: SubGroup) => s.events)
     return {
       key: g.key,

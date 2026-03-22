@@ -14,6 +14,11 @@ export const IngredientCrawls: CollectionConfig = {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'crawled', 'errors', 'startedAt'],
     group: 'Ingredients',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor],

@@ -15,6 +15,11 @@ export const ProductSearches: CollectionConfig = {
     useAsTitle: 'query',
     defaultColumns: ['query', 'sources', 'status', 'discovered', 'startedAt'],
     group: 'Source Products',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor],

@@ -14,6 +14,11 @@ export const IngredientsDiscoveries: CollectionConfig = {
     useAsTitle: 'sourceUrl',
     defaultColumns: ['sourceUrl', 'status', 'discovered', 'created', 'startedAt'],
     group: 'Ingredients',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor],

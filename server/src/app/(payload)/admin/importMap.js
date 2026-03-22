@@ -5,6 +5,7 @@ import { default as default_a2774915ad155920b0772c0286b493fc } from '@/component
 import { default as default_c8b6462ae63ad1445d9415e5a3924d06 } from '@/components/IngredientSaveButton'
 import { default as default_859576117eb3b21c8e17eaf7aa851f41 } from '@/components/ScheduleWidget'
 import { default as default_e39615a0661f0ac7437b50897c7f0fe8 } from '@/components/EventsView'
+import { default as default_e2edb969952553bb4cc96730d0ad8a01 } from '@/components/JobSaveButton'
 import { default as default_9a7df22e3082faf90a1e72c493ebdb46 } from '../../../components/ProductImageCell'
 import { default as default_333e9ee345ae96dbf69c8da737b77da2 } from '../../../components/ProductStoresCell'
 import { default as default_1f4dba48f2aca046e64b7054820da12b } from '@/components/ProductJobStatus'
@@ -65,6 +66,7 @@ export const importMap = {
   "@/components/IngredientSaveButton#default": default_c8b6462ae63ad1445d9415e5a3924d06,
   "@/components/ScheduleWidget#default": default_859576117eb3b21c8e17eaf7aa851f41,
   "@/components/EventsView#default": default_e39615a0661f0ac7437b50897c7f0fe8,
+  "@/components/JobSaveButton#default": default_e2edb969952553bb4cc96730d0ad8a01,
   "/components/ProductImageCell#default": default_9a7df22e3082faf90a1e72c493ebdb46,
   "/components/ProductStoresCell#default": default_333e9ee345ae96dbf69c8da737b77da2,
   "@/components/ProductJobStatus#default": default_1f4dba48f2aca046e64b7054820da12b,

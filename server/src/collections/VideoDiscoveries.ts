@@ -14,6 +14,11 @@ export const VideoDiscoveries: CollectionConfig = {
     useAsTitle: 'channelUrl',
     defaultColumns: ['channelUrl', 'status', 'discovered', 'created', 'startedAt'],
     group: 'Videos',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor],

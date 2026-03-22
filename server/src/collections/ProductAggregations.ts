@@ -16,6 +16,11 @@ export const ProductAggregations: CollectionConfig = {
     useAsTitle: 'id',
     defaultColumns: ['id', 'type', 'status', 'aggregated', 'errors', 'startedAt'],
     group: 'Products',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [

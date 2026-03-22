@@ -327,6 +327,25 @@ export async function crawlIngredient(ingredientId: number): Promise<JobResult> 
   return { success: true, jobId: job.id }
 }
 
+// ---------- Re-run: Reset job to pending ----------
+
+export async function rerunJob(
+  collection: JobCollection,
+  jobId: number,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = await getPayload({ config })
+    await payload.update({
+      collection,
+      id: jobId,
+      data: { status: 'pending' } as any,
+    })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 // ====================================================================
 // Bulk actions (list view — multiple selected IDs → single job)
 // ====================================================================

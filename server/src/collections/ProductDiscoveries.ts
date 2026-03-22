@@ -14,6 +14,11 @@ export const ProductDiscoveries: CollectionConfig = {
     useAsTitle: 'sourceUrls',
     defaultColumns: ['sourceUrls', 'status', 'discovered', 'startedAt'],
     group: 'Source Products',
+    components: {
+      edit: {
+        SaveButton: '@/components/JobSaveButton',
+      },
+    },
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor],
