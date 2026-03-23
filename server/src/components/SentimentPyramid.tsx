@@ -7,7 +7,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
@@ -116,6 +115,11 @@ export default function SentimentPyramid({ records, emptyMessage }: SentimentPyr
     )
   }
 
+  const totalPositive = records.filter((r) => r.sentiment === 'positive' || r.sentiment === 'neutral').reduce((s, r) => s + r.amount, 0)
+  const totalNegative = records.filter((r) => r.sentiment === 'negative').reduce((s, r) => s + r.amount, 0)
+  const pctPositive = totalMentions > 0 ? Math.round((totalPositive / totalMentions) * 100) : 0
+  const pctNegative = totalMentions > 0 ? Math.round((totalNegative / totalMentions) * 100) : 0
+
   const maxVal = Math.max(...data.map((d) => Math.max(d.positive, Math.abs(d.negative))), 1)
   const domainMax = Math.ceil(maxVal * 1.1)
 
@@ -123,13 +127,20 @@ export default function SentimentPyramid({ records, emptyMessage }: SentimentPyr
     <div style={{ width: '100%', maxWidth: 700 }}>
       <div
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
           fontSize: 13,
           color: 'var(--theme-elevation-500)',
           marginBottom: 8,
           padding: '0 4px',
         }}
       >
-        {totalMentions} topic mentions across {data.length} topics
+        <span>{totalMentions} topic mentions across {data.length} topics</span>
+        <span style={{ display: 'flex', gap: 12 }}>
+          <span style={{ color: '#22c55e', fontWeight: 500 }}>Positive {pctPositive}%</span>
+          <span style={{ color: '#ef4444', fontWeight: 500 }}>Negative {pctNegative}%</span>
+        </span>
       </div>
       <ResponsiveContainer width="100%" height={Math.max(data.length * 36 + 50, 150)}>
         <BarChart
@@ -156,7 +167,6 @@ export default function SentimentPyramid({ records, emptyMessage }: SentimentPyr
             tickLine={false}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'var(--theme-elevation-100)' }} />
-          <Legend verticalAlign="top" align="right" />
           <ReferenceLine x={0} stroke="var(--theme-elevation-250)" />
           <Bar
             stackId="sentiment"
