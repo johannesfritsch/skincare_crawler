@@ -1,13 +1,14 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { useDocumentInfo } from '@payloadcms/ui'
+import React from 'react'
 
-interface ConclusionRecord {
+export interface ConclusionRecord {
   topic: string
   conclusion: 'positive' | 'negative' | 'divided'
   strength: 'low' | 'medium' | 'high' | 'ultra'
   volume?: number
+  groupType?: 'all' | 'incentivized' | 'organic' | 'individual'
+  reviewOrigin?: { id: number; name: string; incentivized?: boolean | null } | number | null
 }
 
 const TOPIC_LABELS: Record<string, string> = {
@@ -49,42 +50,12 @@ const STRENGTH_LABELS: Record<string, string> = {
   ultra: 'Very high confidence',
 }
 
-export default function SentimentConclusions() {
-  const { id } = useDocumentInfo()
-  const [data, setData] = useState<ConclusionRecord[]>([])
-  const [loading, setLoading] = useState(true)
+export interface SentimentConclusionsProps {
+  records: ConclusionRecord[]
+}
 
-  useEffect(() => {
-    if (!id) {
-      setLoading(false)
-      return
-    }
-
-    async function fetchConclusions() {
-      try {
-        const res = await fetch(
-          `/api/product-sentiment-conclusions?where[product][equals]=${id}&limit=100&depth=0`,
-        )
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const json = await res.json()
-        setData((json.docs ?? []) as ConclusionRecord[])
-      } catch {
-        setData([])
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchConclusions()
-  }, [id])
-
-  if (loading) {
-    return (
-      <div style={{ padding: '16px 0', color: 'var(--theme-elevation-500)', fontSize: 13 }}>
-        Loading conclusions...
-      </div>
-    )
-  }
+export default function SentimentConclusions({ records }: SentimentConclusionsProps) {
+  const data = records
 
   if (data.length === 0) return null
 

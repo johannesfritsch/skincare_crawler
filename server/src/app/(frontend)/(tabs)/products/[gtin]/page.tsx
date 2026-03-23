@@ -214,7 +214,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           sentimentScore: t.video_mentions_quotes.sentimentScore,
         }).from(t.video_mentions_quotes)
           .where(sql`${t.video_mentions_quotes._parentID} IN (${sql.join(mentionIds.map(id => sql`${id}`), sql`, `)})`)
-          .orderBy(sql`abs(${t.video_mentions_quotes.sentimentScore}) DESC NULLS LAST`)
+          .orderBy(sql`abs(${t.video_mentions_quotes.sentimentScore} - 5) DESC NULLS LAST`)
       : Promise.resolve([] as { mentionId: unknown; text: unknown; sentiment: unknown; sentimentScore: unknown }[]),
   ])
 

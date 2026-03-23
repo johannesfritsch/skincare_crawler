@@ -59,6 +59,14 @@ export const ProductSentiments: CollectionConfig = {
       ],
     },
     {
+      name: 'reviewOrigin',
+      type: 'relationship',
+      relationTo: 'source-review-origins',
+      admin: {
+        description: 'Syndication source origin. Null = native/no syndication.',
+      },
+    },
+    {
       name: 'amount',
       type: 'number',
       required: true,

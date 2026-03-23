@@ -744,16 +744,13 @@ export interface VideoMention {
          */
         summary?:
           | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
+              text: string;
+              id?: string | null;
+            }[]
           | null;
         sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
         /**
-         * Score from -1 (very negative) to 1 (very positive)
+         * Score from 0 (very negative) to 10 (very positive)
          */
         sentimentScore?: number | null;
         id?: string | null;
@@ -761,7 +758,7 @@ export interface VideoMention {
     | null;
   overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
   /**
-   * Aggregate score from -1 (very negative) to 1 (very positive)
+   * Aggregate score from 0 (very negative) to 10 (very positive)
    */
   overallSentimentScore?: number | null;
   updatedAt: string;
@@ -1931,6 +1928,10 @@ export interface ProductSentiment {
     | 'animalTesting';
   sentiment: 'positive' | 'neutral' | 'negative';
   /**
+   * Syndication source origin. Null = native/no syndication.
+   */
+  reviewOrigin?: (number | null) | SourceReviewOrigin;
+  /**
    * Count of reviews with this topic+sentiment combination
    */
   amount: number;
@@ -1961,6 +1962,14 @@ export interface ProductSentimentConclusion {
     | 'dispensing'
     | 'travelSafety'
     | 'animalTesting';
+  /**
+   * Which origin group this conclusion belongs to
+   */
+  groupType: 'all' | 'incentivized' | 'organic' | 'individual';
+  /**
+   * For individual origin conclusions. Null for aggregate groups (all/incentivized/organic).
+   */
+  reviewOrigin?: (number | null) | SourceReviewOrigin;
   /**
    * Overall sentiment direction for this topic based on review analysis
    */
@@ -3248,6 +3257,7 @@ export interface ProductSentimentsSelect<T extends boolean = true> {
   product?: T;
   topic?: T;
   sentiment?: T;
+  reviewOrigin?: T;
   amount?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -3259,6 +3269,8 @@ export interface ProductSentimentsSelect<T extends boolean = true> {
 export interface ProductSentimentConclusionsSelect<T extends boolean = true> {
   product?: T;
   topic?: T;
+  groupType?: T;
+  reviewOrigin?: T;
   conclusion?: T;
   strength?: T;
   volume?: T;
@@ -3435,7 +3447,12 @@ export interface VideoMentionsSelect<T extends boolean = true> {
     | T
     | {
         text?: T;
-        summary?: T;
+        summary?:
+          | T
+          | {
+              text?: T;
+              id?: T;
+            };
         sentiment?: T;
         sentimentScore?: T;
         id?: T;

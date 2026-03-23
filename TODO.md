@@ -30,11 +30,10 @@
 - ✅ Review aggregation
 - ✅ Product crawl in stages
 - ✅ Embeddings of images are overwritten
-- Rate-limiting of bazaar API (don't get blocked)
 - ✅ Reviewer age "17orUnder" is not handled properly
 - ✅ Better insights into jobs
 - ✅ Scheduling of jobs
 - ✅ Mark reviews as sourced from somewhere during crawl
-- Automatically classify review sources
-- During aggregation, take the review source into account
+- ✅ Automatically classify review sources
+- ✅ During aggregation, take the review source into account
 - ✅ Mark runs with status icon in events view

@@ -48,6 +48,31 @@ export const ProductSentimentConclusions: CollectionConfig = {
       ],
     },
     {
+      name: 'groupType',
+      type: 'select',
+      required: true,
+      defaultValue: 'all',
+      index: true,
+      options: [
+        { label: 'All', value: 'all' },
+        { label: 'Incentivized', value: 'incentivized' },
+        { label: 'Organic', value: 'organic' },
+        { label: 'Individual Origin', value: 'individual' },
+      ],
+      admin: {
+        description: 'Which origin group this conclusion belongs to',
+      },
+    },
+    {
+      name: 'reviewOrigin',
+      type: 'relationship',
+      relationTo: 'source-review-origins',
+      admin: {
+        description: 'For individual origin conclusions. Null for aggregate groups (all/incentivized/organic).',
+        condition: (data) => data?.groupType === 'individual',
+      },
+    },
+    {
       name: 'conclusion',
       type: 'select',
       required: true,

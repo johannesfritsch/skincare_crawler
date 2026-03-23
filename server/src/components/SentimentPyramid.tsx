@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { useDocumentInfo } from '@payloadcms/ui'
+import React from 'react'
 import {
   BarChart,
   Bar,
@@ -13,10 +12,11 @@ import {
   ReferenceLine,
 } from 'recharts'
 
-interface SentimentRecord {
+export interface SentimentRecord {
   topic: string
   sentiment: 'positive' | 'neutral' | 'negative'
   amount: number
+  reviewOrigin?: { id: number; name: string; incentivized?: boolean | null } | number | null
 }
 
 interface PyramidRow {
@@ -92,46 +92,14 @@ function CustomTooltip({ active, payload, label }: any) {
   )
 }
 
-export default function SentimentPyramid() {
-  const { id } = useDocumentInfo()
-  const [data, setData] = useState<PyramidRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [totalMentions, setTotalMentions] = useState(0)
+export interface SentimentPyramidProps {
+  records: SentimentRecord[]
+  emptyMessage?: string
+}
 
-  useEffect(() => {
-    if (!id) {
-      setLoading(false)
-      return
-    }
-
-    async function fetchSentiments() {
-      try {
-        const res = await fetch(
-          `/api/product-sentiments?where[product][equals]=${id}&limit=100&depth=0`,
-        )
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const json = await res.json()
-        const docs = (json.docs ?? []) as SentimentRecord[]
-        const pyramid = buildPyramidData(docs)
-        setData(pyramid)
-        setTotalMentions(docs.reduce((sum, d) => sum + d.amount, 0))
-      } catch {
-        setData([])
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchSentiments()
-  }, [id])
-
-  if (loading) {
-    return (
-      <div style={{ padding: '24px 0', color: 'var(--theme-elevation-500)', fontSize: 13 }}>
-        Loading sentiments...
-      </div>
-    )
-  }
+export default function SentimentPyramid({ records, emptyMessage }: SentimentPyramidProps) {
+  const data = buildPyramidData(records)
+  const totalMentions = records.reduce((sum, d) => sum + d.amount, 0)
 
   if (data.length === 0) {
     return (
@@ -143,7 +111,7 @@ export default function SentimentPyramid() {
           fontSize: 13,
         }}
       >
-        No sentiment data yet. Run aggregation with Review Sentiment stage enabled.
+        {emptyMessage ?? 'No sentiment data yet. Run aggregation with Review Sentiment stage enabled.'}
       </div>
     )
   }

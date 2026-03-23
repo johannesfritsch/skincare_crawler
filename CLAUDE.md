@@ -2,8 +2,7 @@
 
 ## MANDATORY: Use td for Task Management
 
-You must run td usage --new-session at conversation start (or after /clear) to see current work.
-Use td usage -q for subsequent reads.
+You must run td usage --new-session at conversation start (or after /clear) to see current work. Use td usage -q for subsequent reads.
 
 ## Git Policy
 
@@ -105,7 +104,7 @@ DEEPGRAM_API_KEY=...             # for full-audio transcription with word timest
 ### Core Data
 
 | Collection | Purpose |
-|------------|---------|
+| --- | --- |
 | `products` | Unified product records (name, brand, productType, image, ingredients, attributes, claims, warnings, skinApplicability, phMin/phMax, usageInstructions, usageSchedule, scoreHistory with change: drop/stable/increase). No longer has `gtin` — GTINs live on `product-variants`. Has a `variants` join to product-variants collection. |
 | `product-variants` | Per-variant records for unified products. Each has: `product` (required relationship → products, indexed), `gtin` (unique, indexed), `label`, `images` (array of {image: upload → product-media, visibility: public/recognition_only, source: dm/rossmann/mueller/purish} — ALL store images, first public entry is display image, recognition_only images are used for object detection + DINOv2 embedding only), `sourceVariants` (hasMany relationship → source-variants), `recognitionImages` (array of {image: upload → detection-media, score: number, boxXMin/boxYMin/boxXMax/boxYMax: number} — Grounding DINO detection crops from ALL variant images, with DINOv2-base embedding vectors stored separately in the `recognition_embeddings` table). Aggregation pipeline creates these when creating/updating products. Frontend routes via `/products/[gtin]` look up product-variants first. Frontend list queries use `min(gtin)` + `GROUP BY product.id` to deduplicate (one row per product). |
 | `source-products` | Product-level data per retailer (source: dm/mueller/rossmann/purish, sourceUrl: unique product page URL — the dedup key, name, brandName, categoryBreadcrumb text, averageRating, ratingCount). No `status` field — "crawled" is determined by having at least one source-variant. No longer has `gtin`, `priceHistory`, `description`, `images`, `ingredientsText`, `amount`, `amountUnit`, or `labels` — these all live on `source-variants`. Has a `sourceVariants` join to source-variants collection. Source-products are only created during crawl (persist finds-or-creates by normalized URL). Discovery/search only accumulate URLs — they do not create source-product records. |
@@ -119,7 +118,7 @@ DEEPGRAM_API_KEY=...             # for full-audio transcription with word timest
 ### Video Data
 
 | Collection | Purpose |
-|------------|---------|
+| --- | --- |
 | `videos` | YouTube/social videos with lifecycle status (status: discovered/crawled/processed, title, thumbnail (upload → video-media, video thumbnail image), videoFile (upload → video-media, downloaded MP4), channel ref, externalUrl, publishedAt, duration, viewCount, likeCount, videoScenes (join)). No `transcript` field — transcripts live only on `video-scenes`. Status is managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
 | `video-scenes` | Video segments (timestamps, image (upload → video-media), transcript, frames (join → video-frames on scene)). Detection data stored in tabbed arrays corresponding to pipeline stages: `barcodes[]` (stage 1: barcode scan results), `objects[]` (stage 2: Grounding DINO detections with OCR text fields ocrBrand/ocrProductName/ocrText), `recognitions[]` (stage 3: DINOv2 visual search matches), `llmMatches[]` (legacy: populated by the removed `llm_recognition` stage, kept for backward compatibility), `detections[]` (stage 6: LLM-consolidated results from all sources with unified confidence score and `reasoning` field; sources select hasMany: barcode/object_detection/vision_llm/ocr/transcript). |
 | `video-frames` | Pure per-frame records for video scenes (scene ref, image upload → video-media, isClusterRepresentative boolean, clusterThumbnail upload → video-media). Frames no longer carry detection or matching data — all detection results live on video-scenes. |
@@ -134,7 +133,7 @@ All follow status lifecycle: `pending | scheduled` → `pending` → `in_progres
 All job collections have shared fields via `jobClaimFields`: `claimedBy` (relationship to workers), `claimedAt` (date), `retryCount` (number, default 0), `maxRetries` (number, default 3), `failedAt` (date), `failureReason` (textarea). Scheduling fields via `jobScheduleFields`: `schedule` (cron expression text, custom CronExpressionField component), `scheduledFor` (date, read-only, visible only when status=scheduled). Shared status field via `jobStatusField` (5 options: pending, scheduled, in_progress, completed, failed). A `beforeChange` hook (`enforceJobClaim`) prevents two workers from claiming the same job. An `afterChange` hook (`rescheduleOnComplete`) automatically reschedules the same job when a recurring job (one with a `schedule` cron expression) completes — it resets progress fields and sets `status: 'scheduled'` with the next run time computed from the cron. The job cycles: `scheduled → pending → in_progress → completed → scheduled → ...` Jobs cycle through claim states: **pending** → worker claims (sets `claimedBy`/`claimedAt`) → processes batch → **releases claim** (`claimedBy`/`claimedAt` set to null) → any worker claims next batch → ... → **completed** or **failed**. Jobs are marked `failed` when: (1) `retryCount` exceeds `maxRetries` after repeated 100% error batches or handler exceptions, or (2) a permanent error is detected (e.g. no driver for URL). Stale claims (older than `WORKER_JOB_TIMEOUT_MINUTES`, default 30m) are automatically released and can be reclaimed by another worker. Workers refresh `claimedAt` via heartbeat to keep claims alive during long batches. Workers call `POST /api/jobs/activate-scheduled` each poll cycle to transition `scheduled` jobs whose `scheduledFor` has passed to `pending`. Workers are fully stateless; all progress lives on the server.
 
 | Collection | Key fields |
-|------------|------------|
+| --- | --- |
 | `product-crawls` | source, type (all/selected_urls/from_discovery/from_search), scope, crawlVariants (default true), stageScrape (default true), stageReviews (default true), crawlProgress (hidden JSON, per-source-product stage tracking), progress, crawledGtins (hidden, accumulated GTINs) |
 | `product-discoveries` | sourceUrls, progress, discovered count, productUrls (hidden, accumulated URLs) |
 | `product-searches` | query, sources (dm/mueller/rossmann), maxResults, discovered count, productUrls (hidden, accumulated URLs) |
@@ -148,7 +147,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 ### System
 
 | Collection | Purpose |
-|------------|---------|
+| --- | --- |
 | `users` | Admin users (Payload auth) |
 | `workers` | Worker processes (API key auth, capabilities list, lastSeenAt) |
 | `events` | Structured audit log (type, name (typed event name e.g. `crawl.started`), level, component, message, data JSON for structured metadata, job polymorphic relation, labels) |
@@ -156,7 +155,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `video-media` | Video files (MP4), thumbnails, screenshots (thumbnail 96x96, card 320x240, detail 780x780) |
 | `profile-media` | Channel avatars, creator images, ingredient images (avatar 128x128, thumbnail 96x96, card 320x240) |
 | `detection-media` | Grounding DINO detection crops — product and video (no image sizes, raw crops only) |
-| `product-sentiments` | Aggregated per-product topic sentiment counts from source reviews. One row per (product, topic, sentiment) combination. Fields: product (ref → products, indexed), topic (select: smell/texture/color/consistency/absorption/stickiness/lather/efficacy/longevity/finish/afterFeel/skinTolerance/allergenPotential/dispensing/travelSafety/animalTesting, indexed), sentiment (select: positive/neutral/negative), amount (number, default 0). |
+| `product-sentiments` | Aggregated per-product topic sentiment counts from source reviews. One row per (product, topic, sentiment, reviewOrigin) combination. Fields: product (ref → products, indexed), topic (select: 16 topics, indexed), sentiment (select: positive/neutral/negative), reviewOrigin (ref → source-review-origins, nullable — null for native reviews), amount (number, default 0). The reviewOrigin dimension enables slicing by origin: "All" sums all rows, "Incentivized" filters where origin.incentivized=true, "Organic" filters where origin.incentivized !== true or null. |
 | `recognition_embeddings` | Standalone pgvector table for DINOv2-base (768-dim) embeddings keyed by (product_variant_id, detection_media_id, augmentation_type). Each detection crop produces 8 embeddings (original + 7 synthetic perspective augmentations: rotations, flip, skews). Decoupled from Payload's recognitionImages array to survive array rewrites. HNSW index for cosine similarity search. |
 
 ## End-to-End Data Flow
@@ -176,10 +175,10 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 
 Whenever you make changes to the codebase, **update the relevant CLAUDE.md file(s)** to reflect those changes. This is mandatory — documentation must stay in sync with the code.
 
-- **Root `CLAUDE.md`** (this file): Update when changes affect the overall repository layout, database schema (adding/removing/renaming collections), end-to-end data flow, environment variables, or cross-cutting development notes.
-- **`server/CLAUDE.md`**: Update when changes affect Payload CMS collections, fields, hooks, access control, components, actions, endpoints, or server-side patterns.
-- **`worker/CLAUDE.md`**: Update when changes affect job handlers, the work protocol, source drivers, matching/classification functions, the REST client, logging, or worker-side patterns.
-- **`worker/src/lib/source-discovery/drivers/<slug>/CLAUDE.md`**: Each store driver has its own CLAUDE.md documenting store-specific scraping details (HTML structure, API endpoints, selectors, data extraction patterns). **When you learn something new about how a store's website works** — a changed HTML structure, a new API field, a different selector, an anti-bot behavior — **update that driver's CLAUDE.md immediately**. These files are the source of truth for store-specific scraping logic.
+- **Root** `CLAUDE.md` (this file): Update when changes affect the overall repository layout, database schema (adding/removing/renaming collections), end-to-end data flow, environment variables, or cross-cutting development notes.
+- `server/CLAUDE.md`: Update when changes affect Payload CMS collections, fields, hooks, access control, components, actions, endpoints, or server-side patterns.
+- `worker/CLAUDE.md`: Update when changes affect job handlers, the work protocol, source drivers, matching/classification functions, the REST client, logging, or worker-side patterns.
+- `worker/src/lib/source-discovery/drivers/<slug>/CLAUDE.md`: Each store driver has its own CLAUDE.md documenting store-specific scraping details (HTML structure, API endpoints, selectors, data extraction patterns). **When you learn something new about how a store's website works** — a changed HTML structure, a new API field, a different selector, an anti-bot behavior — **update that driver's CLAUDE.md immediately**. These files are the source of truth for store-specific scraping logic.
 
 If a change spans both server and worker (e.g. adding a new job type with a new collection and a new handler), update all three files accordingly.
 
@@ -192,7 +191,7 @@ The system is designed to scale to 10-15 store drivers. Store-specific logic liv
 Store slugs are centralized in **two registry files** (one per process):
 
 | Registry | Process | Exports | Consumers |
-|----------|---------|---------|-----------|
+| --- | --- | --- | --- |
 | `worker/src/lib/source-discovery/driver.ts` | Worker | `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `getAllSourceDrivers()` | claim.ts, submit.ts, worker.ts, aggregate-product.ts, source-product-queries.ts |
 | `server/src/collections/shared/store-fields.ts` | Server | `STORES` (primary registry with slug, label, hosts), `SOURCE_OPTIONS`, `SOURCE_OPTIONS_WITH_ALL`, `ALL_SOURCE_SLUGS`, `DEFAULT_IMAGE_SOURCE_PRIORITY`, `STORE_LABELS`, `detectStoreFromUrl()`, `shortenUrl()` | Collection configs, score-utils.tsx, SourceUrlField.tsx, SourceUrlCell.tsx |
 
@@ -203,28 +202,34 @@ The server registry is a simple static list (server and worker are separate proc
 ### Step-by-step: Adding a new store
 
 1. **Create the driver** — `worker/src/lib/source-discovery/drivers/<slug>/index.ts`
+
    - Implement the `SourceDriver` interface: `slug`, `label`, `hosts`, `logoSvg`, `matches()`, `discoverProducts()`, `searchProducts()`, `scrapeProduct()`
    - Use existing drivers as reference (DM for API-based, Rossmann/Mueller for Playwright-based)
    - Add a `CLAUDE.md` in the same folder documenting the scraping details (see `purish/CLAUDE.md` for the reference format)
 
 2. **Register the driver** — `worker/src/lib/source-discovery/driver.ts`
+
    - Import the driver and add it to the `drivers[]` array
    - `ALL_SOURCE_SLUGS` and `DEFAULT_IMAGE_SOURCE_PRIORITY` update automatically
 
-3. **Update the `SourceSlug` type** — `shared/src/events.ts` and `worker/src/lib/source-discovery/types.ts`
+3. **Update the** `SourceSlug` **type** — `shared/src/events.ts` and `worker/src/lib/source-discovery/types.ts`
+
    - Add the new slug to the `SourceSlug` union type in both files (e.g. `'dm' | 'mueller' | 'rossmann' | 'newstore'`)
 
 4. **Update server store registry** — `server/src/collections/shared/store-fields.ts`
+
    - Add `{ value: 'newslug', label: 'Store Name', hosts: ['www.newstore.com', 'newstore.com'] }` to `STORES`
    - All derived constants (`SOURCE_OPTIONS`, `ALL_SOURCE_SLUGS`, `STORE_LABELS`, `detectStoreFromUrl`, etc.) update automatically
 
 5. **Add the store logo** — `server/src/components/store-logos.tsx`
+
    - Create a new logo component function (inline SVG)
    - Add it to `LOGO_MAP` (the `StoreLogo` component dispatches via map lookup; unknown slugs fall back to text)
 
-6. **Run `pnpm generate:types`** in the server to regenerate `payload-types.ts`
+6. **Run** `pnpm generate:types` in the server to regenerate `payload-types.ts`
 
 7. **Create a database migration** — `ALTER TYPE ... ADD VALUE 'newslug'` for each affected Postgres enum:
+
    - `enum_source_products_source`
    - `enum_product_crawls_source`
    - `enum_product_searches_sources`
@@ -242,8 +247,8 @@ The server registry is a simple static list (server and worker are separate proc
 
 - **TypeScript** throughout; worker uses `@/` path aliases via tsconfig
 - **pnpm workspace** — root `pnpm-workspace.yaml` lists `server`, `worker`, `shared`. The root `package.json` holds shared `pnpm.onlyBuiltDependencies` and `pnpm.overrides`. Run `pnpm install` from the root.
-- **`@anyskin/shared`** — consumed as raw TypeScript (no build step). Server uses `transpilePackages: ['@anyskin/shared']` in `next.config.mjs`. Worker uses `tsx` which handles TS imports natively. Contains the `EventRegistry` (typed event names → data shapes), `EVENT_META` (default type/level/labels per event), and shared types (`SourceSlug`, `JobCollection`, `EventType`, `LogLevel`).
+- `@anyskin/shared` — consumed as raw TypeScript (no build step). Server uses `transpilePackages: ['@anyskin/shared']` in `next.config.mjs`. Worker uses `tsx` which handles TS imports natively. Contains the `EventRegistry` (typed event names → data shapes), `EVENT_META` (default type/level/labels per event), and shared types (`SourceSlug`, `JobCollection`, `EventType`, `LogLevel`).
 - **No build step** for worker in dev — runs via `tsx`
 - **Server types**: Run `pnpm generate:types` after collection schema changes
-- **Migrations**: The project uses migration-based schema management (`push: false` on the Postgres adapter). After modifying collection configs, run `pnpm payload migrate:create` in the server directory to generate a migration. Do NOT run `pnpm payload migrate` — the developer applies migrations themselves. Migrations live in `server/src/migrations/`. **CRITICAL: NEVER hand-write migration files.** Always use `pnpm payload migrate:create` to generate migrations. Each generated migration is a pair: a `.ts` file (SQL) and a `.json` file (schema snapshot). Payload diffs the current schema against the **most recent `.json` snapshot** to compute what changed. Hand-written migrations without a companion `.json` cause Payload to lose track of the schema state, leading to `migrate:create` generating duplicate SQL for changes that already exist. If `migrate:create` prompts interactively (e.g. "created or renamed?"), the developer must answer those prompts — do not try to bypass them.
+- **Migrations**: The project uses migration-based schema management (`push: false` on the Postgres adapter). After modifying collection configs, run `pnpm payload migrate:create` in the server directory to generate a migration. Do NOT run `pnpm payload migrate` — the developer applies migrations themselves. Migrations live in `server/src/migrations/`. **CRITICAL: NEVER hand-write migration files.** Always use `pnpm payload migrate:create` to generate migrations. Each generated migration is a pair: a `.ts` file (SQL) and a `.json` file (schema snapshot). Payload diffs the current schema against the **most recent** `.json` **snapshot** to compute what changed. Hand-written migrations without a companion `.json` cause Payload to lose track of the schema state, leading to `migrate:create` generating duplicate SQL for changes that already exist. If `migrate:create` prompts interactively (e.g. "created or renamed?"), the developer must answer those prompts — do not try to bypass them.
 - **Tests**: Server has Vitest (integration) + Playwright (e2e) in `server/tests/`

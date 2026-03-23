@@ -352,6 +352,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
           },
         })
         jlog.event('crawl.completed', { source, crawled, errors, durationMs: jobDurationMs })
+        jlog.event('job.completed', { collection: 'product-crawls', durationMs: jobDurationMs })
       } else {
         // Reviews done but scrape still has work — release for next batch
         await payload.update({
@@ -490,6 +491,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       },
     })
     jlog.event('crawl.completed', { source, crawled, errors, durationMs: jobDurationMs })
+    jlog.event('job.completed', { collection: 'product-crawls', durationMs: jobDurationMs })
   } else {
     log.info('Product crawl batch done', { jobId, remaining: totalRemaining, crawled, errors, reviewsRemaining: reviewsHaveWork })
     await payload.update({
@@ -621,6 +623,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
       },
     })
     jlog.event('discovery.completed', { source: source ?? 'unknown', discovered, durationMs: jobDurationMs })
+    jlog.event('job.completed', { collection: 'product-discoveries', durationMs: jobDurationMs })
   } else {
     await payload.update({
       collection: 'product-discoveries',
@@ -674,6 +677,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
     },
   })
   jlog.event('search.completed', { sources, discovered, durationMs: batchDurationMs })
+  jlog.event('job.completed', { collection: 'product-searches', durationMs: batchDurationMs })
 
   return { discovered }
 }
@@ -737,6 +741,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
     jlog.event('ingredients_discovery.completed', { discovered, created, existing, errors, durationMs: jobDurationMs })
+    jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs: jobDurationMs })
   } else {
     await payload.update({
       collection: 'ingredients-discoveries',
@@ -805,6 +810,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
     jlog.event('video_discovery.completed', { discovered: totalDiscovered, durationMs: jobDurationMs })
+    jlog.event('job.completed', { collection: 'video-discoveries', durationMs: jobDurationMs })
   } else {
     await payload.update({
       collection: 'video-discoveries',
@@ -959,6 +965,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
       },
     })
     jlog.event('video_crawl.completed', { crawled, errors, durationMs: jobDurationMs })
+    jlog.event('job.completed', { collection: 'video-crawls', durationMs: jobDurationMs })
   } else {
     log.info('Video crawl batch done', { jobId, remaining: totalRemaining, crawled, errors })
     await payload.update({
@@ -1159,6 +1166,7 @@ async function submitVideoProcessing(payload: PayloadRestClient, body: SubmitVid
         },
       })
       jlog.event('video_processing.completed', { completed, errors, tokensUsed, durationMs: jobDurationMs, failedVideos: failedVideoCount })
+      jlog.event('job.completed', { collection: 'video-processings', durationMs: jobDurationMs })
     }
   } else {
     await payload.update({
@@ -1331,6 +1339,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         },
       })
       jlog.event('aggregation.completed', { aggregated, errors, tokensUsed, durationMs: jobDurationMs, failedProducts: failedProductCount })
+      jlog.event('job.completed', { collection: 'product-aggregations', durationMs: jobDurationMs })
     }
   } else {
     // Release claim for next batch (both 'all' cursor-based and 'selected_gtins' with remaining work)
@@ -1455,6 +1464,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
     jlog.event('ingredient_crawl.completed', { crawled, errors, tokensUsed, durationMs: jobDurationMs, withInciDecoder: batchWithInciDecoder })
+    jlog.event('job.completed', { collection: 'ingredient-crawls', durationMs: jobDurationMs })
   } else {
     const batchDurationMs = Date.now() - batchStartMs
     await payload.update({

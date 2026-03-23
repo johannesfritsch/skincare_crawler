@@ -14,7 +14,7 @@ You receive:
 Your task:
 1. For each referenced product, extract direct quotes where the creator actually speaks ABOUT the product (its properties, effectiveness, texture, scent, results, price, recommendation, etc.)
 2. Assign sentiment to each quote (positive, neutral, negative, mixed)
-3. Assign a sentiment score from -1.0 (very negative) to 1.0 (very positive)
+3. Assign a sentiment score from 0 (very negative) to 10 (very positive)
 4. Provide an overall sentiment and score per product
 
 Quote extraction rules:
@@ -26,17 +26,17 @@ Quote extraction rules:
 
 Sentiment scoring rules — READ CAREFULLY:
 - The overallSentimentScore must reflect the creator's TRUE opinion of the product as expressed in the segment. Use the full transcript for additional context on the creator's overall stance.
-- Think about it like a human would: if someone says "this is the best vitamin C on the market, it has 15% vitamin C acid, the stability is amazing, but it smells a bit weird" — that is overwhelmingly positive with one minor caveat. The overall score should be high (e.g. 0.7-0.9), not dragged down to neutral.
+- Think about it like a human would: if someone says "this is the best vitamin C on the market, it has 15% vitamin C acid, the stability is amazing, but it smells a bit weird" — that is overwhelmingly positive with one minor caveat. The overall score should be high (e.g. 8-9), not dragged down to neutral.
 - Weight the quotes by their strength and significance. A superlative recommendation ("the best on the market") carries far more weight than a minor complaint ("smells a bit").
 - "Mixed" should ONLY be used when the positive and negative aspects are roughly balanced in significance. One minor drawback alongside strong praise is NOT mixed — it is positive.
-- Score guide:
-  - 0.8 to 1.0: Strong recommendation, enthusiastic praise, superlatives
-  - 0.5 to 0.7: Generally positive, recommends with minor reservations
-  - 0.1 to 0.4: Mildly positive, lukewarm
-  - 0.0: Truly neutral, no opinion expressed
-  - -0.1 to -0.4: Mildly negative, some disappointment
-  - -0.5 to -0.7: Generally negative, would not recommend
-  - -0.8 to -1.0: Strongly negative, warns against the product
+- Score guide (0 = worst, 10 = best):
+  - 9 to 10: Strong recommendation, enthusiastic praise, superlatives
+  - 7 to 8: Generally positive, recommends with minor reservations
+  - 6 to 7: Mildly positive, lukewarm
+  - 5: Truly neutral, no opinion expressed
+  - 3 to 4: Mildly negative, some disappointment
+  - 1 to 2: Generally negative, would not recommend
+  - 0 to 1: Strongly negative, warns against the product
 
 For each quote, also provide a "summary" array: very short, concise key takeaways that stay true to the original wording but strip filler words. Each summary entry should capture one distinct point. Use the creator's own phrasing where possible — do not editorialize.
 
@@ -50,10 +50,10 @@ Return ONLY a JSON object with this structure:
     {
       "productId": 123,
       "quotes": [
-        { "text": "exact spoken text", "summary": ["key point 1", "key point 2"], "sentiment": "positive", "sentimentScore": 0.8 }
+        { "text": "exact spoken text", "summary": ["key point 1", "key point 2"], "sentiment": "positive", "sentimentScore": 8.5 }
       ],
       "overallSentiment": "positive",
-      "overallSentimentScore": 0.7
+      "overallSentimentScore": 8.0
     }
   ]
 }

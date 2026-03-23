@@ -64,14 +64,11 @@ export interface StoreScoreItem {
 
 /* ── Helpers ── */
 
-/** Convert raw sentiment (-1 to +1) to 0–10 display string */
-function toScore10(raw: number): string {
-  return ((raw + 1) * 5).toFixed(1)
-}
-
-/** Convert raw sentiment (-1 to +1) to numeric 0–10 value */
+/** Convert sentiment score to 0–10 scale.
+ * New data is already 0–10; legacy data (-1 to +1) is detected by range and converted. */
 function toScore10Num(raw: number): number {
-  return (raw + 1) * 5
+  if (raw >= -1 && raw <= 1) return (raw + 1) * 5 // legacy -1..+1 scale
+  return raw // already 0..10
 }
 
 function platformLabel(platform: string | null): string {

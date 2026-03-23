@@ -11,8 +11,7 @@ import { default as default_333e9ee345ae96dbf69c8da737b77da2 } from '../../../co
 import { default as default_1f4dba48f2aca046e64b7054820da12b } from '@/components/ProductJobStatus'
 import { default as default_86bc81a82081de65b416f9df8301fb33 } from '../../../components/VariantsGallery'
 import { default as default_c9d516001f57f9c4d3bee52dbb329ff3 } from '../../../components/ProductNameCell'
-import { default as default_a4e10fef320fe180828c0b34f56e1ed4 } from '@/components/SentimentPyramid'
-import { default as default_a6681661097242f181240b6c28afcc19 } from '@/components/SentimentConclusions'
+import { default as default_663ac6d2c87fd6a24fa458ad01a3d3d7 } from '@/components/SentimentOriginTabs'
 import { default as default_819ef9d66822c27ca92a2904c893997c } from '@/components/bulk-actions/ProductBulkActions'
 import { default as default_56ebde3b2eb1d9ad5a98aac7de4b659e } from '@/components/bulk-actions/ProductBulkStatus'
 import { default as default_26307cb162b7a1272a178557593e5200 } from '@/components/ProductSaveButton'
@@ -72,8 +71,7 @@ export const importMap = {
   "@/components/ProductJobStatus#default": default_1f4dba48f2aca046e64b7054820da12b,
   "/components/VariantsGallery#default": default_86bc81a82081de65b416f9df8301fb33,
   "/components/ProductNameCell#default": default_c9d516001f57f9c4d3bee52dbb329ff3,
-  "@/components/SentimentPyramid#default": default_a4e10fef320fe180828c0b34f56e1ed4,
-  "@/components/SentimentConclusions#default": default_a6681661097242f181240b6c28afcc19,
+  "@/components/SentimentOriginTabs#default": default_663ac6d2c87fd6a24fa458ad01a3d3d7,
   "@/components/bulk-actions/ProductBulkActions#default": default_819ef9d66822c27ca92a2904c893997c,
   "@/components/bulk-actions/ProductBulkStatus#default": default_56ebde3b2eb1d9ad5a98aac7de4b659e,
   "@/components/ProductSaveButton#default": default_26307cb162b7a1272a178557593e5200,

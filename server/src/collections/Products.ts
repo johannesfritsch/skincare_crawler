@@ -219,20 +219,11 @@ export const Products: CollectionConfig = {
           label: 'Sentiments',
           fields: [
             {
-              name: 'sentimentChart',
+              name: 'sentimentView',
               type: 'ui',
               admin: {
                 components: {
-                  Field: '@/components/SentimentPyramid',
-                },
-              },
-            },
-            {
-              name: 'sentimentConclusions',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '@/components/SentimentConclusions',
+                  Field: '@/components/SentimentOriginTabs',
                 },
               },
             },

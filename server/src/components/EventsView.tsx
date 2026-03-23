@@ -48,10 +48,10 @@ interface EventGroupData {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Matches job-level completion events (job.completed_empty, crawl.completed, video_processing.completed, etc.) */
+/** Matches generic job-level completion events only (not domain-specific like crawl.completed) */
 function isCompletionEvent(name: string | null | undefined): boolean {
   if (!name) return false
-  return name.endsWith('.completed') || name === 'job.completed_empty'
+  return name === 'job.completed' || name === 'job.completed_empty'
 }
 
 // ─── Grouping & filtering ────────────────────────────────────────────────────

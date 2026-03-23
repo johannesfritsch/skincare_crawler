@@ -1,23 +1,29 @@
 /**
  * Stage 10: Sentiment Conclusion
  *
- * Reads aggregated product-sentiments for the product, filters topics with
- * sufficient volume (>= 5 total votes), determines the overall conclusion
+ * Reads aggregated product-sentiments for the product, builds origin groups
+ * (All, Incentivized, Organic, per-individual-origin), filters topics with
+ * sufficient volume (dynamic thresholds), determines the overall conclusion
  * (positive/negative/divided) and strength (based on volume), then upserts
- * product-sentiment-conclusions records.
+ * product-sentiment-conclusions records per group.
  *
  * No LLM needed — conclusions are derived algorithmically from the counts.
  */
 
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
-/** Minimum total votes in a topic before a conclusion is generated */
-const MIN_VOTES_FOR_CONCLUSION = 5
+/** Minimum total votes for aggregate groups (All, Incentivized, Organic) */
+const MIN_VOTES_AGGREGATE = 5
+/** Lower threshold for individual origin groups */
+const MIN_VOTES_INDIVIDUAL = 3
+
+type GroupType = 'all' | 'incentivized' | 'organic' | 'individual'
 
 interface SentimentRecord {
   topic: string
   sentiment: 'positive' | 'neutral' | 'negative'
   amount: number
+  reviewOrigin: { id: number; incentivized?: boolean | null } | number | null
 }
 
 interface TopicSummary {
@@ -26,6 +32,12 @@ interface TopicSummary {
   neutral: number
   negative: number
   total: number
+}
+
+interface GroupDef {
+  groupType: GroupType
+  originId: number | null
+  minVotes: number
 }
 
 function deriveConclusion(s: TopicSummary): 'positive' | 'negative' | 'divided' {
@@ -49,6 +61,17 @@ function deriveStrength(total: number): 'low' | 'medium' | 'high' | 'ultra' {
   return 'low'
 }
 
+function getOriginId(origin: SentimentRecord['reviewOrigin']): number | null {
+  if (!origin) return null
+  if (typeof origin === 'number') return origin
+  return (origin.id as number) ?? null
+}
+
+function isIncentivized(origin: SentimentRecord['reviewOrigin']): boolean {
+  if (!origin || typeof origin === 'number') return false
+  return origin.incentivized === true
+}
+
 export async function executeSentimentConclusion(ctx: StageContext, workItem: AggregationWorkItem): Promise<StageResult> {
   const { payload, log } = ctx
   const productId = workItem.productId
@@ -57,11 +80,12 @@ export async function executeSentimentConclusion(ctx: StageContext, workItem: Ag
     return { success: false, error: 'No productId — resolve stage must run first' }
   }
 
-  // 1. Fetch all product-sentiments for this product
+  // 1. Fetch all product-sentiments for this product (depth=1 to populate reviewOrigin)
   const sentimentsResult = await payload.find({
     collection: 'product-sentiments',
     where: { product: { equals: productId } },
-    limit: 100,
+    limit: 500,
+    depth: 1,
   })
   const sentiments = sentimentsResult.docs as unknown as SentimentRecord[]
 
@@ -70,111 +94,147 @@ export async function executeSentimentConclusion(ctx: StageContext, workItem: Ag
     return { success: true, productId }
   }
 
-  // 2. Group by topic
-  const byTopic = new Map<string, TopicSummary>()
+  // 2. Discover distinct origins and build group definitions
+  const individualOriginIds = new Set<number>()
+  let hasOriginData = false
   for (const s of sentiments) {
-    if (!byTopic.has(s.topic)) {
-      byTopic.set(s.topic, { topic: s.topic, positive: 0, neutral: 0, negative: 0, total: 0 })
+    const oid = getOriginId(s.reviewOrigin)
+    if (oid !== null) {
+      individualOriginIds.add(oid)
+      hasOriginData = true
     }
-    const entry = byTopic.get(s.topic)!
-    entry[s.sentiment] += s.amount
-    entry.total += s.amount
   }
 
-  // 3. Filter topics with sufficient volume
-  const qualifiedTopics = Array.from(byTopic.values()).filter(
-    (t) => t.total >= MIN_VOTES_FOR_CONCLUSION,
-  )
+  const groups: GroupDef[] = [
+    { groupType: 'all', originId: null, minVotes: MIN_VOTES_AGGREGATE },
+  ]
 
-  log.debug('Sentiment conclusion: topic analysis', {
+  // Only add Incentivized/Organic/Individual groups if origin data exists
+  if (hasOriginData) {
+    groups.push(
+      { groupType: 'incentivized', originId: null, minVotes: MIN_VOTES_AGGREGATE },
+      { groupType: 'organic', originId: null, minVotes: MIN_VOTES_AGGREGATE },
+    )
+    for (const oid of individualOriginIds) {
+      groups.push({ groupType: 'individual', originId: oid, minVotes: MIN_VOTES_INDIVIDUAL })
+    }
+  }
+
+  log.debug('Sentiment conclusion: groups', {
     productId,
-    totalTopics: byTopic.size,
-    qualifiedTopics: qualifiedTopics.length,
-    skippedTopics: byTopic.size - qualifiedTopics.length,
-    minVotes: MIN_VOTES_FOR_CONCLUSION,
+    groups: groups.length,
+    individualOrigins: individualOriginIds.size,
+    hasOriginData,
   })
 
-  if (qualifiedTopics.length === 0) {
-    log.info('No topics with enough votes for conclusions', {
-      productId,
-      totalTopics: byTopic.size,
-      minVotes: MIN_VOTES_FOR_CONCLUSION,
-    })
-    return { success: true, productId }
-  }
+  // 3. For each group, aggregate topic summaries and derive conclusions
+  let totalCreated = 0
+  let totalUpdated = 0
+  const allQualifiedKeys = new Set<string>() // track for cleanup
 
-  // 4. Derive conclusions and upsert
-  let created = 0
-  let updated = 0
-
-  for (const topic of qualifiedTopics) {
-    const conclusion = deriveConclusion(topic)
-    const strength = deriveStrength(topic.total)
-
-    log.debug('Sentiment conclusion: derived', {
-      productId,
-      topic: topic.topic,
-      positive: topic.positive,
-      neutral: topic.neutral,
-      negative: topic.negative,
-      total: topic.total,
-      conclusion,
-      strength,
+  for (const group of groups) {
+    // Filter sentiments for this group
+    const filtered = sentiments.filter((s) => {
+      if (group.groupType === 'all') return true
+      if (group.groupType === 'individual') return getOriginId(s.reviewOrigin) === group.originId
+      if (group.groupType === 'incentivized') return isIncentivized(s.reviewOrigin)
+      // organic = NOT incentivized (includes null origin and incentivized !== true)
+      return !isIncentivized(s.reviewOrigin)
     })
 
-    // Upsert by product + topic
-    const existing = await payload.find({
-      collection: 'product-sentiment-conclusions',
-      where: {
-        and: [
-          { product: { equals: productId } },
-          { topic: { equals: topic.topic } },
-        ],
-      },
-      limit: 1,
-    })
+    // Group by topic
+    const byTopic = new Map<string, TopicSummary>()
+    for (const s of filtered) {
+      if (!byTopic.has(s.topic)) {
+        byTopic.set(s.topic, { topic: s.topic, positive: 0, neutral: 0, negative: 0, total: 0 })
+      }
+      const entry = byTopic.get(s.topic)!
+      entry[s.sentiment] += s.amount
+      entry.total += s.amount
+    }
 
-    if (existing.docs.length > 0) {
-      const doc = existing.docs[0] as Record<string, unknown>
-      await payload.update({
+    // Filter by threshold
+    const qualified = Array.from(byTopic.values()).filter((t) => t.total >= group.minVotes)
+
+    // Upsert conclusions for this group
+    for (const topic of qualified) {
+      const conclusion = deriveConclusion(topic)
+      const strength = deriveStrength(topic.total)
+
+      // Build unique key for cleanup tracking
+      const cleanupKey = `${topic.topic}:${group.groupType}:${group.originId ?? 'null'}`
+      allQualifiedKeys.add(cleanupKey)
+
+      // Upsert by (product, topic, groupType, reviewOrigin)
+      const whereConditions: Array<Record<string, unknown>> = [
+        { product: { equals: productId } },
+        { topic: { equals: topic.topic } },
+        { groupType: { equals: group.groupType } },
+      ]
+      if (group.originId) {
+        whereConditions.push({ reviewOrigin: { equals: group.originId } })
+      } else {
+        whereConditions.push({ reviewOrigin: { exists: false } })
+      }
+
+      const existing = await payload.find({
         collection: 'product-sentiment-conclusions',
-        id: doc.id as number,
-        data: { conclusion, strength, volume: topic.total },
+        where: { and: whereConditions },
+        limit: 1,
       })
-      updated++
-    } else {
-      await payload.create({
-        collection: 'product-sentiment-conclusions',
-        data: { product: productId, topic: topic.topic, conclusion, strength, volume: topic.total },
-      })
-      created++
+
+      if (existing.docs.length > 0) {
+        const doc = existing.docs[0] as Record<string, unknown>
+        await payload.update({
+          collection: 'product-sentiment-conclusions',
+          id: doc.id as number,
+          data: { conclusion, strength, volume: topic.total },
+        })
+        totalUpdated++
+      } else {
+        await payload.create({
+          collection: 'product-sentiment-conclusions',
+          data: {
+            product: productId,
+            topic: topic.topic,
+            groupType: group.groupType,
+            conclusion,
+            strength,
+            volume: topic.total,
+            ...(group.originId ? { reviewOrigin: group.originId } : {}),
+          },
+        })
+        totalCreated++
+      }
     }
   }
 
-  // 5. Delete conclusions for topics that no longer qualify (dropped below threshold)
-  const qualifiedTopicNames = new Set(qualifiedTopics.map((t) => t.topic))
+  // 4. Delete stale conclusions for this product that are no longer qualified
   const allExisting = await payload.find({
     collection: 'product-sentiment-conclusions',
     where: { product: { equals: productId } },
-    limit: 100,
+    limit: 500,
+    depth: 1,
   })
-  let deleted = 0
+  let totalDeleted = 0
   for (const doc of allExisting.docs as Array<Record<string, unknown>>) {
-    if (!qualifiedTopicNames.has(doc.topic as string)) {
+    const docOriginId = getOriginId(doc.reviewOrigin as SentimentRecord['reviewOrigin'])
+    const key = `${doc.topic}:${doc.groupType}:${docOriginId ?? 'null'}`
+    if (!allQualifiedKeys.has(key)) {
       await payload.delete({
         collection: 'product-sentiment-conclusions',
         where: { id: { equals: doc.id } },
       })
-      deleted++
+      totalDeleted++
     }
   }
 
   log.info('Sentiment conclusion stage complete', {
     productId,
-    qualifiedTopics: qualifiedTopics.length,
-    created,
-    updated,
-    deleted,
+    groups: groups.length,
+    created: totalCreated,
+    updated: totalUpdated,
+    deleted: totalDeleted,
   })
 
   return { success: true, productId }

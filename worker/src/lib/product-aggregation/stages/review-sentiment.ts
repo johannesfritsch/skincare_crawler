@@ -113,12 +113,33 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
     return { success: true, productId }
   }
 
-  // 4. Fetch ALL reviews sorted by id for deterministic ordering
+  // 3b. Delete-before-reprocess guard: when reviewState is 0 (fresh run), clear existing
+  // product-sentiments for this product to prevent double-counting on re-runs
+  if (alreadyProcessed === 0) {
+    const existingSentiments = await payload.find({
+      collection: 'product-sentiments',
+      where: { product: { equals: productId } },
+      limit: 1,
+    })
+    if (existingSentiments.totalDocs > 0) {
+      await payload.delete({
+        collection: 'product-sentiments',
+        where: { product: { equals: productId } },
+      })
+      log.info('Review sentiment: cleared existing sentiments for fresh run', {
+        productId,
+        deleted: existingSentiments.totalDocs,
+      })
+    }
+  }
+
+  // 4. Fetch ALL reviews sorted by id for deterministic ordering (depth=1 to populate reviewOrigin)
   const allReviewsResult = await payload.find({
     collection: 'source-reviews',
     where: { sourceProduct: { in: sourceProductIds } },
     sort: 'id',
     limit: 10000,
+    depth: 1,
   })
   const allReviews = allReviewsResult.docs as Array<Record<string, unknown>>
 
@@ -127,6 +148,21 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
     fetched: allReviews.length,
     totalDocs: allReviewsResult.totalDocs,
   })
+
+  // 4b. Build origin map: reviewIndex → originId (or null for native reviews)
+  // This maps each review's position in the array to its review-origin ID,
+  // so we can tag topic-sentiment counts with the origin after LLM processing.
+  const reviewOriginMap = new Map<number, number | null>()
+  for (let i = 0; i < allReviews.length; i++) {
+    const origin = allReviews[i].reviewOrigin as Record<string, unknown> | number | null | undefined
+    if (origin && typeof origin === 'object' && origin.id) {
+      reviewOriginMap.set(i, origin.id as number)
+    } else if (origin && typeof origin === 'number') {
+      reviewOriginMap.set(i, origin)
+    } else {
+      reviewOriginMap.set(i, null)
+    }
+  }
 
   // 5. Skip already-processed, keep new
   const newReviews = allReviews.slice(alreadyProcessed)
@@ -307,7 +343,10 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
           chunkInvalidTopics++
           continue
         }
-        const key = `${topic}:${sentiment}`
+        // Tag with review's origin (post-LLM grouping)
+        const reviewGlobalIdx = alreadyProcessed + (chunkIdx * chunkSize) + entry.i
+        const originId = reviewOriginMap.get(reviewGlobalIdx) ?? null
+        const key = `${topic}:${sentiment}:${originId ?? 'null'}`
         topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1)
         chunkTopicEntries++
         hasValidTopic = true
@@ -384,17 +423,27 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
   let upsertUpdated = 0
 
   for (const [key, count] of topicCounts) {
-    const [topic, sentiment] = key.split(':')
+    const parts = key.split(':')
+    const topic = parts[0]
+    const sentiment = parts[1]
+    const originIdStr = parts[2]
+    const originId = originIdStr === 'null' ? null : Number(originIdStr)
+
+    // Build where clause with origin dimension
+    const whereConditions: Array<Record<string, unknown>> = [
+      { product: { equals: productId } },
+      { topic: { equals: topic } },
+      { sentiment: { equals: sentiment } },
+    ]
+    if (originId) {
+      whereConditions.push({ reviewOrigin: { equals: originId } })
+    } else {
+      whereConditions.push({ reviewOrigin: { exists: false } })
+    }
 
     const existing = await payload.find({
       collection: 'product-sentiments',
-      where: {
-        and: [
-          { product: { equals: productId } },
-          { topic: { equals: topic } },
-          { sentiment: { equals: sentiment } },
-        ],
-      },
+      where: { and: whereConditions },
       limit: 1,
     })
 
@@ -411,6 +460,7 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
         productId,
         topic,
         sentiment,
+        originId,
         oldAmount,
         added: count,
         newAmount,
@@ -419,12 +469,19 @@ export async function executeReviewSentiment(ctx: StageContext, workItem: Aggreg
     } else {
       await payload.create({
         collection: 'product-sentiments',
-        data: { product: productId, topic, sentiment, amount: count },
+        data: {
+          product: productId,
+          topic,
+          sentiment,
+          amount: count,
+          ...(originId ? { reviewOrigin: originId } : {}),
+        },
       })
       log.debug('Review sentiment: created record', {
         productId,
         topic,
         sentiment,
+        originId,
         amount: count,
       })
       upsertCreated++

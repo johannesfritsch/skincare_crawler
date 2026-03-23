@@ -96,11 +96,18 @@ export const VideoMentions: CollectionConfig = {
         },
         {
           name: 'summary',
-          type: 'json',
+          type: 'array',
           label: 'Summary',
           admin: {
             description: 'Short key takeaways from the quote, true to original wording',
           },
+          fields: [
+            {
+              name: 'text',
+              type: 'text',
+              required: true,
+            },
+          ],
         },
         {
           name: 'sentiment',
@@ -118,10 +125,10 @@ export const VideoMentions: CollectionConfig = {
           name: 'sentimentScore',
           type: 'number',
           label: 'Sentiment Score',
-          min: -1,
-          max: 1,
+          min: 0,
+          max: 10,
           admin: {
-            description: 'Score from -1 (very negative) to 1 (very positive)',
+            description: 'Score from 0 (very negative) to 10 (very positive)',
             step: 0.1,
           },
         },
@@ -145,10 +152,10 @@ export const VideoMentions: CollectionConfig = {
       name: 'overallSentimentScore',
       type: 'number',
       label: 'Overall Sentiment Score',
-      min: -1,
-      max: 1,
+      min: 0,
+      max: 10,
       admin: {
-        description: 'Aggregate score from -1 (very negative) to 1 (very positive)',
+        description: 'Aggregate score from 0 (very negative) to 10 (very positive)',
         step: 0.1,
         position: 'sidebar',
       },

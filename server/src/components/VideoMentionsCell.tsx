@@ -71,7 +71,7 @@ export default async function VideoMentionsCell({ cellData, payload }: DefaultSe
             </span>
             {score != null && (
               <span style={{ color: 'var(--theme-elevation-500)', fontSize: '12px', flexShrink: 0 }}>
-                {score > 0 ? '+' : ''}{score.toFixed(1)}
+                {score.toFixed(1)}
               </span>
             )}
           </div>

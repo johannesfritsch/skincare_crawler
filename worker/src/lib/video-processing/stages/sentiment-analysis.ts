@@ -134,7 +134,7 @@ export async function executeSentimentAnalysis(ctx: StageContext, videoId: numbe
           // Sentiment
           quotes: productResult.quotes.map((q) => ({
             text: q.text,
-            summary: q.summary ?? [],
+            summary: (q.summary ?? []).map((s) => ({ text: s })),
             sentiment: q.sentiment,
             sentimentScore: q.sentimentScore,
           })),
