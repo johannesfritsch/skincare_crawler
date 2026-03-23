@@ -41,8 +41,17 @@ interface EventGroupData {
   subGroups: SubGroup[]
   hasErrors: boolean
   hasWarnings: boolean
+  isCompleted: boolean
   firstTime: string
   lastTime: string
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+/** Matches job-level completion events (job.completed_empty, crawl.completed, video_processing.completed, etc.) */
+function isCompletionEvent(name: string | null | undefined): boolean {
+  if (!name) return false
+  return name.endsWith('.completed') || name === 'job.completed_empty'
 }
 
 // ─── Grouping & filtering ────────────────────────────────────────────────────
@@ -115,6 +124,7 @@ function buildGroups(events: FullJobEvent[]): EventGroupData[] {
       })),
       hasErrors: allEvents.some((e: FullJobEvent) => e.type === 'error'),
       hasWarnings: allEvents.some((e: FullJobEvent) => e.type === 'warning'),
+      isCompleted: allEvents.some((e: FullJobEvent) => isCompletionEvent(e.name)),
       firstTime: allEvents[0]?.createdAt ?? '',
       lastTime: allEvents[allEvents.length - 1]?.createdAt ?? '',
     }
@@ -160,6 +170,7 @@ function applyFilters(
         subGroups: filteredSubs,
         hasErrors: allFiltered.some((e: FullJobEvent) => e.type === 'error'),
         hasWarnings: allFiltered.some((e: FullJobEvent) => e.type === 'warning'),
+        isCompleted: g.isCompleted,
       }
     })
     .filter((g) => g.subGroups.length > 0)
@@ -402,7 +413,30 @@ function EventItem({ event }: { event: FullJobEvent }) {
 function severityColor(hasErrors: boolean, hasWarnings: boolean): string {
   if (hasErrors) return 'var(--theme-error-500)'
   if (hasWarnings) return 'var(--theme-warning-500)'
-  return 'var(--theme-success-500)'
+  return 'var(--theme-elevation-500)'
+}
+
+function CheckIcon({ size = 10 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M13.5 4.5L6.5 11.5L2.5 7.5" stroke="var(--theme-success-500)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function RunIndicator({ hasErrors, hasWarnings, isCompleted, size = 8 }: { hasErrors: boolean; hasWarnings: boolean; isCompleted: boolean; size?: number }) {
+  if (isCompleted && !hasErrors) return <CheckIcon size={size + 2} />
+  return (
+    <span
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: '50%',
+        background: severityColor(hasErrors, hasWarnings),
+        flexShrink: 0,
+      }}
+    />
+  )
 }
 
 function SubGroupSection({ sub }: { sub: SubGroup }) {
@@ -451,10 +485,8 @@ function SubGroupSection({ sub }: { sub: SubGroup }) {
   )
 }
 
-function GroupSection({ group }: { group: EventGroupData }) {
-  const defaultExpanded =
-    group.hasErrors || group.hasWarnings || group.label === 'Job Lifecycle'
-  const [expanded, setExpanded] = useState(defaultExpanded)
+function GroupSection({ group, isLatest }: { group: EventGroupData; isLatest: boolean }) {
+  const [expanded, setExpanded] = useState(isLatest)
 
   const events = allGroupEvents(group)
   const eventCount = events.length
@@ -483,7 +515,7 @@ function GroupSection({ group }: { group: EventGroupData }) {
           textAlign: 'left',
         }}
       >
-        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: severityColor(group.hasErrors, group.hasWarnings), flexShrink: 0 }} />
+        <RunIndicator hasErrors={group.hasErrors} hasWarnings={group.hasWarnings} isCompleted={group.isCompleted} size={8} />
         <span style={{ fontWeight: 600 }}>{group.label}</span>
         <span style={{ color: 'var(--theme-elevation-500)', fontSize: '12px' }}>
           {eventCount}
@@ -588,8 +620,8 @@ const EventsView: UIFieldClientComponent = () => {
         counts={counts}
       />
       {truncated && <TruncatedBanner />}
-      {filtered.map((g) => (
-        <GroupSection key={g.key} group={g} />
+      {filtered.map((g, i) => (
+        <GroupSection key={g.key} group={g} isLatest={i === 0} />
       ))}
     </div>
   )

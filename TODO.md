@@ -1,8 +1,8 @@
-- Aggregate reviews from stores
+- ✅ Aggregate reviews from stores
 - ✅ Make sure leaf pages are all found for rossmann/mueller and the crawl can be resumed
 - ✅ Aggregate ph level and usageInterval (and other properties from the Google Sheet)
 - ✅ Sentiment analysis for VideoScenes
-- Find out why no recognition candidates are found sometimes
+- ✅ Find out why no recognition candidates are found sometimes
 - ✅ Add a worker-pattern to run the crawl/discovery/aggregation of multiple home computers
 - ✅ Rename ProductQuotes to VideoMentions
 - ✅ Make sure that no 0 is in rating of no ratings are there for a SourceProduct
@@ -18,17 +18,23 @@
 - ✅ Rework video processings and videos (staged)
 - ✅ Ingredients need sources for their information, if incidecoder delivers information, I want to add them as one source of potentially many. For now, we have CosIng (right after discovery) and then after crawling sometimes also incidecoder. I think it would make sense to just have an array of sourceURLs.
 - Allow all jobs to be scheduled.
-- Continue with video testing.
+- ✅ Continue with video testing.
 - Fix the frontend (especially the URL schema and add stuff we added just now)
 - Import reviews
 - Implement isGtinSearch for non-Rossmann drivers (not needed actually)
 - ✅ Rework searches and discovery to not create SourceProducts? All SPs are always crawled?
 - Why do creator scores not update
 - Ingest video captions and analyze for advertisement relationships
-- Attributes as a reverse-search 
-- Review crawl from purish
-- Review aggregation
-- Product crawl in stages
+- Attributes as a reverse-search
+- ✅ Review crawl from purish
+- ✅ Review aggregation
+- ✅ Product crawl in stages
 - ✅ Embeddings of images are overwritten
 - Rate-limiting of bazaar API (don't get blocked)
-- Reviewer age "17orUnder" is not handled properly
+- ✅ Reviewer age "17orUnder" is not handled properly
+- ✅ Better insights into jobs
+- ✅ Scheduling of jobs
+- ✅ Mark reviews as sourced from somewhere during crawl
+- Automatically classify review sources
+- During aggregation, take the review source into account
+- ✅ Mark runs with status icon in events view
