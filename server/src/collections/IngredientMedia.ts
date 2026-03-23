@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const ProfileMedia: CollectionConfig = {
-  slug: 'profile-media',
+export const IngredientMedia: CollectionConfig = {
+  slug: 'ingredient-media',
   admin: {
     group: 'Media',
-    description: 'Channel avatars, creator images, and brand logos',
+    description: 'Ingredient molecular structures and visual references',
   },
   access: {
     read: () => true,
@@ -18,13 +18,6 @@ export const ProfileMedia: CollectionConfig = {
   ],
   upload: {
     imageSizes: [
-      {
-        name: 'avatar',
-        width: 128,
-        height: 128,
-        fit: 'inside',
-        withoutEnlargement: true,
-      },
       {
         name: 'thumbnail',
         width: 96,

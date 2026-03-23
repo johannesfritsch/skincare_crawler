@@ -853,7 +853,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
               const filename = urlPath.split('/').pop() || `${slug}.jpg`
 
               const mediaDoc = await client.create({
-                collection: 'profile-media',
+                collection: 'ingredient-media',
                 data: { alt: item.ingredientName },
                 file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
               })

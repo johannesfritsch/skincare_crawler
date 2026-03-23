@@ -63,7 +63,7 @@ export const Ingredients: CollectionConfig = {
     {
       name: 'image',
       type: 'upload',
-      relationTo: 'profile-media',
+      relationTo: 'ingredient-media',
       label: 'Image',
       admin: {
         description: 'Molecular structure or visual reference for this ingredient',

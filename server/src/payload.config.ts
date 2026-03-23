@@ -11,6 +11,7 @@ import { ProductMedia } from './collections/ProductMedia'
 import { VideoMedia } from './collections/VideoMedia'
 import { ProfileMedia } from './collections/ProfileMedia'
 import { DetectionMedia } from './collections/DetectionMedia'
+import { IngredientMedia } from './collections/IngredientMedia'
 import { Brands } from './collections/Brands'
 import { ProductTypes } from './collections/ProductTypes'
 import { Ingredients } from './collections/Ingredients'
@@ -212,6 +213,7 @@ export default buildConfig({
     VideoMedia,
     ProfileMedia,
     DetectionMedia,
+    IngredientMedia,
     Brands,
     ProductTypes,
     Ingredients,

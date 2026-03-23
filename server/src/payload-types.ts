@@ -73,6 +73,7 @@ export interface Config {
     'video-media': VideoMedia;
     'profile-media': ProfileMedia;
     'detection-media': DetectionMedia;
+    'ingredient-media': IngredientMedia;
     brands: Brand;
     'product-types': ProductType;
     ingredients: Ingredient;
@@ -139,6 +140,7 @@ export interface Config {
     'video-media': VideoMediaSelect<false> | VideoMediaSelect<true>;
     'profile-media': ProfileMediaSelect<false> | ProfileMediaSelect<true>;
     'detection-media': DetectionMediaSelect<false> | DetectionMediaSelect<true>;
+    'ingredient-media': IngredientMediaSelect<false> | IngredientMediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
     'product-types': ProductTypesSelect<false> | ProductTypesSelect<true>;
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
@@ -347,7 +349,7 @@ export interface VideoMedia {
   };
 }
 /**
- * Channel avatars, creator images, and ingredient images
+ * Channel avatars, creator images, and brand logos
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "profile-media".
@@ -415,6 +417,45 @@ export interface DetectionMedia {
   focalY?: number | null;
 }
 /**
+ * Ingredient molecular structures and visual references
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredient-media".
+ */
+export interface IngredientMedia {
+  id: number;
+  alt: string;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "brands".
  */
@@ -451,7 +492,7 @@ export interface Ingredient {
   /**
    * Molecular structure or visual reference for this ingredient
    */
-  image?: (number | null) | ProfileMedia;
+  image?: (number | null) | IngredientMedia;
   status?: ('crawled' | 'uncrawled') | null;
   /**
    * LLM-generated concise but entertaining summary of the ingredient
@@ -2409,6 +2450,10 @@ export interface PayloadLockedDocument {
         value: number | DetectionMedia;
       } | null)
     | ({
+        relationTo: 'ingredient-media';
+        value: number | IngredientMedia;
+      } | null)
+    | ({
         relationTo: 'brands';
         value: number | Brand;
       } | null)
@@ -2771,6 +2816,48 @@ export interface DetectionMediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ingredient-media_select".
+ */
+export interface IngredientMediaSelect<T extends boolean = true> {
+  alt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+  sizes?:
+    | T
+    | {
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
