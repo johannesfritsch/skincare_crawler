@@ -3,8 +3,9 @@ import { dmDriver } from './drivers/dm'
 import { rossmannDriver } from './drivers/rossmann'
 import { muellerDriver } from './drivers/mueller'
 import { purishDriver } from './drivers/purish'
+import { douglasDriver } from './drivers/douglas'
 
-const drivers: SourceDriver[] = [dmDriver, rossmannDriver, muellerDriver, purishDriver]
+const drivers: SourceDriver[] = [dmDriver, rossmannDriver, muellerDriver, purishDriver, douglasDriver]
 
 /** All registered source slugs, derived from the driver registry */
 export const ALL_SOURCE_SLUGS: SourceSlug[] = drivers.map((d) => d.slug)

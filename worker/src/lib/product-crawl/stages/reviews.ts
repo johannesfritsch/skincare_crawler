@@ -135,8 +135,9 @@ async function getReviewKey(
   sourceProductId: number,
   source: SourceSlug,
 ): Promise<string | null> {
-  if (source === 'purish') {
+  if (source === 'purish' || source === 'douglas') {
     // PURISH: review key is the Shopify product ID stored on source-product.sourceArticleNumber
+    // Douglas: review key is the base product code stored on source-product.sourceArticleNumber
     const sp = await payload.findByID({ collection: 'source-products', id: sourceProductId }) as Record<string, unknown>
     const articleNumber = sp.sourceArticleNumber as string | undefined
     return articleNumber || null

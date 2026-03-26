@@ -45,6 +45,11 @@ export async function fetchProductReviews(
       const { fetchPurishReviews } = await import('./drivers/purish/index')
       return fetchPurishReviews(reviewKey)
     }
+    case 'douglas': {
+      const { fetchDouglasReviews } = await import('./drivers/douglas/index')
+      const reviews = await fetchDouglasReviews(reviewKey)
+      return { reviews: reviews ?? [] }
+    }
     case 'mueller':
       // Mueller has no review API
       return { reviews: [] }

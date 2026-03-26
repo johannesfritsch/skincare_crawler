@@ -40,6 +40,16 @@ function MuellerLogo({ className }: StoreLogoProps) {
   )
 }
 
+/** Douglas — text wordmark */
+function DouglasLogo({ className }: StoreLogoProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30" className={cn('h-5 w-auto', className)}>
+      <rect width="120" height="30" rx="4" ry="4" fill="#0B3D2C" />
+      <text x="60" y="21" textAnchor="middle" fontFamily="Arial,Helvetica,sans-serif" fontWeight="700" fontSize="17" fill="#fff">DOUGLAS</text>
+    </svg>
+  )
+}
+
 /** PURISH — text wordmark */
 function PurishLogo({ className }: StoreLogoProps) {
   return (
@@ -59,6 +69,7 @@ const LOGO_MAP: Record<string, (props: StoreLogoProps) => React.JSX.Element> = {
   rossmann: RossmannLogo,
   mueller: MuellerLogo,
   purish: PurishLogo,
+  douglas: DouglasLogo,
 }
 
 /** Returns the appropriate store logo/icon for a given source slug */

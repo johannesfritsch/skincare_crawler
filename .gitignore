@@ -40,6 +40,7 @@ server/product-media/
 server/video-media/
 server/profile-media/
 server/detection-media/
+server/ingredient-media/
 
 # Hugging Face model cache
 .cache/

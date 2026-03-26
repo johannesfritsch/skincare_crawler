@@ -12,6 +12,7 @@ export const STORES = [
   { value: 'rossmann', label: 'Rossmann', hosts: ['www.rossmann.de', 'rossmann.de'] },
   { value: 'mueller', label: 'Müller', hosts: ['www.mueller.de', 'mueller.de'] },
   { value: 'purish', label: 'PURISH', hosts: ['purish.com', 'www.purish.com', 'purish.de', 'www.purish.de'] },
+  { value: 'douglas', label: 'Douglas', hosts: ['www.douglas.de', 'douglas.de'] },
 ] as const
 
 // ── Derived constants (used by collection configs, components, etc.) ──

@@ -1181,7 +1181,7 @@ export interface ProductVariant {
         /**
          * Which store this image was sourced from.
          */
-        source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
+        source?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas') | null;
         id?: string | null;
       }[]
     | null;
@@ -1411,7 +1411,7 @@ export interface SourceProduct {
    * Product page URL at the source store (dedup key)
    */
   sourceUrl?: string | null;
-  source?: ('dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  source?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas') | null;
   /**
    * Brand from source store
    */
@@ -1455,7 +1455,7 @@ export interface SourceProduct {
 export interface SourceBrand {
   id: number;
   name: string;
-  source: 'dm' | 'rossmann' | 'mueller' | 'purish';
+  source: 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas';
   /**
    * The brand page URL on the source store (dedup key)
    */
@@ -1522,7 +1522,7 @@ export interface SourceReviewOrigin {
   /**
    * Store this origin was discovered in
    */
-  source: 'dm' | 'rossmann' | 'mueller' | 'purish';
+  source: 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas';
   /**
    * Whether this origin incentivizes reviews (e.g. product testing panels)
    */
@@ -1820,7 +1820,7 @@ export interface ProductSearch {
   /**
    * Which stores to search. All selected by default.
    */
-  sources: ('dm' | 'rossmann' | 'mueller' | 'purish')[];
+  sources: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas')[];
   /**
    * When the current worker claimed this job
    */
@@ -1876,7 +1876,7 @@ export interface ProductCrawl {
   /**
    * Which store(s) to crawl products from.
    */
-  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish') | null;
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas') | null;
   /**
    * One product URL per line. The store is detected automatically from the URL.
    */

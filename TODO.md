@@ -11,17 +11,16 @@
 - ✅ Implement availability for dm
 - ✅ Implement availability for rossmann
 - ✅ Implement availability for purish
-- ✅ Move articleNumber, images, priceInformation to variants and adapt all drivers (=> make sure priceInformation contain the availability)
+- ✅ Move articleNumber, images, priceInformation to variants and adapt all drivers (=&gt; make sure priceInformation contain the availability)
 - We need to have a step where we also visit all previous variants to see if they have been discontinued
 - ✅ Bug where mueller has the same GTIN in a variant twice: Once available, once unavailable (http://localhost:3000/admin/collections/source-products/157)
 - ✅ Rework aggregation
 - ✅ Rework video processings and videos (staged)
 - ✅ Ingredients need sources for their information, if incidecoder delivers information, I want to add them as one source of potentially many. For now, we have CosIng (right after discovery) and then after crawling sometimes also incidecoder. I think it would make sense to just have an array of sourceURLs.
-- Allow all jobs to be scheduled.
+- ✅ Allow all jobs to be scheduled.
 - ✅ Continue with video testing.
 - Fix the frontend (especially the URL schema and add stuff we added just now)
-- Import reviews
-- Implement isGtinSearch for non-Rossmann drivers (not needed actually)
+- ✅ Import reviews
 - ✅ Rework searches and discovery to not create SourceProducts? All SPs are always crawled?
 - Why do creator scores not update
 - Ingest video captions and analyze for advertisement relationships
@@ -37,3 +36,5 @@
 - ✅ Automatically classify review sources
 - ✅ During aggregation, take the review source into account
 - ✅ Mark runs with status icon in events view
+- Obtain data from images
+  - Douglas, coocoon center, shop-apotheke
