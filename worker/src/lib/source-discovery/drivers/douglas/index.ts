@@ -283,15 +283,18 @@ async function extractDomData(page: Page) {
     if (variants.length > 0) variantDimension = 'Farbe'
 
     // ── Size variants (radio buttons) ────────────────────────────────────
+    // The radio input and the variant content div are in sibling spans inside
+    // a shared <label> under [data-testid="RadioButton"]. We start from the
+    // radio inputs and walk up to the common ancestor to find the variant name.
     if (variants.length === 0) {
-      const sizeRadios = document.querySelectorAll('[data-testid="size-variants-radio"]')
-      sizeRadios.forEach(container => {
-        const radio = container.querySelector('input[type="radio"]') as HTMLInputElement | null
-        const code = radio?.value || ''
+      const sizeRadioInputs = document.querySelectorAll('input[name="sizeVariants"]')
+      sizeRadioInputs.forEach(radio => {
+        const code = (radio as HTMLInputElement).value || ''
         if (!code || seenCodes.has(code)) return
         seenCodes.add(code)
-        const label = container.querySelector('[data-testid="variant-name"]')?.textContent?.trim() || ''
-        const isSelected = radio?.checked === true
+        const wrapper = radio.closest('[data-testid="RadioButton"]')
+        const label = wrapper?.querySelector('[data-testid="variant-name"]')?.textContent?.trim() || ''
+        const isSelected = (radio as HTMLInputElement).checked === true
         variants.push({ code, label, isSelected })
       })
       if (variants.length > 0) variantDimension = 'Größe'
@@ -628,10 +631,13 @@ export const douglasDriver: SourceDriver = {
         ? domData.breadcrumbs.slice(0, -1)
         : domData.breadcrumbs
 
-      // Canonical URL — must include ?variant= when crawling a specific variant,
-      // otherwise persist tries to set sourceUrl to the base URL which conflicts with other variants
-      const canonicalUrl = variantCode
-        ? `${BASE_URL}/de/p/${baseProduct}?variant=${variantCode}`
+      // Canonical URL — always include ?variant= when the product has variants,
+      // even when crawling the base URL. This ensures the default variant's
+      // source-variant URL matches the sibling URL other variants generate for it,
+      // preventing duplicates (base URL vs ?variant=code for the same variant).
+      const effectiveVariantCode = variantCode || (domData.variants.length > 0 ? currentVariantCode : undefined)
+      const canonicalUrl = effectiveVariantCode
+        ? `${BASE_URL}/de/p/${baseProduct}?variant=${effectiveVariantCode}`
         : `${BASE_URL}/de/p/${baseProduct}`
 
       // Variants from DOM (color blobs or size radio buttons)

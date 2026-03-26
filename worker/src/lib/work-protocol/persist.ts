@@ -676,11 +676,14 @@ export async function persistCrawlResult(
 export async function persistReviews(
   payload: PayloadRestClient,
   sourceProductId: number,
-  sourceVariantId: number | undefined,
+  sourceVariantId: number | number[] | undefined,
   reviews: NonNullable<ScrapedProductData['reviews']>,
   source: SourceSlug,
   jlog?: ReturnType<typeof createLogger>,
 ): Promise<{ created: number; linked: number; backfilled: number }> {
+  const variantIds: number[] = Array.isArray(sourceVariantId)
+    ? sourceVariantId
+    : sourceVariantId ? [sourceVariantId] : []
   let created = 0
   let linked = 0
   let backfilled = 0
@@ -704,7 +707,7 @@ export async function persistReviews(
         collection: 'source-reviews',
         data: {
           sourceProduct: sourceProductId,
-          ...(sourceVariantId ? { sourceVariants: [sourceVariantId] } : {}),
+          ...(variantIds.length > 0 ? { sourceVariants: variantIds } : {}),
           externalId: review.externalId,
           rating: review.rating,
           title: review.title ?? null,
@@ -731,13 +734,14 @@ export async function persistReviews(
         backfilled++
       }
 
-      // Append variant if not already linked
-      if (sourceVariantId) {
+      // Append variants if not already linked
+      if (variantIds.length > 0) {
         const existingVariantIds: number[] = Array.isArray(existingReview.sourceVariants)
           ? existingReview.sourceVariants.map((v: any) => (typeof v === 'object' ? v.id : v))
           : []
-        if (!existingVariantIds.includes(sourceVariantId)) {
-          updates.sourceVariants = [...existingVariantIds, sourceVariantId]
+        const newIds = variantIds.filter(id => !existingVariantIds.includes(id))
+        if (newIds.length > 0) {
+          updates.sourceVariants = [...existingVariantIds, ...newIds]
         }
       }
 

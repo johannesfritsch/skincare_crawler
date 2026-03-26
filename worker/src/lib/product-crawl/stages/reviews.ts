@@ -66,21 +66,21 @@ export async function executeReviewStage(
       return emptyResult
     }
 
-    // Look up a variant ID to link reviews to (use the first source-variant)
+    // Look up all variant IDs to link reviews to (product-level reviews apply to all variants)
     const variantResult = await payload.find({
       collection: 'source-variants',
       where: { sourceProduct: { equals: sourceProductId } },
-      limit: 1,
+      limit: 1000,
     })
-    const sourceVariantId = variantResult.docs.length > 0
-      ? (variantResult.docs[0] as Record<string, unknown>).id as number
-      : undefined
+    const sourceVariantIds = variantResult.docs.map(
+      (doc) => (doc as Record<string, unknown>).id as number,
+    )
 
     // Persist reviews
     const persistResult = await persistReviews(
       payload,
       sourceProductId,
-      sourceVariantId,
+      sourceVariantIds.length > 0 ? sourceVariantIds : undefined,
       fetchResult.reviews,
       source,
       jlog,

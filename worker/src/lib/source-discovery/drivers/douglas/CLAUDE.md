@@ -151,8 +151,19 @@ Douglas renders variant swatches twice (mobile + desktop) — the driver dedupli
 
 Used for products with size/volume options (e.g. perfumes: 30 ml, 50 ml, 90 ml). Only extracted when no color swatches are found.
 
-Extracted from `<div data-testid="size-variants-radio">` containers:
-- **code**: `input[type="radio"][name="sizeVariants"]` `value` attribute (e.g. "1273971")
+The radio input and the variant content are in **sibling spans** inside a shared `<label>` under `[data-testid="RadioButton"]`:
+
+```
+div[data-testid="RadioButton"]
+  label
+    span → input[name="sizeVariants" value="1273971"]
+    span → div[data-testid="size-variants-radio"]
+             div[data-testid="variant-name"]  →  "30 ml"
+```
+
+Extraction: query `input[name="sizeVariants"]`, then `.closest('[data-testid="RadioButton"]')` to find the common ancestor, then `querySelector('[data-testid="variant-name"]')` for the label.
+
+- **code**: radio input `value` attribute (e.g. "1273971")
 - **label**: `[data-testid="variant-name"]` text content (e.g. "30 ml")
 - **isSelected**: `input.checked` property
 - **dimension**: "Größe"
