@@ -60,6 +60,23 @@ Two levels:
 - `sourceArticleNumber` (top-level): the variant-level article number for the crawled variant
 - `sourceProductArticleNumber`: the product-level code (stored on source-products). For Douglas this is the base product code; for PURISH it's the Shopify product ID. Used as the review API key.
 
+### Description Extraction
+
+Stores typically have product details in collapsible/accordion/tab sections (not in a single block). The description should be formatted as **markdown with `## Heading` per section**, combining all product-relevant sections (description, usage, manufacturer, key facts, etc.) into one text block. Skip non-product sections (shipping, payment, legal).
+
+**Patterns by store:**
+
+| Store | Structure | Approach |
+|-------|-----------|----------|
+| PURISH | `<tabs-desktop>` with `<button class="tab-navigate">` titles + `<div class="tab-item">` content | Extract tab titles → format as `## Title\n\nContent` |
+| Douglas | Single HTML description field | `htmlToText()` converts HTML to plain text |
+| Shop Apotheke | `<div class="accordion-stack">` with `accordion-summary__content` titles + `accordion-details` content | Extract first accordion-stack only (second is footer), format as `## Title\n\nContent` |
+| Mueller | `<section class="accordion">` with `span[role="heading"]` + `accordion-entry__contents` | Specs table rows → `### Label\nValue`, other sections as `## Heading\n\nContent` |
+
+**Key rule:** The JSON-LD `description` field is often just the product name or a very short summary. Always prefer HTML-extracted structured descriptions. Only use JSON-LD as a last resort fallback.
+
+**When building a new driver:** Check the product page for accordion/tab/collapsible sections. These almost always contain the real product information. Extract each section's title and content, format as markdown, and concatenate. Filter out footer/shipping/legal sections that aren't product data.
+
 ## Variant Extraction Pitfalls
 
 ### Multiple variant UI types

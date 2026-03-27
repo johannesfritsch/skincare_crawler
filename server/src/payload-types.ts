@@ -1181,7 +1181,7 @@ export interface ProductVariant {
         /**
          * Which store this image was sourced from.
          */
-        source?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas') | null;
+        source?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke') | null;
         id?: string | null;
       }[]
     | null;
@@ -1411,7 +1411,7 @@ export interface SourceProduct {
    * Product page URL at the source store (dedup key)
    */
   sourceUrl?: string | null;
-  source?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas') | null;
+  source?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke') | null;
   /**
    * Brand from source store
    */
@@ -1455,7 +1455,7 @@ export interface SourceProduct {
 export interface SourceBrand {
   id: number;
   name: string;
-  source: 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas';
+  source: 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke';
   /**
    * The brand page URL on the source store (dedup key)
    */
@@ -1522,7 +1522,7 @@ export interface SourceReviewOrigin {
   /**
    * Store this origin was discovered in
    */
-  source: 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas';
+  source: 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke';
   /**
    * Whether this origin incentivizes reviews (e.g. product testing panels)
    */
@@ -1820,7 +1820,7 @@ export interface ProductSearch {
   /**
    * Which stores to search. All selected by default.
    */
-  sources: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas')[];
+  sources: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke')[];
   /**
    * When the current worker claimed this job
    */
@@ -1876,7 +1876,7 @@ export interface ProductCrawl {
   /**
    * Which store(s) to crawl products from.
    */
-  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas') | null;
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke') | null;
   /**
    * One product URL per line. The store is detected automatically from the URL.
    */

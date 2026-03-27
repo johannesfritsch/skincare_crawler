@@ -1,0 +1,474 @@
+import { createLogger } from '@/lib/logger'
+import { stealthFetch } from '@/lib/stealth-fetch'
+import { normalizeProductUrl } from '@/lib/source-product-queries'
+import type {
+  SourceDriver,
+  ProductDiscoveryOptions,
+  ProductDiscoveryResult,
+  ProductSearchOptions,
+  ProductSearchResult,
+  ScrapedProductData,
+} from '../../types'
+
+const log = createLogger('ShopApotheke')
+
+// ─── JSON-LD types ──────────────────────────────────────────────────────────
+
+interface JsonLdOffer {
+  price?: number | string
+  priceCurrency?: string
+  availability?: string
+  eligibleQuantity?: {
+    name?: string
+  }
+}
+
+interface JsonLdSimilar {
+  sku?: string
+  url?: string
+  name?: string
+  offers?: JsonLdOffer
+}
+
+interface JsonLdProduct {
+  '@type': string
+  name?: string
+  brand?: string
+  sku?: string
+  image?: string
+  description?: string
+  offers?: JsonLdOffer
+  isSimilarTo?: JsonLdSimilar[]
+}
+
+interface JsonLdWebPage {
+  '@type': string
+  mainEntity?: JsonLdProduct
+}
+
+interface JsonLdBreadcrumbItem {
+  name?: string
+  position?: number
+}
+
+interface JsonLdBreadcrumbList {
+  '@type': string
+  itemListElement?: JsonLdBreadcrumbItem[]
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Strip query params from a Shop Apotheke URL */
+function toCanonicalUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    u.search = ''
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
+/** Parse amount and unit from a string like "9.5 g" or "100,5 ml" */
+function parseAmount(text: string): { amount: number; amountUnit: string } | null {
+  if (!text) return null
+  const match = text.match(/([\d.,]+)\s*(mg|g|kg|ml|l|Stück)/i)
+  if (!match) return null
+  const amount = parseFloat(match[1].replace(',', '.'))
+  const unit = match[2]
+  if (isNaN(amount)) return null
+  return { amount, amountUnit: unit }
+}
+
+/** Extract plain text from HTML-tagged content */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Parse all JSON-LD blocks from HTML */
+function parseJsonLdBlocks(html: string): unknown[] {
+  const results: unknown[] = []
+  const regex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      results.push(JSON.parse(match[1]))
+    } catch {
+      // skip malformed blocks
+    }
+  }
+  return results
+}
+
+// ─── Driver ─────────────────────────────────────────────────────────────────
+
+export const shopApothekeDriver: SourceDriver = {
+  slug: 'shopapotheke',
+  label: 'Shop Apotheke',
+  hosts: ['www.shop-apotheke.com', 'shop-apotheke.com'],
+
+  logoSvg:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 24" fill="none"><text x="0" y="18" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="16" fill="#E31937">Shop Apotheke</text></svg>',
+
+  matches(url: string): boolean {
+    try {
+      const hostname = new URL(url).hostname
+      return this.hosts.includes(hostname)
+    } catch {
+      return false
+    }
+  },
+
+  async discoverProducts(_options: ProductDiscoveryOptions): Promise<ProductDiscoveryResult> {
+    throw new Error('Shop Apotheke discovery not yet implemented')
+  },
+
+  async searchProducts(_options: ProductSearchOptions): Promise<ProductSearchResult> {
+    throw new Error('Shop Apotheke search not yet implemented')
+  },
+
+  async scrapeProduct(
+    sourceUrl: string,
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
+  ): Promise<ScrapedProductData | null> {
+    const jlog = options?.logger ?? log
+
+    jlog.info('Scraping product', { url: sourceUrl, source: 'shopapotheke' })
+
+    // ── 1. Fetch page HTML ──────────────────────────────────────────────────
+    const response = await stealthFetch(sourceUrl)
+    if (!response.ok) {
+      jlog.warn('Fetch failed', { url: sourceUrl, status: response.status, source: 'shopapotheke' })
+      return null
+    }
+    const html = await response.text()
+
+    // ── 2. Parse JSON-LD blocks ─────────────────────────────────────────────
+    const blocks = parseJsonLdBlocks(html)
+
+    let product: JsonLdProduct | null = null
+    let breadcrumbList: JsonLdBreadcrumbList | null = null
+
+    for (const block of blocks) {
+      const b = block as Record<string, unknown>
+      if (b['@type'] === 'WebPage') {
+        const page = b as unknown as JsonLdWebPage
+        if (page.mainEntity && (page.mainEntity as unknown as JsonLdProduct)['@type'] === 'Product') {
+          product = page.mainEntity as unknown as JsonLdProduct
+        }
+      } else if (b['@type'] === 'Product') {
+        product = b as unknown as JsonLdProduct
+      } else if (b['@type'] === 'BreadcrumbList') {
+        breadcrumbList = b as unknown as JsonLdBreadcrumbList
+      }
+    }
+
+    if (!product) {
+      jlog.warn('No Product JSON-LD found', { url: sourceUrl, source: 'shopapotheke' })
+      return null
+    }
+
+    // ── 3. Canonical URL ────────────────────────────────────────────────────
+    const canonicalUrl = normalizeProductUrl(toCanonicalUrl(sourceUrl))
+
+    // ── 4. GTIN from HTML data-qa-id="product-attribute-pzn" ───────────────
+    // Format varies: just EAN ("4059729028976") or PZN / EAN ("01580241 / 4150015802413")
+    let gtin: string | undefined
+    const pznContent = html.match(/data-qa-id="product-attribute-pzn"[^>]*>([^<]+)</)
+    if (pznContent) {
+      const text = pznContent[1].trim()
+      // If it contains " / ", take the 13-digit EAN after the slash
+      const slashParts = text.split('/')
+      if (slashParts.length > 1) {
+        const ean = slashParts[slashParts.length - 1].trim()
+        if (/^\d{13}$/.test(ean)) gtin = ean
+      }
+      // Otherwise try to match a standalone 8-13 digit number
+      if (!gtin) {
+        const eanMatch = text.match(/\b(\d{13})\b/) || text.match(/\b(\d{8,12})\b/)
+        if (eanMatch) gtin = eanMatch[1]
+      }
+    }
+
+    // ── 5. Name & Brand ────────────────────────────────────────────────────
+    const name = product.name ?? ''
+    if (!name) {
+      jlog.warn('No product name found', { url: sourceUrl, source: 'shopapotheke' })
+      return null
+    }
+    // Brand: prefer HTML "Marke" section (has proper casing + brand URL), fallback to JSON-LD
+    let brandName: string | undefined
+    let brandUrl: string | undefined
+    const brandMatch = html.match(/<dt[^>]*>Marke<\/dt>\s*<dd[^>]*>\s*<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/i)
+    if (brandMatch) {
+      brandName = brandMatch[2].trim()
+      const brandHref = brandMatch[1]
+      brandUrl = brandHref.startsWith('http') ? brandHref : `https://www.shop-apotheke.com${brandHref}`
+    }
+    if (!brandName && typeof product.brand === 'string') {
+      brandName = product.brand
+    }
+
+    // ── 6. Price ───────────────────────────────────────────────────────────
+    let priceCents: number | undefined
+    let currency: string | undefined
+    let availability: 'available' | 'unavailable' | 'unknown' = 'unknown'
+
+    if (product.offers) {
+      const offers = product.offers
+      if (offers.price !== undefined && offers.price !== null) {
+        const priceNum = typeof offers.price === 'string' ? parseFloat(offers.price) : offers.price
+        if (!isNaN(priceNum)) {
+          priceCents = Math.round(priceNum * 100)
+        }
+      }
+      currency = offers.priceCurrency ?? 'EUR'
+      if (offers.availability) {
+        if (offers.availability.includes('InStock')) {
+          availability = 'available'
+        } else if (offers.availability.includes('OutOfStock')) {
+          availability = 'unavailable'
+        }
+      }
+    }
+
+    // ── 7. Images ──────────────────────────────────────────────────────────
+    const imageUrls = new Set<string>()
+    if (product.image) {
+      imageUrls.add(product.image)
+    }
+    // Try to find more images from HTML data-qa-id attributes
+    const imgRegex =
+      /data-qa-id="product-image-\d+"[^>]*>[\s\S]*?src="([^"]*cdn\.shop-apotheke\.com[^"]*)"/g
+    let imgMatch: RegExpExecArray | null
+    while ((imgMatch = imgRegex.exec(html)) !== null) {
+      imageUrls.add(imgMatch[1])
+    }
+    const images = Array.from(imageUrls).map((url) => ({ url }))
+
+    // ── 8. Description ──────────────────────────────────────────────────────
+    // Extract accordion sections from the FIRST accordion-stack inside product-description.
+    // Structure: <div class="accordion-stack"><div class="accordion">
+    //   <div class="accordion-summary"><div class="accordion-summary__content">Title</div>...</div>
+    //   <div class="accordion__transition"><div class="accordion-details"><div class="prose ...">Content</div></div></div>
+    // </div>...</div>
+    // Format as markdown: ## Title\n\nContent for each section.
+    let description: string | undefined
+    const stackMatch = html.match(/<div class="accordion-stack">([\s\S]*?)(?:<\/div>\s*<div class="accordion-stack">|<\/div>\s*<(?:footer|div[^>]*data-qa-id))/i)
+    if (stackMatch) {
+      const stackHtml = stackMatch[1]
+      const sections: string[] = []
+      // Extract each accordion: title from accordion-summary__content, content from accordion-details
+      const accordionRegex = /accordion-summary__content">([^<]+)<[\s\S]*?accordion-details">([\s\S]*?)(?:<\/div>\s*<\/div>\s*<\/div>\s*(?:<\/div>|<div class="accordion))/gi
+      let accMatch: RegExpExecArray | null
+      while ((accMatch = accordionRegex.exec(stackHtml)) !== null) {
+        const title = accMatch[1].trim().replace(/&amp;/g, '&')
+        const contentHtml = accMatch[2]
+        const content = stripHtml(contentHtml)
+        if (title && content && content.length > 5) {
+          sections.push(`## ${title}\n\n${content}`)
+        }
+      }
+      if (sections.length > 0) {
+        description = sections.join('\n\n')
+      }
+    }
+    // Fallback: use product.description from JSON-LD if available
+    if (!description && product.description) {
+      const stripped = stripHtml(product.description)
+      // Only use if it's more than just the product name
+      if (stripped.length > 50 && stripped !== name) {
+        description = stripped
+      }
+    }
+
+    // ── 9. Ingredients ──────────────────────────────────────────────────────
+    let ingredientsText: string | undefined
+    // Look for INCI list — scan for "AQUA" or "Inhaltsstoffe" section
+    const inciMatch = html.match(/Inhaltsstoffe[^:]*:?\s*<[^>]*>([\s\S]{30,2000}?)(?:<\/[^>]+>){2,}/i)
+    if (inciMatch) {
+      const candidate = stripHtml(inciMatch[1])
+      if (candidate.length > 20) {
+        ingredientsText = candidate
+      }
+    }
+    if (!ingredientsText) {
+      // Try to find AQUA block
+      const aquaMatch = html.match(/(AQUA[^<]{20,1500})(?:<|$)/i)
+      if (aquaMatch) {
+        ingredientsText = stripHtml(aquaMatch[1]).trim()
+      }
+    }
+
+    // ── 10. Amount / Unit ───────────────────────────────────────────────────
+    let amount: number | undefined
+    let amountUnit: string | undefined
+    if (product.offers?.eligibleQuantity?.name) {
+      const parsed = parseAmount(product.offers.eligibleQuantity.name)
+      if (parsed) {
+        amount = parsed.amount
+        amountUnit = parsed.amountUnit
+      }
+    }
+    // Fallback: HTML data-qa-id="product-attribute-package_size"
+    // Structure: ...package_size">Packungsgröße<!-- -->: <span class="mr-3">9,5 g</span>
+    if (!amount) {
+      const pkgMatch = html.match(/data-qa-id="product-attribute-package_size"[\s\S]*?<span[^>]*>([\d.,]+\s*(?:mg|g|kg|ml|l|Stück))<\/span>/i)
+      if (pkgMatch) {
+        const parsed = parseAmount(pkgMatch[1].trim())
+        if (parsed) {
+          amount = parsed.amount
+          amountUnit = parsed.amountUnit
+        }
+      }
+    }
+
+    // ── 10b. Per-unit price from HTML ──────────────────────────────────────
+    // data-qa-id="current-variant-price-per-unit" → "65,68 € / 100 g"
+    let perUnitAmount: number | undefined
+    let perUnitQuantity: number | undefined
+    let perUnitUnit: string | undefined
+    const perUnitMatch = html.match(/data-qa-id="current-variant-price-per-unit"[^>]*>([\d.,]+)\s*€\s*\/\s*([\d.,]*)\s*(mg|g|kg|ml|l|Stück)/i)
+    if (perUnitMatch) {
+      perUnitAmount = parseFloat(perUnitMatch[1].replace(',', '.'))
+      const qtyStr = perUnitMatch[2].replace(',', '.')
+      perUnitQuantity = qtyStr ? parseFloat(qtyStr) : 1
+      perUnitUnit = perUnitMatch[3]
+    }
+
+    // ── 11. Category breadcrumbs ────────────────────────────────────────────
+    let categoryBreadcrumbs: string[] | undefined
+    if (breadcrumbList?.itemListElement && breadcrumbList.itemListElement.length > 0) {
+      const items = breadcrumbList.itemListElement
+        .filter((item) => item.name && item.name.toLowerCase() !== 'home')
+        .map((item) => item.name!)
+      // Skip last element (product name)
+      if (items.length > 1) {
+        categoryBreadcrumbs = items.slice(0, -1)
+      } else if (items.length === 1) {
+        categoryBreadcrumbs = items
+      }
+    }
+
+    // ── 12. Source article number ────────────────────────────────────────────
+    const sourceArticleNumber = product.sku ?? undefined
+
+    // ── 13. Variants from isSimilarTo ────────────────────────────────────────
+    const variants: ScrapedProductData['variants'] = []
+
+    if (product.isSimilarTo && product.isSimilarTo.length > 0) {
+      // Extract variant labels from HTML: each variant link has <a href="..."><ul><li>LABEL</li><li>PRICE</li>...</ul></a>
+      // The first <li> contains the label (e.g. "3,5 g", "30 Medium Bronze")
+      const htmlLabelMap = new Map<string, string>() // URL path → label from first <li>
+      const variantLinkRegex = /<a[^>]*href="(\/[^"]*\.htm)"[^>]*>[\s\S]*?<ul[\s\S]*?<\/ul>[\s\S]*?<\/a>/gi
+      let linkMatch: RegExpExecArray | null
+      while ((linkMatch = variantLinkRegex.exec(html)) !== null) {
+        const linkHref = linkMatch[1]
+        const linkInner = linkMatch[0]
+        // Extract first <li> innerText (strip tags)
+        const firstLi = linkInner.match(/<li[^>]*>([\s\S]*?)<\/li>/i)
+        if (firstLi) {
+          const label = stripHtml(firstLi[1]).trim()
+          if (label && label.length > 1) {
+            htmlLabelMap.set(linkHref, label)
+          }
+        }
+      }
+
+      // Current product's label: from HTML variant link, package_size attribute, or eligibleQuantity
+      const currentPath = new URL(canonicalUrl).pathname
+      const currentPkgLabel = htmlLabelMap.get(currentPath)
+        || html.match(/data-qa-id="product-attribute-package_size"[\s\S]*?<span[^>]*>([^<]+)<\/span>/i)?.[1]?.trim()
+        || product.offers?.eligibleQuantity?.name
+
+      // Build options: current product first (always selected), then siblings from isSimilarTo
+      const options_list: Array<{
+        label: string
+        value: string | null
+        gtin: string | null
+        isSelected: boolean
+        sourceArticleNumber: string | null
+      }> = []
+
+      // Add current product as selected variant
+      options_list.push({
+        label: currentPkgLabel || product.sku || '',
+        value: canonicalUrl,
+        gtin: gtin ?? null,
+        isSelected: true,
+        sourceArticleNumber: product.sku ?? null,
+      })
+
+      // Add sibling variants from isSimilarTo
+      for (const similar of product.isSimilarTo) {
+        // Prefer HTML label (first <li> in variant link), fall back to eligibleQuantity, then SKU
+        let label = ''
+        if (similar.url) {
+          try {
+            const path = new URL(similar.url).pathname
+            label = htmlLabelMap.get(path) || ''
+          } catch {}
+        }
+        if (!label) {
+          label = similar.offers?.eligibleQuantity?.name || similar.sku || ''
+        }
+        options_list.push({
+          label,
+          value: similar.url ?? null,
+          gtin: null,
+          isSelected: false,
+          sourceArticleNumber: similar.sku ?? null,
+        })
+      }
+
+      // Detect dimension: if any label matches a weight/volume pattern → "Größe", else "Farbe"
+      const isSizeDimension = options_list.some((o) =>
+        /\d+\s*(mg|g|kg|ml|l)\b/i.test(o.label),
+      )
+      variants.push({ dimension: isSizeDimension ? 'Größe' : 'Farbe', options: options_list })
+    }
+
+    const result: ScrapedProductData = {
+      name,
+      brandName,
+      brandUrl,
+      gtin,
+      priceCents,
+      currency,
+      availability,
+      images,
+      description,
+      ingredientsText,
+      amount,
+      amountUnit,
+      perUnitAmount,
+      perUnitQuantity,
+      perUnitUnit,
+      categoryBreadcrumbs,
+      sourceArticleNumber,
+      canonicalUrl,
+      variants,
+      warnings: [],
+    }
+
+    jlog.info('Product scraped', {
+      url: sourceUrl,
+      source: 'shopapotheke',
+      name,
+      variants: variants.length,
+      images: images.length,
+      hasIngredients: !!ingredientsText,
+    })
+
+    return result
+  },
+}

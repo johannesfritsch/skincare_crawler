@@ -9,7 +9,7 @@
 // ─── Shared Types ───────────────────────────────────────────────────────────
 
 /** Store slugs — must match server's STORES registry and worker driver slugs */
-export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish' | 'douglas'
+export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish' | 'douglas' | 'shopapotheke'
 
 // ─── Ingredient Field Tracking ──────────────────────────────────────────────
 
