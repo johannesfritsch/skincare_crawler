@@ -36,6 +36,7 @@ export interface ProductDiscoveryResult {
 /** Pure scraped data returned by scrapeProduct — no DB dependency */
 export interface ScrapedProductData {
   gtin?: string
+  pzn?: string
   name: string
   brandName?: string
   brandUrl?: string

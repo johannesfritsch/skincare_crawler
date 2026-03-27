@@ -107,6 +107,7 @@ function computePerUnitPrice(
 
 interface ScrapedProductData {
   gtin?: string
+  pzn?: string
   name: string
   brandName?: string
   brandUrl?: string
@@ -388,6 +389,7 @@ export async function persistCrawlResult(
       id: sourceVariantId,
       data: {
         ...(data.gtin ? { gtin: data.gtin } : {}),
+        ...(data.pzn ? { pzn: data.pzn } : {}),
         ...(canonicalVariantUrl !== variantUrl ? { sourceUrl: canonicalVariantUrl } : {}),
         ...(crawledVariantLabel ? { variantLabel: crawledVariantLabel } : {}),
         ...(crawledVariantDimension ? { variantDimension: crawledVariantDimension } : {}),
@@ -406,6 +408,7 @@ export async function persistCrawlResult(
           sourceProduct: sourceProductId,
           sourceUrl: canonicalVariantUrl,
           gtin: data.gtin || undefined,
+          pzn: data.pzn || undefined,
           variantLabel: crawledVariantLabel,
           variantDimension: crawledVariantDimension,
           sourceArticleNumber: effectiveArticleNumber,

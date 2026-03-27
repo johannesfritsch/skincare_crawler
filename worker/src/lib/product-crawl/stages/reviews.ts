@@ -143,6 +143,13 @@ async function getReviewKey(
     return articleNumber || null
   }
 
+  if (source === 'shopapotheke') {
+    // Shop Apotheke: review key is the product page URL (Playwright navigates to it)
+    const sp = await payload.findByID({ collection: 'source-products', id: sourceProductId }) as Record<string, unknown>
+    const sourceUrl = sp.sourceUrl as string | undefined
+    return sourceUrl || null
+  }
+
   // DM and Rossmann: review key comes from source-variants
   const variants = await payload.find({
     collection: 'source-variants',

@@ -50,6 +50,11 @@ export async function fetchProductReviews(
       const reviews = await fetchDouglasReviews(reviewKey)
       return { reviews: reviews ?? [] }
     }
+    case 'shopapotheke': {
+      const { fetchShopApothekeReviews } = await import('./drivers/shopapotheke/index')
+      const reviews = await fetchShopApothekeReviews(reviewKey)
+      return { reviews: reviews ?? [] }
+    }
     case 'mueller':
       // Mueller has no review API
       return { reviews: [] }

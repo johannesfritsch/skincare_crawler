@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/logger'
+import type { Logger } from '@/lib/logger'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import type {
@@ -39,6 +40,11 @@ interface JsonLdProduct {
   description?: string
   offers?: JsonLdOffer
   isSimilarTo?: JsonLdSimilar[]
+  aggregateRating?: {
+    ratingValue?: number
+    ratingCount?: number
+    bestRating?: number
+  }
 }
 
 interface JsonLdWebPage {
@@ -80,16 +86,22 @@ function parseAmount(text: string): { amount: number; amountUnit: string } | nul
   return { amount, amountUnit: unit }
 }
 
-/** Extract plain text from HTML-tagged content */
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, ' ')
+/** Decode HTML entities in a string (no tag stripping) */
+function decodeEntities(text: string): string {
+  return text
     .replace(/&amp;/g, '&')
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+}
+
+/** Extract plain text from HTML-tagged content */
+function stripHtml(html: string): string {
+  return decodeEntities(html.replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -107,6 +119,111 @@ function parseJsonLdBlocks(html: string): unknown[] {
     }
   }
   return results
+}
+
+// ─── Reviews (API-based) ────────────────────────────────────────────────────
+
+const REVIEW_API = 'https://www.shop-apotheke.com/homeone/api/bully/product-review/v1/de/com/variants'
+
+interface SaReview {
+  reviewId?: string
+  message?: string
+  rating?: number
+  title?: string
+  customer?: { author?: string }
+  submissionDate?: string
+  upid?: string
+}
+
+interface SaReviewResponse {
+  summary?: { variant_code?: string; ratingCount?: number; averageRating?: number }
+  page?: number
+  pageSize?: number
+  totalItems?: number
+  reviews?: SaReview[]
+}
+
+/**
+ * Fetch all reviews for a Shop Apotheke product via the internal review API.
+ * Uses stealthFetch — no browser needed.
+ *
+ * The review key is the PF variant code (e.g. "PF01693052"), extracted from
+ * the product page HTML pattern: "variant_code":"PFxxxxxx","variants"
+ *
+ * API: /homeone/api/bully/product-review/v1/de/com/variants/{pfCode}/reviews
+ * Pagination: page=N (1-based), pageSize=5 (MUST be 5, other values return empty)
+ *
+ * @param reviewKey - Either a PF variant code directly, or a product URL (will fetch page to extract PF code)
+ * @param jlog - Optional logger
+ */
+export async function fetchShopApothekeReviews(
+  reviewKey: string,
+  jlog?: Logger | typeof log,
+): Promise<ScrapedProductData['reviews']> {
+  const l = jlog || log
+  const reviews: NonNullable<ScrapedProductData['reviews']> = []
+
+  try {
+    // Determine the PF variant code
+    let pfCode = reviewKey
+    if (!pfCode.startsWith('PF')) {
+      // reviewKey is a URL — fetch the page and extract the PF code
+      l.info('Fetching product page to extract PF code', { url: reviewKey })
+      const pageRes = await stealthFetch(reviewKey)
+      if (!pageRes.ok) {
+        l.warn('Failed to fetch product page for PF code', { url: reviewKey, status: pageRes.status })
+        return undefined
+      }
+      const html = await pageRes.text()
+      // Extract: "variant_code":"PFxxxxxx","variants" — the product's own code (not siblings)
+      const pfMatch = html.match(/\\?"variant_code\\?":\\?"(PF\d+)\\?"[,}]\\?"variants\\?"/)
+      if (!pfMatch) {
+        l.warn('No PF variant code found in page', { url: reviewKey })
+        return undefined
+      }
+      pfCode = pfMatch[1]
+      l.info('Extracted PF code', { pfCode, url: reviewKey })
+    }
+
+    // Paginate through reviews (pageSize MUST be 5)
+    let page = 1
+    let totalItems = Infinity
+
+    while ((page - 1) * 5 < totalItems) {
+      const url = `${REVIEW_API}/${pfCode}/reviews?page=${page}&pageSize=5&channel=direct`
+      const res = await stealthFetch(url, {
+        headers: { 'Accept': 'application/json' },
+      })
+      if (!res.ok) {
+        l.warn('Review API returned non-OK', { status: res.status, pfCode, page })
+        break
+      }
+
+      const data = await res.json() as SaReviewResponse
+      totalItems = data.totalItems ?? 0
+      const items = data.reviews ?? []
+      if (items.length === 0) break
+
+      for (const r of items) {
+        reviews.push({
+          externalId: r.reviewId || `sa_${r.customer?.author}_${r.submissionDate}`.replace(/\s+/g, '_').toLowerCase(),
+          rating: (r.rating ?? 0) * 2, // 1-5 → 0-10 scale
+          title: r.title || undefined,
+          reviewText: r.message || undefined,
+          userNickname: r.customer?.author || undefined,
+          submittedAt: r.submissionDate || undefined,
+        })
+      }
+
+      page++
+    }
+
+    l.info('Reviews fetched', { pfCode, count: reviews.length, totalItems })
+  } catch (e) {
+    l.warn('Review fetch failed', { reviewKey, error: String(e) })
+  }
+
+  return reviews.length > 0 ? reviews : undefined
 }
 
 // ─── Driver ─────────────────────────────────────────────────────────────────
@@ -180,27 +297,41 @@ export const shopApothekeDriver: SourceDriver = {
     // ── 3. Canonical URL ────────────────────────────────────────────────────
     const canonicalUrl = normalizeProductUrl(toCanonicalUrl(sourceUrl))
 
-    // ── 4. GTIN from HTML data-qa-id="product-attribute-pzn" ───────────────
-    // Format varies: just EAN ("4059729028976") or PZN / EAN ("01580241 / 4150015802413")
+    // ── 4. GTIN + PZN from HTML ─────────────────────────────────────────────
+    // The <dt> label indicates the format:
+    //   <dt>EAN</dt>         → value is just EAN ("4059729028976")
+    //   <dt>PZN / EAN</dt>   → value is "01580241 / 4150015802413" (PZN + EAN)
+    //   <dt>PZN</dt>         → value is just PZN ("A8000532"), no EAN available
+    // PZN (Pharmazentralnummer) is an official German pharmacy identifier.
     let gtin: string | undefined
+    let pzn: string | undefined
+    const pznLabelMatch = html.match(/<dt[^>]*>(PZN\s*\/\s*EAN|PZN|EAN)<\/dt>/i)
+    const pznLabel = pznLabelMatch?.[1]?.trim().toUpperCase() ?? ''
     const pznContent = html.match(/data-qa-id="product-attribute-pzn"[^>]*>([^<]+)</)
     if (pznContent) {
       const text = pznContent[1].trim()
-      // If it contains " / ", take the 13-digit EAN after the slash
       const slashParts = text.split('/')
       if (slashParts.length > 1) {
+        // Two values separated by slash — EAN is the 13-digit one
         const ean = slashParts[slashParts.length - 1].trim()
         if (/^\d{13}$/.test(ean)) gtin = ean
-      }
-      // Otherwise try to match a standalone 8-13 digit number
-      if (!gtin) {
-        const eanMatch = text.match(/\b(\d{13})\b/) || text.match(/\b(\d{8,12})\b/)
+        // First part is PZN when label includes "PZN"
+        if (pznLabel.includes('PZN')) {
+          const pznCandidate = slashParts[0].trim()
+          if (pznCandidate) pzn = pznCandidate
+        }
+      } else if (pznLabel === 'PZN') {
+        // Single value, label is "PZN" — value is a PZN (no EAN)
+        pzn = text
+      } else {
+        // Single value, label is "EAN" — value is an EAN
+        const eanMatch = text.match(/\b(\d{13})\b/)
         if (eanMatch) gtin = eanMatch[1]
       }
     }
 
     // ── 5. Name & Brand ────────────────────────────────────────────────────
-    const name = product.name ?? ''
+    const name = decodeEntities(product.name ?? '')
     if (!name) {
       jlog.warn('No product name found', { url: sourceUrl, source: 'shopapotheke' })
       return null
@@ -215,7 +346,7 @@ export const shopApothekeDriver: SourceDriver = {
       brandUrl = brandHref.startsWith('http') ? brandHref : `https://www.shop-apotheke.com${brandHref}`
     }
     if (!brandName && typeof product.brand === 'string') {
-      brandName = product.brand
+      brandName = decodeEntities(product.brand)
     }
 
     // ── 6. Price ───────────────────────────────────────────────────────────
@@ -350,7 +481,7 @@ export const shopApothekeDriver: SourceDriver = {
     if (breadcrumbList?.itemListElement && breadcrumbList.itemListElement.length > 0) {
       const items = breadcrumbList.itemListElement
         .filter((item) => item.name && item.name.toLowerCase() !== 'home')
-        .map((item) => item.name!)
+        .map((item) => decodeEntities(item.name!))
       // Skip last element (product name)
       if (items.length > 1) {
         categoryBreadcrumbs = items.slice(0, -1)
@@ -360,7 +491,12 @@ export const shopApothekeDriver: SourceDriver = {
     }
 
     // ── 12. Source article number ────────────────────────────────────────────
-    const sourceArticleNumber = product.sku ?? undefined
+    // Extract from URL path (e.g. "upm3ZWKHA" from /beauty/upm3ZWKHA/...,
+    // "A8000532" from /beauty/A8000532/..., "1580241" from /arzneimittel/1580241/...).
+    // This is the store-specific ID used in the URL. For some products this matches
+    // the PZN — that's intentional, both fields are populated independently.
+    const urlPathSku = new URL(canonicalUrl).pathname.match(/\/([^/]+)\/[^/]+\.htm$/)?.[1]
+    const sourceArticleNumber = urlPathSku ?? product.sku ?? undefined
 
     // ── 13. Variants from isSimilarTo ────────────────────────────────────────
     const variants: ScrapedProductData['variants'] = []
@@ -401,32 +537,34 @@ export const shopApothekeDriver: SourceDriver = {
 
       // Add current product as selected variant
       options_list.push({
-        label: currentPkgLabel || product.sku || '',
+        label: currentPkgLabel || urlPathSku || '',
         value: canonicalUrl,
         gtin: gtin ?? null,
         isSelected: true,
-        sourceArticleNumber: product.sku ?? null,
+        sourceArticleNumber: urlPathSku ?? null,
       })
 
       // Add sibling variants from isSimilarTo
       for (const similar of product.isSimilarTo) {
-        // Prefer HTML label (first <li> in variant link), fall back to eligibleQuantity, then SKU
+        // Prefer HTML label (first <li> in variant link), fall back to eligibleQuantity
         let label = ''
+        let siblingUrlSku: string | null = null
         if (similar.url) {
           try {
             const path = new URL(similar.url).pathname
             label = htmlLabelMap.get(path) || ''
+            siblingUrlSku = path.match(/\/([^/]+)\/[^/]+\.htm$/)?.[1] ?? null
           } catch {}
         }
         if (!label) {
-          label = similar.offers?.eligibleQuantity?.name || similar.sku || ''
+          label = similar.offers?.eligibleQuantity?.name || siblingUrlSku || ''
         }
         options_list.push({
           label,
           value: similar.url ?? null,
           gtin: null,
           isSelected: false,
-          sourceArticleNumber: similar.sku ?? null,
+          sourceArticleNumber: siblingUrlSku,
         })
       }
 
@@ -437,11 +575,16 @@ export const shopApothekeDriver: SourceDriver = {
       variants.push({ dimension: isSizeDimension ? 'Größe' : 'Farbe', options: options_list })
     }
 
+    // ── Rating from aggregateRating ───────────────────────────────────────
+    const rating = product.aggregateRating?.ratingValue
+    const ratingCount = product.aggregateRating?.ratingCount
+
     const result: ScrapedProductData = {
       name,
       brandName,
       brandUrl,
       gtin,
+      pzn,
       priceCents,
       currency,
       availability,
@@ -453,6 +596,8 @@ export const shopApothekeDriver: SourceDriver = {
       perUnitAmount,
       perUnitQuantity,
       perUnitUnit,
+      rating,
+      ratingCount,
       categoryBreadcrumbs,
       sourceArticleNumber,
       canonicalUrl,

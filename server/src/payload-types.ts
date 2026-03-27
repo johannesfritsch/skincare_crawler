@@ -1312,6 +1312,10 @@ export interface SourceVariant {
    */
   gtin?: string | null;
   /**
+   * Pharmazentralnummer (German pharmacy product number)
+   */
+  pzn?: string | null;
+  /**
    * Store-specific article number / SKU (e.g., DM DAN, Mueller code, Shopify SKU)
    */
   sourceArticleNumber?: string | null;
@@ -3124,6 +3128,7 @@ export interface SourceVariantsSelect<T extends boolean = true> {
   sourceUrl?: T;
   sourceProduct?: T;
   gtin?: T;
+  pzn?: T;
   sourceArticleNumber?: T;
   crawledAt?: T;
   variantLabel?: T;

@@ -8,7 +8,7 @@ export const SourceVariants: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'sourceUrl',
-    defaultColumns: ['sourceUrl', 'gtin', 'sourceProduct', 'variantLabel', 'createdAt'],
+    defaultColumns: ['sourceUrl', 'gtin', 'pzn', 'sourceProduct', 'variantLabel', 'createdAt'],
     listSearchableFields: ['sourceUrl', 'gtin'],
     group: 'Source Products',
     description: 'Individual purchasable variants of source products, each with a unique URL',
@@ -54,12 +54,23 @@ export const SourceVariants: CollectionConfig = {
       },
     },
     {
+      name: 'pzn',
+      type: 'text',
+      label: 'PZN',
+      index: true,
+      admin: {
+        position: 'sidebar',
+        description: 'Pharmazentralnummer (German pharmacy product number)',
+      },
+    },
+    {
       name: 'sourceArticleNumber',
       type: 'text',
       label: 'Article Number',
       admin: {
         position: 'sidebar',
-        description: 'Store-specific article number / SKU (e.g., DM DAN, Mueller code, Shopify SKU)',
+        description:
+          'Store-specific article number / SKU (e.g., DM DAN, Mueller code, Shopify SKU)',
       },
     },
     {
@@ -213,7 +224,8 @@ export const SourceVariants: CollectionConfig = {
               type: 'array',
               label: 'Price History',
               admin: {
-                description: 'Timestamped price & availability entries from each crawl of this variant',
+                description:
+                  'Timestamped price & availability entries from each crawl of this variant',
               },
               fields: [
                 {
@@ -263,13 +275,19 @@ export const SourceVariants: CollectionConfig = {
                       name: 'perUnitQuantity',
                       type: 'number',
                       label: 'Per Unit Qty',
-                      admin: { description: 'Reference quantity (e.g., 100 for "per 100 ml")', width: '25%' },
+                      admin: {
+                        description: 'Reference quantity (e.g., 100 for "per 100 ml")',
+                        width: '25%',
+                      },
                     },
                     {
                       name: 'unit',
                       type: 'text',
                       label: 'Unit',
-                      admin: { description: 'Unit of measurement (e.g., ml, g, l, kg)', width: '25%' },
+                      admin: {
+                        description: 'Unit of measurement (e.g., ml, g, l, kg)',
+                        width: '25%',
+                      },
                     },
                   ],
                 },
