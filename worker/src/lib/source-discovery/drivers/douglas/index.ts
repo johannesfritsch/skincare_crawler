@@ -9,6 +9,7 @@ import type {
   DiscoveredProduct,
 } from '../../types'
 import { launchBrowser } from '@/lib/browser'
+import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { createLogger } from '@/lib/logger'
 import type { Logger } from '@/lib/logger'
@@ -87,6 +88,19 @@ interface DouglasSearchProduct {
   flags?: Array<{ code: string }>
   availableColorsAmount?: number
   ean?: string
+}
+
+// ─── Discovery progress ─────────────────────────────────────────────────────
+
+interface DouglasDiscoveryProgress {
+  queue: string[]
+  visitedUrls: string[]
+  currentLeaf?: {
+    categoryUrl: string
+    category: string
+    maxPage: number
+    nextPage: number
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -476,9 +490,272 @@ export const douglasDriver: SourceDriver = {
   },
 
   async discoverProducts(
-    _options: ProductDiscoveryOptions,
+    options: ProductDiscoveryOptions,
   ): Promise<ProductDiscoveryResult> {
-    throw new Error('Douglas discovery not yet implemented')
+    const { url, onProduct, onError, onProgress, delay = 2000, maxPages, debug = false, logger } = options
+    const savedProgress = options.progress as DouglasDiscoveryProgress | undefined
+    const jlog = logger || log
+
+    jlog.info('Starting Douglas discovery', { url, delay, maxPages: maxPages ?? 'unlimited', debug })
+
+    const visitedUrls = new Set<string>(savedProgress?.visitedUrls ?? [])
+    const seenProductUrls = new Set<string>()
+    const queue: string[] = savedProgress?.queue ?? [url]
+    let currentLeaf = savedProgress?.currentLeaf ?? undefined
+    let pagesUsed = 0
+
+    function budgetExhausted(): boolean {
+      return maxPages !== undefined && pagesUsed >= maxPages
+    }
+
+    const browser = await launchBrowser({ headless: !debug })
+
+    try {
+      const context = await browser.newContext()
+      const page = await context.newPage()
+
+      /** Extract subcategory links that go deeper than the current URL path */
+      function extractSubcategoryLinks(currentPath: string) {
+        return page.$$eval(
+          '.category-facet a[href*="/de/c/"]',
+          (links, curPath) => {
+            const currentSegments = curPath.replace(/\/$/, '').split('/').length
+            const seen = new Set<string>()
+            return links
+              .map(a => a.getAttribute('href') || '')
+              .filter(href => {
+                if (!href || href.includes('?') || seen.has(href)) return false
+                seen.add(href)
+                // Child links have more path segments than the current URL
+                const segments = href.replace(/\/$/, '').split('/').length
+                return segments > currentSegments && href !== curPath
+              })
+          },
+          currentPath,
+        )
+      }
+
+      /** Extract product tiles, skipping sponsored ads */
+      function extractProductTiles() {
+        return page.$$eval(
+          '[data-testid="product-tile"]',
+          (tiles) => tiles
+            .filter(tile => !tile.querySelector('[data-testid="sponsored-button"]'))
+            .map(tile => {
+              const link = tile.querySelector('a[href*="/de/p/"]') as HTMLAnchorElement | null
+              const href = link?.getAttribute('href') || ''
+              const info = tile.querySelector('[data-testid="product-tile-info"]') as HTMLElement | null
+              const lines = info?.innerText?.split('\n').filter(Boolean) || []
+              return { href, brand: lines[0] || '', name: lines[1] || '' }
+            })
+            .filter(t => t.href),
+        )
+      }
+
+      /** Extract max page number from pagination "Seite N von M" */
+      function extractMaxPage() {
+        return page.$$eval(
+          '[data-testid="pagination-title-link"]',
+          (links) => {
+            let max = 1
+            for (const link of links) {
+              const match = link.textContent?.match(/von\s+(\d+)/)
+              if (match) {
+                const num = parseInt(match[1], 10)
+                if (num > max) max = num
+              }
+            }
+            return max
+          },
+        ).catch(() => 1)
+      }
+
+      /** Extract breadcrumb category string */
+      function extractBreadcrumb() {
+        return page.$$eval(
+          '[data-testid="breadcrumb-name"]',
+          (els) => {
+            const seen = new Set<string>()
+            const parts: string[] = []
+            els.forEach(el => {
+              const text = el.textContent?.trim() || ''
+              if (text && text !== 'Homepage' && !seen.has(text)) {
+                seen.add(text)
+                parts.push(text)
+              }
+            })
+            return parts.join(' -> ')
+          },
+        )
+      }
+
+      async function emitProducts(
+        products: Awaited<ReturnType<typeof extractProductTiles>>,
+        category: string,
+        categoryUrl: string,
+      ) {
+        for (const p of products) {
+          // Normalize to base product URL (strip ?variant= query params)
+          const fullUrl = p.href.startsWith('http') ? p.href : `${BASE_URL}${p.href}`
+          const productUrl = normalizeProductUrl(fullUrl)
+          if (seenProductUrls.has(productUrl)) continue
+          seenProductUrls.add(productUrl)
+          await onProduct({
+            productUrl,
+            name: p.name || undefined,
+            brandName: p.brand || undefined,
+            category,
+            categoryUrl,
+          })
+        }
+      }
+
+      async function saveProgress() {
+        await onProgress?.({
+          queue: [...queue],
+          visitedUrls: [...visitedUrls],
+          currentLeaf,
+        } satisfies DouglasDiscoveryProgress)
+      }
+
+      // First navigation — dismiss cookie consent once
+      let consentDismissed = false
+      async function ensureConsent() {
+        if (!consentDismissed) {
+          await dismissCookieConsent(page)
+          consentDismissed = true
+        }
+      }
+
+      // Resume paginating a leaf if we were mid-leaf
+      if (currentLeaf) {
+        const { categoryUrl, category, maxPage, nextPage } = currentLeaf
+        for (let pageNum = nextPage; pageNum <= maxPage; pageNum++) {
+          if (budgetExhausted()) {
+            currentLeaf = { ...currentLeaf, nextPage: pageNum }
+            await saveProgress()
+            return { done: false, pagesUsed }
+          }
+
+          const pagedUrl = `${categoryUrl}?page=${pageNum}`
+          jlog.info('Resuming leaf page', { pageNum, url: pagedUrl })
+
+          try {
+            await page.goto(pagedUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+            await sleep(randomDelay(2000, 3500))
+            await ensureConsent()
+            pagesUsed++
+
+            const products = await extractProductTiles()
+            await emitProducts(products, category, categoryUrl)
+            jlog.info('Scraped page', { pageNum, products: products.length })
+            logger?.event('discovery.page_scraped', { source: 'douglas', page: pageNum, products: products.length })
+          } catch (e) {
+            jlog.warn('Error on page', { url: pagedUrl, error: String(e) })
+            onError?.(pagedUrl)
+            pagesUsed++
+          }
+
+          await saveProgress()
+        }
+        currentLeaf = undefined
+        await saveProgress()
+      }
+
+      // BFS loop
+      while (queue.length > 0) {
+        if (budgetExhausted()) break
+
+        const currentUrl = queue.shift()!
+        const canonicalUrl = currentUrl.startsWith('http')
+          ? currentUrl
+          : `${BASE_URL}${currentUrl}`
+        const urlPath = new URL(canonicalUrl).pathname
+
+        if (visitedUrls.has(canonicalUrl)) continue
+        visitedUrls.add(canonicalUrl)
+
+        try {
+          jlog.info('Visiting category', { url: canonicalUrl })
+          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+          await sleep(randomDelay(2000, 3500))
+          await ensureConsent()
+          pagesUsed++
+
+          // Check for child subcategories
+          const childHrefs = await extractSubcategoryLinks(urlPath)
+
+          if (childHrefs.length > 0) {
+            // Non-leaf: queue children for later traversal
+            jlog.info('Category has subcategories', { url: canonicalUrl, children: childHrefs.length })
+            for (const href of childHrefs) {
+              const childUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`
+              if (!visitedUrls.has(childUrl)) {
+                queue.push(childUrl)
+              }
+            }
+          } else {
+            // Leaf: paginate products
+            const category = await extractBreadcrumb()
+            const maxPage = await extractMaxPage()
+
+            jlog.info('Leaf category', { url: canonicalUrl, category, maxPage })
+
+            // Scrape page 1 (already loaded)
+            const products = await extractProductTiles()
+            await emitProducts(products, category, canonicalUrl)
+            jlog.info('Scraped page', { pageNum: 1, products: products.length })
+            logger?.event('discovery.page_scraped', { source: 'douglas', page: 1, products: products.length })
+
+            // Paginate remaining pages
+            for (let pageNum = 2; pageNum <= maxPage; pageNum++) {
+              if (budgetExhausted()) {
+                currentLeaf = { categoryUrl: canonicalUrl, category, maxPage, nextPage: pageNum }
+                await saveProgress()
+                return { done: false, pagesUsed }
+              }
+
+              const pagedUrl = `${canonicalUrl}?page=${pageNum}`
+              jlog.info('Navigating to page', { pageNum, url: pagedUrl })
+
+              try {
+                await page.goto(pagedUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+                await sleep(randomDelay(2000, 3500))
+                pagesUsed++
+
+                const pageProducts = await extractProductTiles()
+                await emitProducts(pageProducts, category, canonicalUrl)
+                jlog.info('Scraped page', { pageNum, products: pageProducts.length })
+                logger?.event('discovery.page_scraped', { source: 'douglas', page: pageNum, products: pageProducts.length })
+              } catch (e) {
+                jlog.warn('Error on page', { url: pagedUrl, error: String(e) })
+                onError?.(pagedUrl)
+                pagesUsed++
+              }
+
+              await saveProgress()
+            }
+          }
+
+          await saveProgress()
+        } catch (e) {
+          jlog.warn('Error visiting category', { url: canonicalUrl, error: String(e) })
+          onError?.(canonicalUrl)
+          await saveProgress()
+        }
+      }
+
+      if (debug) {
+        jlog.info('Debug mode: browser kept open')
+        await page.pause()
+      }
+    } finally {
+      await browser.close()
+    }
+
+    const done = queue.length === 0 && !currentLeaf
+    jlog.info('Discovery tick done', { pagesUsed, done })
+    return { done, pagesUsed }
   },
 
   async scrapeProduct(

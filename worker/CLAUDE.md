@@ -785,12 +785,15 @@ All events below are emitted to the server's `events` collection (visible in adm
 
 ## Per-Driver Documentation
 
+See **`drivers/GUIDE.md`** for a comprehensive implementation guide covering scraping strategies, variant extraction pitfalls, GTIN fallback chains, bot protection, reviews integration, and testing checklists. Read this before building a new driver.
+
 Each source driver has its own `CLAUDE.md` file documenting store-specific scraping details:
 
 - **`drivers/dm/CLAUDE.md`** — DM: API-based, product detail + availability APIs, DAN system, search headers
 - **`drivers/mueller/CLAUDE.md`** — Mueller: Playwright, hybrid RSC JSON + DOM, bot check handling, GTIN from image URLs
 - **`drivers/rossmann/CLAUDE.md`** — Rossmann: Playwright, pure DOM scraping, BazaarVoice ratings, dataLayer categories
 - **`drivers/purish/CLAUDE.md`** — PURISH: Shopify JSON API + page HTML, tab-structured descriptions, position-based image grouping, productJson variants
+- **`drivers/douglas/CLAUDE.md`** — Douglas: Playwright + page.evaluate(fetch), Akamai bot management, two variant UI types, React fiber GTIN extraction, BazaarVoice reviews
 
 These files document: data sources, scrape flow, field extraction details (with CSS selectors / API paths / regex patterns), discovery and search flows, URL patterns, and implementation details.
 

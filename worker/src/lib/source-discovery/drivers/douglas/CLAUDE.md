@@ -283,6 +283,42 @@ Douglas proxies BV requests through `/jsapi/v2/products/bazaarvoice/reviews`, bu
 
 The direct BV API at `apps.bazaarvoice.com` has no Akamai protection and works with plain `stealthFetch()`.
 
-## Not Yet Implemented
+## Discovery (`discoverProducts`)
 
-- **Discovery** (`discoverProducts`): Category tree traversal. Douglas has a navigation structure but no known API for category enumeration.
+Playwright-based BFS category tree traversal (same pattern as Mueller/Rossmann).
+
+### Category URL pattern
+
+`/de/c/{slug}/{code}` — numeric code at the end (e.g. `12`, `1205`, `120501`). Deeper categories have longer codes.
+
+### Category tree structure
+
+- `/de/c/gesicht/12` (top) → subcategory tabs: Gesichtspflege, Gesichtsreinigung, etc.
+- `/de/c/gesicht/gesichtspflege/1205` (mid) → subcategory tabs: Gesichtscreme, Tagescreme, etc.
+- `/de/c/gesicht/gesichtspflege/gesichtscreme/120501` (leaf) → only product tiles + pagination
+
+### Subcategory detection
+
+`.category-facet a[href*="/de/c/"]` contains both sibling and child category links. Child links have more path segments than the current URL. If no child links exist → page is a leaf.
+
+### Product tiles
+
+- Selector: `[data-testid="product-tile"]`
+- Product link: `a[href*="/de/p/"]` inside tile
+- Brand/name: text lines in `[data-testid="product-tile-info"]` (innerText split by newline — first line brand, second name)
+- **Sponsored tiles**: contain `[data-testid="sponsored-button"]` — filtered out (ads)
+- ~56 tiles per page
+
+### Pagination
+
+- URL: `?page=N` (1-based, page 1 has no param)
+- Max page from `[data-testid="pagination-title-link"]` — text "Seite N von M", extract M
+- Category breadcrumbs from `[data-testid="breadcrumb-name"]` elements
+
+### Progress
+
+`DouglasDiscoveryProgress`: `{ queue[], visitedUrls[], currentLeaf? }` — same structure as Mueller/Rossmann. Resumable across worker restarts.
+
+### Bot protection
+
+Category pages render normally in Playwright — no `page.evaluate(fetch)` needed. Cookie consent dismissed once via `dismissCookieConsent()` on first navigation.

@@ -201,11 +201,13 @@ The server registry is a simple static list (server and worker are separate proc
 
 ### Step-by-step: Adding a new store
 
+See `worker/src/lib/source-discovery/drivers/GUIDE.md` for a detailed implementation guide covering scraping strategies, variant extraction pitfalls, GTIN fallback chains, bot protection, reviews integration, and testing checklists.
+
 1. **Create the driver** — `worker/src/lib/source-discovery/drivers/<slug>/index.ts`
 
    - Implement the `SourceDriver` interface: `slug`, `label`, `hosts`, `logoSvg`, `matches()`, `discoverProducts()`, `searchProducts()`, `scrapeProduct()`
-   - Use existing drivers as reference (DM for API-based, Rossmann/Mueller for Playwright-based)
-   - Add a `CLAUDE.md` in the same folder documenting the scraping details (see `purish/CLAUDE.md` for the reference format)
+   - Use existing drivers as reference (DM for API-based, Rossmann/Mueller for Playwright-based, Douglas for hybrid Playwright + API)
+   - Add a `CLAUDE.md` in the same folder documenting the scraping details (see `douglas/CLAUDE.md` for the most complete example)
 
 2. **Register the driver** — `worker/src/lib/source-discovery/driver.ts`
 
