@@ -68,4 +68,50 @@ describe('PURISH driver snapshot: scrapeProduct', () => {
       expect(result).toEqual(expected)
     }
   })
+
+  test('essence-baby-got-blush-liquid-blush — multi-variant with image grouping', async () => {
+    const fixtureSlug = 'essence-baby-got-blush-liquid-blush'
+    setFixture('purish', fixtureSlug)
+
+    const { purishDriver } = await import('@/lib/source-discovery/drivers/purish/index')
+
+    const result = await purishDriver.scrapeProduct(
+      `https://purish.com/products/${fixtureSlug}`,
+    )
+
+    expect(result).not.toBeNull()
+
+    // Structural checks for variant-specific fields
+    expect(result!.name).toBeTypeOf('string')
+    expect(result!.brandName).toBeTypeOf('string')
+    expect(result!.images).toBeInstanceOf(Array)
+    expect(result!.images.length).toBeGreaterThan(0)
+
+    // Should have variant groups with multiple options
+    expect(result!.variants.length).toBeGreaterThan(0)
+    const totalOptions = result!.variants.reduce((sum, g) => sum + g.options.length, 0)
+    expect(totalOptions).toBeGreaterThan(1)
+
+    // Each variant option should have a URL value
+    for (const group of result!.variants) {
+      expect(group.dimension).toBeTypeOf('string')
+      for (const opt of group.options) {
+        expect(opt.label).toBeTypeOf('string')
+        if (opt.value) {
+          expect(opt.value).toContain('variant=')
+        }
+      }
+    }
+
+    // Save or compare against golden snapshot
+    const snapshotPath = path.join(FIXTURES_DIR, 'purish', fixtureSlug, 'expected.snapshot.json')
+
+    if (!existsSync(snapshotPath) || process.env.UPDATE_SNAPSHOTS) {
+      writeFileSync(snapshotPath, JSON.stringify(result, null, 2), 'utf-8')
+      console.log(`  Saved golden snapshot: ${snapshotPath}`)
+    } else {
+      const expected = JSON.parse(readFileSync(snapshotPath, 'utf-8'))
+      expect(result).toEqual(expected)
+    }
+  })
 })

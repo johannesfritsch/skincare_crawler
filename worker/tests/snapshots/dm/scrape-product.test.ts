@@ -81,4 +81,50 @@ describe('DM driver snapshot: scrapeProduct', () => {
       expect(result).toEqual(expected)
     }
   })
+
+  test('4059729518507 — essence Lipliner with color variants + pills', async () => {
+    const fixtureSlug = '4059729518507'
+    setFixture('dm', fixtureSlug)
+
+    const { dmDriver } = await import('@/lib/source-discovery/drivers/dm/index')
+
+    const result = await dmDriver.scrapeProduct(
+      `https://www.dm.de/essence-lipliner-line-n-stain-tattoo-01-p${fixtureSlug}.html`,
+      { skipReviews: false },
+    )
+
+    expect(result).not.toBeNull()
+
+    // Structural checks for variant-specific fields
+    expect(result!.gtin).toBe(fixtureSlug)
+    expect(result!.variants.length).toBeGreaterThan(0)
+    expect(result!.variants[0].options.length).toBeGreaterThan(1)
+
+    // Each variant option should have label, value (URL), gtin
+    for (const group of result!.variants) {
+      expect(group.dimension).toBeTypeOf('string')
+      for (const opt of group.options) {
+        expect(opt.label).toBeTypeOf('string')
+        expect(opt.label.length).toBeGreaterThan(0)
+      }
+    }
+
+    // Should have labels (pills)
+    expect(result!.labels).toBeDefined()
+    expect(result!.labels!.length).toBeGreaterThan(0)
+
+    // Should have availability set (from the availability API)
+    expect(result!.availability).toBeDefined()
+
+    // Save or compare against golden snapshot
+    const snapshotPath = path.join(FIXTURES_DIR, 'dm', fixtureSlug, 'expected.snapshot.json')
+
+    if (!existsSync(snapshotPath) || process.env.UPDATE_SNAPSHOTS) {
+      writeFileSync(snapshotPath, JSON.stringify(result, null, 2), 'utf-8')
+      console.log(`  Saved golden snapshot: ${snapshotPath}`)
+    } else {
+      const expected = JSON.parse(readFileSync(snapshotPath, 'utf-8'))
+      expect(result).toEqual(expected)
+    }
+  })
 })
