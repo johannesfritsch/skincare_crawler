@@ -9,6 +9,7 @@ import type {
   ProductSearchOptions,
   ProductSearchResult,
   ScrapedProductData,
+  DiscoveredProduct,
 } from '../../types'
 
 const log = createLogger('ShopApotheke')
@@ -75,15 +76,28 @@ function toCanonicalUrl(url: string): string {
   }
 }
 
-/** Parse amount and unit from a string like "9.5 g" or "100,5 ml" */
+/** Parse amount and unit from a string like "9.5 g", "100,5 ml", "60 St", "2x60 St" */
 function parseAmount(text: string): { amount: number; amountUnit: string } | null {
   if (!text) return null
-  const match = text.match(/([\d.,]+)\s*(mg|g|kg|ml|l|Stück)/i)
+  // Handle "NxM unit" patterns (e.g. "2x60 St" → 120 St)
+  const multiMatch = text.match(/(\d+)\s*x\s*(\d+)\s*(mg|g|kg|ml|l|St\.?|Stück)/i)
+  if (multiMatch) {
+    const amount = parseInt(multiMatch[1], 10) * parseInt(multiMatch[2], 10)
+    const unit = normalizeUnit(multiMatch[3])
+    return { amount, amountUnit: unit }
+  }
+  const match = text.match(/([\d.,]+)\s*(mg|g|kg|ml|l|St\.?|Stück)/i)
   if (!match) return null
   const amount = parseFloat(match[1].replace(',', '.'))
-  const unit = match[2]
+  const unit = normalizeUnit(match[2])
   if (isNaN(amount)) return null
   return { amount, amountUnit: unit }
+}
+
+/** Normalize unit abbreviations (St./St → Stück) */
+function normalizeUnit(unit: string): string {
+  if (/^St\.?$/i.test(unit)) return 'Stück'
+  return unit
 }
 
 /** Decode HTML entities in a string (no tag stripping) */
@@ -249,8 +263,103 @@ export const shopApothekeDriver: SourceDriver = {
     throw new Error('Shop Apotheke discovery not yet implemented')
   },
 
-  async searchProducts(_options: ProductSearchOptions): Promise<ProductSearchResult> {
-    throw new Error('Shop Apotheke search not yet implemented')
+  async searchProducts(options: ProductSearchOptions): Promise<ProductSearchResult> {
+    const { query, maxResults = 50, isGtinSearch, logger } = options
+    const jlog = logger || log
+    const products: DiscoveredProduct[] = []
+    const seenUrls = new Set<string>()
+
+    jlog.info('Searching Shop Apotheke', { query, maxResults, isGtinSearch })
+
+    let page = 1
+    while (products.length < maxResults) {
+      const searchUrl = `https://www.shop-apotheke.com/search.htm?q=${encodeURIComponent(query)}&i=${page}`
+      const res = await stealthFetch(searchUrl)
+      if (!res.ok) {
+        jlog.warn('Search fetch failed', { url: searchUrl, status: res.status })
+        break
+      }
+      const html = await res.text()
+
+      // Extract search result entries
+      const entryRegex = /<li data-qa-id="result-list-entry">([\s\S]*?)<\/li>/gi
+      let entryMatch: RegExpExecArray | null
+      let foundOnPage = 0
+
+      while ((entryMatch = entryRegex.exec(html)) !== null) {
+        const entry = entryMatch[1]
+
+        // Product URL from title link
+        const hrefMatch = entry.match(/data-qa-id="serp-result-item-title"\s+href="([^"]+)"/)
+        if (!hrefMatch) continue
+        const rawHref = decodeEntities(hrefMatch[1])
+        // Strip tracking query params — keep only the path
+        const cleanHref = rawHref.split('?')[0]
+        const productUrl = normalizeProductUrl(
+          cleanHref.startsWith('http') ? cleanHref : `https://www.shop-apotheke.com${cleanHref}`,
+        )
+        if (seenUrls.has(productUrl)) continue
+
+        // For GTIN search: check if PZN/EAN in this entry matches the query
+        if (isGtinSearch) {
+          // Match "PZN/EAN: 01580241/4150015802413" or "PZN: 13984512" or just check URL SKU
+          const pznEanMatch = entry.match(/(?:PZN\/EAN|PZN|EAN)[^0-9]*([0-9][0-9/]*)/)
+          const urlSkuMatch = cleanHref.match(/\/([^/]+)\/[^/]+\.htm$/)
+          const identifiers: string[] = []
+          if (pznEanMatch) {
+            identifiers.push(...pznEanMatch[1].split('/').map(s => s.trim()))
+          }
+          if (urlSkuMatch) {
+            identifiers.push(urlSkuMatch[1])
+          }
+          const queryNormalized = query.replace(/^0+/, '')
+          if (!identifiers.some(id => id === query || id.replace(/^0+/, '') === queryNormalized)) continue
+        }
+
+        seenUrls.add(productUrl)
+
+        // Product name from title link text
+        const nameMatch = entry.match(/data-qa-id="serp-result-item-title"[^>]*>([^<]+)</)
+        const name = nameMatch ? decodeEntities(nameMatch[1].trim()) : undefined
+
+        // Rating: count filled star icons
+        const filledStars = (entry.match(/rating__icon_filled/g) || []).length
+        const rating = filledStars > 0 ? filledStars : undefined
+
+        // Rating count from review-count
+        const ratingCountMatch = entry.match(/data-qa-id="review-count">\((\d+)\)</)
+        const ratingCount = ratingCountMatch ? parseInt(ratingCountMatch[1], 10) : undefined
+
+        // Brand name: from the manufacturer in list items (third li after PZN/EAN)
+        // The list has: "20 g | Salbe", "PZN/EAN: ...", "Bayer Vital GmbH"
+        const brandMatch = entry.match(/<li class="[^"]*text-dark-primary-strong[^"]*">([^<]+)<\/li>/g)
+        let brandName: string | undefined
+        if (brandMatch) {
+          // Last text-dark-primary-strong li that doesn't contain PZN/EAN
+          for (const li of brandMatch) {
+            const text = stripHtml(li)
+            if (!text.includes('PZN') && !text.includes('EAN') && text.length > 2) {
+              brandName = text
+            }
+          }
+        }
+
+        products.push({ productUrl, name, brandName, rating, ratingCount })
+        foundOnPage++
+
+        if (products.length >= maxResults) break
+      }
+
+      jlog.info('Search page processed', { page, found: foundOnPage, total: products.length })
+
+      if (foundOnPage === 0) break
+      page++
+    }
+
+    jlog.info('Search complete', { query, found: products.length })
+    logger?.event('search.source_complete', { source: 'shopapotheke', query, results: products.length })
+
+    return { products }
   },
 
   async scrapeProduct(
@@ -464,16 +573,16 @@ export const shopApothekeDriver: SourceDriver = {
     }
 
     // ── 10b. Per-unit price from HTML ──────────────────────────────────────
-    // data-qa-id="current-variant-price-per-unit" → "65,68 € / 100 g"
+    // data-qa-id="current-variant-price-per-unit" → "65,68 € / 100 g" or "0,28 € / 1 St."
     let perUnitAmount: number | undefined
     let perUnitQuantity: number | undefined
     let perUnitUnit: string | undefined
-    const perUnitMatch = html.match(/data-qa-id="current-variant-price-per-unit"[^>]*>([\d.,]+)\s*€\s*\/\s*([\d.,]*)\s*(mg|g|kg|ml|l|Stück)/i)
+    const perUnitMatch = html.match(/data-qa-id="current-variant-price-per-unit"[^>]*>([\d.,]+)\s*€\s*\/\s*([\d.,]*)\s*(mg|g|kg|ml|l|St\.?|Stück)/i)
     if (perUnitMatch) {
       perUnitAmount = parseFloat(perUnitMatch[1].replace(',', '.'))
       const qtyStr = perUnitMatch[2].replace(',', '.')
       perUnitQuantity = qtyStr ? parseFloat(qtyStr) : 1
-      perUnitUnit = perUnitMatch[3]
+      perUnitUnit = normalizeUnit(perUnitMatch[3])
     }
 
     // ── 11. Category breadcrumbs ────────────────────────────────────────────
