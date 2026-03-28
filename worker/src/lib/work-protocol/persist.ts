@@ -61,7 +61,7 @@ export function normalizeReviewerAge(raw: string | null | undefined): string | n
  * (whitespace, comma, period, dash, parenthesis, end of string, etc.) to avoid false positives
  * like "global" or "light".
  */
-function parseAmountFromText(text: string): { amount: number; amountUnit: string } | null {
+export function parseAmountFromText(text: string): { amount: number; amountUnit: string } | null {
   // Match: number (with optional comma/dot decimal up to 2 places) + optional space + unit + word boundary
   const match = text.match(/(\d+(?:[.,]\d{1,2})?)\s*(mg|kg|ml|g|l)(?=[\s,.);\-\/\]!?]|$)/i)
   if (!match) return null
@@ -78,7 +78,7 @@ function parseAmountFromText(text: string): { amount: number; amountUnit: string
  * - l/kg → price per 1 unit
  * - anything else → price per 1 unit (preserves original unit casing)
  */
-function computePerUnitPrice(
+export function computePerUnitPrice(
   priceCents: number,
   amount: number,
   amountUnit: string,

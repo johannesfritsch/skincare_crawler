@@ -1,0 +1,54 @@
+{
+  "name": "Catrice - Sonnen-Glow-Matt Bronzing Puder",
+  "brandName": "catrice",
+  "brandUrl": "https://www.shop-apotheke.com/marken/catrice/",
+  "gtin": "4059729028976",
+  "priceCents": 624,
+  "currency": "EUR",
+  "availability": "available",
+  "images": [
+    {
+      "url": "https://cdn.shop-apotheke.com/images/mp/prod/b56fa5613063406894eff654dadf017f"
+    },
+    {
+      "url": "https://cdn.shop-apotheke.com/images/mp/prod/b86e23d3630643ae8e88bd97fc1b0a9a"
+    },
+    {
+      "url": "https://cdn.shop-apotheke.com/images/mp/prod/20560de1f0a54f109e6f1f29e34962b1"
+    }
+  ],
+  "description": "## USP / Key Facts\n\n• Matte, wasserfeste Bronzing-Puder • Natürlicher Bronzing-Effekt • Lange Haltbarkeit • Einfaches Verblenden • Präzises Konturieren • Ohne Aceton und Parfüm • Vegan und umweltfreundlich\n\n## Anwendung\n\nFür sofortigen Glanz verwenden Sie Catrices Sun Glow Matt Bronzing Powder. Tragen Sie es vorsichtig auf die Nasenwurzel und die Wangenknochen auf, um in Sekunden einen sonnengeküssten Teint zu erzielen. Die wasserfeste matte Formel garantiert ein natürliches und lang anhaltendes Ergebnis. Enthüllen Sie Ihre Strahlkraft mühelos und stilvoll bei Cosmé'chic.\n\n## Herstellerdaten\n\ncosnova GmbH",
+  "amount": 9.5,
+  "amountUnit": "g",
+  "perUnitAmount": 65.68,
+  "perUnitQuantity": 100,
+  "perUnitUnit": "g",
+  "categoryBreadcrumbs": [
+    "Beauty & Pflege",
+    "Beauty Tools"
+  ],
+  "sourceArticleNumber": "upm3ZWKHA",
+  "canonicalUrl": "https://www.shop-apotheke.com/beauty/upm3ZWKHA/catrice-sonnen-glow-matt-bronzing-puder.htm",
+  "variants": [
+    {
+      "dimension": "Farbe",
+      "options": [
+        {
+          "label": "35 Universal Bronze",
+          "value": "https://www.shop-apotheke.com/beauty/upm3ZWKHA/catrice-sonnen-glow-matt-bronzing-puder.htm",
+          "gtin": "4059729028976",
+          "isSelected": true,
+          "sourceArticleNumber": "upm3ZWKHA"
+        },
+        {
+          "label": "30 Medium Bronze",
+          "value": "https://www.shop-apotheke.com/beauty/upm23TTGX/catrice-sonnen-glow-matt-bronzing-puder.htm",
+          "gtin": null,
+          "isSelected": false,
+          "sourceArticleNumber": "upm23TTGX"
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}

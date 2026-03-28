@@ -799,6 +799,60 @@ These files document: data sources, scrape flow, field extraction details (with 
 
 **When you learn something new about how a store's website works** — a new HTML structure, a changed API response, a different selector, a new label source, an anti-bot behavior, or any other scraping detail — **update that driver's `CLAUDE.md` immediately**. This is critical for maintaining accurate documentation that future sessions can rely on. Each driver's page structure and APIs are different and change over time; the CLAUDE.md is the single source of truth for how we scrape each store.
 
+## Testing
+
+The worker uses **Vitest** for testing. All testable changes to worker code should include tests.
+
+### Running Tests
+
+```bash
+cd worker
+pnpm test          # run all tests (no network, no database)
+pnpm test:watch    # watch mode
+pnpm test:record <driver> <url>   # record live HTTP responses as fixtures
+UPDATE_SNAPSHOTS=1 pnpm test      # regenerate golden snapshots
+```
+
+### Test Structure
+
+```
+worker/tests/
+├── unit/                          # Pure function unit tests (no mocking needed)
+│   ├── dm-helpers.test.ts         # DM driver parsing helpers
+│   ├── shopapotheke-helpers.test.ts  # Shop Apotheke parsing helpers
+│   ├── persist-helpers.test.ts    # persist.ts utilities (parseAmountFromText, etc.)
+│   └── url-normalize.test.ts     # normalizeProductUrl, normalizeVariantUrl
+├── snapshots/                     # Driver snapshot tests (mocked HTTP, full parser)
+│   ├── dm/scrape-product.test.ts
+│   └── shopapotheke/scrape-product.test.ts
+├── fixtures/                      # Recorded HTTP responses for snapshot tests
+│   ├── dm/<gtin>/                 # product-api.json, availability.json, reviews.json, expected.snapshot.json
+│   └── shopapotheke/<slug>/       # product-page.html, expected.snapshot.json
+└── helpers/
+    ├── mock-stealth-fetch.ts      # stealthFetch mock (URL pattern → fixture file)
+    ├── record.ts                  # CLI to record live fixtures
+    └── driver-test-setup.ts       # Shared mock declarations for snapshot tests
+```
+
+### Test Policy
+
+**All testable changes must include tests.** Specifically:
+
+- **New or modified pure helper functions** (parsers, normalizers, converters) → add unit tests in `tests/unit/`. Pure helpers should live in a `helpers.ts` file alongside the driver index to keep them importable without side effects.
+- **New source drivers** → record fixtures with `pnpm test:record <driver> <url>` and add a snapshot test in `tests/snapshots/<driver>/`. At minimum, test one `scrapeProduct()` call against recorded HTTP responses.
+- **Changes to existing driver parsing logic** → run `pnpm test` to verify snapshots still pass. If the change intentionally alters output, run `UPDATE_SNAPSHOTS=1 pnpm test` to regenerate golden snapshots and review the diff.
+- **Bug fixes in scraping/parsing** → add a test case that reproduces the bug before fixing it.
+
+**What does NOT need tests** (yet): job handler orchestration (claim/submit/heartbeat), LLM-powered functions (non-deterministic), video processing stages (ML models), Playwright-based drivers (Rossmann, Mueller, Douglas — Phase 2).
+
+### Driver Helper Pattern
+
+Each driver's pure parsing functions live in a separate `helpers.ts` file (`drivers/<slug>/helpers.ts`) that has **zero imports from the rest of the codebase** — no `stealthFetch`, no `logger`, no `browser`. This allows tests to import helpers without triggering the full driver dependency chain. The driver's `index.ts` has its own copy of these functions (kept in sync). When adding helpers to a driver, put them in `helpers.ts` and write tests against that file.
+
+### Snapshot Test Pattern
+
+Snapshot tests mock `stealthFetch` (returns recorded fixture files), `launchBrowser` (rejects), `logger` (noop), and the driver registry (empty). They then import a single driver and call `scrapeProduct()` against a fixture. On first run, the golden snapshot (`expected.snapshot.json`) is saved. Subsequent runs compare against it. This catches parser regressions without network access.
+
 ## Keeping This File Up to Date
 
 Whenever you make changes to the worker codebase, **update this file** to reflect those changes. This includes additions or modifications to job handlers, the work protocol, source drivers, matching/classification functions, the REST client, logging, or any worker-side patterns documented here. Documentation must stay in sync with the code.
