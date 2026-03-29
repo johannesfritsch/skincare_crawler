@@ -45,6 +45,8 @@ server/ingredient-media/
 # Hugging Face model cache
 .cache/
 
+.superset
+
 # Playwright
 /test-results/
 /playwright-report/
