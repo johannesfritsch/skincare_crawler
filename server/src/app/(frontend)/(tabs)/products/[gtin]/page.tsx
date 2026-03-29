@@ -63,9 +63,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     .from(t.products)
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
-    .leftJoin(t.products_images, sql`${t.products_images._parentID} = ${t.products.id} AND ${t.products_images._order} = 1`)
-    .leftJoin(t.product_media, eq(t.products_images.image, t.product_media.id))
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
+    .leftJoin(t.product_variants_images, sql`${t.product_variants_images._parentID} = ${t.product_variants.id} AND ${t.product_variants_images._order} = 1 AND ${t.product_variants_images.visibility} = 'public'`)
+    .leftJoin(t.product_media, eq(t.product_variants_images.image, t.product_media.id))
     .where(eq(t.product_variants.gtin, gtin))
     .limit(1)
 
