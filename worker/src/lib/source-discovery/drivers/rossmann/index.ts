@@ -443,8 +443,7 @@ export const rossmannDriver: SourceDriver = {
       // Navigate to search page
       const searchUrl = `https://www.rossmann.de/de/search?text=${encodeURIComponent(query)}`
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded' })
-      await page.waitForSelector('[data-testid="product-card"], [data-testid="search-no-results"]', { timeout: 15000 }).catch(() => {})
-      await sleep(randomDelay(1000, 2000))
+      await page.waitForSelector('[data-testid="product-card"], [data-testid="search-no-results"]', { timeout: 10000 }).catch(() => {})
 
       // Get total page count from pagination links (0-based index in testid, but represents page numbers)
       function getLastPageIndex() {
@@ -541,8 +540,7 @@ export const rossmannDriver: SourceDriver = {
         const nextUrl = `https://www.rossmann.de/de/search?text=${encodeURIComponent(query)}&pageIndex=${pageIndex}`
         log.info('Navigating to search page', { pageIndex, url: nextUrl })
         await page.goto(nextUrl, { waitUntil: 'domcontentloaded' })
-        await page.waitForSelector('[data-testid="product-card"]', { timeout: 15000 }).catch(() => {})
-        await sleep(randomDelay(1000, 2000))
+        await page.waitForSelector('[data-testid="product-card"]', { timeout: 10000 }).catch(() => {})
       }
 
       if (debug) {
@@ -573,13 +571,12 @@ export const rossmannDriver: SourceDriver = {
       try {
         const page = await browser.newPage()
         await page.goto(sourceUrl, { waitUntil: 'domcontentloaded' })
-        await page.waitForSelector('.rm-product__title', { timeout: 15000 }).catch(() => {})
-        await sleep(randomDelay(1000, 2000))
+        await page.waitForSelector('.rm-product__title', { timeout: 5000 }).catch(() => {})
 
-        // Wait for BazaarVoice rating widget to render (loads async via JS)
+        // Wait briefly for BazaarVoice rating widget (async 3rd-party, optional data)
         await page
           .waitForSelector('.bv_avgRating_component_container', {
-            timeout: 15000,
+            timeout: 3000,
           })
           .catch(() => {})
 

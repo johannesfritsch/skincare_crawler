@@ -557,7 +557,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         gtin: lastResult.data.gtin ?? null,
         images: lastResult.data.images.length,
         hasPrice: lastResult.data.priceCents != null,
-        hasIngredients: lastResult.data.ingredientNames.length > 0,
+        hasIngredients: 'ingredientsText' in lastResult.data && !!lastResult.data.ingredientsText,
         hasBrand: !!lastResult.data.brandName,
       },
     }
