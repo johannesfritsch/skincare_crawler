@@ -14,6 +14,80 @@ import os from 'os'
 import { execSync } from 'child_process'
 import type { VideoCrawlStageContext, VideoCrawlWorkItem, VideoCrawlStageResult } from './index'
 
+/** Detect platform from URL hostname */
+function detectPlatform(url: string): 'youtube' | 'instagram' | 'tiktok' {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    if (host.includes('instagram')) return 'instagram'
+    if (host.includes('tiktok')) return 'tiktok'
+  } catch {}
+  return 'youtube'
+}
+
+/** Extract normalized video metadata from any platform */
+interface VideoMetadata {
+  title: string
+  duration?: number
+  viewCount?: number
+  likeCount?: number
+  publishedAt?: string
+  thumbnailUrl?: string
+  channelName?: string
+  channelUrl?: string
+  channelAvatarUrl?: string
+}
+
+async function fetchMetadataFromApify(url: string, platform: 'instagram' | 'tiktok', fallbackTitle: string): Promise<VideoMetadata> {
+  if (platform === 'instagram') {
+    const { fetchInstagramItemByUrl } = await import('@/lib/video-discovery/drivers/instagram')
+    const item = await fetchInstagramItemByUrl(url)
+    if (!item) throw new Error(`Instagram video not found in Apify dataset: ${url}`)
+
+    const captionLines = (item.caption || '').split('\n').filter(Boolean)
+    return {
+      title: captionLines[0]?.substring(0, 200) || fallbackTitle,
+      duration: item.videoDuration || undefined,
+      viewCount: item.videoViewCount || item.videoPlayCount || undefined,
+      likeCount: item.likesCount || undefined,
+      publishedAt: item.timestamp || undefined,
+      thumbnailUrl: item.displayUrl || undefined,
+      channelName: item.ownerUsername || undefined,
+      channelUrl: `https://www.instagram.com/${item.ownerUsername}/`,
+      channelAvatarUrl: undefined, // Not available on post items
+    }
+  } else {
+    const { fetchTikTokItemByUrl, getTikTokThumbnailUrl } = await import('@/lib/video-discovery/drivers/tiktok')
+    const item = await fetchTikTokItemByUrl(url)
+    if (!item) throw new Error(`TikTok video not found in Apify dataset: ${url}`)
+
+    // Handle both dot-notation flat keys and nested object keys
+    const raw = item as unknown as Record<string, unknown>
+    const authorMeta = raw['authorMeta'] as Record<string, string> | undefined
+    const videoMeta = raw['videoMeta'] as Record<string, number> | undefined
+    const text = (raw.text ?? item.text ?? '') as string
+    const textLines = text.split('\n').filter(Boolean)
+    const username = (item['authorMeta.name'] ?? authorMeta?.name ?? '') as string
+    const avatar = (item['authorMeta.avatar'] ?? authorMeta?.avatar ?? '') as string
+    const duration = (item['videoMeta.duration'] ?? videoMeta?.duration ?? undefined) as number | undefined
+
+    // Fallback: extract username from URL if not in dataset
+    const usernameFromUrl = url.match(/tiktok\.com\/@([^/]+)/)?.[1]
+    const effectiveUsername = username || usernameFromUrl || ''
+
+    return {
+      title: textLines[0]?.substring(0, 200) || fallbackTitle,
+      duration,
+      viewCount: (raw.playCount ?? item.playCount ?? undefined) as number | undefined,
+      likeCount: (raw.diggCount ?? item.diggCount ?? undefined) as number | undefined,
+      publishedAt: (raw.createTimeISO ?? item.createTimeISO ?? undefined) as string | undefined,
+      thumbnailUrl: await getTikTokThumbnailUrl(url) ?? undefined,
+      channelName: effectiveUsername || undefined,
+      channelUrl: effectiveUsername ? `https://www.tiktok.com/@${effectiveUsername}` : undefined,
+      channelAvatarUrl: avatar || undefined,
+    }
+  }
+}
+
 export async function executeMetadata(
   ctx: VideoCrawlStageContext,
   item: VideoCrawlWorkItem,
@@ -21,21 +95,55 @@ export async function executeMetadata(
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-video-metadata-'))
 
   try {
-    // Step 1: Get metadata via yt-dlp --dump-json (no download)
-    const metadataJson = execSync(
-      `yt-dlp --dump-json --no-download ${JSON.stringify(item.externalUrl)}`,
-      { timeout: 60000, maxBuffer: 50 * 1024 * 1024 },
-    ).toString('utf-8')
-    const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+    const platform = detectPlatform(item.externalUrl)
 
-    const title = (metadata.title as string) ?? item.title
-    const duration = (metadata.duration as number) ?? undefined
-    const viewCount = (metadata.view_count as number) ?? undefined
-    const likeCount = (metadata.like_count as number) ?? undefined
-    const uploadDate = metadata.upload_date as string | undefined
-    const thumbnailUrl = (metadata.thumbnail as string) ?? undefined
-    const channelName = (metadata.channel as string) ?? (metadata.uploader as string) ?? undefined
-    const channelUrl = (metadata.channel_url as string) ?? undefined
+    // Step 1: Get metadata — platform-specific
+    let title: string
+    let duration: number | undefined
+    let viewCount: number | undefined
+    let likeCount: number | undefined
+    let publishedAt: string | undefined
+    let thumbnailUrl: string | undefined
+    let channelName: string | undefined
+    let channelUrl: string | undefined
+    let channelAvatarUrl: string | undefined
+
+    if (platform === 'instagram' || platform === 'tiktok') {
+      const meta = await fetchMetadataFromApify(item.externalUrl, platform, item.title)
+      title = meta.title
+      duration = meta.duration
+      viewCount = meta.viewCount
+      likeCount = meta.likeCount
+      publishedAt = meta.publishedAt
+      thumbnailUrl = meta.thumbnailUrl
+      channelName = meta.channelName
+      channelUrl = meta.channelUrl
+      channelAvatarUrl = meta.channelAvatarUrl
+    } else {
+      // YouTube: use yt-dlp
+      const metadataJson = execSync(
+        `yt-dlp --dump-json --no-download ${JSON.stringify(item.externalUrl)}`,
+        { timeout: 60000, maxBuffer: 50 * 1024 * 1024 },
+      ).toString('utf-8')
+      const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+
+      title = (metadata.title as string) ?? item.title
+      duration = (metadata.duration as number) ?? undefined
+      viewCount = (metadata.view_count as number) ?? undefined
+      likeCount = (metadata.like_count as number) ?? undefined
+      thumbnailUrl = (metadata.thumbnail as string) ?? undefined
+      channelName = (metadata.channel as string) ?? (metadata.uploader as string) ?? undefined
+      channelUrl = (metadata.channel_url as string) ?? undefined
+      channelAvatarUrl = (metadata.channel_thumbnail_url as string) ?? undefined
+
+      // yt-dlp returns YYYYMMDD format
+      const uploadDate = metadata.upload_date as string | undefined
+      if (uploadDate && /^\d{8}$/.test(uploadDate)) {
+        publishedAt = new Date(
+          `${uploadDate.slice(0, 4)}-${uploadDate.slice(4, 6)}-${uploadDate.slice(6, 8)}`,
+        ).toISOString()
+      }
+    }
 
     await ctx.heartbeat()
 
@@ -77,7 +185,6 @@ export async function executeMetadata(
 
         // Download channel avatar
         let channelImageId: number | undefined
-        const channelAvatarUrl = metadata.channel_thumbnail_url as string | undefined
         if (channelAvatarUrl) {
           try {
             const avatarRes = await fetch(channelAvatarUrl)
@@ -94,14 +201,6 @@ export async function executeMetadata(
           }
         }
 
-        // Determine platform
-        let platform: 'youtube' | 'instagram' | 'tiktok' = 'youtube'
-        try {
-          const host = new URL(channelUrl).hostname.toLowerCase()
-          if (host.includes('instagram')) platform = 'instagram'
-          else if (host.includes('tiktok')) platform = 'tiktok'
-        } catch { /* default youtube */ }
-
         const newChannel = await ctx.payload.create({
           collection: 'channels',
           data: {
@@ -116,7 +215,7 @@ export async function executeMetadata(
     }
 
     if (!channelId) {
-      throw new Error(`Could not resolve channel for video ${item.externalUrl} — yt-dlp returned no channel_url`)
+      throw new Error(`Could not resolve channel for video ${item.externalUrl} — no channel URL from ${platform} metadata`)
     }
 
     await ctx.heartbeat()
@@ -139,16 +238,7 @@ export async function executeMetadata(
       }
     }
 
-    // Step 4: Build publishedAt
-    let publishedAt: string | undefined
-    if (uploadDate && /^\d{8}$/.test(uploadDate)) {
-      // yt-dlp returns YYYYMMDD format
-      publishedAt = new Date(
-        `${uploadDate.slice(0, 4)}-${uploadDate.slice(4, 6)}-${uploadDate.slice(6, 8)}`,
-      ).toISOString()
-    }
-
-    // Step 5: Create or update video record with metadata — NOT videoFile/audioFile
+    // Step 4: Create or update video record with metadata — NOT videoFile/audioFile
     const videoData = {
       title,
       channel: channelId,

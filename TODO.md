@@ -37,4 +37,20 @@
 - ✅ During aggregation, take the review source into account
 - ✅ Mark runs with status icon in events view
 - Obtain data from images
-  - Douglas, coocoon center, shop-apotheke
+- ✅ Douglas driver
+  - ✅ Search
+  - ✅ Discovery
+  - ✅ Crawl
+- coocoon center driver
+  - Search
+  - Discovery
+  - Crawl
+- shop-apotheke driver
+  - Search
+  - Discovery
+  - Crawl
+- Testsuite System (snapshot-testing)
+- Crawl Source Brands
+- Remove the variant dimension?
+- TikTok
+- Instagram

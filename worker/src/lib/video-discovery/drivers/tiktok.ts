@@ -9,11 +9,11 @@
  */
 
 import type { VideoDiscoveryDriver, VideoDiscoveryPageOptions, VideoDiscoveryPageResult, DiscoveredVideo } from '../types'
-import { getLatestRun, fetchDatasetItems, log } from './apify-client'
+import { getLatestRun, fetchDatasetItems, listKvStoreKeys, getKvRecordUrl, log } from './apify-client'
 
 // Hardcoded — field mapping is tightly coupled to this actor's output schema
 // Apify API uses tilde (~) separator in actor IDs: owner~name
-const ACTOR_ID = 'clockworks~free-tiktok-scraper'
+const ACTOR_ID = 'clockworks~tiktok-scraper'
 
 /** TikTok Apify items use dot-notation flat keys */
 interface TikTokItem {
@@ -68,6 +68,56 @@ function mapToDiscoveredVideo(item: TikTokItem): DiscoveredVideo {
   }
 }
 
+/**
+ * Fetch a single TikTok video item from the latest Apify dataset by its web URL.
+ * Used by the video crawl stages to get metadata.
+ */
+export async function fetchTikTokItemByUrl(videoUrl: string): Promise<TikTokItem | null> {
+  const run = await getLatestRun(ACTOR_ID)
+  const batchSize = 1000
+  let offset = 0
+  const videoId = extractVideoId(videoUrl)
+
+  while (true) {
+    const items = await fetchDatasetItems<TikTokItem>(run.defaultDatasetId, offset, batchSize)
+    if (items.length === 0) break
+
+    for (const item of items) {
+      const raw = item as unknown as Record<string, unknown>
+      // Try dot-notation key, then direct key
+      const itemUrl = (raw['webVideoUrl'] ?? raw.webVideoUrl ?? '') as string
+      if (itemUrl === videoUrl || itemUrl.includes(videoId)) return item
+    }
+
+    if (items.length < batchSize) break
+    offset += batchSize
+  }
+
+  log.warn('TikTok item not found in dataset', { videoUrl, videoId, datasetId: run.defaultDatasetId })
+  return null
+}
+
+/**
+ * Find the KV store video download URL for a TikTok video.
+ * Videos are stored with key pattern: video-{username}-{datetime}-{videoId}.mp4
+ */
+export async function getTikTokVideoDownloadUrl(videoUrl: string): Promise<string | null> {
+  const videoId = extractVideoId(videoUrl)
+  const run = await getLatestRun(ACTOR_ID)
+  const storeId = run.defaultKeyValueStoreId
+
+  const keys = await listKvStoreKeys(storeId, 'video-')
+  const matchingKey = keys.find(k => k.key.includes(videoId))
+  if (!matchingKey) {
+    log.warn('No KV store video found for TikTok video', { videoId, storeId, keysChecked: keys.length })
+    return null
+  }
+
+  return getKvRecordUrl(storeId, matchingKey.key)
+}
+
+export type { TikTokItem }
+
 export const tiktokDriver: VideoDiscoveryDriver = {
   slug: 'tiktok',
   label: 'TikTok',
@@ -114,10 +164,28 @@ export const tiktokDriver: VideoDiscoveryDriver = {
       offset += batchSize
     }
 
+    // Debug: log first item's keys and author field to diagnose filtering
+    if (allItems.length > 0) {
+      const first = allItems[0] as unknown as Record<string, unknown>
+      const keys = Object.keys(first)
+      log.info('TikTok dataset item debug', {
+        itemCount: allItems.length,
+        keys: keys.join(', '),
+        authorMetaName: String(first['authorMeta.name'] ?? (first['authorMeta'] as Record<string, unknown>)?.name ?? 'MISSING'),
+        webVideoUrl: String(first['webVideoUrl'] ?? 'MISSING'),
+        sampleValues: keys.slice(0, 5).map(k => `${k}=${String(first[k]).substring(0, 50)}`).join(' | '),
+      })
+    } else {
+      log.warn('TikTok dataset is empty', { datasetId: run.defaultDatasetId })
+    }
+
     // Filter to videos from the requested channel
-    const channelVideos = allItems.filter(item =>
-      item['authorMeta.name']?.toLowerCase() === username,
-    )
+    // Try both dot-notation key and nested object access
+    const channelVideos = allItems.filter(item => {
+      const authorName = item['authorMeta.name']
+        ?? (item as unknown as Record<string, Record<string, string>>).authorMeta?.name
+      return authorName?.toLowerCase() === username
+    })
 
     // Sort by timestamp descending (newest first)
     channelVideos.sort((a, b) => {
@@ -154,4 +222,23 @@ export const tiktokDriver: VideoDiscoveryDriver = {
 export async function getTikTokKvStoreId(): Promise<string> {
   const run = await getLatestRun(ACTOR_ID)
   return run.defaultKeyValueStoreId
+}
+
+/**
+ * Find the KV store thumbnail/cover URL for a TikTok video.
+ * Covers are stored with key pattern: cover-{username}-{datetime}-{videoId}.jpg (or similar)
+ */
+export async function getTikTokThumbnailUrl(videoUrl: string): Promise<string | null> {
+  const videoId = extractVideoId(videoUrl)
+  const run = await getLatestRun(ACTOR_ID)
+  const storeId = run.defaultKeyValueStoreId
+
+  const keys = await listKvStoreKeys(storeId, 'cover-')
+  const matchingKey = keys.find(k => k.key.includes(videoId))
+  if (!matchingKey) {
+    log.debug('No KV store cover found for TikTok video', { videoId, storeId })
+    return null
+  }
+
+  return getKvRecordUrl(storeId, matchingKey.key)
 }

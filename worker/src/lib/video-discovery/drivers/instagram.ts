@@ -59,6 +59,29 @@ function mapToDiscoveredVideo(item: InstagramItem): DiscoveredVideo {
   }
 }
 
+/**
+ * Fetch a single Instagram video item from the latest Apify dataset by its post URL.
+ * Used by the video crawl stages to get metadata and video download URL.
+ */
+export async function fetchInstagramItemByUrl(videoUrl: string): Promise<InstagramItem | null> {
+  const run = await getLatestRun(ACTOR_ID)
+  const batchSize = 1000
+  let offset = 0
+
+  while (true) {
+    const items = await fetchDatasetItems<InstagramItem>(run.defaultDatasetId, offset, batchSize)
+    if (items.length === 0) break
+    const match = items.find(item => item.url === videoUrl)
+    if (match) return match
+    if (items.length < batchSize) break
+    offset += batchSize
+  }
+
+  return null
+}
+
+export type { InstagramItem }
+
 export const instagramDriver: VideoDiscoveryDriver = {
   slug: 'instagram',
   label: 'Instagram',
