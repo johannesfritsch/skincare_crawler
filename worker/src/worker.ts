@@ -21,7 +21,7 @@ import { PayloadRestClient } from '@/lib/payload-client'
 import { initLogger, createLogger } from '@/lib/logger'
 import { rebuildJobWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
-import { failJob } from '@/lib/work-protocol/job-failure'
+import { failJob, retryOrFail } from '@/lib/work-protocol/job-failure'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
 import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
@@ -1218,7 +1218,16 @@ async function main(): Promise<void> {
         const jobType = Object.entries(JOB_TYPE_TO_COLLECTION).find(([, col]) => col === jobCollection)?.[0] as JobType | undefined
 
         if (jobType) {
-          await processWorkItem(jobType, jobConfig, item, jlog)
+          try {
+            await processWorkItem(jobType, jobConfig, item, jlog)
+          } catch (handlerError) {
+            const reason = handlerError instanceof Error ? handlerError.message : String(handlerError)
+            log.error('Handler threw unrecoverable error', { jobType, jobId, error: reason })
+            // Mark work item as failed
+            await client.workItems.complete({ workItemId: item.id, success: false, error: reason }).catch(() => {})
+            // Trigger retryOrFail which emits critical events (job.failed / job.failed_max_retries)
+            await retryOrFail(client, jobCollection as import('@anyskin/shared').JobCollection, jobId, reason).catch(() => {})
+          }
         } else {
           log.warn('Unknown job collection for work item', { jobCollection, jobId })
           await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown job collection: ${jobCollection}` })
