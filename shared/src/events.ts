@@ -57,7 +57,7 @@ export type JobCollection =
   | 'ingredient-crawls'
 
 export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'critical'
 
 /** Default metadata for each event — type, level, and optional labels */
 export interface EventMeta {
@@ -118,6 +118,18 @@ export interface EventRegistry {
     crawled: number
     errors: number
     durationMs: number
+  }
+  'crawl.validation_failed': {
+    url: string
+    source: string
+    issues: string
+    issueCount: number
+  }
+  'crawl.batch_validation_alert': {
+    source: string
+    batchSize: number
+    validationFailures: number
+    failureRate: number
   }
 
   // ─── Scraper (per-product, driver-emitted) ─────────────────────────────
@@ -680,10 +692,10 @@ export const EVENT_META: Record<EventName, EventMeta> = {
   'job.claimed': { type: 'start', level: 'info' },
   'job.completed': { type: 'success', level: 'info' },
   'job.completed_empty': { type: 'success', level: 'info' },
-  'job.failed': { type: 'error', level: 'error', labels: ['job-failure'] },
+  'job.failed': { type: 'error', level: 'critical', labels: ['job-failure'] },
   'job.failed_max_retries': {
     type: 'error',
-    level: 'error',
+    level: 'critical',
     labels: ['job-failure', 'max-retries'],
   },
   'job.retrying': {
@@ -709,6 +721,16 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'success',
     level: 'info',
     labels: ['scraping'],
+  },
+  'crawl.validation_failed': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['scraping', 'validation'],
+  },
+  'crawl.batch_validation_alert': {
+    type: 'error',
+    level: 'critical',
+    labels: ['scraping', 'validation'],
   },
 
   // Scraper

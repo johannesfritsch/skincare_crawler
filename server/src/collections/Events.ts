@@ -1,10 +1,14 @@
 import type { CollectionConfig } from 'payload'
+import { criticalEventNotifier } from '../hooks/criticalEventNotifier'
 
 export const Events: CollectionConfig = {
   slug: 'events',
   labels: {
     singular: 'Event',
     plural: 'Events',
+  },
+  hooks: {
+    afterChange: [criticalEventNotifier],
   },
   admin: {
     useAsTitle: 'message',
@@ -42,6 +46,7 @@ export const Events: CollectionConfig = {
         { label: 'Info', value: 'info' },
         { label: 'Warn', value: 'warn' },
         { label: 'Error', value: 'error' },
+        { label: 'Critical', value: 'critical' },
       ],
       defaultValue: 'info',
       index: true,

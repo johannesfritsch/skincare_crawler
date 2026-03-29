@@ -1,5 +1,6 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
 import { s3Storage } from '@payloadcms/storage-s3'
+import { nodemailerAdapter } from '@payloadcms/email-nodemailer'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import path from 'path'
 import { buildConfig, type Plugin } from 'payload'
@@ -43,6 +44,8 @@ import { VideoCrawls } from './collections/VideoCrawls'
 import { VideoProcessings } from './collections/VideoProcessings'
 
 import { Workers } from './collections/Workers'
+
+import { CrawlerSettings } from './globals/CrawlerSettings'
 
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
@@ -244,6 +247,7 @@ export default buildConfig({
     VideoProcessings,
     Workers,
   ],
+  globals: [CrawlerSettings],
   endpoints: [
     {
       path: '/dashboard/events',
@@ -293,6 +297,19 @@ export default buildConfig({
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
+  email: nodemailerAdapter({
+    defaultFromAddress: process.env.EMAIL_FROM || 'crawler@anyskin.com',
+    defaultFromName: 'AnySkin Crawler',
+    transportOptions: {
+      host: process.env.SMTP_HOST || '',
+      port: Number(process.env.SMTP_PORT || 465),
+      secure: (process.env.SMTP_SECURE ?? 'true') === 'true',
+      auth: {
+        user: process.env.SMTP_USER || '',
+        pass: process.env.SMTP_PASS || '',
+      },
+    },
+  }),
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },

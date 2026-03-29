@@ -179,8 +179,12 @@ export interface Config {
     defaultIDType: number;
   };
   fallbackLocale: null;
-  globals: {};
-  globalsSelect: {};
+  globals: {
+    'crawler-settings': CrawlerSetting;
+  };
+  globalsSelect: {
+    'crawler-settings': CrawlerSettingsSelect<false> | CrawlerSettingsSelect<true>;
+  };
   locale: null;
   user:
     | (User & {
@@ -1932,6 +1936,18 @@ export interface ProductCrawl {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /**
+   * Last batch summary with sample product data and validation results
+   */
+  crawlSnapshot?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   crawlProgress?:
     | {
         [k: string]: unknown;
@@ -2041,7 +2057,7 @@ export interface Event {
    * Typed event name (e.g. crawl.started, persist.price_changed)
    */
   name?: string | null;
-  level?: ('debug' | 'info' | 'warn' | 'error') | null;
+  level?: ('debug' | 'info' | 'warn' | 'error' | 'critical') | null;
   component?: ('worker' | 'server') | null;
   labels?:
     | {
@@ -3286,6 +3302,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   errors?: T;
   startedAt?: T;
   completedAt?: T;
+  crawlSnapshot?: T;
   crawlProgress?: T;
   crawledGtins?: T;
   updatedAt?: T;
@@ -3714,6 +3731,34 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   batch?: T;
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "crawler-settings".
+ */
+export interface CrawlerSetting {
+  id: number;
+  /**
+   * Email address(es) for critical alerts (comma-separated). Falls back to ALERT_EMAIL env var.
+   */
+  alertEmail?: string | null;
+  /**
+   * Timestamp of the last critical alert email sent (used for 1-hour cooldown).
+   */
+  lastCriticalEmailAt?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "crawler-settings_select".
+ */
+export interface CrawlerSettingsSelect<T extends boolean = true> {
+  alertEmail?: T;
+  lastCriticalEmailAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

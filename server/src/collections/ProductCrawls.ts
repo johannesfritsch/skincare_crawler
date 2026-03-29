@@ -286,6 +286,14 @@ export const ProductCrawls: CollectionConfig = {
           label: 'Output',
           fields: [
             {
+              name: 'crawlSnapshot',
+              type: 'json',
+              admin: {
+                description: 'Last batch summary with sample product data and validation results',
+                readOnly: true,
+              },
+            },
+            {
               name: 'crawlProgress',
               type: 'json',
               admin: {

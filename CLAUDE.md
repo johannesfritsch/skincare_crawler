@@ -70,6 +70,13 @@ S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
 S3_REGION=us-east-1
 S3_ENDPOINT=http://localhost:9000     # for non-AWS (MinIO, etc.)
+SMTP_HOST=in-v3.mailjet.com           # SMTP server for alert emails
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=...                         # SMTP auth user
+SMTP_PASS=...                         # SMTP auth password
+EMAIL_FROM=crawler@anyskin.com        # sender address for alert emails
+ALERT_EMAIL=admin@anyskin.com         # critical alert recipients (fallback; editable in admin via Crawler Settings)
 ```
 
 ## Worker
@@ -157,6 +164,20 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `detection-media` | Grounding DINO detection crops — product and video (no image sizes, raw crops only) |
 | `product-sentiments` | Aggregated per-product topic sentiment counts from source reviews. One row per (product, topic, sentiment, reviewOrigin) combination. Fields: product (ref → products, indexed), topic (select: 16 topics, indexed), sentiment (select: positive/neutral/negative), reviewOrigin (ref → source-review-origins, nullable — null for native reviews), amount (number, default 0). The reviewOrigin dimension enables slicing by origin: "All" sums all rows, "Incentivized" filters where origin.incentivized=true, "Organic" filters where origin.incentivized !== true or null. |
 | `recognition_embeddings` | Standalone pgvector table for DINOv2-base (768-dim) embeddings keyed by (product_variant_id, detection_media_id, augmentation_type). Each detection crop produces 8 embeddings (original + 7 synthetic perspective augmentations: rotations, flip, skews). Decoupled from Payload's recognitionImages array to survive array rewrites. HNSW index for cosine similarity search. |
+
+### Globals
+
+| Global | Purpose |
+| --- | --- |
+| `crawler-settings` | System-wide crawler configuration. `alertEmail` (text, editable in admin) for critical alert recipients. `lastCriticalEmailAt` (date, read-only) tracks email cooldown across all server nodes. |
+
+### Crawl Validation & Critical Alerts
+
+Product crawl results are validated for plausibility after each `persistCrawlResult()`. The validation function (`worker/src/lib/validate-crawl-result.ts`) checks: non-empty name/brand, at least 1 image, price in range, valid GTIN format, valid image URLs. Failures emit `crawl.validation_failed` events with level `critical`. If >50% of a batch fails validation, a `crawl.batch_validation_alert` event is also emitted.
+
+Critical events trigger email alerts via an `afterChange` hook on the Events collection (`server/src/hooks/criticalEventNotifier.ts`). Emails are batched with a 1-hour cooldown stored in the `crawler-settings` global (database-backed, multi-node safe). Email is sent via Payload's nodemailer adapter configured with Mailjet SMTP. Recipients are configured in the admin UI (Crawler Settings > alertEmail) or via the `ALERT_EMAIL` env var.
+
+The `product-crawls` collection has a `crawlSnapshot` JSON field that stores a summary of each batch (size, successes, validation failures, sample product data). Visible in the admin UI for quick inspection.
 
 ## End-to-End Data Flow
 

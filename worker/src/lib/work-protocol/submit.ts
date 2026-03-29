@@ -5,6 +5,7 @@ import type { SourceSlug } from '@/lib/source-product-queries'
 import { getSourceSlugFromUrl, countUncrawled, normalizeProductUrl } from '@/lib/source-product-queries'
 import { ALL_SOURCE_SLUGS } from '@/lib/source-discovery/driver'
 import { createLogger } from '@/lib/logger'
+import { validateCrawlResult } from '@/lib/validate-crawl-result'
 import {
   persistCrawlResult,
   persistIngredient,
@@ -392,6 +393,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   let batchExistingVariants = 0
   let batchWithIngredients = 0
   let batchPriceChanges = 0
+  let batchValidationFailures = 0
   const batchGtins = new Set<string>()
 
   for (const result of results) {
@@ -423,6 +425,18 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
           for (const opt of dim.options ?? []) {
             if (opt.gtin) batchGtins.add(opt.gtin)
           }
+        }
+
+        // Validate scraped data for plausibility
+        const validationIssues = validateCrawlResult(result.data, result.source as SourceSlug)
+        if (validationIssues.length > 0) {
+          batchValidationFailures++
+          jlog.event('crawl.validation_failed', {
+            url: result.sourceUrl,
+            source: result.source,
+            issues: validationIssues.map(i => `${i.field}: ${i.message}`).join('; '),
+            issueCount: validationIssues.length,
+          })
         }
 
         log.info('Product crawl persisted', { jobId, sourceUrl: result.sourceUrl })
@@ -513,6 +527,44 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       existingVariants: batchExistingVariants,
       withIngredients: batchWithIngredients,
       priceChanges: batchPriceChanges,
+    })
+  }
+
+  // Batch-level validation alert: >50% failures is critical
+  if (batchValidationFailures > 0 && batchSuccesses > 0) {
+    const failureRate = Math.round((batchValidationFailures / batchSuccesses) * 100) / 100
+    if (failureRate > 0.5) {
+      jlog.event('crawl.batch_validation_alert', {
+        source,
+        batchSize,
+        validationFailures: batchValidationFailures,
+        failureRate,
+      }, { level: 'critical' })
+    }
+  }
+
+  // Update crawl snapshot on the job for admin visibility
+  const lastResult = results.find(r => r.data)
+  if (lastResult?.data) {
+    const snapshot = {
+      lastBatchAt: new Date().toISOString(),
+      batchSize,
+      successes: batchSuccesses,
+      validationFailures: batchValidationFailures,
+      sample: {
+        url: lastResult.sourceUrl,
+        name: lastResult.data.name,
+        gtin: lastResult.data.gtin ?? null,
+        images: lastResult.data.images.length,
+        hasPrice: lastResult.data.priceCents != null,
+        hasIngredients: lastResult.data.ingredientNames.length > 0,
+        hasBrand: !!lastResult.data.brandName,
+      },
+    }
+    await payload.update({
+      collection: 'product-crawls',
+      id: jobId,
+      data: { crawlSnapshot: snapshot },
     })
   }
 
