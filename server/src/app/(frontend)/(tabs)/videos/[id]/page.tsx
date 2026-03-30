@@ -100,7 +100,7 @@ export default async function VideoDetailPage({ params, searchParams }: Props) {
       .from(t.video_mentions)
       .leftJoin(t.products, eq(t.video_mentions.product, t.products.id))
       .leftJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
-      .leftJoin(t.product_variants_images, sql`${t.product_variants_images._parentID} = ${t.product_variants.id} AND ${t.product_variants_images._order} = 1 AND ${t.product_variants_images.visibility} = 'public'`)
+      .leftJoin(t.product_variants_images, sql`${t.product_variants_images._parentID} = ${t.product_variants.id} AND ${t.product_variants_images._order} = 1`)
       .leftJoin(t.product_media, eq(t.product_variants_images.image, t.product_media.id))
       .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
       .where(inArray(t.video_mentions.videoScene, sceneIds))

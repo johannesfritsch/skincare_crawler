@@ -49,7 +49,7 @@ export default async function ProductsPage({ searchParams }: Props) {
     .leftJoin(t.source_products, eq(t.source_variants.sourceProduct, t.source_products.id))
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
-    .leftJoin(t.product_variants_images, sql`${t.product_variants_images._parentID} = ${t.product_variants.id} AND ${t.product_variants_images._order} = 1 AND ${t.product_variants_images.visibility} = 'public'`)
+    .leftJoin(t.product_variants_images, sql`${t.product_variants_images._parentID} = ${t.product_variants.id} AND ${t.product_variants_images._order} = 1`)
     .leftJoin(t.product_media, eq(t.product_variants_images.image, t.product_media.id))
     .groupBy(
       t.products.id,

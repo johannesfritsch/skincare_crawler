@@ -101,7 +101,7 @@ export default async function VideosPage({ searchParams }: VideosPageProps) {
       )::int`,
     })
     .from(t.videos)
-    .leftJoin(t.video_media, eq(t.videos.image, t.video_media.id))
+    .leftJoin(t.video_media, eq(t.videos.thumbnail, t.video_media.id))
     .leftJoin(t.channels, eq(t.videos.channel, t.channels.id))
     .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
     .where(whereClause)

@@ -48,36 +48,60 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const [product] = await db
     .select({
       id: t.products.id,
+      variantId: t.product_variants.id,
       name: t.products.name,
       gtin: t.product_variants.gtin,
-      description: t.products.description,
+      description: t.product_variants.description,
       brandName: t.brands.name,
       productTypeName: t.product_types.name,
       createdAt: t.products.createdAt,
       updatedAt: t.products.updatedAt,
-      imageUrl: sql<string | null>`coalesce(${t.product_media}.sizes_detail_url, ${t.product_media}.url)`,
-      imageAlt: t.product_media.alt,
-      imageWidth: sql<number | null>`coalesce(${t.product_media}.sizes_detail_width, ${t.product_media}.width)::int`,
-      imageHeight: sql<number | null>`coalesce(${t.product_media}.sizes_detail_height, ${t.product_media}.height)::int`,
+      imageUrl: sql<string | null>`(
+        SELECT coalesce(pm.sizes_detail_url, pm.url)
+        FROM product_variants_images pvi
+        JOIN product_media pm ON pm.id = pvi.image_id
+        WHERE pvi._parent_id = ${t.product_variants.id} AND pvi._order = 1
+        LIMIT 1
+      )`,
+      imageAlt: sql<string | null>`(
+        SELECT pm.alt
+        FROM product_variants_images pvi
+        JOIN product_media pm ON pm.id = pvi.image_id
+        WHERE pvi._parent_id = ${t.product_variants.id} AND pvi._order = 1
+        LIMIT 1
+      )`,
+      imageWidth: sql<number | null>`(
+        SELECT coalesce(pm.sizes_detail_width, pm.width)::int
+        FROM product_variants_images pvi
+        JOIN product_media pm ON pm.id = pvi.image_id
+        WHERE pvi._parent_id = ${t.product_variants.id} AND pvi._order = 1
+        LIMIT 1
+      )`,
+      imageHeight: sql<number | null>`(
+        SELECT coalesce(pm.sizes_detail_height, pm.height)::int
+        FROM product_variants_images pvi
+        JOIN product_media pm ON pm.id = pvi.image_id
+        WHERE pvi._parent_id = ${t.product_variants.id} AND pvi._order = 1
+        LIMIT 1
+      )`,
     })
     .from(t.products)
     .leftJoin(t.brands, eq(t.products.brand, t.brands.id))
     .leftJoin(t.product_types, eq(t.products.productType, t.product_types.id))
     .innerJoin(t.product_variants, eq(t.product_variants.product, t.products.id))
-    .leftJoin(t.product_variants_images, sql`${t.product_variants_images._parentID} = ${t.product_variants.id} AND ${t.product_variants_images._order} = 1 AND ${t.product_variants_images.visibility} = 'public'`)
-    .leftJoin(t.product_media, eq(t.product_variants_images.image, t.product_media.id))
     .where(eq(t.product_variants.gtin, gtin))
     .limit(1)
 
   if (!product) notFound()
   const productId = product.id as number
+  const variantId = product.variantId as number
 
   /* ── Run parallel queries ── */
   const [ingredients, claims, attributes, sourceProducts, videoMentions, creatorStats] = await Promise.all([
     /* Ingredients (join reference table for metadata) */
     db.select({
-      name: t.products_ingredients.name,
-      ingredientId: t.products_ingredients.ingredient,
+      name: t.product_variants_ingredients.name,
+      ingredientId: t.product_variants_ingredients.ingredient,
       description: t.ingredients.description,
       casNumber: t.ingredients.casNumber,
       restrictions: t.ingredients.restrictions,
@@ -86,37 +110,37 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         FROM ingredients_functions f
         WHERE f._parent_id = ${t.ingredients}.id
       )`,
-    }).from(t.products_ingredients)
-      .leftJoin(t.ingredients, eq(t.products_ingredients.ingredient, t.ingredients.id))
-      .where(eq(t.products_ingredients._parentID, productId)),
+    }).from(t.product_variants_ingredients)
+      .leftJoin(t.ingredients, eq(t.product_variants_ingredients.ingredient, t.ingredients.id))
+      .where(eq(t.product_variants_ingredients._parentID, variantId)),
 
     /* Claims */
     db.select({
-      id: t.products_product_claims.id,
-      claim: t.products_product_claims.claim,
-      evidenceType: t.products_product_claims.evidenceType,
-      snippet: t.products_product_claims.snippet,
-      start: t.products_product_claims.start,
-      end: t.products_product_claims.end,
-      sourceProductId: t.products_product_claims.sourceProduct,
+      id: t.product_variants_product_claims.id,
+      claim: t.product_variants_product_claims.claim,
+      evidenceType: t.product_variants_product_claims.evidenceType,
+      snippet: t.product_variants_product_claims.snippet,
+      start: t.product_variants_product_claims.start,
+      end: t.product_variants_product_claims.end,
+      sourceProductId: t.product_variants_product_claims.sourceProduct,
       sourceName: t.source_products.source,
-    }).from(t.products_product_claims)
-      .leftJoin(t.source_products, eq(t.products_product_claims.sourceProduct, t.source_products.id))
-      .where(eq(t.products_product_claims._parentID, productId)),
+    }).from(t.product_variants_product_claims)
+      .leftJoin(t.source_products, eq(t.product_variants_product_claims.sourceProduct, t.source_products.id))
+      .where(eq(t.product_variants_product_claims._parentID, variantId)),
 
     /* Attributes */
     db.select({
-      id: t.products_product_attributes.id,
-      attribute: t.products_product_attributes.attribute,
-      evidenceType: t.products_product_attributes.evidenceType,
-      snippet: t.products_product_attributes.snippet,
-      start: t.products_product_attributes.start,
-      end: t.products_product_attributes.end,
-      sourceProductId: t.products_product_attributes.sourceProduct,
+      id: t.product_variants_product_attributes.id,
+      attribute: t.product_variants_product_attributes.attribute,
+      evidenceType: t.product_variants_product_attributes.evidenceType,
+      snippet: t.product_variants_product_attributes.snippet,
+      start: t.product_variants_product_attributes.start,
+      end: t.product_variants_product_attributes.end,
+      sourceProductId: t.product_variants_product_attributes.sourceProduct,
       sourceName: t.source_products.source,
-    }).from(t.products_product_attributes)
-      .leftJoin(t.source_products, eq(t.products_product_attributes.sourceProduct, t.source_products.id))
-      .where(eq(t.products_product_attributes._parentID, productId)),
+    }).from(t.product_variants_product_attributes)
+      .leftJoin(t.source_products, eq(t.product_variants_product_attributes.sourceProduct, t.source_products.id))
+      .where(eq(t.product_variants_product_attributes._parentID, variantId)),
 
     /* Source products (joined via source_variants by GTIN) */
     db.select({
@@ -143,7 +167,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       videoDuration: t.videos.duration,
       videoThumbnailUrl: sql<string | null>`(
         SELECT coalesce(m.sizes_thumbnail_url, m.url)
-        FROM video_media m WHERE m.id = ${t.videos}.image_id LIMIT 1
+        FROM video_media m WHERE m.id = ${t.videos}.thumbnail_id LIMIT 1
       )`,
       channelId: t.channels.id,
       channelPlatform: t.channels.platform,
@@ -194,17 +218,17 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const [attrIngredientRows, claimIngredientRows, quoteRows] = await Promise.all([
     attrIds.length > 0
       ? db.select({
-          parentId: t.products_product_attributes_ingredient_names._parentID,
-          name: t.products_product_attributes_ingredient_names.name,
-        }).from(t.products_product_attributes_ingredient_names)
-          .where(sql`${t.products_product_attributes_ingredient_names._parentID} IN (${sql.join(attrIds.map(id => sql`${id}`), sql`, `)})`)
+          parentId: t.product_variants_product_attributes_ingredient_names._parentID,
+          name: t.product_variants_product_attributes_ingredient_names.name,
+        }).from(t.product_variants_product_attributes_ingredient_names)
+          .where(sql`${t.product_variants_product_attributes_ingredient_names._parentID} IN (${sql.join(attrIds.map(id => sql`${id}`), sql`, `)})`)
       : Promise.resolve([]),
     claimIds.length > 0
       ? db.select({
-          parentId: t.products_product_claims_ingredient_names._parentID,
-          name: t.products_product_claims_ingredient_names.name,
-        }).from(t.products_product_claims_ingredient_names)
-          .where(sql`${t.products_product_claims_ingredient_names._parentID} IN (${sql.join(claimIds.map(id => sql`${id}`), sql`, `)})`)
+          parentId: t.product_variants_product_claims_ingredient_names._parentID,
+          name: t.product_variants_product_claims_ingredient_names.name,
+        }).from(t.product_variants_product_claims_ingredient_names)
+          .where(sql`${t.product_variants_product_claims_ingredient_names._parentID} IN (${sql.join(claimIds.map(id => sql`${id}`), sql`, `)})`)
       : Promise.resolve([]),
     mentionIds.length > 0
       ? db.select({
