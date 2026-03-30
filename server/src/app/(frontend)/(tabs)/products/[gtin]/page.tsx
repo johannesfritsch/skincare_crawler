@@ -654,21 +654,23 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                         {formatPrice(latestPrice.perUnitAmount as number)} / {latestPrice.perUnitQuantity ?? 1} {latestPrice.unit ?? 'unit'}
                       </p>
                     )}
-                    {hasRating && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {(sp.ratingNum as number).toLocaleString()} review{sp.ratingNum !== 1 ? 's' : ''}
-                      </p>
-                    )}
                   </div>
 
-                  {/* Sparkline + score badge + link (only for stores with reviews) */}
+                  {/* Sparkline + score badge with review count + link (only for stores with reviews) */}
                   {!compact && sparklineData.length >= 2 && (
                     <div className="shrink-0">
                       <Sparkline data={sparklineData} width={64} height={20} />
                     </div>
                   )}
                   {!compact && score10 != null && (
-                    <ScoreBadge score={score10} />
+                    <div className="flex flex-col items-center shrink-0">
+                      <ScoreBadge score={score10} />
+                      {hasRating && (
+                        <p className="text-[9px] text-muted-foreground mt-0.5">
+                          {(sp.ratingNum as number).toLocaleString()} review{sp.ratingNum !== 1 ? 's' : ''}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {!compact && sp.sourceUrl && (
                     <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
