@@ -601,16 +601,13 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           trailing={<span className="text-xs text-muted-foreground">{sourceProducts.length} store{sourceProducts.length !== 1 ? 's' : ''}</span>}
           defaultOpen
         >
-          <div className="flex flex-col gap-2.5">
-            {(sourceProducts as Array<{
-              id: number
-              source: string | null
-              name: string | null
-              sourceUrl: string | null
-              sourceVariantId: number
-              rating: number | null
-              ratingNum: number | null
-            }>).map((sp) => {
+          {(() => {
+            type SourceProduct = { id: number; source: string | null; name: string | null; sourceUrl: string | null; sourceVariantId: number; rating: number | null; ratingNum: number | null }
+            const allStores = sourceProducts as SourceProduct[]
+            const withReviews = allStores.filter(sp => sp.rating != null && sp.ratingNum != null && (sp.ratingNum as number) > 0)
+            const withoutReviews = allStores.filter(sp => !(sp.rating != null && sp.ratingNum != null && (sp.ratingNum as number) > 0))
+
+            function StoreCard({ sp, compact }: { sp: SourceProduct; compact?: boolean }) {
               const prices = pricesByVariant.get(sp.sourceVariantId) ?? []
               const latestPrice = prices[0]
               const previousPrice = prices.length > 1 ? prices[1] : null
@@ -627,7 +624,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
               return (
                 <Row
-                  key={sp.id}
                   {...linkProps}
                   className={cn(
                     'flex items-center gap-3 rounded-xl border bg-card px-3.5 py-3',
@@ -665,26 +661,39 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                     )}
                   </div>
 
-                  {/* Sparkline */}
-                  {sparklineData.length >= 2 && (
+                  {/* Sparkline + score badge + link (only for stores with reviews) */}
+                  {!compact && sparklineData.length >= 2 && (
                     <div className="shrink-0">
                       <Sparkline data={sparklineData} width={64} height={20} />
                     </div>
                   )}
-
-                  {/* Score badge */}
-                  {score10 != null && (
+                  {!compact && score10 != null && (
                     <ScoreBadge score={score10} />
                   )}
-
-                  {/* External link icon */}
-                  {sp.sourceUrl && (
+                  {!compact && sp.sourceUrl && (
                     <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}
                 </Row>
               )
-            })}
-          </div>
+            }
+
+            return (
+              <div className="flex flex-col gap-2.5">
+                {/* Full-width cards for stores with reviews */}
+                {withReviews.map(sp => (
+                  <StoreCard key={sp.id} sp={sp} />
+                ))}
+                {/* 2-col compact cards for stores without reviews */}
+                {withoutReviews.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {withoutReviews.map(sp => (
+                      <StoreCard key={sp.id} sp={sp} compact />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </AccordionSection>
       )}
 
