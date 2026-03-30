@@ -119,31 +119,26 @@ function ConversationalSummary({ conclusions }: { conclusions: ConclusionData[] 
   )
 }
 
-// ─── Percentage Bar Chart (pure CSS) ─────────────────────────────────────────
+// ─── Left-aligned Volume Bars (pure CSS) ─────────────────────────────────────
 
 /** Minimum percentage of max topic volume to be shown (filters noise) */
-const MIN_VOLUME_PERCENT = 0.1 // 10% of the highest-volume topic
+const MIN_VOLUME_PERCENT = 0.1
 
 interface BarRow {
   label: string
-  positivePercent: number
-  negativePercent: number
   total: number
   positiveRaw: number
   negativeRaw: number
 }
 
-function buildBarData(sentiments: SentimentData[]): BarRow[] {
+function buildBarData(sentiments: SentimentData[]): { rows: BarRow[]; maxVolume: number } {
   const rows = sentiments
     .map(s => {
       const pos = s.positive + s.neutral
       const neg = s.negative
-      const total = pos + neg
       return {
         label: topicLabel(s.topic),
-        positivePercent: total > 0 ? Math.round((pos / total) * 100) : 0,
-        negativePercent: total > 0 ? Math.round((neg / total) * 100) : 0,
-        total,
+        total: pos + neg,
         positiveRaw: pos,
         negativeRaw: neg,
       }
@@ -151,45 +146,78 @@ function buildBarData(sentiments: SentimentData[]): BarRow[] {
     .filter(r => r.total > 0)
     .sort((a, b) => b.total - a.total)
 
-  if (rows.length === 0) return []
+  if (rows.length === 0) return { rows: [], maxVolume: 0 }
 
   const maxVolume = rows[0].total
-  return rows.filter(r => r.total >= maxVolume * MIN_VOLUME_PERCENT)
+  return { rows: rows.filter(r => r.total >= maxVolume * MIN_VOLUME_PERCENT), maxVolume }
+}
+
+/** Threshold for high-volume tier (% of max topic volume) */
+const HIGH_VOLUME_THRESHOLD = 0.3
+
+function SentimentBar({ row }: { row: BarRow }) {
+  const greenPercent = (row.positiveRaw / row.total) * 100
+  const redPercent = (row.negativeRaw / row.total) * 100
+  const redDominant = row.negativeRaw > row.positiveRaw
+
+  return (
+    <div>
+      <div
+        className="h-6 rounded-md overflow-hidden flex"
+        title={`${row.positiveRaw} positive, ${row.negativeRaw} negative`}
+      >
+        {redDominant ? (
+          <>
+            {row.negativeRaw > 0 && (
+              <div className="h-full bg-rose-400" style={{ width: `${redPercent}%` }} />
+            )}
+            {row.positiveRaw > 0 && (
+              <div className="h-full bg-emerald-400" style={{ width: `${greenPercent}%` }} />
+            )}
+          </>
+        ) : (
+          <>
+            {row.positiveRaw > 0 && (
+              <div className="h-full bg-emerald-400" style={{ width: `${greenPercent}%` }} />
+            )}
+            {row.negativeRaw > 0 && (
+              <div className="h-full bg-rose-400" style={{ width: `${redPercent}%` }} />
+            )}
+          </>
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-0.5 mb-1">{row.label}</p>
+    </div>
+  )
 }
 
 function SentimentBars({ sentiments }: { sentiments: SentimentData[] }) {
-  const data = buildBarData(sentiments)
-  if (data.length === 0) return null
+  const { rows, maxVolume } = buildBarData(sentiments)
+  if (rows.length === 0) return null
+
+  const threshold = maxVolume * HIGH_VOLUME_THRESHOLD
+  const highVolume = rows.filter(r => r.total >= threshold)
+  const lowVolume = rows.filter(r => r.total < threshold)
 
   return (
     <Card>
-      <div className="space-y-2">
-        {data.map(row => (
-          <div key={row.label} className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-24 text-right shrink-0 leading-tight">{row.label}</span>
-            <div className="flex-1 flex items-center h-5 rounded-full bg-muted/30 overflow-hidden">
-              {row.negativePercent > 0 && (
-                <div
-                  className="h-full bg-rose-400 rounded-l-full"
-                  style={{ width: `${row.negativePercent}%` }}
-                  title={`${row.negativeRaw} negative (${row.negativePercent}%)`}
-                />
-              )}
-              {row.positivePercent > 0 && (
-                <div
-                  className={cn(
-                    'h-full bg-emerald-400 rounded-r-full',
-                    row.negativePercent === 0 && 'rounded-l-full',
-                  )}
-                  style={{ width: `${row.positivePercent}%` }}
-                  title={`${row.positiveRaw} positive (${row.positivePercent}%)`}
-                />
-              )}
+      {/* High-volume topics: full-width rows */}
+      {highVolume.length > 0 && (
+        <div className="space-y-1">
+          {highVolume.map(row => <SentimentBar key={row.label} row={row} />)}
+        </div>
+      )}
+      {/* Low-volume topics: 2-column grid */}
+      {lowVolume.length > 0 && (
+        <div className={cn('grid grid-cols-2 gap-x-2.5 gap-y-1', highVolume.length > 0 && 'mt-2')}>
+          {lowVolume.map(row => <SentimentBar key={row.label} row={row} />)}
+          {lowVolume.length % 2 !== 0 && (
+            <div>
+              <div className="h-6 rounded-md bg-muted/25" />
             </div>
-            <span className="text-[10px] text-muted-foreground w-8 shrink-0 tabular-nums">{row.positivePercent}%</span>
-          </div>
-        ))}
-      </div>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
