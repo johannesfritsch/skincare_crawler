@@ -20,6 +20,7 @@ import { CreatorScoreCard, StoreScoreCard, type CreatorScoreItem, type StoreScor
 import { ScoreBadge, starsToScore10, storeLabel } from '@/lib/score-utils'
 import { DescriptionTeaser } from '@/components/description-teaser'
 import { IngredientChipGroup, type IngredientItem } from '@/components/ingredient-chip-group'
+import { ReviewSentiment, type SentimentData, type ConclusionData } from '@/components/review-sentiment'
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -97,7 +98,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const variantId = product.variantId as number
 
   /* ── Run parallel queries ── */
-  const [ingredients, claims, attributes, sourceProducts, videoMentions, creatorStats] = await Promise.all([
+  const [ingredients, claims, attributes, sourceProducts, videoMentions, creatorStats, sentimentRows, conclusionRows] = await Promise.all([
     /* Ingredients (join reference table for metadata) */
     db.select({
       name: t.product_variants_ingredients.name,
@@ -208,6 +209,23 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       .leftJoin(t.creators, eq(t.channels.creator, t.creators.id))
       .where(eq(t.video_mentions.product, productId))
       .groupBy(t.creators.id, t.creators.name, t.channels.id, t.channels.platform, t.channels.externalUrl),
+
+    /* Product sentiments (per-topic positive/neutral/negative counts) */
+    db.select({
+      topic: t.product_sentiments.topic,
+      sentiment: t.product_sentiments.sentiment,
+      amount: t.product_sentiments.amount,
+    }).from(t.product_sentiments)
+      .where(eq(t.product_sentiments.product, productId)),
+
+    /* Product sentiment conclusions (LLM-derived, groupType='all') */
+    db.select({
+      topic: t.product_sentiment_conclusions.topic,
+      conclusion: t.product_sentiment_conclusions.conclusion,
+      strength: t.product_sentiment_conclusions.strength,
+      volume: t.product_sentiment_conclusions.volume,
+    }).from(t.product_sentiment_conclusions)
+      .where(sql`${t.product_sentiment_conclusions.product} = ${productId} AND ${t.product_sentiment_conclusions.groupType} = 'all'`),
   ])
 
   /* ── Ingredient names for attributes & claims evidence ── */
@@ -306,6 +324,29 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const avgSentiment = totalMentions > 0
     ? videoMentions.reduce((sum, m) => sum + ((m.overallSentimentScore as number | null) ?? 0), 0) / totalMentions
     : null
+  /* ── Build sentiment data for consumer display ── */
+  const sentimentsByTopic = new Map<string, { positive: number; neutral: number; negative: number }>()
+  for (const row of sentimentRows) {
+    const topic = row.topic as string
+    if (!sentimentsByTopic.has(topic)) sentimentsByTopic.set(topic, { positive: 0, neutral: 0, negative: 0 })
+    const entry = sentimentsByTopic.get(topic)!
+    const amount = Number(row.amount) || 0
+    if (row.sentiment === 'positive') entry.positive += amount
+    else if (row.sentiment === 'neutral') entry.neutral += amount
+    else if (row.sentiment === 'negative') entry.negative += amount
+  }
+  const sentimentData: SentimentData[] = [...sentimentsByTopic.entries()].map(([topic, counts]) => ({
+    topic,
+    ...counts,
+  }))
+  const conclusionData: ConclusionData[] = conclusionRows.map(r => ({
+    topic: r.topic as string,
+    conclusion: r.conclusion as 'positive' | 'negative' | 'divided',
+    strength: r.strength as 'low' | 'medium' | 'high' | 'ultra',
+    volume: r.volume != null ? Number(r.volume) : null,
+  }))
+  const totalSentimentReviews = sentimentData.reduce((sum, s) => Math.max(sum, s.positive + s.neutral + s.negative), 0)
+
   /* ── Build video list for pagination ── */
   const videoItems: ProductVideoItem[] = videoMentions.map(m => ({
     videoId: m.videoId as number,
@@ -536,6 +577,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           defaultOpen
         >
           <ProductVideoList videos={videoItems} />
+        </AccordionSection>
+      )}
+
+      {/* ═══ Review Sentiment ═══ */}
+      {sentimentData.length > 0 && (
+        <AccordionSection
+          title="Review Sentiment"
+          trailing={<span className="text-xs text-muted-foreground">{totalSentimentReviews} review{totalSentimentReviews !== 1 ? 's' : ''}</span>}
+          defaultOpen
+        >
+          <ReviewSentiment
+            sentiments={sentimentData}
+            conclusions={conclusionData}
+          />
         </AccordionSection>
       )}
 
