@@ -139,7 +139,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
         count(*) FILTER (WHERE brand_id IS NOT NULL)::int AS "withBrand",
         count(*) FILTER (WHERE product_type_id IS NOT NULL)::int AS "withProductType",
         (SELECT count(DISTINCT pv.product_id)::int FROM product_variants pv JOIN product_variants_ingredients pvi ON pvi._parent_id = pv.id) AS "withIngredients",
-        count(*) FILTER (WHERE description IS NOT NULL AND description != '')::int AS "withDescription",
+        (SELECT count(DISTINCT pv.product_id)::int FROM product_variants pv WHERE pv.description IS NOT NULL AND pv.description != '') AS "withDescription",
         (SELECT count(DISTINCT _parent_id)::int FROM products_score_history) AS "withScoreHistory"
       FROM products
     `),

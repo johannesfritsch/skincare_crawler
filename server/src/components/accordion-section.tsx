@@ -30,10 +30,10 @@ export function AccordionSection({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
-      <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl bg-muted/40 px-4 py-3 transition-colors active:bg-muted/60">
+      <CollapsibleTrigger className="flex w-full items-center justify-between py-3 transition-colors active:bg-muted/40">
         <div className="flex items-center gap-2 min-w-0">
           {typeof title === 'string' ? (
-            <span className="text-sm font-semibold">{title}</span>
+            <span className="text-base font-semibold">{title}</span>
           ) : (
             title
           )}

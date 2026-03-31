@@ -6,13 +6,13 @@ import Image from 'next/image'
 import {
   TrendingUp,
   TrendingDown,
-  Video,
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StoreLogo } from '@/components/store-logos'
 import { Sparkline } from '@/components/sparkline'
 import { ProductVideoList, type ProductVideoItem, type ProductVideoQuote } from '@/components/product-video-list'
+import { ProductQuoteList, type ProductQuoteItem } from '@/components/product-quote-list'
 import { TraitChipGroup, type TraitItem } from '@/components/trait-chip'
 import { ATTRIBUTE_META, CLAIM_META } from '@/lib/product-traits'
 import { AccordionSection } from '@/components/accordion-section'
@@ -177,6 +177,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         FROM profile_media m WHERE m.id = ${t.channels}.image_id LIMIT 1
       )`,
       creatorName: t.creators.name,
+      publishedAt: t.videos.publishedAt,
     }).from(t.video_mentions)
       .innerJoin(t.video_scenes, eq(t.video_mentions.videoScene, t.video_scenes.id))
       .innerJoin(t.videos, eq(t.video_scenes.video, t.videos.id))
@@ -362,6 +363,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     sceneId: m.sceneId as number | null,
     quotes: quotesByMention.get(m.mentionId as number) ?? [],
   }))
+
+  /* ── Flatten quotes from all video mentions ── */
+  const allQuotes: ProductQuoteItem[] = videoMentions.flatMap(m => {
+    const quotes = quotesByMention.get(m.mentionId as number) ?? []
+    return quotes.map(q => ({
+      text: q.text,
+      sentiment: q.sentiment,
+      creatorName: m.creatorName as string | null,
+      channelImageUrl: m.channelImageUrl as string | null,
+      publishedAt: m.publishedAt as string | null,
+      videoId: m.videoId as number,
+      sceneId: m.sceneId as number | null,
+    }))
+  })
 
   /* ── Prepare sparkline data: last 12 months, oldest→newest ── */
   const oneYearAgo = new Date()
@@ -560,23 +575,18 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      {/* ═══ Videos (merged: mentions with quotes + all videos) ═══ */}
-      {videoItems.length > 0 && (
+      {/* ═══ What Creators Say (quotes from video mentions) ═══ */}
+      {allQuotes.length > 0 && (
         <AccordionSection
-          title={
-            <div className="flex items-center gap-2">
-              <Video className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">Videos</span>
-            </div>
-          }
+          title="What Creators Say"
           trailing={
             <span className="text-xs text-muted-foreground">
-              {videoItems.length} mention{videoItems.length !== 1 ? 's' : ''}
+              {allQuotes.length} quote{allQuotes.length !== 1 ? 's' : ''}
             </span>
           }
           defaultOpen
         >
-          <ProductVideoList videos={videoItems} />
+          <ProductQuoteList quotes={allQuotes} />
         </AccordionSection>
       )}
 
