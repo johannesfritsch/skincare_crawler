@@ -115,10 +115,13 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         : `${payload.serverUrl}${mediaUrl}`
 
       try {
-        // Download the image for processing
-        const imageRes = await fetch(fullImageUrl)
-        if (!imageRes.ok) {
-          log.debug('Failed to download image for detection', { gtin: v.gtin, imgIdx, status: imageRes.status })
+        // Download the image for processing (retry once on connection reset)
+        let imageRes = await fetch(fullImageUrl).catch(() => null)
+        if (!imageRes || !imageRes.ok) {
+          imageRes = await fetch(fullImageUrl).catch(() => null)
+        }
+        if (!imageRes || !imageRes.ok) {
+          log.debug('Failed to download image for detection', { gtin: v.gtin, imgIdx, status: imageRes?.status ?? 'fetch failed' })
           continue
         }
         const imageBuffer = Buffer.from(await imageRes.arrayBuffer())
@@ -129,10 +132,18 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         const imgHeight = metadata.height ?? 0
         if (imgWidth === 0 || imgHeight === 0) continue
 
-        // Run Grounding DINO detection at the lowest threshold we might need
-        const detections = await detector(fullImageUrl, [DETECTION_PROMPT], {
-          threshold: rawThreshold,
-        })
+        // Run Grounding DINO detection at the lowest threshold we might need.
+        // Pass the already-downloaded buffer via RawImage to avoid a redundant fetch
+        // (the model's internal fetch can fail on local/S3-proxied URLs).
+        const { RawImage } = await import('@huggingface/transformers')
+        const rawImage = await RawImage.fromBlob(new Blob([imageBuffer]))
+
+        const detections = await Promise.race([
+          detector(rawImage, [DETECTION_PROMPT], { threshold: rawThreshold }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Object detection timed out after 60s for image ${imgIdx}`)), 60_000),
+          ),
+        ])
 
         if (!detections || detections.length === 0) {
           log.debug('No objects detected in image', { gtin: v.gtin, imgIdx, source: imageEntry.source ?? '?' })
@@ -181,7 +192,8 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        log.debug('Object detection failed for image', { gtin: v.gtin, imgIdx, error: msg })
+        const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined
+        log.warn('Object detection failed for image', { gtin: v.gtin, imgIdx, url: fullImageUrl, error: msg, cause })
       }
     }
 

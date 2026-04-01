@@ -105,10 +105,17 @@ export async function executeObjectDetection(ctx: StageContext, videoId: number)
           continue
         }
 
-        // Run Grounding DINO detection
-        const detections = await detector(fullImageUrl, [detectionPrompt], {
-          threshold: detectionThreshold,
-        })
+        // Run Grounding DINO detection — pass the already-downloaded buffer via RawImage
+        // to avoid a redundant fetch (the model's internal fetch can fail on local/S3-proxied URLs).
+        const { RawImage } = await import('@huggingface/transformers')
+        const rawImage = await RawImage.fromBlob(new Blob([imageBuffer]))
+
+        const detections = await Promise.race([
+          detector(rawImage, [detectionPrompt], { threshold: detectionThreshold }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Object detection timed out after 60s`)), 60_000),
+          ),
+        ])
 
         candidatesProcessed++
 
