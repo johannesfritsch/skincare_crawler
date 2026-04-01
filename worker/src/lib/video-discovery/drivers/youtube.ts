@@ -41,7 +41,12 @@ async function fetchChannelAvatarUrl(channelUrl: string): Promise<string | undef
  * of videos from a channel. These are 1-based indices into the channel's
  * video list (newest first by default).
  */
-function runYtDlp(channelUrl: string, startIndex: number, endIndex: number): Promise<string> {
+function runYtDlp(
+  channelUrl: string,
+  startIndex: number,
+  endIndex: number,
+  logger?: import('@/lib/logger').Logger,
+): Promise<string> {
   const args = [
     '--skip-download',
     '--dump-json',
@@ -49,25 +54,65 @@ function runYtDlp(channelUrl: string, startIndex: number, endIndex: number): Pro
     '--playlist-end', String(endIndex),
     channelUrl,
   ]
+
+  // Use proxy if configured
+  const proxyUrl = process.env.PROXY_URL
+  if (proxyUrl) {
+    const username = process.env.PROXY_USERNAME || ''
+    const password = process.env.PROXY_PASSWORD || ''
+    const parsed = new URL(proxyUrl)
+    args.unshift('--proxy', `http://${username}:${password}@${parsed.host}`)
+  }
+
+  log.info('Running yt-dlp', { channelUrl, startIndex, endIndex, proxy: !!proxyUrl })
+  const startMs = Date.now()
+
   return new Promise((resolve, reject) => {
     const proc = execFile(
       'yt-dlp',
       args,
       { maxBuffer: 100 * 1024 * 1024, timeout: 300_000 },
       (error, stdout, stderr) => {
+        const durationMs = Date.now() - startMs
+        const exitCode = error?.code ?? (error ? 'unknown' : 0)
+
         if (error) {
           // yt-dlp exits with error when range is beyond the playlist — treat as empty
           if (stderr?.includes('Requested range') || stdout === '') {
             resolve('')
             return
           }
-          reject(new Error(`yt-dlp failed: ${stderr || error.message}`))
+          log.error('yt-dlp failed', { exitCode, stderr: stderr?.substring(0, 500), message: error.message, durationMs })
+          logger?.event('video_discovery.ytdlp_failed', {
+            channelUrl,
+            exitCode: String(exitCode),
+            stderr: (stderr || '').substring(0, 500),
+            error: error.message,
+          })
+          reject(new Error(`yt-dlp failed (exit ${exitCode}): ${stderr || error.message}`))
           return
         }
+
+        // Log stderr as a warning event even on success (yt-dlp warnings, deprecations, etc.)
+        if (stderr) {
+          log.warn('yt-dlp stderr', { stderr: stderr.substring(0, 1000) })
+          logger?.event('video_discovery.ytdlp_stderr', {
+            channelUrl,
+            exitCode: '0',
+            stderr: stderr.substring(0, 500),
+          })
+        }
+
         resolve(stdout)
       },
     )
     proc.on('error', (err) => {
+      log.error('Failed to spawn yt-dlp', { error: err.message })
+      logger?.event('video_discovery.ytdlp_failed', {
+        channelUrl,
+        stderr: '',
+        error: `Failed to spawn: ${err.message}`,
+      })
       reject(new Error(`Failed to spawn yt-dlp: ${err.message}`))
     })
   })
@@ -121,12 +166,12 @@ export const youtubeDriver: VideoDiscoveryDriver = {
   },
 
   async discoverVideoPage(channelUrl: string, options: VideoDiscoveryPageOptions): Promise<VideoDiscoveryPageResult> {
-    const { startIndex, endIndex } = options
+    const { startIndex, endIndex, logger } = options
     const requestedCount = endIndex - startIndex + 1
 
-    log.info('Running yt-dlp', { channelUrl, startIndex, endIndex })
+    const startMs = Date.now()
     const [stdout, channelAvatarUrl] = await Promise.all([
-      runYtDlp(channelUrl, startIndex, endIndex),
+      runYtDlp(channelUrl, startIndex, endIndex, logger),
       fetchChannelAvatarUrl(channelUrl),
     ])
 
@@ -135,7 +180,9 @@ export const youtubeDriver: VideoDiscoveryDriver = {
     }
 
     const videos = parseYtDlpOutput(stdout, channelAvatarUrl)
-    log.info('yt-dlp discovery complete', { returned: videos.length, requested: requestedCount })
+    const durationMs = Date.now() - startMs
+    log.info('yt-dlp discovery complete', { returned: videos.length, requested: requestedCount, durationMs })
+    logger?.event('video_discovery.ytdlp_completed', { channelUrl, videoCount: videos.length, durationMs })
 
     return {
       videos,

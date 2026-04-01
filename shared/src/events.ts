@@ -391,6 +391,22 @@ export interface EventRegistry {
     discovered: number
     durationMs: number
   }
+  'video_discovery.ytdlp_failed': {
+    channelUrl: string
+    exitCode?: number | string
+    stderr: string
+    error: string
+  }
+  'video_discovery.ytdlp_stderr': {
+    channelUrl: string
+    exitCode: string
+    stderr: string
+  }
+  'video_discovery.ytdlp_completed': {
+    channelUrl: string
+    videoCount: number
+    durationMs: number
+  }
 
   // ─── Video Crawl ───────────────────────────────────────────────────────
   // worker.ts: handler start
@@ -405,6 +421,9 @@ export interface EventRegistry {
     durationMs: number
   }
   'video_crawl.error': { url: string; error: string }
+  'video_crawl.ytdlp_failed': { url: string; error: string; stderr: string }
+  'video_crawl.ytdlp_stderr': { url: string; stderr: string }
+  'video_crawl.ytdlp_completed': { url: string; sizeMB: number; durationMs: number }
   'video_crawl.batch_done': {
     crawled: number
     errors: number
@@ -966,6 +985,21 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     level: 'info',
     labels: ['discovery'],
   },
+  'video_discovery.ytdlp_failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['discovery', 'yt-dlp'],
+  },
+  'video_discovery.ytdlp_stderr': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['discovery', 'yt-dlp'],
+  },
+  'video_discovery.ytdlp_completed': {
+    type: 'info',
+    level: 'info',
+    labels: ['discovery', 'yt-dlp'],
+  },
 
   // Video crawl
   'video_crawl.started': {
@@ -982,6 +1016,21 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'error',
     level: 'error',
     labels: ['video-crawl'],
+  },
+  'video_crawl.ytdlp_failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['video-crawl', 'yt-dlp'],
+  },
+  'video_crawl.ytdlp_stderr': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['video-crawl', 'yt-dlp'],
+  },
+  'video_crawl.ytdlp_completed': {
+    type: 'info',
+    level: 'info',
+    labels: ['video-crawl', 'yt-dlp'],
   },
   'video_crawl.batch_done': {
     type: 'info',

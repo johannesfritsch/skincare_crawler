@@ -507,7 +507,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const startIndex = currentOffset + 1
   const endIndex = currentOffset + fetchCount
 
-  const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex })
+  const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex, logger: jlog })
   const nextOffset = currentOffset + result.videos.length
 
   log.info('Fetched videos', { count: result.videos.length, startIndex, endIndex, reachedEnd: result.reachedEnd })
@@ -574,7 +574,7 @@ async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
     const stageCtx: VideoCrawlStageContext = {
       payload: client,
       config: { jobId },
-      log,
+      log: jlog,
       uploadMedia,
       heartbeat: () => heartbeat(jobId, 'video-crawl'),
     }
@@ -663,7 +663,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     const stageCtx: AggregationStageContext = {
       payload: client,
       config: stageConfig,
-      log,
+      log: jlog,
       uploadMedia,
       heartbeat: () => heartbeat(jobId, 'product-aggregation'),
     }
@@ -1040,7 +1040,7 @@ async function processVideoStage(
   const stageCtx: StageContext = {
     payload: client,
     config: stageConfig,
-    log,
+    log: jlog,
     uploadMedia,
     heartbeat: async () => {
       await heartbeat(jobId, 'video-processing')

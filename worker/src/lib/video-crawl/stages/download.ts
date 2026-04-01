@@ -58,7 +58,7 @@ async function downloadVideoFile(
   } else {
     // YouTube: use yt-dlp
     const { downloadVideo } = await import('@/lib/video-processing/process-video')
-    await downloadVideo(url, videoPath)
+    await downloadVideo(url, videoPath, log)
   }
 
   // Get actual duration via ffprobe (works for any MP4)

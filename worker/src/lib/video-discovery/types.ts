@@ -19,6 +19,8 @@ export interface VideoDiscoveryPageOptions {
   startIndex: number
   /** 1-based end index into the playlist (maps to yt-dlp --playlist-end) */
   endIndex: number
+  /** Optional job-scoped logger for emitting events */
+  logger?: import('@/lib/logger').Logger
 }
 
 export interface VideoDiscoveryPageResult {

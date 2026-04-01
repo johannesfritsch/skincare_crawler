@@ -38,13 +38,27 @@ export function run(cmd: string, args: string[], timeoutMs = 600_000): Promise<{
   })
 }
 
-export async function downloadVideo(url: string, outputPath: string): Promise<void> {
+export async function downloadVideo(url: string, outputPath: string, logger?: import('@/lib/logger').Logger): Promise<void> {
   log.info('Downloading video', { url, outputPath })
 
-  await run('yt-dlp', ['--merge-output-format', 'mp4', '-o', outputPath, url], 600_000)
+  // No proxy for downloads — video files are large and shouldn't go through residential proxy
+  const startMs = Date.now()
+  const { stderr } = await run('yt-dlp', ['--merge-output-format', 'mp4', '-o', outputPath, url], 600_000)
+    .catch((e) => {
+      const error = e instanceof Error ? e.message : String(e)
+      log.error('yt-dlp download failed', { url, error })
+      logger?.event('video_crawl.ytdlp_failed', { url, error, stderr: '' })
+      throw e
+    })
+  if (stderr) {
+    log.warn('yt-dlp stderr', { stderr: stderr.substring(0, 500) })
+    logger?.event('video_crawl.ytdlp_stderr', { url, stderr: stderr.substring(0, 500) })
+  }
 
   const stats = fs.statSync(outputPath)
-  log.info('Download complete', { sizeMB: Number((stats.size / 1024 / 1024).toFixed(1)) })
+  const durationMs = Date.now() - startMs
+  log.info('Download complete', { sizeMB: Number((stats.size / 1024 / 1024).toFixed(1)), durationMs })
+  logger?.event('video_crawl.ytdlp_completed', { url, sizeMB: Number((stats.size / 1024 / 1024).toFixed(1)), durationMs })
 }
 
 export async function getVideoDuration(videoPath: string): Promise<number> {
