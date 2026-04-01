@@ -27,6 +27,9 @@ export function createResetJobOnPending(
     if (data?.status !== 'pending') return data
     if (!originalDoc || originalDoc.status === 'pending') return data
 
+    // If retryCount is being incremented, this is a worker retry — don't reset progress
+    if (data.retryCount != null && data.retryCount > (originalDoc.retryCount ?? 0)) return data
+
     // Reset collection-specific fields
     for (const [field, defaultValue] of Object.entries(resetFields)) {
       data[field] = defaultValue

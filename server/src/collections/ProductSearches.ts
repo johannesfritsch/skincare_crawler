@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
+import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
@@ -22,7 +23,9 @@ export const ProductSearches: CollectionConfig = {
     },
   },
   hooks: {
-    beforeChange: [enforceJobClaim, computeScheduledFor],
+    beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
+      discovered: 0, productUrls: '',
+    })],
     afterChange: [rescheduleOnComplete],
   },
   fields: [
