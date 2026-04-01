@@ -1,52 +1,53 @@
-import * as migration_20260314_001555 from './20260314_001555'
-import * as migration_20260314_001712_add_vectors_to_recognition_images from './20260314_001712_add_vectors_to_recognition_images'
-import * as migration_20260314_005052_add_more_config_to_video_processings from './20260314_005052_add_more_config_to_video_processings'
-import * as migration_20260314_134030 from './20260314_134030'
-import * as migration_20260314_155003_new_videos_structure from './20260314_155003_new_videos_structure'
-import * as migration_20260314_162248 from './20260314_162248'
-import * as migration_20260314_183349 from './20260314_183349'
-import * as migration_20260314_203348 from './20260314_203348'
-import * as migration_20260314_224316_separate_change_fields from './20260314_224316_separate_change_fields'
-import * as migration_20260315_143016 from './20260315_143016'
-import * as migration_20260315_163725 from './20260315_163725'
-import * as migration_20260315_233008 from './20260315_233008'
-import * as migration_20260316_123305 from './20260316_123305'
-import * as migration_20260316_180316 from './20260316_180316'
-import * as migration_20260316_183827 from './20260316_183827'
-import * as migration_20260316_195915 from './20260316_195915'
-import * as migration_20260316_213914 from './20260316_213914'
-import * as migration_20260317_153336 from './20260317_153336'
-import * as migration_20260317_181255 from './20260317_181255'
-import * as migration_20260318_002552 from './20260318_002552'
-import * as migration_20260318_094324 from './20260318_094324'
-import * as migration_20260318_103424 from './20260318_103424'
-import * as migration_20260318_120000_recognition_embeddings_table from './20260318_120000_recognition_embeddings_table'
-import * as migration_20260318_153916 from './20260318_153916'
-import * as migration_20260318_183127 from './20260318_183127'
-import * as migration_20260318_210630 from './20260318_210630'
-import * as migration_20260319_084209 from './20260319_084209'
-import * as migration_20260319_121439 from './20260319_121439'
-import * as migration_20260319_161713 from './20260319_161713'
-import * as migration_20260319_172548 from './20260319_172548'
-import * as migration_20260319_210655 from './20260319_210655'
-import * as migration_20260320_085223 from './20260320_085223'
-import * as migration_20260320_141719 from './20260320_141719'
-import * as migration_20260320_144245 from './20260320_144245'
-import * as migration_20260320_164949 from './20260320_164949'
-import * as migration_20260320_180704 from './20260320_180704'
-import * as migration_20260320_193055 from './20260320_193055'
-import * as migration_20260321_063656 from './20260321_063656'
-import * as migration_20260321_171124 from './20260321_171124'
-import * as migration_20260321_190652 from './20260321_190652'
-import * as migration_20260322_084318 from './20260322_084318'
-import * as migration_20260322_114814 from './20260322_114814'
-import * as migration_20260322_125130 from './20260322_125130'
-import * as migration_20260323_121552 from './20260323_121552'
-import * as migration_20260323_200556 from './20260323_200556'
-import * as migration_20260324_213443 from './20260324_213443'
-import * as migration_20260327_155417 from './20260327_155417'
-import * as migration_20260327_221105 from './20260327_221105'
-import * as migration_20260329_132513 from './20260329_132513'
+import * as migration_20260314_001555 from './20260314_001555';
+import * as migration_20260314_001712_add_vectors_to_recognition_images from './20260314_001712_add_vectors_to_recognition_images';
+import * as migration_20260314_005052_add_more_config_to_video_processings from './20260314_005052_add_more_config_to_video_processings';
+import * as migration_20260314_134030 from './20260314_134030';
+import * as migration_20260314_155003_new_videos_structure from './20260314_155003_new_videos_structure';
+import * as migration_20260314_162248 from './20260314_162248';
+import * as migration_20260314_183349 from './20260314_183349';
+import * as migration_20260314_203348 from './20260314_203348';
+import * as migration_20260314_224316_separate_change_fields from './20260314_224316_separate_change_fields';
+import * as migration_20260315_143016 from './20260315_143016';
+import * as migration_20260315_163725 from './20260315_163725';
+import * as migration_20260315_233008 from './20260315_233008';
+import * as migration_20260316_123305 from './20260316_123305';
+import * as migration_20260316_180316 from './20260316_180316';
+import * as migration_20260316_183827 from './20260316_183827';
+import * as migration_20260316_195915 from './20260316_195915';
+import * as migration_20260316_213914 from './20260316_213914';
+import * as migration_20260317_153336 from './20260317_153336';
+import * as migration_20260317_181255 from './20260317_181255';
+import * as migration_20260318_002552 from './20260318_002552';
+import * as migration_20260318_094324 from './20260318_094324';
+import * as migration_20260318_103424 from './20260318_103424';
+import * as migration_20260318_120000_recognition_embeddings_table from './20260318_120000_recognition_embeddings_table';
+import * as migration_20260318_153916 from './20260318_153916';
+import * as migration_20260318_183127 from './20260318_183127';
+import * as migration_20260318_210630 from './20260318_210630';
+import * as migration_20260319_084209 from './20260319_084209';
+import * as migration_20260319_121439 from './20260319_121439';
+import * as migration_20260319_161713 from './20260319_161713';
+import * as migration_20260319_172548 from './20260319_172548';
+import * as migration_20260319_210655 from './20260319_210655';
+import * as migration_20260320_085223 from './20260320_085223';
+import * as migration_20260320_141719 from './20260320_141719';
+import * as migration_20260320_144245 from './20260320_144245';
+import * as migration_20260320_164949 from './20260320_164949';
+import * as migration_20260320_180704 from './20260320_180704';
+import * as migration_20260320_193055 from './20260320_193055';
+import * as migration_20260321_063656 from './20260321_063656';
+import * as migration_20260321_171124 from './20260321_171124';
+import * as migration_20260321_190652 from './20260321_190652';
+import * as migration_20260322_084318 from './20260322_084318';
+import * as migration_20260322_114814 from './20260322_114814';
+import * as migration_20260322_125130 from './20260322_125130';
+import * as migration_20260323_121552 from './20260323_121552';
+import * as migration_20260323_200556 from './20260323_200556';
+import * as migration_20260324_213443 from './20260324_213443';
+import * as migration_20260327_155417 from './20260327_155417';
+import * as migration_20260327_221105 from './20260327_221105';
+import * as migration_20260329_132513 from './20260329_132513';
+import * as migration_20260401_141143 from './20260401_141143';
 
 export const migrations = [
   {
@@ -294,4 +295,9 @@ export const migrations = [
     down: migration_20260329_132513.down,
     name: '20260329_132513',
   },
-]
+  {
+    up: migration_20260401_141143.up,
+    down: migration_20260401_141143.down,
+    name: '20260401_141143'
+  },
+];

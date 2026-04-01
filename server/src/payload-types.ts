@@ -103,6 +103,7 @@ export interface Config {
     'video-crawls': VideoCrawl;
     'video-processings': VideoProcessing;
     workers: Worker;
+    'debug-screenshots': DebugScreenshot;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -170,6 +171,7 @@ export interface Config {
     'video-crawls': VideoCrawlsSelect<false> | VideoCrawlsSelect<true>;
     'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
     workers: WorkersSelect<false> | WorkersSelect<true>;
+    'debug-screenshots': DebugScreenshotsSelect<false> | DebugScreenshotsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -2426,6 +2428,57 @@ export interface VideoProcessing {
   createdAt: string;
 }
 /**
+ * Browser screenshots captured during debug-mode crawls, discoveries, and searches
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "debug-screenshots".
+ */
+export interface DebugScreenshot {
+  id: number;
+  alt: string;
+  job?:
+    | ({
+        relationTo: 'product-crawls';
+        value: number | ProductCrawl;
+      } | null)
+    | ({
+        relationTo: 'product-discoveries';
+        value: number | ProductDiscovery;
+      } | null)
+    | ({
+        relationTo: 'product-searches';
+        value: number | ProductSearch;
+      } | null);
+  /**
+   * Which step produced this screenshot (e.g. "brand_url_extraction", "product_page")
+   */
+  step?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  /**
+   * The page URL at the time of the screenshot
+   */
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -2588,6 +2641,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'workers';
         value: number | Worker;
+      } | null)
+    | ({
+        relationTo: 'debug-screenshots';
+        value: number | DebugScreenshot;
       } | null);
   globalSlug?: string | null;
   user:
@@ -3691,6 +3748,40 @@ export interface WorkersSelect<T extends boolean = true> {
   enableAPIKey?: T;
   apiKey?: T;
   apiKeyIndex?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "debug-screenshots_select".
+ */
+export interface DebugScreenshotsSelect<T extends boolean = true> {
+  alt?: T;
+  job?: T;
+  step?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+  sizes?:
+    | T
+    | {
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

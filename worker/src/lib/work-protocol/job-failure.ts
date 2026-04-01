@@ -73,11 +73,12 @@ export async function retryOrFail(
       return true
     }
 
-    // Release claim for retry
+    // Release claim and reset to pending for retry
     await payload.update({
       collection,
       id: jobId,
       data: {
+        status: 'pending',
         retryCount: nextRetryCount,
         claimedBy: null,
         claimedAt: null,

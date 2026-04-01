@@ -1609,7 +1609,7 @@ You can connect directly to PostgreSQL to inspect schema, verify column names, o
 
 ```bash
 # Read the DATABASE_URL from server/.env
-psql "postgres://anyskin_crawler:anyskin_crawler@127.0.0.1:35432/anyskin_crawler"
+psql "postgres://anyskin_crawler_dev:anyskin_crawler_dev@localhost:5432/anyskin_crawler_dev"
 
 # Useful commands:
 \dt                    # list all tables

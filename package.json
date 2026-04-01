@@ -7,10 +7,18 @@
       "esbuild",
       "unrs-resolver",
       "onnxruntime-node"
-    ],
-    "overrides": {
-      "@payloadcms/plugin-cloud-storage": "3.73.0",
-      "@payloadcms/ui>payload": "3.73.0"
-    }
+    ]
+  },
+  "overrides": {
+    "@payloadcms/plugin-cloud-storage": "3.73.0",
+    "@payloadcms/ui>payload": "3.73.0"
+  },
+  "workspaces": [
+    "server",
+    "worker",
+    "shared"
+  ],
+  "dependencies": {
+    "undici": "^7.24.6"
   }
 }

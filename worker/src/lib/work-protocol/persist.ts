@@ -319,21 +319,28 @@ export async function persistCrawlResult(
   }
   if (priceEntry) priceEntry.change = priceChange
 
-  // Upsert source-brand first so we can link it to the source-product
+  // Upsert source-brand first so we can link it to the source-product.
+  // Prefer lookup by brandUrl (unique), fall back to name+source when URL is absent.
   let sourceBrandId: number | null = null
-  if (data.brandName && data.brandUrl) {
-    const existingBrand = await payload.find({
-      collection: 'source-brands',
-      where: { sourceUrl: { equals: data.brandUrl } },
-      limit: 1,
-    })
+  if (data.brandName) {
+    const existingBrand = data.brandUrl
+      ? await payload.find({
+          collection: 'source-brands',
+          where: { sourceUrl: { equals: data.brandUrl } },
+          limit: 1,
+        })
+      : await payload.find({
+          collection: 'source-brands',
+          where: { and: [{ name: { equals: data.brandName } }, { source: { equals: source } }] },
+          limit: 1,
+        })
     if (existingBrand.docs.length === 0) {
       const created = await payload.create({
         collection: 'source-brands',
         data: {
           name: data.brandName,
           source,
-          sourceUrl: data.brandUrl,
+          ...(data.brandUrl ? { sourceUrl: data.brandUrl } : {}),
           ...(data.brandImageUrl ? { imageUrl: data.brandImageUrl } : {}),
         },
       }) as { id: number }
@@ -341,7 +348,7 @@ export async function persistCrawlResult(
       jlog.event('persist.source_brand_created', { source, brandName: data.brandName, brandUrl: data.brandUrl })
     } else {
       sourceBrandId = (existingBrand.docs[0] as { id: number }).id
-      jlog.event('persist.source_brand_exists', { source, brandUrl: data.brandUrl })
+      jlog.event('persist.source_brand_exists', { source, brandName: data.brandName, brandUrl: data.brandUrl })
     }
   }
 

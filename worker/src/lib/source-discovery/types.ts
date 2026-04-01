@@ -125,6 +125,15 @@ export interface SourceDriver {
 
   scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
+    options?: {
+      debug?: boolean
+      logger?: import('@/lib/logger').Logger
+      skipReviews?: boolean
+      debugContext?: {
+        client: import('@/lib/payload-client').PayloadRestClient
+        jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'
+        jobId: number
+      }
+    },
   ): Promise<ScrapedProductData | null>
 }

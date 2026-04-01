@@ -650,9 +650,19 @@ export const dmDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
+    options?: {
+      debug?: boolean
+      logger?: import('@/lib/logger').Logger
+      skipReviews?: boolean
+      debugContext?: {
+        client: import('@/lib/payload-client').PayloadRestClient
+        jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'
+        jobId: number
+      }
+    },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
+    const debugCtx = options?.debug ? options.debugContext : undefined
     try {
       const scrapeStartMs = Date.now()
       const warnings: string[] = []
@@ -781,8 +791,18 @@ export const dmDriver: SourceDriver = {
         const browser = await launchBrowser({ headless: true })
         try {
           const page = await browser.newPage()
-          await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded' })
-          await page.waitForSelector('h1[data-dmid="detail-page-headline-product-title"] a', { timeout: 10000 }).catch(() => {})
+          // DM is an SPA — navigate and wait for the brand link to render
+          await page.goto(canonicalUrl, { waitUntil: 'commit', timeout: 30000 })
+          await page.waitForSelector('h1[data-dmid="detail-page-headline-product-title"] a', { timeout: 30000 }).catch(() => {})
+
+          // Capture debug screenshot after page renders
+          if (debugCtx) {
+            const { captureDebugScreenshot } = await import('@/lib/debug-screenshot')
+            await captureDebugScreenshot({
+              page, client: debugCtx.client, jobCollection: debugCtx.jobCollection,
+              jobId: debugCtx.jobId, step: 'brand_url_extraction', label: `Brand URL — ${canonicalUrl}`,
+            })
+          }
 
           const brandHref = await page.$eval(
             'h1[data-dmid="detail-page-headline-product-title"] span:first-child a[href]',
@@ -792,14 +812,17 @@ export const dmDriver: SourceDriver = {
           if (brandHref) {
             brandUrl = `https://www.dm.de${brandHref}`
             log.info('Extracted brand URL', { brandUrl })
+            logger?.event('scraper.brand_url_extracted', { url: sourceUrl, source: 'dm', brandUrl })
           } else {
             log.info('No brand link found in rendered page', { url: canonicalUrl })
+            logger?.event('scraper.brand_url_missing', { url: sourceUrl, source: 'dm', reason: 'selector_not_found' })
           }
         } finally {
           await browser.close()
         }
       } catch (e) {
-        log.info('Could not extract brand URL via browser', { url: canonicalUrl, error: String(e) })
+        log.error('Could not extract brand URL via browser', { url: canonicalUrl, error: String(e) })
+        logger?.event('scraper.browser_error', { url: sourceUrl, source: 'dm', error: String(e) })
       }
 
       // Brand image from API

@@ -42,6 +42,7 @@ import { default as default_dc18604f4d78e37a674a0b8d80c9e980 } from '../../../co
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
 import { default as default_e577ad08317d2e8977edf3e679038fc8 } from '../../../components/graphics/Logo'
 import { default as default_3c7210db046870c5915c5f17c14448fe } from '../../../components/dashboard/DashboardProvider'
+import { S3ClientUploadHandler as S3ClientUploadHandler_f97aa6c64367fa259c5bc0567239ef24 } from '@payloadcms/storage-s3/client'
 import { default as default_1737443f6dd3677fc06df984f77cd693 } from '../../../components/dashboard/widgets/EventSummary'
 import { default as default_3de07bbd61fe5b44b313ca5841f82966 } from '../../../components/dashboard/widgets/EventTimeline'
 import { default as default_42858160b6516d99fcaa61033ca302b7 } from '../../../components/dashboard/widgets/EventHighlights'
@@ -102,6 +103,7 @@ export const importMap = {
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,
   "/components/graphics/Logo#default": default_e577ad08317d2e8977edf3e679038fc8,
   "/components/dashboard/DashboardProvider#default": default_3c7210db046870c5915c5f17c14448fe,
+  "@payloadcms/storage-s3/client#S3ClientUploadHandler": S3ClientUploadHandler_f97aa6c64367fa259c5bc0567239ef24,
   "/components/dashboard/widgets/EventSummary#default": default_1737443f6dd3677fc06df984f77cd693,
   "/components/dashboard/widgets/EventTimeline#default": default_3de07bbd61fe5b44b313ca5841f82966,
   "/components/dashboard/widgets/EventHighlights#default": default_42858160b6516d99fcaa61033ca302b7,

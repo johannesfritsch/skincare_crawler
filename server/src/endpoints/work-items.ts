@@ -585,9 +585,10 @@ export const workItemsHeartbeatHandler: PayloadHandler = async (req) => {
   const db = req.payload.db.drizzle
   const workerId = (req.user as { id: number }).id
 
+  const pgArray = `{${workItemIds.filter(Number.isFinite).join(',')}}`
   const result = await db.execute(sql`
     UPDATE "work_items" SET "claimed_at" = now()
-    WHERE "id" = ANY(${workItemIds})
+    WHERE "id" = ANY(${pgArray}::int[])
       AND "claimed_by" = ${workerId}
       AND "status" = 'claimed'
   `)

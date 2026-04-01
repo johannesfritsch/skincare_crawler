@@ -97,6 +97,7 @@ export interface EventRegistry {
   // submit.ts: batch done, completed
 
   'crawl.started': { source: string; items: number; crawlVariants: boolean }
+  'crawl.debug_mode': { jobId: number }
   'crawl.driver_missing': { source: string }
   'crawl.batch_done': {
     source: string
@@ -169,6 +170,21 @@ export interface EventRegistry {
     url: string
     source: string
     elapsedMs?: number
+  }
+  'scraper.brand_url_extracted': {
+    url: string
+    source: string
+    brandUrl: string
+  }
+  'scraper.brand_url_missing': {
+    url: string
+    source: string
+    reason: string
+  }
+  'scraper.browser_error': {
+    url: string
+    source: string
+    error: string
   }
 
   // ─── Persist (crawl results) ───────────────────────────────────────────
@@ -711,6 +727,7 @@ export const EVENT_META: Record<EventName, EventMeta> = {
 
   // Crawl
   'crawl.started': { type: 'start', level: 'info', labels: ['scraping'] },
+  'crawl.debug_mode': { type: 'warning', level: 'warn', labels: ['scraping', 'debug'] },
   'crawl.driver_missing': {
     type: 'error',
     level: 'error',
@@ -760,6 +777,21 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'error',
     level: 'error',
     labels: ['scraping', 'bot-check'],
+  },
+  'scraper.brand_url_extracted': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'brand'],
+  },
+  'scraper.brand_url_missing': {
+    type: 'info',
+    level: 'info',
+    labels: ['scraping', 'brand'],
+  },
+  'scraper.browser_error': {
+    type: 'error',
+    level: 'error',
+    labels: ['scraping'],
   },
 
   // Persist

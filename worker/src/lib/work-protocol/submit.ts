@@ -480,14 +480,15 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   const reviewsEnabled = enabledStages.has('reviews')
   const reviewsHaveWork = reviewsEnabled && Object.values(crawlProgress).some(v => v === 'scrape')
 
-  if (totalRemaining === 0 && !reviewsHaveWork) {
-    // If the entire batch was errors, retry instead of completing
-    if (batchErrors === results.length && results.length > 0) {
-      log.warn('Product crawl batch was 100% errors, retrying or failing', { jobId, batchErrors })
-      await retryOrFail(payload, 'product-crawls', jobId, `Batch of ${batchErrors} items all failed`)
-      return { crawled, errors, remaining: totalRemaining }
-    }
+  // If the entire batch was errors, use retryOrFail to respect maxRetries — prevents infinite loops
+  // when all URLs in the batch fail (e.g. proxy down, site unreachable)
+  if (batchErrors === results.length && results.length > 0) {
+    log.warn('Product crawl batch was 100% errors, retrying or failing', { jobId, batchErrors, remaining: totalRemaining })
+    await retryOrFail(payload, 'product-crawls', jobId, `Batch of ${batchErrors} items all failed`)
+    return { crawled, errors, remaining: totalRemaining }
+  }
 
+  if (totalRemaining === 0 && !reviewsHaveWork) {
     // Compute job duration from startedAt or claimedAt
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0

@@ -44,6 +44,7 @@ import { VideoCrawls } from './collections/VideoCrawls'
 import { VideoProcessings } from './collections/VideoProcessings'
 
 import { Workers } from './collections/Workers'
+import { DebugScreenshots } from './collections/DebugScreenshots'
 
 import { CrawlerSettings } from './globals/CrawlerSettings'
 
@@ -69,6 +70,7 @@ if (process.env.STORAGE_ADAPTER === 's3') {
         'video-media': true,
         'profile-media': true,
         'detection-media': true,
+        'debug-screenshots': true,
       },
       bucket: process.env.S3_BUCKET || '',
       config: {
@@ -246,6 +248,7 @@ export default buildConfig({
     VideoCrawls,
     VideoProcessings,
     Workers,
+    DebugScreenshots,
   ],
   globals: [CrawlerSettings],
   endpoints: [

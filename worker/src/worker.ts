@@ -48,11 +48,17 @@ import { executeAudio } from '@/lib/video-crawl/stages/audio'
 
 // ─── Config ───
 
+import { getProxyConfig } from '@/lib/proxy'
+
 console.log('[Worker] Environment check at startup:')
 console.log(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? `SET (${process.env.OPENAI_API_KEY.length} chars)` : 'NOT SET'}`)
 console.log(`  OPENAI_BASE_URL: ${process.env.OPENAI_BASE_URL ?? '(default: api.openai.com)'}`)
 console.log(`  WORKER_SERVER_URL: ${process.env.WORKER_SERVER_URL ?? '(default)'}`)
 console.log(`  LOG_LEVEL: ${process.env.LOG_LEVEL ?? '(default)'}`)
+
+// Initialize proxy config early so misconfiguration fails fast
+const proxyConfig = getProxyConfig()
+console.log(`  PROXY: ${proxyConfig ? `enabled (${new URL(proxyConfig.url).host})` : 'disabled'}`)
 
 const SERVER_URL = process.env.WORKER_SERVER_URL ?? 'http://localhost:3000'
 const API_KEY = process.env.WORKER_API_KEY ?? ''
@@ -192,6 +198,9 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   log.info('Product crawl job (scrape stage)', { jobId, items: workItems.length, skipReviews })
 
   const crawlSource = workItems.length > 0 ? workItems[0].source : 'unknown'
+  if (debug) {
+    jlog.event('crawl.debug_mode', { jobId })
+  }
   jlog.event('crawl.started', { source: crawlSource, items: workItems.length, crawlVariants })
 
   if (workItems.length === 0) {
@@ -223,7 +232,12 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
 
     log.info('Scraping source URL', { sourceUrl: item.sourceUrl })
     try {
-      const data = await driver.scrapeProduct(item.sourceUrl, { debug, logger: jlog, skipReviews })
+      const data = await driver.scrapeProduct(item.sourceUrl, {
+        debug,
+        logger: jlog,
+        skipReviews,
+        ...(debug && { debugContext: { client, jobCollection: 'product-crawls' as const, jobId } }),
+      })
       results.push({ ...item, data })
       if (!data) {
         results[results.length - 1].error = 'scrapeProduct returned null'
