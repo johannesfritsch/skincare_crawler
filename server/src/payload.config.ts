@@ -63,14 +63,17 @@ const dirname = path.dirname(filename)
 const plugins: Plugin[] = []
 
 if (process.env.STORAGE_ADAPTER === 's3') {
+  const pathPrefix = process.env.S3_PATH_PREFIX || '' // e.g. 'dev' or 'prod'
+  const pfx = (name: string) => pathPrefix ? `${pathPrefix}/${name}` : name
+
   plugins.push(
     s3Storage({
       collections: {
-        'product-media': true,
-        'video-media': true,
-        'profile-media': true,
-        'detection-media': true,
-        'debug-screenshots': true,
+        'product-media': { prefix: pfx('product-media') },
+        'video-media': { prefix: pfx('video-media') },
+        'profile-media': { prefix: pfx('profile-media') },
+        'detection-media': { prefix: pfx('detection-media') },
+        'debug-screenshots': { prefix: pfx('debug-screenshots') },
       },
       bucket: process.env.S3_BUCKET || '',
       config: {

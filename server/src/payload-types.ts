@@ -269,6 +269,7 @@ export interface User {
 export interface ProductMedia {
   id: number;
   alt: string;
+  prefix?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -316,6 +317,7 @@ export interface ProductMedia {
 export interface VideoMedia {
   id: number;
   alt: string;
+  prefix?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -363,6 +365,7 @@ export interface VideoMedia {
 export interface ProfileMedia {
   id: number;
   alt: string;
+  prefix?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -410,6 +413,7 @@ export interface ProfileMedia {
 export interface DetectionMedia {
   id: number;
   alt: string;
+  prefix?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -2453,6 +2457,7 @@ export interface DebugScreenshot {
    * Which step produced this screenshot (e.g. "brand_url_extraction", "product_page")
    */
   step?: string | null;
+  prefix?: string | null;
   updatedAt: string;
   createdAt: string;
   /**
@@ -2726,6 +2731,7 @@ export interface UsersSelect<T extends boolean = true> {
  */
 export interface ProductMediaSelect<T extends boolean = true> {
   alt?: T;
+  prefix?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -2778,6 +2784,7 @@ export interface ProductMediaSelect<T extends boolean = true> {
  */
 export interface VideoMediaSelect<T extends boolean = true> {
   alt?: T;
+  prefix?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -2830,6 +2837,7 @@ export interface VideoMediaSelect<T extends boolean = true> {
  */
 export interface ProfileMediaSelect<T extends boolean = true> {
   alt?: T;
+  prefix?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -2882,6 +2890,7 @@ export interface ProfileMediaSelect<T extends boolean = true> {
  */
 export interface DetectionMediaSelect<T extends boolean = true> {
   alt?: T;
+  prefix?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -3757,6 +3766,7 @@ export interface DebugScreenshotsSelect<T extends boolean = true> {
   alt?: T;
   job?: T;
   step?: T;
+  prefix?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
