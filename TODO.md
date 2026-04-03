@@ -54,3 +54,4 @@
 - Remove the variant dimension?
 - TikTok
 - Instagram
+- No duplicate attributes/claims
