@@ -28,38 +28,9 @@ export const VideoDiscoveries: CollectionConfig = {
     afterChange: [rescheduleOnComplete],
   },
   fields: [
-    {
-      name: 'channelUrl',
-      type: 'text',
-      label: 'Channel URL',
-      required: true,
-      admin: {
-        description: 'The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)',
-      },
-    },
     jobStatusField,
     ...jobRetryFields,
     ...jobScheduleFields,
-    {
-      name: 'itemsPerTick',
-      type: 'number',
-      label: 'Videos per Batch',
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Videos fetched per claim cycle. Default: 50. Empty = 50.',
-      },
-    },
-    {
-      name: 'maxVideos',
-      type: 'number',
-      label: 'Max Videos',
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Stop after this many videos. Empty = unlimited (all videos on channel).',
-      },
-    },
     // Worker accumulates discovered video URLs here; shown read-only on the Output tab
     {
       name: 'videoUrls',
@@ -72,6 +43,63 @@ export const VideoDiscoveries: CollectionConfig = {
     {
       type: 'tabs',
       tabs: [
+        {
+          label: 'Source',
+          fields: [
+            {
+              name: 'channelUrl',
+              type: 'text',
+              label: 'Channel URL',
+              required: true,
+              admin: {
+                description: 'The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare, https://www.instagram.com/xskincare/reels/, https://www.tiktok.com/@xskincare/posts)',
+              },
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'itemsPerTick',
+                  type: 'number',
+                  label: 'Videos per Batch',
+                  min: 1,
+                  admin: {
+                    width: '33%',
+                    description: 'Videos fetched per claim cycle. Default: 50. Empty = 50.',
+                  },
+                },
+                {
+                  name: 'maxVideos',
+                  type: 'number',
+                  label: 'Max Videos',
+                  min: 1,
+                  admin: {
+                    width: '33%',
+                    description: 'Stop after this many videos. Empty = unlimited (all videos on channel).',
+                  },
+                },
+                {
+                  name: 'dateLimit',
+                  type: 'text',
+                  label: 'Date Limit',
+                  admin: {
+                    width: '33%',
+                    description: 'Only discover videos newer than this. E.g. "5 days", "2 weeks", "1 month". Empty = no date filter.',
+                  },
+                },
+              ],
+            },
+            {
+              name: 'debugMode',
+              type: 'checkbox',
+              label: 'Debug Mode',
+              defaultValue: false,
+              admin: {
+                description: 'When enabled, publishes each line of stdout/stderr from yt-dlp/gallery-dl as a separate event (visible in the Events tab).',
+              },
+            },
+          ],
+        },
         {
           label: 'Progress',
           fields: [
@@ -162,9 +190,6 @@ export const VideoDiscoveries: CollectionConfig = {
           ],
         },
       ],
-      admin: {
-        condition: (data) => !!data?.id,
-      },
     },
   ],
 }

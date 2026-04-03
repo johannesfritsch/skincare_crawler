@@ -193,6 +193,10 @@ export class PayloadRestClient {
     return this.request('GET', `/${args.collection}/count${qs}`) as Promise<CountResult>
   }
 
+  async findGlobal<T = Record<string, unknown>>(slug: string): Promise<T> {
+    return this.request('GET', `/globals/${slug}`) as Promise<T>
+  }
+
   async me(): Promise<{ user: Record<string, unknown> | null }> {
     return this.request('GET', '/workers/me') as Promise<{ user: Record<string, unknown> | null }>
   }

@@ -44,6 +44,10 @@ if [[ "$OS" == "Darwin" ]]; then
   brew list yt-dlp &>/dev/null || brew install yt-dlp
   info "✓ yt-dlp"
 
+  # gallery-dl (Instagram/TikTok metadata extraction)
+  brew list gallery-dl &>/dev/null || brew install gallery-dl
+  info "✓ gallery-dl"
+
   # zbar (barcode scanning)
   brew list zbar &>/dev/null || brew install zbar
   info "✓ zbar"
@@ -70,19 +74,15 @@ elif [[ "$OS" == "Linux" ]]; then
   apt-get install -y -qq ffmpeg
   info "✓ ffmpeg"
 
-  # yt-dlp (apt version may be outdated — install latest via pip if available)
-  if command -v pip3 &>/dev/null; then
-    pip3 install -q --upgrade yt-dlp
-  elif command -v pipx &>/dev/null; then
-    pipx install yt-dlp
-  else
-    apt-get install -y -qq yt-dlp 2>/dev/null || {
-      warn "yt-dlp not in apt. Installing via curl..."
-      curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-      chmod +x /usr/local/bin/yt-dlp
-    }
-  fi
+  # yt-dlp — always install latest binary (apt version is usually years outdated)
+  curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+  chmod +x /usr/local/bin/yt-dlp
   info "✓ yt-dlp"
+
+  # gallery-dl (Instagram/TikTok metadata extraction)
+  apt-get install -y -qq python3-pip
+  pip3 install -q gallery-dl 2>/dev/null || pip3 install -q --break-system-packages gallery-dl
+  info "✓ gallery-dl"
 
   # zbar (barcode scanning)
   apt-get install -y -qq zbar-tools
@@ -131,7 +131,7 @@ info ""
 info "Verifying installations..."
 
 FAILED=0
-for cmd in ffmpeg ffprobe yt-dlp zbarimg; do
+for cmd in ffmpeg ffprobe yt-dlp gallery-dl zbarimg; do
   if command -v "$cmd" &>/dev/null; then
     info "  ✓ $cmd ($(command -v "$cmd"))"
   else

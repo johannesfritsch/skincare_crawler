@@ -472,8 +472,10 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const currentOffset = work.currentOffset as number
   const batchSize = work.batchSize as number
   const maxVideos = work.maxVideos as number | undefined
+  const dateLimit = work.dateLimit as string | undefined
+  const debugMode = work.debugMode as boolean | undefined
 
-  log.info('Video discovery job', { jobId, channelUrl, currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited' })
+  log.info('Video discovery job', { jobId, channelUrl, currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited', dateLimit: dateLimit ?? 'none', debugMode: !!debugMode })
   const jlog = log.forJob('video-discoveries', jobId)
   jlog.event('video_discovery.started', { currentOffset, batchSize, maxVideos: maxVideos ?? 0 })
 
@@ -507,7 +509,7 @@ async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void
   const startIndex = currentOffset + 1
   const endIndex = currentOffset + fetchCount
 
-  const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex, logger: jlog })
+  const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex, dateLimit, debugMode, logger: jlog, payload: client })
   const nextOffset = currentOffset + result.videos.length
 
   log.info('Fetched videos', { count: result.videos.length, startIndex, endIndex, reachedEnd: result.reachedEnd })

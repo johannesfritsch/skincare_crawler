@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import type { VideoDiscoveryDriver, DiscoveredVideo, VideoDiscoveryPageOptions, VideoDiscoveryPageResult } from '../types'
 import { createLogger } from '@/lib/logger'
+import { dateLimitToYtDlp } from './gallery-dl'
 
 const log = createLogger('YouTube')
 
@@ -46,14 +47,25 @@ function runYtDlp(
   startIndex: number,
   endIndex: number,
   logger?: import('@/lib/logger').Logger,
+  dateLimit?: string,
 ): Promise<string> {
   const args = [
+    '--js-runtimes', 'node',
     '--skip-download',
     '--dump-json',
     '--playlist-start', String(startIndex),
     '--playlist-end', String(endIndex),
-    channelUrl,
   ]
+
+  // Date filter: e.g. "5 days" → "--dateafter today-5days"
+  if (dateLimit) {
+    const dateAfter = dateLimitToYtDlp(dateLimit)
+    if (dateAfter) {
+      args.push('--dateafter', dateAfter)
+    }
+  }
+
+  args.push(channelUrl)
 
   // Use proxy if configured
   const proxyUrl = process.env.PROXY_URL
@@ -64,7 +76,9 @@ function runYtDlp(
     args.unshift('--proxy', `http://${username}:${password}@${parsed.host}`)
   }
 
-  log.info('Running yt-dlp', { channelUrl, startIndex, endIndex, proxy: !!proxyUrl })
+  // Log args with proxy password redacted
+  const safeArgs = args.map(a => process.env.PROXY_PASSWORD && a.includes(process.env.PROXY_PASSWORD) ? a.replace(process.env.PROXY_PASSWORD, '***') : a)
+  log.info('Running yt-dlp', { channelUrl, startIndex, endIndex, proxy: !!proxyUrl, args: safeArgs.join(' ') })
   const startMs = Date.now()
 
   return new Promise((resolve, reject) => {
@@ -75,6 +89,14 @@ function runYtDlp(
       (error, stdout, stderr) => {
         const durationMs = Date.now() - startMs
         const exitCode = error?.code ?? (error ? 'unknown' : 0)
+
+        log.debug('yt-dlp raw output', {
+          exitCode,
+          durationMs,
+          stdoutLen: stdout?.length ?? 0,
+          stdoutPreview: stdout?.substring(0, 500) || '(empty)',
+          stderr: stderr?.substring(0, 1000) || '(empty)',
+        })
 
         if (error) {
           // yt-dlp exits with error when range is beyond the playlist — treat as empty
@@ -114,6 +136,13 @@ function runYtDlp(
         error: `Failed to spawn: ${err.message}`,
       })
       reject(new Error(`Failed to spawn yt-dlp: ${err.message}`))
+    })
+
+    // Stream stderr to console in real-time
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString().split('\n')) {
+        if (line.trim()) process.stderr.write(`[yt-dlp] ${line}\n`)
+      }
     })
   })
 }
@@ -166,12 +195,12 @@ export const youtubeDriver: VideoDiscoveryDriver = {
   },
 
   async discoverVideoPage(channelUrl: string, options: VideoDiscoveryPageOptions): Promise<VideoDiscoveryPageResult> {
-    const { startIndex, endIndex, logger } = options
+    const { startIndex, endIndex, dateLimit, logger } = options
     const requestedCount = endIndex - startIndex + 1
 
     const startMs = Date.now()
     const [stdout, channelAvatarUrl] = await Promise.all([
-      runYtDlp(channelUrl, startIndex, endIndex, logger),
+      runYtDlp(channelUrl, startIndex, endIndex, logger, dateLimit),
       fetchChannelAvatarUrl(channelUrl),
     ])
 

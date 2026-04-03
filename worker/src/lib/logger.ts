@@ -24,6 +24,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   info: 1,
   warn: 2,
   error: 3,
+  critical: 4,
 }
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,7 @@ const LEVEL_BADGE: Record<LogLevel, string> = {
   info: '\x1b[36mINF\x1b[0m',
   warn: '\x1b[33mWRN\x1b[0m',
   error: '\x1b[31mERR\x1b[0m',
+  critical: '\x1b[31;1mCRT\x1b[0m',
 }
 
 const DATA_COLOR = '\x1b[90m' // dim gray for key=value pairs

@@ -76,7 +76,6 @@ SMTP_SECURE=true
 SMTP_USER=...                         # SMTP auth user
 SMTP_PASS=...                         # SMTP auth password
 EMAIL_FROM=crawler@anyskin.com        # sender address for alert emails
-ALERT_EMAIL=admin@anyskin.com         # critical alert recipients (fallback; editable in admin via Crawler Settings)
 ```
 
 ## Worker
@@ -175,7 +174,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 
 Product crawl results are validated for plausibility after each `persistCrawlResult()`. The validation function (`worker/src/lib/validate-crawl-result.ts`) checks: non-empty name/brand, at least 1 image, price in range, valid GTIN format, valid image URLs. Failures emit `crawl.validation_failed` events with level `critical`. If >50% of a batch fails validation, a `crawl.batch_validation_alert` event is also emitted.
 
-Critical events trigger email alerts via an `afterChange` hook on the Events collection (`server/src/hooks/criticalEventNotifier.ts`). Emails are batched with a 1-hour cooldown stored in the `crawler-settings` global (database-backed, multi-node safe). Email is sent via Payload's nodemailer adapter configured with Mailjet SMTP. Recipients are configured in the admin UI (Crawler Settings > alertEmail) or via the `ALERT_EMAIL` env var.
+Critical events trigger email alerts via an `afterChange` hook on the Events collection (`server/src/hooks/criticalEventNotifier.ts`). Emails are batched with a 1-hour cooldown stored in the `crawler-settings` global (database-backed, multi-node safe). Email is sent via Payload's nodemailer adapter configured with Mailjet SMTP. Recipients are configured in the admin UI (Crawler Settings > alertEmail, default: fritsch@zoom7.de).
 
 The `product-crawls` collection has a `crawlSnapshot` JSON field that stores a summary of each batch (size, successes, validation failures, sample product data). Visible in the admin UI for quick inspection.
 
@@ -268,6 +267,7 @@ See `worker/src/lib/source-discovery/drivers/GUIDE.md` for a detailed implementa
 
 ## Development Notes
 
+- **Use `bun`** for running toolchain commands (`bun tsc --noEmit`, etc.). `pnpm` is not in PATH on the dev machine.
 - **TypeScript** throughout; worker uses `@/` path aliases via tsconfig
 - **pnpm workspace** — root `pnpm-workspace.yaml` lists `server`, `worker`, `shared`. The root `package.json` holds shared `pnpm.onlyBuiltDependencies` and `pnpm.overrides`. Run `pnpm install` from the root.
 - `@anyskin/shared` — consumed as raw TypeScript (no build step). Server uses `transpilePackages: ['@anyskin/shared']` in `next.config.mjs`. Worker uses `tsx` which handles TS imports natively. Contains the `EventRegistry` (typed event names → data shapes), `EVENT_META` (default type/level/labels per event), and shared types (`SourceSlug`, `JobCollection`, `EventType`, `LogLevel`).

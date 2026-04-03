@@ -1,122 +1,91 @@
 /**
- * TikTok video discovery driver via Apify API.
+ * TikTok video discovery driver via gallery-dl.
  *
- * Fetches video metadata from completed Apify TikTok scraper runs.
- * The actor is scheduled externally in Apify — this driver only reads results.
+ * Uses gallery-dl with cookies and proxy to fetch video metadata
+ * from TikTok profiles. Cookie content is read from crawler-settings.
  *
- * TikTok videos are stored in the run's KV store (not in the dataset items).
- * Key pattern: video-{username}-{datetime}-{videoId}.mp4
+ * Known limitation: TikTok's API always returns ~235 posts regardless of
+ * --chapter-range. We slice the result in code to respect the requested range.
  */
 
-import type { VideoDiscoveryDriver, VideoDiscoveryPageOptions, VideoDiscoveryPageResult, DiscoveredVideo } from '../types'
-import { getLatestRun, fetchDatasetItems, listKvStoreKeys, getKvRecordUrl, log } from './apify-client'
+import type { VideoDiscoveryDriver, DiscoveredVideo, VideoDiscoveryPageOptions, VideoDiscoveryPageResult } from '../types'
+import { runGalleryDl, getCookies, type GalleryDlEntry } from './gallery-dl'
+import { createLogger } from '@/lib/logger'
 
-// Hardcoded — field mapping is tightly coupled to this actor's output schema
-// Apify API uses tilde (~) separator in actor IDs: owner~name
-const ACTOR_ID = 'clockworks~tiktok-scraper'
-
-/** TikTok Apify items use dot-notation flat keys */
-interface TikTokItem {
-  'authorMeta.avatar': string
-  'authorMeta.name': string
-  'text': string
-  'diggCount': number
-  'shareCount': number
-  'playCount': number
-  'commentCount': number
-  'collectCount': number
-  'videoMeta.duration': number
-  'musicMeta.musicName': string
-  'musicMeta.musicAuthor': string
-  'musicMeta.musicOriginal': boolean
-  'createTimeISO': string
-  'webVideoUrl': string
-}
-
-function extractUsername(channelUrl: string): string {
-  // https://www.tiktok.com/@xskincare → xskincare
-  const match = channelUrl.match(/tiktok\.com\/@([^/?]+)/)
-  return match ? match[1].toLowerCase() : ''
-}
-
-function extractVideoId(webVideoUrl: string): string {
-  // https://www.tiktok.com/@xskincare/video/7621286083967454496 → 7621286083967454496
-  const match = webVideoUrl.match(/\/video\/(\d+)/)
-  return match ? match[1] : webVideoUrl
-}
-
-function mapToDiscoveredVideo(item: TikTokItem): DiscoveredVideo {
-  const text = item.text || ''
-  const captionLines = text.split('\n').filter(Boolean)
-  const title = captionLines[0]?.substring(0, 200) || extractVideoId(item.webVideoUrl)
-  const username = item['authorMeta.name']
-
-  return {
-    externalId: extractVideoId(item.webVideoUrl),
-    title,
-    description: text || undefined,
-    externalUrl: item.webVideoUrl,
-    thumbnailUrl: undefined, // Not available in TikTok dataset items
-    timestamp: item.createTimeISO ? new Date(item.createTimeISO).getTime() / 1000 : undefined,
-    uploadDate: item.createTimeISO || undefined,
-    duration: item['videoMeta.duration'] || undefined,
-    viewCount: item.playCount || undefined,
-    likeCount: item.diggCount || undefined,
-    channelName: username || undefined,
-    channelUrl: username ? `https://www.tiktok.com/@${username}` : undefined,
-    channelAvatarUrl: item['authorMeta.avatar'] || undefined,
-  }
-}
+const log = createLogger('TikTok')
 
 /**
- * Fetch a single TikTok video item from the latest Apify dataset by its web URL.
- * Used by the video crawl stages to get metadata.
+ * Map gallery-dl TikTok entries to DiscoveredVideo[].
+ *
+ * TikTok entries are [index, data] tuples where index=2 contains the full
+ * video metadata (author, stats, video details, etc.).
  */
-export async function fetchTikTokItemByUrl(videoUrl: string): Promise<TikTokItem | null> {
-  const run = await getLatestRun(ACTOR_ID)
-  const batchSize = 1000
-  let offset = 0
-  const videoId = extractVideoId(videoUrl)
+function parseEntries(entries: GalleryDlEntry[]): DiscoveredVideo[] {
+  const videos: DiscoveredVideo[] = []
+  const seenIds = new Set<string>()
 
-  while (true) {
-    const items = await fetchDatasetItems<TikTokItem>(run.defaultDatasetId, offset, batchSize)
-    if (items.length === 0) break
+  for (const entry of entries) {
+    const d = entry.data
 
-    for (const item of items) {
-      const raw = item as unknown as Record<string, unknown>
-      // Try dot-notation key, then direct key
-      const itemUrl = (raw['webVideoUrl'] ?? raw.webVideoUrl ?? '') as string
-      if (itemUrl === videoUrl || itemUrl.includes(videoId)) return item
-    }
+    // Skip non-video entries (e.g. directory entries)
+    if (!d.id && !d.desc) continue
 
-    if (items.length < batchSize) break
-    offset += batchSize
+    const videoId = String(d.id ?? '')
+    if (!videoId || seenIds.has(videoId)) continue
+    seenIds.add(videoId)
+
+    // Title: first line of description, capped at 200 chars
+    const desc = (d.desc as string) ?? ''
+    const firstLine = desc.split('\n').filter(Boolean)[0] ?? ''
+    const title = firstLine.substring(0, 200) || videoId
+
+    // Author info
+    const author = d.author as Record<string, unknown> | undefined
+    const uniqueId = (author?.uniqueId as string) ?? (d.user as string) ?? ''
+
+    // Upload date: "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DD"
+    const dateStr = (d.date as string) ?? ''
+    const uploadDate = dateStr ? dateStr.substring(0, 10) : undefined
+
+    // Timestamp: createTime may be a string or number (unix seconds)
+    const createTime = d.createTime
+    const timestamp = createTime
+      ? typeof createTime === 'string' ? parseInt(createTime, 10) : (createTime as number)
+      : undefined
+
+    // Video metadata
+    const video = d.video as Record<string, unknown> | undefined
+    const duration = (video?.duration as number) ?? undefined
+    const cover = (video?.cover as string) ?? undefined
+
+    // Stats
+    const stats = d.stats as Record<string, unknown> | undefined
+    const playCount = stats?.playCount
+    const diggCount = stats?.diggCount
+    const viewCount = typeof playCount === 'number' ? playCount : (typeof playCount === 'string' ? parseInt(playCount, 10) : undefined)
+    const likeCount = typeof diggCount === 'number' ? diggCount : (typeof diggCount === 'string' ? parseInt(diggCount, 10) : undefined)
+
+    videos.push({
+      externalId: videoId,
+      title,
+      description: desc || undefined,
+      thumbnailUrl: cover,
+      externalUrl: uniqueId
+        ? `https://www.tiktok.com/@${uniqueId}/video/${videoId}`
+        : `https://www.tiktok.com/video/${videoId}`,
+      uploadDate,
+      timestamp,
+      duration,
+      viewCount,
+      likeCount,
+      channelName: uniqueId || undefined,
+      channelUrl: uniqueId ? `https://www.tiktok.com/@${uniqueId}` : undefined,
+      channelAvatarUrl: (author?.avatarLarger as string) ?? undefined,
+    })
   }
 
-  log.warn('TikTok item not found in dataset', { videoUrl, videoId, datasetId: run.defaultDatasetId })
-  return null
+  return videos
 }
-
-/**
- * Find the KV store video download URL for a TikTok video.
- * Videos are stored with key pattern: video-{username}-{datetime}-{videoId}.mp4
- */
-export async function getTikTokVideoDownloadUrl(videoUrl: string): Promise<string | null> {
-  const videoId = extractVideoId(videoUrl)
-  const run = await getLatestRun(ACTOR_ID)
-  const storeId = run.defaultKeyValueStoreId
-
-  const keys = await listKvStoreKeys(storeId, 'video-')
-  const matchingKey = keys.find(k => k.key.includes(videoId))
-  if (!matchingKey) {
-    log.warn('No KV store video found for TikTok video', { videoId, storeId, keysChecked: keys.length })
-    return null
-  }
-
-  return getKvRecordUrl(storeId, matchingKey.key)
-}
-
-export type { TikTokItem }
 
 export const tiktokDriver: VideoDiscoveryDriver = {
   slug: 'tiktok',
@@ -131,114 +100,72 @@ export const tiktokDriver: VideoDiscoveryDriver = {
     }
   },
 
-  async discoverVideoPage(
-    channelUrl: string,
-    options: VideoDiscoveryPageOptions,
-  ): Promise<VideoDiscoveryPageResult> {
-    const username = extractUsername(channelUrl)
-    if (!username) {
-      throw new Error(`Could not extract TikTok username from URL: ${channelUrl}`)
+  async discoverVideoPage(channelUrl: string, options: VideoDiscoveryPageOptions): Promise<VideoDiscoveryPageResult> {
+    const { startIndex, endIndex, dateLimit, logger, payload } = options
+    const requestedCount = endIndex - startIndex + 1
+
+    // Fetch cookie content from crawler-settings
+    const cookies = await getCookies(payload, 'tiktok')
+    if (!cookies) {
+      log.warn('No TikTok cookies configured in Crawler Settings')
+      logger?.event('video_discovery.gallery_dl_no_cookies', { platform: 'tiktok' })
     }
 
-    log.info('Fetching TikTok videos from Apify', { username, startIndex: options.startIndex, endIndex: options.endIndex })
-
-    // Get latest successful run
-    const run = await getLatestRun(ACTOR_ID)
-    log.info('Using Apify run', {
-      runId: run.id,
-      finishedAt: run.finishedAt,
-      datasetId: run.defaultDatasetId,
-      kvStoreId: run.defaultKeyValueStoreId,
+    // Emit started event
+    logger?.event('video_discovery.gallery_dl_started', {
+      channelUrl,
+      platform: 'tiktok',
+      hasCookies: !!cookies,
+      hasProxy: !!process.env.PROXY_URL,
+      range: endIndex,
     })
 
-    // Fetch all items from the dataset
-    const batchSize = 1000
-    let offset = 0
-    const allItems: TikTokItem[] = []
+    const startMs = Date.now()
 
-    while (true) {
-      const items = await fetchDatasetItems<TikTokItem>(run.defaultDatasetId, offset, batchSize)
-      if (items.length === 0) break
-      allItems.push(...items)
-      if (items.length < batchSize) break
-      offset += batchSize
-    }
-
-    // Debug: log first item's keys and author field to diagnose filtering
-    if (allItems.length > 0) {
-      const first = allItems[0] as unknown as Record<string, unknown>
-      const keys = Object.keys(first)
-      log.info('TikTok dataset item debug', {
-        itemCount: allItems.length,
-        keys: keys.join(', '),
-        authorMetaName: String(first['authorMeta.name'] ?? (first['authorMeta'] as Record<string, unknown>)?.name ?? 'MISSING'),
-        webVideoUrl: String(first['webVideoUrl'] ?? 'MISSING'),
-        sampleValues: keys.slice(0, 5).map(k => `${k}=${String(first[k]).substring(0, 50)}`).join(' | '),
+    // TikTok always fetches all posts regardless of --chapter-range (known limitation).
+    // We request the full range and slice in code.
+    let entries: GalleryDlEntry[]
+    try {
+      entries = await runGalleryDl({
+        url: channelUrl,
+        cookies,
+        range: endIndex, // best-effort limit
+        dateLimit,
+        platform: 'tiktok',
+        logger,
       })
-    } else {
-      log.warn('TikTok dataset is empty', { datasetId: run.defaultDatasetId })
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      const durationMs = Date.now() - startMs
+      logger?.event('video_discovery.gallery_dl_failed', { channelUrl, platform: 'tiktok', error, durationMs })
+      throw e
     }
 
-    // Filter to videos from the requested channel
-    // Try both dot-notation key and nested object access
-    const channelVideos = allItems.filter(item => {
-      const authorName = item['authorMeta.name']
-        ?? (item as unknown as Record<string, Record<string, string>>).authorMeta?.name
-      return authorName?.toLowerCase() === username
-    })
+    const allVideos = parseEntries(entries)
 
-    // Sort by timestamp descending (newest first)
-    channelVideos.sort((a, b) => {
-      const ta = a.createTimeISO ? new Date(a.createTimeISO).getTime() : 0
-      const tb = b.createTimeISO ? new Date(b.createTimeISO).getTime() : 0
-      return tb - ta
-    })
+    // Slice to the requested range (1-based indices → 0-based)
+    const sliceStart = startIndex - 1
+    const videos = allVideos.slice(sliceStart, sliceStart + requestedCount)
 
-    // Apply index range (1-based)
-    const startIdx = options.startIndex - 1
-    const endIdx = options.endIndex
-    const slice = channelVideos.slice(startIdx, endIdx)
-    const requestedCount = endIdx - startIdx
+    const durationMs = Date.now() - startMs
 
-    const videos = slice.map(mapToDiscoveredVideo)
-    const reachedEnd = slice.length < requestedCount
-
-    log.info('TikTok discovery page', {
-      username,
-      totalInDataset: allItems.length,
-      channelVideos: channelVideos.length,
+    log.info('TikTok discovery complete', {
       returned: videos.length,
-      reachedEnd,
+      requested: requestedCount,
+      totalFetched: allVideos.length,
+      durationMs,
+    })
+    logger?.event('video_discovery.gallery_dl_completed', {
+      channelUrl,
+      platform: 'tiktok',
+      videoCount: videos.length,
+      entriesTotal: allVideos.length,
+      durationMs,
     })
 
-    return { videos, reachedEnd }
+    return {
+      videos,
+      reachedEnd: videos.length < requestedCount,
+    }
   },
-}
-
-/**
- * Get the KV store ID from the latest TikTok actor run.
- * Needed by the crawl handler to download video files.
- */
-export async function getTikTokKvStoreId(): Promise<string> {
-  const run = await getLatestRun(ACTOR_ID)
-  return run.defaultKeyValueStoreId
-}
-
-/**
- * Find the KV store thumbnail/cover URL for a TikTok video.
- * Covers are stored with key pattern: cover-{username}-{datetime}-{videoId}.jpg (or similar)
- */
-export async function getTikTokThumbnailUrl(videoUrl: string): Promise<string | null> {
-  const videoId = extractVideoId(videoUrl)
-  const run = await getLatestRun(ACTOR_ID)
-  const storeId = run.defaultKeyValueStoreId
-
-  const keys = await listKvStoreKeys(storeId, 'cover-')
-  const matchingKey = keys.find(k => k.key.includes(videoId))
-  if (!matchingKey) {
-    log.debug('No KV store cover found for TikTok video', { videoId, storeId })
-    return null
-  }
-
-  return getKvRecordUrl(storeId, matchingKey.key)
 }

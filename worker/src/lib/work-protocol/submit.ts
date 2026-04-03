@@ -29,6 +29,7 @@ import {
   incrementVideoErrorCount as incrementVideoCrawlErrorCount,
   markVideoCrawlFailed,
   getVideoCrawlProgressKey,
+  VIDEO_CRAWL_FAILED_SENTINEL,
   type VideoCrawlStageName,
   type VideoCrawlProgress,
 } from '@/lib/video-crawl/stages'
@@ -990,7 +991,18 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
   const batchDurationMs = Date.now() - batchStartMs
 
   if (totalRemaining === 0) {
-    if (batchErrors === results.length && results.length > 0) {
+    // Check if any videos still have retryable errors (not yet permanently failed).
+    // If all failures are permanent (!failed), retrying the job is pointless — the
+    // per-video retry logic already exhausted retries.  Only call retryOrFail when
+    // there are genuinely transient errors (errCount ≤ maxRetries for some video).
+    const hasRetryableErrors = batchErrors === results.length && results.length > 0
+      && results.some((r) => {
+        if (r.success) return false
+        const pk = getVideoCrawlProgressKey(r.videoId || undefined, r.externalUrl)
+        return (progress[pk] as string) !== VIDEO_CRAWL_FAILED_SENTINEL
+      })
+
+    if (hasRetryableErrors) {
       log.warn('Video crawl batch was 100% errors, retrying or failing', { jobId, batchErrors })
       await payload.update({
         collection: 'video-crawls',
@@ -1004,21 +1016,41 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
     const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
     const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
 
-    log.info('Video crawl completing', { jobId, crawled, errors })
-    await payload.update({
-      collection: 'video-crawls',
-      id: jobId,
-      data: {
-        status: 'completed',
-        crawled,
-        errors,
-        crawledVideoUrls: updatedCrawledUrls,
-        crawlProgress: progress,
-        completedAt: new Date().toISOString(),
-      },
-    })
-    jlog.event('video_crawl.completed', { crawled, errors, durationMs: jobDurationMs })
-    jlog.event('job.completed', { collection: 'video-crawls', durationMs: jobDurationMs })
+    // If no videos were successfully crawled, mark the job as failed
+    if (crawled === 0 && errors > 0) {
+      log.warn('Video crawl completing with only errors', { jobId, crawled, errors })
+      await payload.update({
+        collection: 'video-crawls',
+        id: jobId,
+        data: {
+          status: 'failed',
+          crawled,
+          errors,
+          crawledVideoUrls: updatedCrawledUrls,
+          crawlProgress: progress,
+          failedAt: new Date().toISOString(),
+          failureReason: 'All videos failed after per-video retries',
+        },
+      })
+      jlog.event('video_crawl.completed', { crawled, errors, durationMs: jobDurationMs })
+      jlog.event('job.failed', { reason: 'All videos failed after per-video retries' })
+    } else {
+      log.info('Video crawl completing', { jobId, crawled, errors })
+      await payload.update({
+        collection: 'video-crawls',
+        id: jobId,
+        data: {
+          status: 'completed',
+          crawled,
+          errors,
+          crawledVideoUrls: updatedCrawledUrls,
+          crawlProgress: progress,
+          completedAt: new Date().toISOString(),
+        },
+      })
+      jlog.event('video_crawl.completed', { crawled, errors, durationMs: jobDurationMs })
+      jlog.event('job.completed', { collection: 'video-crawls', durationMs: jobDurationMs })
+    }
   } else {
     log.info('Video crawl batch done', { jobId, remaining: totalRemaining, crawled, errors })
     await payload.update({

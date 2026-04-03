@@ -21,6 +21,12 @@ export interface VideoDiscoveryPageOptions {
   endIndex: number
   /** Optional job-scoped logger for emitting events */
   logger?: import('@/lib/logger').Logger
+  /** Only discover videos newer than this (e.g. "5 days", "2 weeks", "1 month") */
+  dateLimit?: string
+  /** When true, emit per-line stdout/stderr events for debugging */
+  debugMode?: boolean
+  /** Optional REST client for reading crawler-settings (cookie paths, etc.) */
+  payload?: import('@/lib/payload-client').PayloadRestClient
 }
 
 export interface VideoDiscoveryPageResult {

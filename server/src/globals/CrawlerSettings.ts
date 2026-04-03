@@ -10,8 +10,9 @@ export const CrawlerSettings: GlobalConfig = {
     {
       name: 'alertEmail',
       type: 'text',
+      defaultValue: 'fritsch@zoom7.de',
       admin: {
-        description: 'Email address(es) for critical alerts (comma-separated). Falls back to ALERT_EMAIL env var.',
+        description: 'Email address(es) for critical alerts (comma-separated).',
       },
     },
     {
@@ -23,6 +24,20 @@ export const CrawlerSettings: GlobalConfig = {
         date: {
           displayFormat: 'yyyy-MM-dd HH:mm:ss',
         },
+      },
+    },
+    {
+      name: 'instagramCookies',
+      type: 'textarea',
+      admin: {
+        description: 'Instagram cookies in Netscape format. Export from browser via "Get cookies.txt LOCALLY" extension and paste here.',
+      },
+    },
+    {
+      name: 'tiktokCookies',
+      type: 'textarea',
+      admin: {
+        description: 'TikTok cookies in Netscape format. Export from browser via "Get cookies.txt LOCALLY" extension and paste here.',
       },
     },
   ],

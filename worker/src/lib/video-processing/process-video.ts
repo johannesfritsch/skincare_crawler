@@ -20,14 +20,24 @@ export interface ProcessVideoResult {
   tokensUsed?: number
 }
 
+/** Commands whose stderr should be streamed to console in real-time */
+const STREAM_COMMANDS = new Set(['yt-dlp', 'gallery-dl'])
+
 export function run(cmd: string, args: string[], timeoutMs = 600_000): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     log.debug('Executing command', { cmd, args: args.join(' ') })
-    execFile(
+    const startMs = Date.now()
+    const proc = execFile(
       cmd,
       args,
       { maxBuffer: 100 * 1024 * 1024, timeout: timeoutMs },
       (error, stdout, stderr) => {
+        const durationMs = Date.now() - startMs
+        const exitCode = error?.code ?? 0
+        log.debug('Command finished', { cmd, exitCode, durationMs, stdoutLen: stdout?.length ?? 0, stderrLen: stderr?.length ?? 0 })
+        if (stderr) {
+          log.debug('Command stderr', { cmd, stderr: stderr.substring(0, 1000) })
+        }
         if (error) {
           reject(new Error(`${cmd} failed (exit ${error.code ?? 'unknown'}): ${stderr || error.message}`))
           return
@@ -35,15 +45,39 @@ export function run(cmd: string, args: string[], timeoutMs = 600_000): Promise<{
         resolve({ stdout, stderr })
       },
     )
+
+    // Stream stderr to console in real-time for long-running commands
+    if (STREAM_COMMANDS.has(cmd)) {
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        for (const line of chunk.toString().split('\n')) {
+          if (line.trim()) process.stderr.write(`[${cmd}] ${line}\n`)
+        }
+      })
+    }
   })
 }
 
 export async function downloadVideo(url: string, outputPath: string, logger?: import('@/lib/logger').Logger): Promise<void> {
-  log.info('Downloading video', { url, outputPath })
+  const args = ['--js-runtimes', 'node', '--merge-output-format', 'mp4', '-o', outputPath, url]
 
-  // No proxy for downloads — video files are large and shouldn't go through residential proxy
+  // Use proxy if configured (required to bypass YouTube bot detection)
+  const proxyUrl = process.env.PROXY_URL
+  if (proxyUrl) {
+    const username = process.env.PROXY_USERNAME || ''
+    const password = process.env.PROXY_PASSWORD || ''
+    const parsed = new URL(proxyUrl)
+    args.unshift('--proxy', `http://${username}:${password}@${parsed.host}`)
+  }
+
+  const safeArgs = args.map(a =>
+    process.env.PROXY_PASSWORD && a.includes(process.env.PROXY_PASSWORD)
+      ? a.replace(process.env.PROXY_PASSWORD, '***')
+      : a,
+  )
+  log.info('Downloading video', { url, outputPath, proxy: !!proxyUrl, args: safeArgs.join(' ') })
+
   const startMs = Date.now()
-  const { stderr } = await run('yt-dlp', ['--merge-output-format', 'mp4', '-o', outputPath, url], 600_000)
+  const { stderr } = await run('yt-dlp', args, 600_000)
     .catch((e) => {
       const error = e instanceof Error ? e.message : String(e)
       log.error('yt-dlp download failed', { url, error })

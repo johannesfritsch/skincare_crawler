@@ -2130,10 +2130,6 @@ export interface Event {
  */
 export interface VideoDiscovery {
   id: number;
-  /**
-   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare)
-   */
-  channelUrl: string;
   status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
   /**
    * Number of times this job has been retried after failures
@@ -2147,6 +2143,11 @@ export interface VideoDiscovery {
   scheduleLimit?: number | null;
   scheduleCount?: number | null;
   scheduledFor?: string | null;
+  videoUrls?: string | null;
+  /**
+   * The channel URL to discover videos from (e.g. https://www.youtube.com/@xskincare, https://www.instagram.com/xskincare/reels/, https://www.tiktok.com/@xskincare/posts)
+   */
+  channelUrl: string;
   /**
    * Videos fetched per claim cycle. Default: 50. Empty = 50.
    */
@@ -2155,7 +2156,14 @@ export interface VideoDiscovery {
    * Stop after this many videos. Empty = unlimited (all videos on channel).
    */
   maxVideos?: number | null;
-  videoUrls?: string | null;
+  /**
+   * Only discover videos newer than this. E.g. "5 days", "2 weeks", "1 month". Empty = no date filter.
+   */
+  dateLimit?: string | null;
+  /**
+   * When enabled, publishes each line of stdout/stderr from yt-dlp/gallery-dl as a separate event (visible in the Events tab).
+   */
+  debugMode?: boolean | null;
   /**
    * When the current worker claimed this job
    */
@@ -3642,7 +3650,6 @@ export interface VideoMentionsSelect<T extends boolean = true> {
  * via the `definition` "video-discoveries_select".
  */
 export interface VideoDiscoveriesSelect<T extends boolean = true> {
-  channelUrl?: T;
   status?: T;
   retryCount?: T;
   maxRetries?: T;
@@ -3650,9 +3657,12 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
+  videoUrls?: T;
+  channelUrl?: T;
   itemsPerTick?: T;
   maxVideos?: T;
-  videoUrls?: T;
+  dateLimit?: T;
+  debugMode?: T;
   claimedAt?: T;
   claimedBy?: T;
   discovered?: T;
@@ -3840,13 +3850,21 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
 export interface CrawlerSetting {
   id: number;
   /**
-   * Email address(es) for critical alerts (comma-separated). Falls back to ALERT_EMAIL env var.
+   * Email address(es) for critical alerts (comma-separated).
    */
   alertEmail?: string | null;
   /**
    * Timestamp of the last critical alert email sent (used for 1-hour cooldown).
    */
   lastCriticalEmailAt?: string | null;
+  /**
+   * Instagram cookies in Netscape format. Export from browser via "Get cookies.txt LOCALLY" extension and paste here.
+   */
+  instagramCookies?: string | null;
+  /**
+   * TikTok cookies in Netscape format. Export from browser via "Get cookies.txt LOCALLY" extension and paste here.
+   */
+  tiktokCookies?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -3857,6 +3875,8 @@ export interface CrawlerSetting {
 export interface CrawlerSettingsSelect<T extends boolean = true> {
   alertEmail?: T;
   lastCriticalEmailAt?: T;
+  instagramCookies?: T;
+  tiktokCookies?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

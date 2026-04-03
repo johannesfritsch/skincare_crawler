@@ -345,10 +345,10 @@ export async function persistCrawlResult(
         },
       }) as { id: number }
       sourceBrandId = created.id
-      jlog.event('persist.source_brand_created', { source, brandName: data.brandName, brandUrl: data.brandUrl })
+      jlog.event('persist.source_brand_created', { source, brandName: data.brandName, brandUrl: data.brandUrl ?? '' })
     } else {
       sourceBrandId = (existingBrand.docs[0] as { id: number }).id
-      jlog.event('persist.source_brand_exists', { source, brandName: data.brandName, brandUrl: data.brandUrl })
+      jlog.event('persist.source_brand_exists', { source, brandUrl: data.brandUrl ?? '' })
     }
   }
 

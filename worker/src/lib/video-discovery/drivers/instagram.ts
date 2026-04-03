@@ -1,86 +1,82 @@
 /**
- * Instagram video discovery driver via Apify API.
+ * Instagram video discovery driver via gallery-dl.
  *
- * Fetches video/reel metadata from completed Apify Instagram scraper runs.
- * The actor is scheduled externally in Apify — this driver only reads results.
+ * Uses gallery-dl with cookies and proxy to fetch reel metadata
+ * from Instagram profiles. Cookie content is read from crawler-settings.
  */
 
-import type { VideoDiscoveryDriver, VideoDiscoveryPageOptions, VideoDiscoveryPageResult, DiscoveredVideo } from '../types'
-import { getLatestRun, fetchDatasetItems, log } from './apify-client'
+import type { VideoDiscoveryDriver, DiscoveredVideo, VideoDiscoveryPageOptions, VideoDiscoveryPageResult } from '../types'
+import { runGalleryDl, getCookies, type GalleryDlEntry } from './gallery-dl'
+import { createLogger } from '@/lib/logger'
 
-// Hardcoded — field mapping is tightly coupled to this actor's output schema
-// Apify API uses tilde (~) separator in actor IDs: owner~name
-const ACTOR_ID = 'apify~instagram-scraper'
-
-interface InstagramItem {
-  id: string
-  type: string // "Video", "Image", "Sidecar"
-  shortCode: string
-  caption: string
-  url: string
-  displayUrl: string
-  videoUrl?: string
-  timestamp: string
-  videoDuration?: number
-  videoViewCount?: number
-  videoPlayCount?: number
-  likesCount: number
-  commentsCount: number
-  ownerUsername: string
-  ownerFullName: string
-  ownerId: string
-  inputUrl: string
-  productType?: string // "clips" for reels
-}
-
-function extractUsername(channelUrl: string): string {
-  // https://www.instagram.com/xskincare/ → xskincare
-  const match = channelUrl.match(/instagram\.com\/([^/?]+)/)
-  return match ? match[1].toLowerCase() : ''
-}
-
-function mapToDiscoveredVideo(item: InstagramItem): DiscoveredVideo {
-  const captionLines = (item.caption || '').split('\n').filter(Boolean)
-  const title = captionLines[0]?.substring(0, 200) || item.shortCode
-
-  return {
-    externalId: item.id,
-    title,
-    description: item.caption || undefined,
-    externalUrl: item.url,
-    thumbnailUrl: item.displayUrl || undefined,
-    timestamp: item.timestamp ? new Date(item.timestamp).getTime() / 1000 : undefined,
-    uploadDate: item.timestamp || undefined,
-    duration: item.videoDuration || undefined,
-    viewCount: item.videoViewCount || item.videoPlayCount || undefined,
-    likeCount: item.likesCount || undefined,
-    channelName: item.ownerUsername || undefined,
-    channelUrl: item.inputUrl || `https://www.instagram.com/${item.ownerUsername}/`,
-  }
-}
+const log = createLogger('Instagram')
 
 /**
- * Fetch a single Instagram video item from the latest Apify dataset by its post URL.
- * Used by the video crawl stages to get metadata and video download URL.
+ * Map gallery-dl Instagram entries to DiscoveredVideo[].
+ *
+ * gallery-dl outputs two entry types per post:
+ * - index=2 (no URL): post-level metadata
+ * - index=3 (with URL): media file metadata with richer fields (display_url, video_url, owner)
+ *
+ * We use index=3 entries (media entries) which have the richest data.
+ * For posts with multiple media (carousels), we only take video entries (extension=mp4).
  */
-export async function fetchInstagramItemByUrl(videoUrl: string): Promise<InstagramItem | null> {
-  const run = await getLatestRun(ACTOR_ID)
-  const batchSize = 1000
-  let offset = 0
+function parseEntries(entries: GalleryDlEntry[]): DiscoveredVideo[] {
+  const videos: DiscoveredVideo[] = []
+  const seenIds = new Set<string>()
 
-  while (true) {
-    const items = await fetchDatasetItems<InstagramItem>(run.defaultDatasetId, offset, batchSize)
-    if (items.length === 0) break
-    const match = items.find(item => item.url === videoUrl)
-    if (match) return match
-    if (items.length < batchSize) break
-    offset += batchSize
+  for (const entry of entries) {
+    const d = entry.data
+
+    // Accept both metadata entries (index=2, no URL) and media entries (index=3, with URL)
+    // With --no-download, gallery-dl may output both or just metadata entries
+    // Filter to reels/videos only
+    const isReel = d.type === 'reel' || d.subcategory === 'reels'
+    const isVideo = d.extension === 'mp4' || isReel
+    if (!isVideo) continue
+
+    const postId = String(d.post_id ?? d.media_id ?? '')
+    if (!postId || seenIds.has(postId)) continue
+    seenIds.add(postId)
+
+    // Title: first line of description, capped at 200 chars
+    const description = (d.description as string) ?? ''
+    const firstLine = description.split('\n').filter(Boolean)[0] ?? ''
+    const title = firstLine.substring(0, 200) || (d.post_shortcode as string) || postId
+
+    // Upload date: "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DD"
+    const postDate = (d.post_date as string) ?? (d.date as string) ?? ''
+    const uploadDate = postDate ? postDate.substring(0, 10) : undefined
+    const timestamp = postDate ? new Date(postDate).getTime() / 1000 : undefined
+
+    // Channel avatar: try HD first, then regular profile pic
+    const owner = d.owner as Record<string, unknown> | undefined
+    const hdPic = owner?.hd_profile_pic_url_info as Record<string, unknown> | undefined
+    const channelAvatarUrl = (hdPic?.url as string)
+      ?? (owner?.profile_pic_url as string)
+      ?? undefined
+
+    const username = (d.username as string) ?? ''
+
+    videos.push({
+      externalId: postId,
+      title,
+      description: description || undefined,
+      thumbnailUrl: (d.display_url as string) ?? undefined,
+      externalUrl: (d.post_url as string) ?? `https://www.instagram.com/reel/${d.post_shortcode}/`,
+      uploadDate,
+      timestamp,
+      duration: undefined, // Not available in gallery-dl Instagram output
+      viewCount: undefined, // Not available
+      likeCount: (d.likes as number) ?? undefined,
+      channelName: username || undefined,
+      channelUrl: username ? `https://www.instagram.com/${username}/` : undefined,
+      channelAvatarUrl,
+    })
   }
 
-  return null
+  return videos
 }
-
-export type { InstagramItem }
 
 export const instagramDriver: VideoDiscoveryDriver = {
   slug: 'instagram',
@@ -95,65 +91,60 @@ export const instagramDriver: VideoDiscoveryDriver = {
     }
   },
 
-  async discoverVideoPage(
-    channelUrl: string,
-    options: VideoDiscoveryPageOptions,
-  ): Promise<VideoDiscoveryPageResult> {
-    const username = extractUsername(channelUrl)
-    if (!username) {
-      throw new Error(`Could not extract Instagram username from URL: ${channelUrl}`)
+  async discoverVideoPage(channelUrl: string, options: VideoDiscoveryPageOptions): Promise<VideoDiscoveryPageResult> {
+    const { startIndex, endIndex, dateLimit, logger, payload } = options
+    const requestedCount = endIndex - startIndex + 1
+
+    // Fetch cookie content from crawler-settings
+    const cookies = await getCookies(payload, 'instagram')
+    if (!cookies) {
+      log.warn('No Instagram cookies configured in Crawler Settings')
+      logger?.event('video_discovery.gallery_dl_no_cookies', { platform: 'instagram' })
     }
 
-    log.info('Fetching Instagram videos from Apify', { username, startIndex: options.startIndex, endIndex: options.endIndex })
+    // Emit started event
+    logger?.event('video_discovery.gallery_dl_started', {
+      channelUrl,
+      platform: 'instagram',
+      hasCookies: !!cookies,
+      hasProxy: !!process.env.PROXY_URL,
+      range: requestedCount,
+    })
 
-    // Get latest successful run
-    const run = await getLatestRun(ACTOR_ID)
-    log.info('Using Apify run', { runId: run.id, finishedAt: run.finishedAt, datasetId: run.defaultDatasetId })
+    const startMs = Date.now()
 
-    // Fetch all items from the dataset (Apify datasets are typically small enough)
-    // Then filter by username and type, and slice by index range
-    const batchSize = 1000
-    let offset = 0
-    const allItems: InstagramItem[] = []
-
-    while (true) {
-      const items = await fetchDatasetItems<InstagramItem>(run.defaultDatasetId, offset, batchSize)
-      if (items.length === 0) break
-      allItems.push(...items)
-      if (items.length < batchSize) break
-      offset += batchSize
+    let entries: GalleryDlEntry[]
+    try {
+      entries = await runGalleryDl({
+        url: channelUrl,
+        cookies,
+        range: requestedCount,
+        dateLimit,
+        platform: 'instagram',
+        logger,
+      })
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      const durationMs = Date.now() - startMs
+      logger?.event('video_discovery.gallery_dl_failed', { channelUrl, platform: 'instagram', error, durationMs })
+      throw e
     }
 
-    // Filter to videos from the requested channel
-    const channelVideos = allItems.filter(item =>
-      item.type === 'Video' &&
-      item.ownerUsername?.toLowerCase() === username,
-    )
+    const videos = parseEntries(entries)
+    const durationMs = Date.now() - startMs
 
-    // Sort by timestamp descending (newest first)
-    channelVideos.sort((a, b) => {
-      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0
-      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0
-      return tb - ta
+    log.info('Instagram discovery complete', { returned: videos.length, requested: requestedCount, durationMs })
+    logger?.event('video_discovery.gallery_dl_completed', {
+      channelUrl,
+      platform: 'instagram',
+      videoCount: videos.length,
+      entriesTotal: entries.length,
+      durationMs,
     })
 
-    // Apply index range (1-based)
-    const startIdx = options.startIndex - 1 // convert to 0-based
-    const endIdx = options.endIndex
-    const slice = channelVideos.slice(startIdx, endIdx)
-    const requestedCount = endIdx - startIdx
-
-    const videos = slice.map(mapToDiscoveredVideo)
-    const reachedEnd = slice.length < requestedCount
-
-    log.info('Instagram discovery page', {
-      username,
-      totalInDataset: allItems.length,
-      channelVideos: channelVideos.length,
-      returned: videos.length,
-      reachedEnd,
-    })
-
-    return { videos, reachedEnd }
+    return {
+      videos,
+      reachedEnd: videos.length < requestedCount,
+    }
   },
 }

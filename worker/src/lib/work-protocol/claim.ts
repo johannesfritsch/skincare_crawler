@@ -636,6 +636,8 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
   const currentOffset = progress?.currentOffset ?? 0
   const batchSize = (job.itemsPerTick as number) || 50
   const maxVideos = (job.maxVideos as number) ?? undefined
+  const dateLimit = (job.dateLimit as string) ?? undefined
+  const debugMode = (job.debugMode as boolean) ?? false
 
   jlog.info('Video discovery job loaded', { jobId, channelUrl, offset: currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited' })
 
@@ -664,6 +666,8 @@ async function buildVideoDiscoveryWork(payload: PayloadRestClient, jobId: number
     currentOffset,
     batchSize,
     maxVideos,
+    dateLimit,
+    debugMode,
   }
 }
 

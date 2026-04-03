@@ -48,13 +48,7 @@ export const criticalEventNotifier: CollectionAfterChangeHook = async ({
 
     // Determine recipients
     const alertEmail =
-      (settings.alertEmail as string)?.trim() ||
-      process.env.ALERT_EMAIL ||
-      ''
-    if (!alertEmail) {
-      req.payload.logger.warn('Critical event but no alert email configured (set in Crawler Settings or ALERT_EMAIL env var)')
-      return doc
-    }
+      (settings.alertEmail as string)?.trim() || 'fritsch@zoom7.de'
 
     // Build email
     const subject = `[AnySkin Crawler] ${criticalEvents.length} critical event(s)`

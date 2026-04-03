@@ -407,6 +407,48 @@ export interface EventRegistry {
     videoCount: number
     durationMs: number
   }
+  'video_discovery.gallery_dl_started': {
+    channelUrl: string
+    platform: string
+    hasCookies: boolean
+    hasProxy: boolean
+    range: number
+  }
+  'video_discovery.gallery_dl_completed': {
+    channelUrl: string
+    platform: string
+    videoCount: number
+    entriesTotal: number
+    durationMs: number
+  }
+  'video_discovery.gallery_dl_failed': {
+    channelUrl: string
+    platform: string
+    error: string
+    durationMs: number
+  }
+  'video_discovery.gallery_dl_output': {
+    platform: string
+    stdoutPreview: string
+    stderrPreview: string
+    stdoutLen: number
+    stdoutFile: string
+    stderrFile: string
+    exitCode: string
+    durationMs: number
+  }
+  'video_discovery.gallery_dl_stderr': {
+    platform: string
+    stderr: string
+  }
+  'video_discovery.debug_line': {
+    source: string
+    stream: string
+    line: string
+  }
+  'video_discovery.gallery_dl_no_cookies': {
+    platform: string
+  }
 
   // ─── Video Crawl ───────────────────────────────────────────────────────
   // worker.ts: handler start
@@ -999,6 +1041,41 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     type: 'info',
     level: 'info',
     labels: ['discovery', 'yt-dlp'],
+  },
+  'video_discovery.gallery_dl_started': {
+    type: 'start',
+    level: 'info',
+    labels: ['discovery', 'gallery-dl'],
+  },
+  'video_discovery.gallery_dl_completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['discovery', 'gallery-dl'],
+  },
+  'video_discovery.gallery_dl_failed': {
+    type: 'error',
+    level: 'error',
+    labels: ['discovery', 'gallery-dl'],
+  },
+  'video_discovery.debug_line': {
+    type: 'info',
+    level: 'debug',
+    labels: ['discovery', 'debug'],
+  },
+  'video_discovery.gallery_dl_output': {
+    type: 'info',
+    level: 'debug',
+    labels: ['discovery', 'gallery-dl'],
+  },
+  'video_discovery.gallery_dl_stderr': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['discovery', 'gallery-dl'],
+  },
+  'video_discovery.gallery_dl_no_cookies': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['discovery', 'gallery-dl'],
   },
 
   // Video crawl
