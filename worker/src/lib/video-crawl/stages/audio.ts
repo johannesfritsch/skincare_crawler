@@ -6,6 +6,7 @@
  * status='crawled' to mark the video as fully crawled.
  */
 
+import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
@@ -49,7 +50,7 @@ export async function executeAudio(
     }
 
     // Step 2: Download video file to temp dir
-    const videoPath = path.join(tmpDir, 'video.mp4')
+    const videoPath = path.join(tmpDir, `${crypto.randomUUID()}.mp4`)
     const response = await fetch(videoMediaUrl)
     if (!response.ok) {
       throw new Error(`Failed to download video file: HTTP ${response.status}`)
@@ -61,12 +62,11 @@ export async function executeAudio(
 
     // Step 3: Extract audio via ffmpeg
     const { extractAudio } = await import('@/lib/video-processing/transcribe-audio')
-    const audioPath = path.join(tmpDir, 'audio.wav')
+    const audioPath = path.join(tmpDir, `${crypto.randomUUID()}.wav`)
     await extractAudio(videoPath, audioPath)
 
     // Step 4: Upload WAV to video-media
-    const title = item.title || item.externalUrl
-    const audioMediaId = await ctx.uploadMedia(audioPath, `${title} audio`, 'audio/wav', 'video-media')
+    const audioMediaId = await ctx.uploadMedia(audioPath, 'audio', 'audio/wav', 'video-media')
 
     await ctx.heartbeat()
 

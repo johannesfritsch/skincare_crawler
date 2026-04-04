@@ -1,20 +1,26 @@
 /**
  * Video crawl — Stage 0: metadata
  *
- * Fetches video metadata via yt-dlp --dump-json, resolves/creates channel + creator,
+ * Fetches video metadata, resolves/creates channel + creator,
  * downloads and uploads thumbnail, then creates or updates the video record
  * with all metadata fields — but NOT videoFile or audioFile (those come in later stages).
+ *
+ * Platform-specific:
+ * - YouTube: yt-dlp --dump-json
+ * - Instagram/TikTok: gallery-dl --no-download --dump-json (with cookies from CrawlerSettings)
  *
  * Returns the videoId (for URL-keyed items that had no DB record before this stage).
  */
 
+import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { execFile } from 'child_process'
 import type { VideoCrawlStageContext, VideoCrawlWorkItem, VideoCrawlStageResult } from './index'
+import { runGalleryDl, getCookies, type GalleryDlEntry } from '@/lib/video-discovery/drivers/gallery-dl'
 
-/** Run yt-dlp --dump-json with proxy support and event logging */
+/** Run yt-dlp --dump-json with proxy support and event logging (YouTube only) */
 function runYtDlpMetadata(
   url: string,
   ctx: VideoCrawlStageContext,
@@ -108,6 +114,110 @@ async function fetchChannelAvatarUrl(channelUrl: string): Promise<string | undef
   }
 }
 
+/** Extract metadata fields from yt-dlp JSON output (YouTube) */
+function parseYouTubeMetadata(metadata: Record<string, unknown>) {
+  const uploadDate = metadata.upload_date as string | undefined
+  let publishedAt: string | undefined
+  if (uploadDate && /^\d{8}$/.test(uploadDate)) {
+    publishedAt = new Date(
+      `${uploadDate.slice(0, 4)}-${uploadDate.slice(4, 6)}-${uploadDate.slice(6, 8)}`,
+    ).toISOString()
+  } else if (metadata.timestamp) {
+    publishedAt = new Date((metadata.timestamp as number) * 1000).toISOString()
+  }
+
+  return {
+    title: metadata.title as string | undefined,
+    duration: (metadata.duration as number) ?? undefined,
+    viewCount: (metadata.view_count as number) ?? undefined,
+    likeCount: (metadata.like_count as number) ?? undefined,
+    thumbnailUrl: (metadata.thumbnail as string) ?? undefined,
+    channelName: (metadata.channel as string) ?? (metadata.uploader as string) ?? undefined,
+    channelUrl: (metadata.channel_url as string) ?? (metadata.uploader_url as string) ?? undefined,
+    channelAvatarUrl: (metadata.channel_thumbnail_url as string) ?? undefined,
+    publishedAt,
+  }
+}
+
+/** Extract metadata fields from gallery-dl entries (Instagram) */
+function parseInstagramMetadata(entries: GalleryDlEntry[]) {
+  // Find the richest entry — prefer media entries (with url) over metadata-only
+  const entry = entries.find(e => e.url) ?? entries[0]
+  if (!entry) return null
+  const d = entry.data
+
+  const description = (d.description as string) ?? ''
+  const firstLine = description.split('\n').filter(Boolean)[0] ?? ''
+  const title = firstLine.substring(0, 200) || (d.post_shortcode as string) || String(d.post_id ?? '')
+
+  const postDate = (d.post_date as string) ?? (d.date as string) ?? ''
+  let publishedAt: string | undefined
+  if (postDate) {
+    const parsed = new Date(postDate)
+    if (!isNaN(parsed.getTime())) publishedAt = parsed.toISOString()
+  }
+
+  const owner = d.owner as Record<string, unknown> | undefined
+  const hdPic = owner?.hd_profile_pic_url_info as Record<string, unknown> | undefined
+  const username = (d.username as string) ?? ''
+
+  return {
+    title,
+    duration: undefined as number | undefined,
+    viewCount: undefined as number | undefined,
+    likeCount: (d.likes as number) ?? undefined,
+    thumbnailUrl: (d.display_url as string) ?? undefined,
+    channelName: username || undefined,
+    channelUrl: username ? `https://www.instagram.com/${username}/` : undefined,
+    channelAvatarUrl: (hdPic?.url as string) ?? (owner?.profile_pic_url as string) ?? undefined,
+    publishedAt,
+  }
+}
+
+/** Extract metadata fields from gallery-dl entries (TikTok) */
+function parseTikTokMetadata(entries: GalleryDlEntry[]) {
+  // Find the first entry with video data
+  const entry = entries.find(e => e.data.id) ?? entries[0]
+  if (!entry) return null
+  const d = entry.data
+
+  const desc = (d.desc as string) ?? ''
+  const firstLine = desc.split('\n').filter(Boolean)[0] ?? ''
+  const title = firstLine.substring(0, 200) || String(d.id ?? '')
+
+  const dateStr = (d.date as string) ?? ''
+  let publishedAt: string | undefined
+  if (dateStr) {
+    const parsed = new Date(dateStr)
+    if (!isNaN(parsed.getTime())) publishedAt = parsed.toISOString()
+  } else if (d.createTime) {
+    const ts = typeof d.createTime === 'string' ? parseInt(d.createTime, 10) : (d.createTime as number)
+    publishedAt = new Date(ts * 1000).toISOString()
+  }
+
+  const author = d.author as Record<string, unknown> | undefined
+  const uniqueId = (author?.uniqueId as string) ?? ''
+  const video = d.video as Record<string, unknown> | undefined
+  const stats = d.stats as Record<string, unknown> | undefined
+
+  const playCount = stats?.playCount
+  const diggCount = stats?.diggCount
+  const viewCount = typeof playCount === 'number' ? playCount : (typeof playCount === 'string' ? parseInt(playCount, 10) : undefined)
+  const likeCount = typeof diggCount === 'number' ? diggCount : (typeof diggCount === 'string' ? parseInt(diggCount, 10) : undefined)
+
+  return {
+    title,
+    duration: (video?.duration as number) ?? undefined,
+    viewCount,
+    likeCount,
+    thumbnailUrl: (video?.cover as string) ?? undefined,
+    channelName: uniqueId || undefined,
+    channelUrl: uniqueId ? `https://www.tiktok.com/@${uniqueId}` : undefined,
+    channelAvatarUrl: (author?.avatarLarger as string) ?? undefined,
+    publishedAt,
+  }
+}
+
 export async function executeMetadata(
   ctx: VideoCrawlStageContext,
   item: VideoCrawlWorkItem,
@@ -117,36 +227,56 @@ export async function executeMetadata(
   try {
     const platform = detectPlatform(item.externalUrl)
 
-    // Step 1: Get metadata via yt-dlp (all platforms)
-    const metadataJson = await runYtDlpMetadata(item.externalUrl, ctx)
-    const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+    // Step 1: Get metadata — platform-specific
+    interface ParsedMetadata {
+      title: string | undefined
+      duration: number | undefined
+      viewCount: number | undefined
+      likeCount: number | undefined
+      thumbnailUrl: string | undefined
+      channelName: string | undefined
+      channelUrl: string | undefined
+      channelAvatarUrl: string | undefined
+      publishedAt: string | undefined
+    }
+    let meta: ParsedMetadata | null
 
-    const title = (metadata.title as string) ?? item.title
-    const duration = (metadata.duration as number) ?? undefined
-    const viewCount = (metadata.view_count as number) ?? undefined
-    const likeCount = (metadata.like_count as number) ?? undefined
-    const thumbnailUrl = (metadata.thumbnail as string) ?? undefined
+    if (platform === 'youtube') {
+      const metadataJson = await runYtDlpMetadata(item.externalUrl, ctx)
+      const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+      meta = parseYouTubeMetadata(metadata)
+    } else {
+      // Instagram/TikTok: gallery-dl with cookies
+      const cookies = await getCookies(ctx.payload, platform)
+      if (!cookies) {
+        ctx.log.warn(`No ${platform} cookies configured in Crawler Settings`)
+      }
 
-    // Channel: yt-dlp uses 'channel' for YouTube, 'uploader' for Instagram/TikTok
-    const channelName = (metadata.channel as string) ?? (metadata.uploader as string) ?? undefined
-    const channelUrl = (metadata.channel_url as string) ?? (metadata.uploader_url as string) ?? undefined
+      const entries = await runGalleryDl({
+        url: item.externalUrl,
+        cookies,
+        platform,
+        logger: ctx.log,
+      })
 
-    // Channel avatar: YouTube provides channel_thumbnail_url directly, others need og:image fetch
-    let channelAvatarUrl: string | undefined = (metadata.channel_thumbnail_url as string) ?? undefined
-    if (!channelAvatarUrl && channelUrl) {
-      channelAvatarUrl = await fetchChannelAvatarUrl(channelUrl)
+      meta = platform === 'instagram'
+        ? parseInstagramMetadata(entries)
+        : parseTikTokMetadata(entries)
     }
 
-    // upload_date: yt-dlp returns YYYYMMDD for all platforms
-    let publishedAt: string | undefined
-    const uploadDate = metadata.upload_date as string | undefined
-    if (uploadDate && /^\d{8}$/.test(uploadDate)) {
-      publishedAt = new Date(
-        `${uploadDate.slice(0, 4)}-${uploadDate.slice(4, 6)}-${uploadDate.slice(6, 8)}`,
-      ).toISOString()
-    } else if (metadata.timestamp) {
-      // Fallback: some extractors provide Unix timestamp instead
-      publishedAt = new Date((metadata.timestamp as number) * 1000).toISOString()
+    if (!meta) {
+      throw new Error(`No metadata returned from ${platform} for ${item.externalUrl}`)
+    }
+
+    const title = meta.title ?? item.title
+    const { duration, viewCount, likeCount, thumbnailUrl, publishedAt } = meta
+    let channelName = meta.channelName
+    let channelUrl = meta.channelUrl
+    let channelAvatarUrl: string | undefined = meta.channelAvatarUrl
+
+    // Fetch avatar via og:image if not provided directly
+    if (!channelAvatarUrl && channelUrl) {
+      channelAvatarUrl = await fetchChannelAvatarUrl(channelUrl)
     }
 
     await ctx.heartbeat()
@@ -154,7 +284,6 @@ export async function executeMetadata(
     // Step 2: Resolve/create channel + creator (required — channel is NOT NULL on videos)
     let channelId: number | undefined
     if (channelUrl) {
-      // Find existing channel by URL
       const existingChannel = await ctx.payload.find({
         collection: 'channels',
         where: {
@@ -169,7 +298,6 @@ export async function executeMetadata(
       if (existingChannel.docs.length > 0) {
         channelId = (existingChannel.docs[0] as Record<string, unknown>).id as number
       } else {
-        // Create creator + channel
         const creatorName = channelName ?? 'Unknown'
         const existingCreator = await ctx.payload.find({
           collection: 'creators',
@@ -187,7 +315,6 @@ export async function executeMetadata(
           creatorId = newCreator.id
         }
 
-        // Download channel avatar
         let channelImageId: number | undefined
         if (channelAvatarUrl) {
           try {
@@ -196,9 +323,9 @@ export async function executeMetadata(
               const buffer = Buffer.from(await avatarRes.arrayBuffer())
               const contentType = avatarRes.headers.get('content-type') || 'image/jpeg'
               const ext = contentType.includes('png') ? 'png' : 'jpg'
-              const avatarPath = path.join(tmpDir, `avatar.${ext}`)
+              const avatarPath = path.join(tmpDir, `${crypto.randomUUID()}.${ext}`)
               fs.writeFileSync(avatarPath, buffer)
-              channelImageId = await ctx.uploadMedia(avatarPath, channelName ?? 'Channel avatar', contentType, 'profile-media')
+              channelImageId = await ctx.uploadMedia(avatarPath, 'avatar', contentType, 'profile-media')
             }
           } catch (e) {
             ctx.log.warn('Failed to download channel avatar', { error: String(e) })
@@ -233,9 +360,9 @@ export async function executeMetadata(
           const buffer = Buffer.from(await thumbRes.arrayBuffer())
           const contentType = thumbRes.headers.get('content-type') || 'image/jpeg'
           const ext = contentType.includes('png') ? 'png' : 'jpg'
-          const thumbPath = path.join(tmpDir, `thumbnail.${ext}`)
+          const thumbPath = path.join(tmpDir, `${crypto.randomUUID()}.${ext}`)
           fs.writeFileSync(thumbPath, buffer)
-          thumbnailMediaId = await ctx.uploadMedia(thumbPath, `${title} thumbnail`, contentType, 'video-media')
+          thumbnailMediaId = await ctx.uploadMedia(thumbPath, 'thumbnail', contentType, 'video-media')
         }
       } catch (e) {
         ctx.log.warn('Failed to download thumbnail', { url: thumbnailUrl, error: String(e) })
@@ -255,7 +382,6 @@ export async function executeMetadata(
 
     let videoId: number
     if (item.videoId) {
-      // Existing video record — update it
       await ctx.payload.update({
         collection: 'videos',
         id: item.videoId,
@@ -263,7 +389,6 @@ export async function executeMetadata(
       })
       videoId = item.videoId
     } else {
-      // New URL with no DB record — create the video record
       const newVideo = await ctx.payload.create({
         collection: 'videos',
         data: {
@@ -274,7 +399,7 @@ export async function executeMetadata(
       videoId = newVideo.id
     }
 
-    ctx.log.info('Video metadata stage complete', { videoId, title })
+    ctx.log.info('Video metadata stage complete', { videoId, title, platform })
 
     return { success: true, videoId }
   } catch (e) {
