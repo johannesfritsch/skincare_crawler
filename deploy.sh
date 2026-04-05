@@ -124,10 +124,13 @@ cmd_setup() {
     info "Installing Node.js via nvm..."
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
     export NVM_DIR="$HOME/.nvm"
+    # nvm.sh doesn't handle set -u (nounset) — disable temporarily
+    set +u
     # shellcheck disable=SC1091
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
     nvm install --lts
     nvm use --lts
+    set -u
   fi
   info "  node $(node --version)"
 
