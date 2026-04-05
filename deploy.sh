@@ -158,8 +158,24 @@ cmd_setup() {
 
   header "Setup complete"
   info ""
-  info "Next: ./deploy.sh init staging --workers 2"
-  info "  or: ./deploy.sh init prod --workers 1"
+  info "Next steps:"
+  info "  1. Configure GitHub deploy key (if not done):"
+  info "       ssh-keygen -t ed25519 -C anyskin-deploy -f ~/.ssh/anyskin_deploy -N \"\""
+  info "       cat ~/.ssh/anyskin_deploy.pub  # → add as deploy key in GitHub"
+  info "       echo -e 'Host github.com\n  IdentityFile ~/.ssh/anyskin_deploy\n  IdentitiesOnly yes' >> ~/.ssh/config"
+  info ""
+  info "  2. Initialize environments:"
+  info "       ./deploy.sh init staging --workers 2"
+  info "       ./deploy.sh init prod --workers 1"
+  info ""
+  info "  3. Configure .env files (API keys, SMTP, S3, etc.)"
+  info ""
+  info "  4. Setup Nginx + SSL:"
+  info "       ./deploy.sh ssl your@email.com"
+  info ""
+  info "  5. Start services:"
+  info "       ./deploy.sh start staging"
+  info "       ./deploy.sh start prod"
 }
 
 # ─── init ────────────────────────────────────────────────────────────
@@ -212,7 +228,7 @@ cmd_init() {
   # Playwright
   info "Installing Playwright Chromium..."
   cd "$dir/worker"
-  npx playwright install --with-deps chromium
+  ./node_modules/.bin/playwright install --with-deps chromium
   cd "$dir"
 
   # Create database
