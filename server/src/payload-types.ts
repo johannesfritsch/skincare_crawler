@@ -72,6 +72,7 @@ export interface Config {
     'product-media': ProductMedia;
     'video-media': VideoMedia;
     'profile-media': ProfileMedia;
+    'brand-media': BrandMedia;
     'detection-media': DetectionMedia;
     'ingredient-media': IngredientMedia;
     brands: Brand;
@@ -140,6 +141,7 @@ export interface Config {
     'product-media': ProductMediaSelect<false> | ProductMediaSelect<true>;
     'video-media': VideoMediaSelect<false> | VideoMediaSelect<true>;
     'profile-media': ProfileMediaSelect<false> | ProfileMediaSelect<true>;
+    'brand-media': BrandMediaSelect<false> | BrandMediaSelect<true>;
     'detection-media': DetectionMediaSelect<false> | DetectionMediaSelect<true>;
     'ingredient-media': IngredientMediaSelect<false> | IngredientMediaSelect<true>;
     brands: BrandsSelect<false> | BrandsSelect<true>;
@@ -357,12 +359,60 @@ export interface VideoMedia {
   };
 }
 /**
- * Channel avatars, creator images, and brand logos
+ * Channel avatars and creator images
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "profile-media".
  */
 export interface ProfileMedia {
+  id: number;
+  alt: string;
+  prefix?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    avatar?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
+ * Brand logos and images
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "brand-media".
+ */
+export interface BrandMedia {
   id: number;
   alt: string;
   prefix?: string | null;
@@ -475,7 +525,7 @@ export interface Brand {
   /**
    * Brand logo or image, downloaded from source stores during aggregation.
    */
-  image?: (number | null) | ProfileMedia;
+  image?: (number | null) | BrandMedia;
   description?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -2532,6 +2582,10 @@ export interface PayloadLockedDocument {
         value: number | ProfileMedia;
       } | null)
     | ({
+        relationTo: 'brand-media';
+        value: number | BrandMedia;
+      } | null)
+    | ({
         relationTo: 'detection-media';
         value: number | DetectionMedia;
       } | null)
@@ -2844,6 +2898,59 @@ export interface VideoMediaSelect<T extends boolean = true> {
  * via the `definition` "profile-media_select".
  */
 export interface ProfileMediaSelect<T extends boolean = true> {
+  alt?: T;
+  prefix?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+  sizes?:
+    | T
+    | {
+        avatar?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "brand-media_select".
+ */
+export interface BrandMediaSelect<T extends boolean = true> {
   alt?: T;
   prefix?: T;
   updatedAt?: T;

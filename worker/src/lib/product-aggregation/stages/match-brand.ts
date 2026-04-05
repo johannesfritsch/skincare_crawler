@@ -129,7 +129,7 @@ async function upsertBrandFromSource(
         const filename = urlPath.split('/').pop() || `brand-${brandId}.jpg`
 
         const mediaDoc = await payload.create({
-          collection: 'profile-media',
+          collection: 'brand-media',
           data: { alt: brandName },
           file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
         })

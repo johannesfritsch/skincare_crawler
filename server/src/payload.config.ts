@@ -12,6 +12,7 @@ import { ProductMedia } from './collections/ProductMedia'
 import { VideoMedia } from './collections/VideoMedia'
 import { ProfileMedia } from './collections/ProfileMedia'
 import { DetectionMedia } from './collections/DetectionMedia'
+import { BrandMedia } from './collections/BrandMedia'
 import { IngredientMedia } from './collections/IngredientMedia'
 import { Brands } from './collections/Brands'
 import { ProductTypes } from './collections/ProductTypes'
@@ -72,6 +73,7 @@ if (process.env.STORAGE_ADAPTER === 's3') {
         'product-media': { prefix: pfx('product-media') },
         'video-media': { prefix: pfx('video-media') },
         'profile-media': { prefix: pfx('profile-media') },
+        'brand-media': { prefix: pfx('brand-media') },
         'detection-media': { prefix: pfx('detection-media') },
         'debug-screenshots': { prefix: pfx('debug-screenshots') },
       },
@@ -220,6 +222,7 @@ export default buildConfig({
     ProductMedia,
     VideoMedia,
     ProfileMedia,
+    BrandMedia,
     DetectionMedia,
     IngredientMedia,
     Brands,

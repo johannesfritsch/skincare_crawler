@@ -1,10 +1,10 @@
 import type { CollectionConfig } from 'payload'
 
-export const ProfileMedia: CollectionConfig = {
-  slug: 'profile-media',
+export const BrandMedia: CollectionConfig = {
+  slug: 'brand-media',
   admin: {
     group: 'Media',
-    description: 'Channel avatars and creator images',
+    description: 'Brand logos and images',
   },
   access: {
     read: () => true,

@@ -21,7 +21,7 @@ export const Brands: CollectionConfig = {
     {
       name: 'image',
       type: 'upload',
-      relationTo: 'profile-media',
+      relationTo: 'brand-media',
       label: 'Brand Image',
       admin: {
         description: 'Brand logo or image, downloaded from source stores during aggregation.',
