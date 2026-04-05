@@ -314,9 +314,8 @@ generate_pm2_config() {
     {
       name: 'anyskin-${env}-server',
       cwd: '${dir}/server',
-      script: 'node_modules/.bin/next',
-      args: 'start -p ${port}',
-      node_args: '--env-file=.env',
+      script: 'pnpm',
+      args: 'start -- -p ${port}',
       env: { NODE_ENV: 'production' },
       max_memory_restart: '1G',
       exp_backoff_restart_delay: 100,
@@ -327,10 +326,9 @@ generate_pm2_config() {
     {
       name: 'anyskin-${env}-worker-${i}',
       cwd: '${dir}/worker',
-      script: 'node_modules/.bin/tsx',
-      args: 'src/worker.ts',
-      node_args: '--env-file=.env.${i}',
-      env: { NODE_ENV: 'production' },
+      script: 'pnpm',
+      args: 'worker',
+      env: { NODE_ENV: 'production', DOTENV_CONFIG_PATH: '.env.${i}' },
       max_memory_restart: '2G',
       exp_backoff_restart_delay: 100,
     },"
