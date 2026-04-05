@@ -246,11 +246,11 @@ cmd_init() {
   cd "$dir"
 
   # Create database + enable pgvector
-  if sudo -u postgres psql -tAc "SELECT 1 FROM pg_databases WHERE datname='$db'" 2>/dev/null | grep -q 1; then
+  if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$db'" 2>/dev/null | grep -q 1; then
     info "Database '$db' already exists"
   else
     info "Creating database '$db'..."
-    sudo -u postgres createdb -O "$DB_USER" "$db"
+    sudo -u postgres createdb -O "$DB_USER" "$db" 2>/dev/null || info "  (database already exists)"
   fi
   sudo -u postgres psql -d "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null
   info "  pgvector extension enabled on '$db'"
