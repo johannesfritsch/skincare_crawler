@@ -12,14 +12,14 @@
 - ✅ Implement availability for rossmann
 - ✅ Implement availability for purish
 - ✅ Move articleNumber, images, priceInformation to variants and adapt all drivers (=&gt; make sure priceInformation contain the availability)
-- We need to have a step where we also visit all previous variants to see if they have been discontinued
+- ✅ We need to have a step where we also visit all previous variants to see if they have been discontinued
 - ✅ Bug where mueller has the same GTIN in a variant twice: Once available, once unavailable (http://localhost:3000/admin/collections/source-products/157)
 - ✅ Rework aggregation
 - ✅ Rework video processings and videos (staged)
 - ✅ Ingredients need sources for their information, if incidecoder delivers information, I want to add them as one source of potentially many. For now, we have CosIng (right after discovery) and then after crawling sometimes also incidecoder. I think it would make sense to just have an array of sourceURLs.
 - ✅ Allow all jobs to be scheduled.
 - ✅ Continue with video testing.
-- Fix the frontend (especially the URL schema and add stuff we added just now)
+- ✅ Fix the frontend (especially the URL schema and add stuff we added just now)
 - ✅ Import reviews
 - ✅ Rework searches and discovery to not create SourceProducts? All SPs are always crawled?
 - Why do creator scores not update
@@ -41,17 +41,13 @@
   - ✅ Search
   - ✅ Discovery
   - ✅ Crawl
-- coocoon center driver
-  - Search
-  - Discovery
-  - Crawl
-- shop-apotheke driver
-  - Search
-  - Discovery
-  - Crawl
-- Testsuite System (snapshot-testing)
+- ✅ shop-apotheke driver
+  - ✅ Search
+  - ✅ Discovery
+  - ✅ Crawl
+- ✅ Testsuite System (snapshot-testing)
 - Crawl Source Brands
 - Remove the variant dimension?
-- TikTok
-- Instagram
+- ✅ TikTok
+- ✅ Instagram
 - No duplicate attributes/claims
