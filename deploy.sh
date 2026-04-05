@@ -110,14 +110,28 @@ cmd_setup() {
   apt-get install -y -qq libvips-dev libomp-dev
   info "  libvips, libomp"
 
-  # PostgreSQL
+  # PostgreSQL + pgvector
   if ! command -v psql &>/dev/null; then
     info "Installing PostgreSQL..."
     apt-get install -y -qq postgresql postgresql-client
     systemctl enable postgresql
     systemctl start postgresql
   fi
-  info "  postgresql"
+  # pgvector extension
+  if ! apt list --installed 2>/dev/null | grep -q postgresql.*pgvector; then
+    info "Installing pgvector..."
+    apt-get install -y -qq postgresql-common
+    # Use PostgreSQL PGDG repo for pgvector if not available in default repos
+    if ! apt-cache show postgresql-17-pgvector &>/dev/null 2>&1; then
+      sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+      curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+      apt-get update -qq
+    fi
+    # Install pgvector for the installed PostgreSQL version
+    PG_VERSION=$(pg_config --version | grep -oP '\d+' | head -1)
+    apt-get install -y -qq "postgresql-${PG_VERSION}-pgvector" || warn "pgvector package not found — install manually"
+  fi
+  info "  postgresql + pgvector"
 
   # Node.js via nvm (if not present)
   if ! command -v node &>/dev/null; then
@@ -231,13 +245,15 @@ cmd_init() {
   ./node_modules/.bin/playwright install --with-deps chromium
   cd "$dir"
 
-  # Create database
+  # Create database + enable pgvector
   if sudo -u postgres psql -tAc "SELECT 1 FROM pg_databases WHERE datname='$db'" 2>/dev/null | grep -q 1; then
     info "Database '$db' already exists"
   else
     info "Creating database '$db'..."
     sudo -u postgres createdb -O "$DB_USER" "$db"
   fi
+  sudo -u postgres psql -d "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null
+  info "  pgvector extension enabled on '$db'"
 
   # Scaffold server .env
   if [[ ! -f "$dir/server/.env" ]]; then
