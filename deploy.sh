@@ -296,6 +296,10 @@ cmd_init() {
   $pkg generate:types
   $pkg generate:importmap
 
+  # Build Next.js for production
+  info "Building Next.js..."
+  $pkg build
+
   header "$env environment initialized"
   info ""
   info "Next steps:"
@@ -315,8 +319,8 @@ generate_pm2_config() {
       name: 'anyskin-${env}-server',
       cwd: '${dir}/server',
       script: 'pnpm',
-      args: 'start -- -p ${port}',
-      env: { NODE_ENV: 'production' },
+      args: 'start',
+      env: { NODE_ENV: 'production', PORT: '${port}' },
       max_memory_restart: '1G',
       exp_backoff_restart_delay: 100,
     },"
@@ -379,6 +383,10 @@ cmd_deploy() {
   info "Generating TypeScript types..."
   $pkg generate:types
   $pkg generate:importmap
+
+  # Build Next.js for production
+  info "Building Next.js..."
+  $pkg build
 
   # Restart processes
   info "Restarting processes..."
