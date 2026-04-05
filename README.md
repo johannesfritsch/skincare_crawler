@@ -116,13 +116,28 @@ Each worker needs a unique `WORKER_API_KEY`:
 3. Copy each worker's API key into the corresponding `worker/.env.N` file
 4. Restart: `./deploy.sh restart staging`
 
-### 6. Start processes
+### 6. Setup Nginx + SSL
+
+Point your DNS to the server's IP, then:
+
+```bash
+./deploy.sh ssl your@email.com
+```
+
+This installs Nginx + Certbot, configures reverse proxies, and obtains Let's Encrypt certificates:
+- `https://www.xploy.com` → prod (port 3000)
+- `https://xploy.com` → redirects to `https://www.xploy.com`
+- `https://staging.xploy.com` → staging (port 3001)
+
+SSL auto-renewal is handled by Certbot's systemd timer.
+
+### 7. Start processes
 
 ```bash
 ./deploy.sh start staging
 ```
 
-### 7. Ongoing deployments
+### 8. Ongoing deployments
 
 When you push new code to `main`:
 
@@ -142,6 +157,7 @@ When you push new code to `main`:
 ./deploy.sh restart <env>             # Restart processes
 ./deploy.sh logs <env> [service]      # Tail logs (server, worker, worker-N)
 ./deploy.sh status [env]              # Show status
+./deploy.sh ssl <email>               # Setup Nginx + Let's Encrypt SSL
 ./deploy.sh env <env>                 # Show .env file paths
 ./deploy.sh help                      # Show help
 ```

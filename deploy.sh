@@ -30,6 +30,9 @@ DB_USER="anyskin"
 DB_PASS="anyskin"
 STAGING_PORT=3001
 PROD_PORT=3000
+STAGING_DOMAIN="staging.xploy.com"
+PROD_DOMAIN="www.xploy.com"
+PROD_REDIRECT_DOMAIN="xploy.com"  # redirects to PROD_DOMAIN
 
 # ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -516,6 +519,109 @@ cmd_env() {
   done
 }
 
+# ─── ssl ─────────────────────────────────────────────────────────────
+
+cmd_ssl() {
+  local email="${1:-}"
+  if [[ -z "$email" ]]; then
+    error "Usage: ./deploy.sh ssl <email>"
+    error "  Email is required for Let's Encrypt certificate registration."
+    exit 1
+  fi
+
+  header "Setting up Nginx + Let's Encrypt SSL"
+
+  # Install nginx + certbot
+  info "Installing Nginx and Certbot..."
+  apt-get update -qq
+  apt-get install -y -qq nginx certbot python3-certbot-nginx
+
+  # Generate Nginx config for staging
+  info "Configuring Nginx for $STAGING_DOMAIN → localhost:$STAGING_PORT"
+  cat > /etc/nginx/sites-available/anyskin-staging << NGINX_EOF
+server {
+    listen 80;
+    server_name $STAGING_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:$STAGING_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 86400;
+        client_max_body_size 500M;
+    }
+}
+NGINX_EOF
+
+  # Generate Nginx config for prod (www + redirect from bare domain)
+  info "Configuring Nginx for $PROD_DOMAIN → localhost:$PROD_PORT"
+  cat > /etc/nginx/sites-available/anyskin-prod << NGINX_EOF
+# Redirect bare domain to www
+server {
+    listen 80;
+    server_name $PROD_REDIRECT_DOMAIN;
+    return 301 https://$PROD_DOMAIN\$request_uri;
+}
+
+server {
+    listen 80;
+    server_name $PROD_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:$PROD_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 86400;
+        client_max_body_size 500M;
+    }
+}
+NGINX_EOF
+
+  # Enable sites
+  ln -sf /etc/nginx/sites-available/anyskin-staging /etc/nginx/sites-enabled/
+  ln -sf /etc/nginx/sites-available/anyskin-prod /etc/nginx/sites-enabled/
+
+  # Remove default site if it exists
+  rm -f /etc/nginx/sites-enabled/default
+
+  # Test config
+  info "Testing Nginx configuration..."
+  nginx -t
+
+  # Reload nginx
+  systemctl reload nginx
+  info "Nginx configured and running."
+
+  # Obtain SSL certificates
+  header "Obtaining SSL certificates"
+  info "Requesting certificate for $STAGING_DOMAIN..."
+  certbot --nginx -d "$STAGING_DOMAIN" --non-interactive --agree-tos -m "$email"
+
+  info "Requesting certificate for $PROD_DOMAIN and $PROD_REDIRECT_DOMAIN..."
+  certbot --nginx -d "$PROD_DOMAIN" -d "$PROD_REDIRECT_DOMAIN" --non-interactive --agree-tos -m "$email"
+
+  # Certbot auto-renewal is installed by default via systemd timer
+  info "SSL auto-renewal is handled by certbot systemd timer."
+
+  header "SSL setup complete"
+  info ""
+  info "  https://$STAGING_DOMAIN → staging (port $STAGING_PORT)"
+  info "  https://$PROD_DOMAIN → prod (port $PROD_PORT)"
+  info "  https://$PROD_REDIRECT_DOMAIN → redirects to https://$PROD_DOMAIN"
+}
+
 # ─── help ────────────────────────────────────────────────────────────
 
 cmd_help() {
@@ -532,6 +638,7 @@ cmd_help() {
   echo "  restart <env>             Restart server + workers"
   echo "  logs <env> [service]      Tail logs (service: server, worker, worker-N)"
   echo "  status [env]              Show system and environment status"
+  echo "  ssl <email>               Setup Nginx + Let's Encrypt SSL for all domains"
   echo "  env <env>                 Show .env file paths"
   echo "  help                      Show this help"
   echo ""
@@ -558,6 +665,7 @@ case "$COMMAND" in
   restart)  cmd_restart "$@" ;;
   logs)     cmd_logs "$@" ;;
   status)   cmd_status "$@" ;;
+  ssl)      cmd_ssl "$@" ;;
   env)      cmd_env "$@" ;;
   help|*)   cmd_help ;;
 esac
