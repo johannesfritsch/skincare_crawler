@@ -47,6 +47,7 @@ chmod +x setup.sh && ./setup.sh
 From your local machine:
 
 ```bash
+ssh root@your-server "mkdir -p /srv/anyskin"
 scp deploy.sh root@your-server:/srv/anyskin/deploy.sh
 ssh root@your-server "chmod +x /srv/anyskin/deploy.sh"
 ```

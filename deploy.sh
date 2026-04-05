@@ -25,6 +25,7 @@ error() { echo -e "${RED}[deploy]${NC} $1"; }
 header() { echo -e "\n${CYAN}${BOLD}── $1 ──${NC}"; }
 
 BASE_DIR="/srv/anyskin"
+mkdir -p "$BASE_DIR"
 REPO_URL="git@github.com:johannesfritsch/skincare_crawler.git"
 DB_USER="anyskin"
 DB_PASS="anyskin"
