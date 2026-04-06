@@ -38,22 +38,26 @@ const VIDEO_PROCESSING_STAGES: StageDef[] = [
   { name: 'sentiment_analysis', jobField: 'stageSentimentAnalysis' },
 ]
 
-// TODO: add PRODUCT_AGGREGATION_STAGES, PRODUCT_CRAWL_STAGES, etc.
+/** Product crawl: 2 stages — scrape then reviews */
+const PRODUCT_CRAWL_STAGES: StageDef[] = [
+  { name: 'scrape', jobField: 'stageScrape' },
+  { name: 'reviews', jobField: 'stageReviews' },
+]
 
-// TODO: add PRODUCT_AGGREGATION_STAGES, PRODUCT_CRAWL_STAGES, VIDEO_CRAWL_STAGES, INGREDIENT_CRAWL_STAGES
+// TODO: add PRODUCT_AGGREGATION_STAGES, VIDEO_CRAWL_STAGES, INGREDIENT_CRAWL_STAGES
 
 /** All job types that use work items. Multi-stage pipelines have their stages listed.
  *  Single-stage ("execute") types run the whole job as one work item. */
 const JOB_PIPELINES: Record<string, StageDef[]> = {
   // Multi-stage parallel pipelines
   'video-processings': VIDEO_PROCESSING_STAGES,
+  'product-crawls': PRODUCT_CRAWL_STAGES,
   // Single-stage (sequential) — one work item per job
   'product-discoveries': [{ name: 'execute', jobField: '_always' }],
   'product-searches': [{ name: 'execute', jobField: '_always' }],
   'ingredients-discoveries': [{ name: 'execute', jobField: '_always' }],
   'video-discoveries': [{ name: 'execute', jobField: '_always' }],
   // TODO: migrate these to multi-stage when their parallel seeding is implemented
-  'product-crawls': [{ name: 'execute', jobField: '_always' }],
   'video-crawls': [{ name: 'execute', jobField: '_always' }],
   'product-aggregations': [{ name: 'execute', jobField: '_always' }],
   'ingredient-crawls': [{ name: 'execute', jobField: '_always' }],
@@ -97,11 +101,19 @@ async function seedJobWorkItems(
     for (const vid of videoIds) {
       items.push({ itemKey: String(vid), stageName: firstStage })
     }
+  } else if (collection === 'product-crawls') {
+    // Multi-stage: one work item per URL at its first enabled stage
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    const urls = await resolveProductCrawlUrls(payload, db, job)
+    for (const url of urls) {
+      items.push({ itemKey: url, stageName: firstStage })
+    }
   } else {
     // Single-stage: one work item for the entire job
     items.push({ itemKey: 'job', stageName: 'execute' })
   }
-  // TODO: add multi-stage resolution for product-aggregation, product-crawl, video-crawl, ingredient-crawl
+  // TODO: add multi-stage resolution for product-aggregation, video-crawl, ingredient-crawl
 
   if (items.length === 0) return 0
 
@@ -167,6 +179,123 @@ async function resolveVideoIds(payload: Payload, job: Record<string, unknown>): 
   }
 
   return ids
+}
+
+/**
+ * Resolve source URLs for a product-crawl job based on its type.
+ * Returns an array of source URLs to seed as work items.
+ */
+async function resolveProductCrawlUrls(
+  payload: Payload,
+  db: any,
+  job: Record<string, unknown>,
+): Promise<string[]> {
+  const urls: string[] = []
+  const source = job.source as string
+  const crawlVariants = job.crawlVariants !== false
+
+  if (job.type === 'selected_urls') {
+    const rawUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...rawUrls)
+  } else if (job.type === 'from_discovery' && job.discovery) {
+    const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
+    const discoveryJob = await payload.findByID({ collection: 'product-discoveries', id: discoveryId, overrideAccess: true }) as unknown as Record<string, unknown>
+    const productUrls = ((discoveryJob.productUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...productUrls)
+  } else if (job.type === 'from_search' && job.search) {
+    const searchId = typeof job.search === 'number' ? job.search : (job.search as Record<string, number>).id
+    const searchJob = await payload.findByID({ collection: 'product-searches', id: searchId, overrideAccess: true }) as unknown as Record<string, unknown>
+    const productUrls = ((searchJob.productUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...productUrls)
+  } else {
+    // type: 'all' — query all source-products for the given source
+    const scope = job.scope as string | undefined
+
+    if (scope === 'uncrawled_only' || !scope) {
+      // Find source-products that have uncrawled variants (or no variants at all)
+      const result = await db.execute(sql`
+        SELECT sp."source_url"
+        FROM "source_products" sp
+        WHERE sp."source" = ${source}
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM "source_variants" sv
+              WHERE sv."source_product_id" = sp."id"
+            )
+            OR EXISTS (
+              SELECT 1 FROM "source_variants" sv
+              WHERE sv."source_product_id" = sp."id"
+                AND sv."crawled_at" IS NULL
+            )
+          )
+        ORDER BY sp."id"
+      `)
+      for (const row of (result as { rows: Array<Record<string, unknown>> }).rows) {
+        urls.push(row.source_url as string)
+      }
+    } else {
+      // recrawl — all source-products for this source
+      const result = await db.execute(sql`
+        SELECT sp."source_url"
+        FROM "source_products" sp
+        WHERE sp."source" = ${source}
+        ORDER BY sp."id"
+      `)
+      for (const row of (result as { rows: Array<Record<string, unknown>> }).rows) {
+        urls.push(row.source_url as string)
+      }
+    }
+  }
+
+  // For recrawl or scoped jobs: reset crawledAt on matching source-variants
+  const shouldReset = job.type === 'selected_urls' || job.type === 'from_discovery'
+    || job.type === 'from_search' || job.scope === 'recrawl'
+  if (shouldReset && urls.length > 0) {
+    const urlList = urls.map(u => sql`${u}`)
+    const minCrawlAge = job.minCrawlAge as number | undefined
+    if (minCrawlAge && minCrawlAge > 0) {
+      await db.execute(sql`
+        UPDATE "source_variants" SET "crawled_at" = NULL
+        WHERE "source_product_id" IN (
+          SELECT "id" FROM "source_products" WHERE "source_url" IN (${sql.join(urlList, sql`, `)})
+        )
+        AND "crawled_at" < now() - interval '1 day' * ${minCrawlAge}
+      `)
+    } else {
+      await db.execute(sql`
+        UPDATE "source_variants" SET "crawled_at" = NULL
+        WHERE "source_product_id" IN (
+          SELECT "id" FROM "source_products" WHERE "source_url" IN (${sql.join(urlList, sql`, `)})
+        )
+      `)
+    }
+  }
+
+  // If crawlVariants=true, also add known uncrawled variant URLs
+  if (crawlVariants && urls.length > 0) {
+    const urlList = urls.map(u => sql`${u}`)
+    const variantResult = await db.execute(sql`
+      SELECT sv."source_url"
+      FROM "source_variants" sv
+      INNER JOIN "source_products" sp ON sv."source_product_id" = sp."id"
+      WHERE sp."source_url" IN (${sql.join(urlList, sql`, `)})
+        AND sv."source_url" != sp."source_url"
+        AND sv."crawled_at" IS NULL
+      ORDER BY sv."id"
+    `)
+    const variantUrls = (variantResult as { rows: Array<Record<string, unknown>> }).rows
+      .map((r: Record<string, unknown>) => r.source_url as string)
+    // Deduplicate — variant URLs may overlap with product URLs
+    const urlSet = new Set(urls)
+    for (const vu of variantUrls) {
+      if (!urlSet.has(vu)) {
+        urls.push(vu)
+        urlSet.add(vu)
+      }
+    }
+  }
+
+  return urls
 }
 
 // ---------------------------------------------------------------------------
@@ -376,18 +505,24 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
       const isMultiStage = stages && stages.length > 1
 
       if (isMultiStage) {
-        // Multi-stage jobs (e.g. video-processing): server handles initialization
+        // Multi-stage jobs: server handles initialization
         try {
+          const initData: Record<string, unknown> = {
+            status: 'in_progress',
+            startedAt: new Date().toISOString(),
+            completed: 0,
+            errors: 0,
+          }
+          if (collection === 'product-crawls') {
+            initData.crawled = 0
+            initData.crawledGtins = ''
+          } else {
+            initData.tokensUsed = 0
+          }
           await req.payload.update({
             collection: collection as any,
             id: jobId,
-            data: {
-              status: 'in_progress',
-              startedAt: new Date().toISOString(),
-              completed: 0,
-              errors: 0,
-              tokensUsed: 0,
-            },
+            data: initData,
             overrideAccess: true,
           })
         } catch {
@@ -399,7 +534,15 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
       // clear crawlProgress, count totals). The worker sets in_progress itself.
 
       // Seed work items
-      await seedJobWorkItems(req.payload, db, collection, jobId)
+      const seeded = await seedJobWorkItems(req.payload, db, collection, jobId)
+
+      // For product-crawls: set total from seeded count
+      if (collection === 'product-crawls' && seeded > 0) {
+        await db.execute(sql`
+          UPDATE "product_crawls" SET "total" = ${seeded}
+          WHERE "id" = ${jobId}
+        `)
+      }
     }
   }
 
@@ -434,9 +577,11 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
     resultData?: Record<string, unknown>
     nextStageName?: string | null
     counterUpdates?: Record<string, number>
+    spawnItems?: Array<{ itemKey: string; stageName: string }>
+    totalDelta?: number
   }
 
-  const { workItemId, success, error, resultData, nextStageName, counterUpdates } = body
+  const { workItemId, success, error, resultData, nextStageName, counterUpdates, spawnItems, totalDelta } = body
   if (!workItemId) {
     return Response.json({ error: 'Missing workItemId' }, { status: 400 })
   }
@@ -476,6 +621,21 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
         ON CONFLICT ("job_collection", "job_id", "item_key", "stage_name") DO NOTHING
       `)
     }
+
+    // Spawn additional work items (e.g. variant URLs discovered during scraping)
+    if (spawnItems && spawnItems.length > 0) {
+      const spawnValues = spawnItems.map(
+        (si) => sql`(${jobCollection}, ${jobId}, ${si.itemKey}, ${si.stageName}, 'pending', ${item.max_retries})`,
+      )
+      for (let i = 0; i < spawnValues.length; i += 500) {
+        const chunk = spawnValues.slice(i, i + 500)
+        await db.execute(sql`
+          INSERT INTO "work_items" ("job_collection", "job_id", "item_key", "stage_name", "status", "max_retries")
+          VALUES ${sql.join(chunk, sql`, `)}
+          ON CONFLICT ("job_collection", "job_id", "item_key", "stage_name") DO NOTHING
+        `)
+      }
+    }
   } else {
     // Handle failure
     const retryCount = (item.retry_count as number) + 1
@@ -503,8 +663,13 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
   }
 
   // Update job counters atomically
-  if (counterUpdates && Object.keys(counterUpdates).length > 0) {
-    const setClauses = Object.entries(counterUpdates).map(([col, inc]) => {
+  const allCounterUpdates = { ...counterUpdates }
+  if (totalDelta && totalDelta > 0) {
+    allCounterUpdates.total = (allCounterUpdates.total ?? 0) + totalDelta
+  }
+
+  if (Object.keys(allCounterUpdates).length > 0) {
+    const setClauses = Object.entries(allCounterUpdates).map(([col, inc]) => {
       const snakeCol = col.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
       return sql`"${sql.raw(snakeCol)}" = COALESCE("${sql.raw(snakeCol)}", 0) + ${inc}`
     })
@@ -547,8 +712,7 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
     if (completedCount === 0 && failedCount > 0) {
       await db.execute(sql`
         UPDATE "${sql.raw(tableName)}" SET
-          "status" = 'failed', "failed_at" = now(),
-          "failure_reason" = ${`All ${failedCount} work items failed`},
+          "status" = 'failed',
           "claimed_by_id" = NULL, "claimed_at" = NULL
         WHERE "id" = ${jobId} AND "status" = 'in_progress'
       `)

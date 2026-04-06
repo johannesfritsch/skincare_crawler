@@ -34,8 +34,12 @@ import {
   type StageContext as AggregationStageContext,
   type AggregationWorkItem,
 } from '@/lib/product-aggregation/stages'
-import type { ScrapedProductData, DiscoveredProduct } from '@/lib/source-discovery/types'
+import type { ScrapedProductData, DiscoveredProduct, SourceSlug } from '@/lib/source-discovery/types'
 import { executeReviewStage, type ReviewWorkItem } from '@/lib/product-crawl/stages/reviews'
+import { getEnabledCrawlStages, getNextCrawlStage, type CrawlStageName } from '@/lib/product-crawl/stages'
+import { persistCrawlResult } from '@/lib/work-protocol/persist'
+import { validateCrawlResult } from '@/lib/validate-crawl-result'
+import { getSourceSlugFromUrl, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
 import {
   type VideoCrawlStageName,
   type VideoCrawlStageContext,
@@ -974,6 +978,9 @@ async function processWorkItem(
   if (jobType === 'video-processing' && item.stage_name !== 'execute') {
     // ── Multi-stage: run one stage for one video ──
     await processVideoStage(jobId, work, item, jlog)
+  } else if (jobType === 'product-crawl' && item.stage_name !== 'execute') {
+    // ── Multi-stage: run one stage for one URL ──
+    await processProductCrawlStage(jobId, work, item, jlog)
   } else {
     // ── "Execute" stage: run the entire job using the existing batch loop ──
     // The old build→handle→submit cycle runs inside this work item.
@@ -1099,6 +1106,253 @@ async function processVideoStage(
       tokensSentiment,
     },
   })
+}
+
+/**
+ * Process a single product-crawl work item (per-URL, multi-stage pipeline).
+ * Each work item represents one source URL at one stage (scrape or reviews).
+ */
+async function processProductCrawlStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const sourceUrl = item.item_key
+  const stageName = item.stage_name as CrawlStageName
+  const crawlVariants = work.crawlVariants !== false
+  const debug = (work.debug as boolean) ?? false
+  const enabledStages = getEnabledCrawlStages(work)
+  const reviewsEnabled = enabledStages.has('reviews')
+
+  const itemLabel = sourceUrl.length > 60 ? `…${sourceUrl.slice(-57)}` : sourceUrl
+  log.banner(`CRAWL: ${stageName} — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl })
+
+  const stageStartMs = Date.now()
+
+  if (stageName === 'scrape') {
+    // ─── Scrape stage: scrape one URL, persist, spawn variants ───
+    // Detect source from URL — job.source may be 'all' for multi-source crawls
+    const jobSource = work.source as string | undefined
+    const source = (jobSource && jobSource !== 'all' ? jobSource : null)
+      ?? getSourceSlugFromUrl(sourceUrl)
+      ?? 'unknown'
+    const driver = getSourceDriverBySlug(source)
+
+    if (!driver) {
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`CRAWL: ${stageName} — ${itemLabel}`, false, { error: 'no driver' })
+      jlog.event('stage.failed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, error: `No driver for source: ${source}` })
+      await client.workItems.complete({
+        workItemId: item.id,
+        success: false,
+        error: `No driver for source: ${source}`,
+        counterUpdates: { errors: 1 },
+      })
+      return
+    }
+
+    let data: ScrapedProductData | null = null
+    let scrapeError: string | undefined
+
+    try {
+      data = await driver.scrapeProduct(sourceUrl, {
+        debug,
+        logger: jlog,
+        skipReviews: reviewsEnabled, // skip inline reviews when reviews stage handles them
+        ...(debug && { debugContext: { client, jobCollection: 'product-crawls' as const, jobId } }),
+      })
+      if (!data) scrapeError = 'scrapeProduct returned null'
+    } catch (e) {
+      scrapeError = e instanceof Error ? e.message : String(e)
+      log.error('Scrape error', { sourceUrl, error: scrapeError })
+    }
+
+    if (!data || scrapeError) {
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`CRAWL: ${stageName} — ${itemLabel}`, false, { error: (scrapeError ?? 'null').slice(0, 80) })
+      jlog.event('stage.failed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, error: scrapeError ?? 'null result' })
+      await client.workItems.complete({
+        workItemId: item.id,
+        success: false,
+        error: scrapeError ?? 'scrapeProduct returned null',
+        counterUpdates: { errors: 1 },
+      })
+      return
+    }
+
+    // Look up existing source-product by URL (may be null for new URLs)
+    let sourceProductId: number | undefined
+    const productUrl = normalizeProductUrl(sourceUrl)
+    const existingProduct = await client.find({
+      collection: 'source-products',
+      where: { sourceUrl: { equals: productUrl } },
+      limit: 1,
+    })
+    if (existingProduct.docs.length > 0) {
+      sourceProductId = (existingProduct.docs[0] as Record<string, unknown>).id as number
+    }
+
+    // Look up existing source-variant by URL (for variant crawls)
+    let sourceVariantId: number | undefined
+    const variantUrl = normalizeVariantUrl(sourceUrl)
+    if (variantUrl !== productUrl) {
+      const existingVariant = await client.find({
+        collection: 'source-variants',
+        where: { sourceUrl: { equals: variantUrl } },
+        limit: 1,
+      })
+      if (existingVariant.docs.length > 0) {
+        sourceVariantId = (existingVariant.docs[0] as Record<string, unknown>).id as number
+      }
+    }
+
+    // Persist
+    const persistResult = await persistCrawlResult(client, {
+      crawlId: jobId,
+      sourceVariantId,
+      sourceProductId,
+      sourceUrl,
+      source: source as SourceSlug,
+      data,
+      crawlVariants,
+    })
+
+    // Validate
+    const validationIssues = validateCrawlResult(data, source)
+    if (validationIssues.length > 0) {
+      jlog.event('crawl.validation_failed', {
+        url: sourceUrl,
+        source,
+        issues: validationIssues.map(i => `${i.field}: ${i.message}`).join('; '),
+        issueCount: validationIssues.length,
+      })
+    }
+
+    // Collect GTINs for accumulation on the job
+    const gtins = new Set<string>()
+    if (data.gtin) gtins.add(data.gtin)
+    for (const dim of data.variants ?? []) {
+      for (const opt of dim.options ?? []) {
+        if (opt.gtin) gtins.add(opt.gtin)
+      }
+    }
+
+    // Append GTINs to job's crawledGtins field
+    if (gtins.size > 0) {
+      try {
+        const job = await client.findByID({ collection: 'product-crawls', id: jobId }) as Record<string, unknown>
+        const existingGtins = new Set(((job.crawledGtins as string) ?? '').split('\n').filter(Boolean))
+        const newGtins = [...gtins].filter(g => !existingGtins.has(g))
+        if (newGtins.length > 0) {
+          const updated = [...existingGtins, ...newGtins].join('\n')
+          await client.update({ collection: 'product-crawls', id: jobId, data: { crawledGtins: updated } })
+        }
+      } catch (e) {
+        log.warn('Failed to update crawledGtins', { error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+
+    // Determine next stage
+    const nextStage = getNextCrawlStage(stageName, enabledStages)
+
+    // Spawn variant work items if crawlVariants is enabled
+    const spawnItems: Array<{ itemKey: string; stageName: string }> = []
+    if (crawlVariants && data.variants) {
+      for (const dim of data.variants) {
+        for (const opt of dim.options ?? []) {
+          if (opt.value && opt.value !== sourceUrl) {
+            const varUrl = normalizeVariantUrl(opt.value)
+            if (varUrl !== productUrl && varUrl !== variantUrl) {
+              spawnItems.push({ itemKey: varUrl, stageName: 'scrape' })
+            }
+          }
+        }
+      }
+    }
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`CRAWL: ${stageName} — ${itemLabel}`, true, {
+      duration: `${(durationMs / 1000).toFixed(1)}s`,
+      variants: persistResult.newVariants + persistResult.existingVariants,
+      spawned: spawnItems.length,
+    })
+    jlog.event('stage.completed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, tokens: 0 })
+
+    // Report completion
+    const { done } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      nextStageName: nextStage?.name ?? null,
+      spawnItems: spawnItems.length > 0 ? spawnItems : undefined,
+      totalDelta: spawnItems.length > 0 ? spawnItems.length : undefined,
+      counterUpdates: { crawled: 1 },
+      resultData: { gtins: [...gtins], sourceProductId: persistResult.productId },
+    })
+
+    // Emit job completion event if this was the last work item
+    if (done) {
+      jlog.event('crawl.completed', { source, crawled: 1, errors: 0, durationMs })
+    }
+  } else if (stageName === 'reviews') {
+    // ─── Reviews stage: fetch reviews for one source-product ───
+    // Look up source-product by URL
+    const productUrl = normalizeProductUrl(sourceUrl)
+    const existingProduct = await client.find({
+      collection: 'source-products',
+      where: { sourceUrl: { equals: productUrl } },
+      limit: 1,
+    })
+
+    if (existingProduct.docs.length === 0) {
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`CRAWL: ${stageName} — ${itemLabel}`, false, { error: 'source-product not found' })
+      jlog.event('stage.failed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, error: 'Source product not found' })
+      await client.workItems.complete({
+        workItemId: item.id,
+        success: false,
+        error: `Source product not found for URL: ${productUrl}`,
+        counterUpdates: { errors: 1 },
+      })
+      return
+    }
+
+    const sourceProduct = existingProduct.docs[0] as Record<string, unknown>
+    const sourceProductId = sourceProduct.id as number
+    const source = (sourceProduct.source as string) ?? (work.source as string) ?? 'unknown'
+
+    const reviewResult = await executeReviewStage(client, {
+      sourceProductId,
+      source: source as SourceSlug,
+    } as ReviewWorkItem, jlog)
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`CRAWL: ${stageName} — ${itemLabel}`, reviewResult.success, {
+      duration: `${(durationMs / 1000).toFixed(1)}s`,
+      fetched: reviewResult.reviewsFetched,
+      created: reviewResult.reviewsCreated,
+    })
+    jlog.event('stage.completed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, tokens: 0 })
+
+    const { done } = await client.workItems.complete({
+      workItemId: item.id,
+      success: reviewResult.success,
+      error: reviewResult.error,
+      counterUpdates: reviewResult.success ? {} : { errors: 1 },
+    })
+
+    if (done) {
+      jlog.event('crawl.completed', { source, crawled: 0, errors: 0, durationMs })
+    }
+  } else {
+    // Unknown stage
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error: `Unknown crawl stage: ${stageName}`,
+    })
+  }
 }
 
 // ─── Event Purge ───
