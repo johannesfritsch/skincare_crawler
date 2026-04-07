@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { useNav, useConfig, Logout, Link } from '@payloadcms/ui'
+import { useNav, useConfig, Logout, Link, Hamburger } from '@payloadcms/ui'
 import { usePathname } from 'next/navigation.js'
 
 // ─── Job types ───
@@ -468,6 +468,18 @@ export function CustomNav() {
           </div>
 
         </nav>
+        <div className="nav__header">
+          <div className="nav__header-content">
+            <button
+              className="nav__mobile-close"
+              onClick={() => setNavOpen(false)}
+              tabIndex={navOpen ? undefined : -1}
+              type="button"
+            >
+              <Hamburger isActive={true} />
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   )
