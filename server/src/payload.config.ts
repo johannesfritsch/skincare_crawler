@@ -48,6 +48,7 @@ import { Workers } from './collections/Workers'
 import { DebugScreenshots } from './collections/DebugScreenshots'
 
 import { CrawlerSettings } from './globals/CrawlerSettings'
+import { Changelog } from './globals/Changelog'
 
 import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
@@ -265,7 +266,7 @@ export default buildConfig({
     Workers,
     DebugScreenshots,
   ],
-  globals: [CrawlerSettings],
+  globals: [CrawlerSettings, Changelog],
   endpoints: [
     {
       path: '/dashboard/events',

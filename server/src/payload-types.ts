@@ -185,9 +185,11 @@ export interface Config {
   fallbackLocale: null;
   globals: {
     'crawler-settings': CrawlerSetting;
+    changelog: Changelog;
   };
   globalsSelect: {
     'crawler-settings': CrawlerSettingsSelect<false> | CrawlerSettingsSelect<true>;
+    changelog: ChangelogSelect<false> | ChangelogSelect<true>;
   };
   locale: null;
   user:
@@ -3977,6 +3979,15 @@ export interface CrawlerSetting {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "changelog".
+ */
+export interface Changelog {
+  id: number;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "crawler-settings_select".
  */
 export interface CrawlerSettingsSelect<T extends boolean = true> {
@@ -3984,6 +3995,15 @@ export interface CrawlerSettingsSelect<T extends boolean = true> {
   lastCriticalEmailAt?: T;
   instagramCookies?: T;
   tiktokCookies?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "changelog_select".
+ */
+export interface ChangelogSelect<T extends boolean = true> {
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;
