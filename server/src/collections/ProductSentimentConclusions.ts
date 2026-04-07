@@ -10,7 +10,6 @@ export const ProductSentimentConclusions: CollectionConfig = {
     useAsTitle: 'topic',
     defaultColumns: ['product', 'topic', 'conclusion', 'strength'],
     group: 'Products',
-    hidden: true,
   },
   fields: [
     {

@@ -10,7 +10,7 @@ export const SourceReviewOrigins: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'source', 'incentivized', 'createdAt'],
-    group: 'Source Products',
+    group: 'Products',
     description: 'Syndication sources for reviews (e.g. Home Tester Club, The Insiders)',
     listSearchableFields: ['name'],
   },

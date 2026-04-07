@@ -33,7 +33,7 @@ export const Ingredients: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'status', 'crawledAt', 'createdAt'],
-    group: 'Ingredients',
+    group: 'Products',
     components: {
       edit: {
         SaveButton: '@/components/IngredientSaveButton',

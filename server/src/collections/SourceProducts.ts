@@ -10,7 +10,7 @@ export const SourceProducts: CollectionConfig = {
   admin: {
     useAsTitle: 'name',
     defaultColumns: ['name', 'sourceBrand', 'source', 'createdAt'],
-    group: 'Source Products',
+    group: 'Products',
     description: 'Products crawled from source stores',
     listSearchableFields: ['name'],
     components: {

@@ -10,7 +10,6 @@ export const VideoScenes: CollectionConfig = {
     useAsTitle: 'video',
     defaultColumns: ['video', 'timestampStart', 'timestampEnd', 'createdAt'],
     group: 'Videos',
-    hidden: true,
   },
   hooks: {
     beforeDelete: [

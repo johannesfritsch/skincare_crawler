@@ -104,6 +104,7 @@ export default buildConfig({
         Icon: '/components/graphics/Icon',
         Logo: '/components/graphics/Logo',
       },
+      Nav: '/components/CustomNav#CustomNav',
       beforeDashboard: ['/components/dashboard/DashboardProvider'],
     },
     dashboard: {

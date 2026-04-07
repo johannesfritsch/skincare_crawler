@@ -10,7 +10,6 @@ export const ProductSentiments: CollectionConfig = {
     useAsTitle: 'topic',
     defaultColumns: ['product', 'topic', 'sentiment', 'amount'],
     group: 'Products',
-    hidden: true,
     description: 'Aggregated per-product topic sentiment counts from source reviews',
   },
   fields: [

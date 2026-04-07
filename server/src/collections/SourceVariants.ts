@@ -10,7 +10,7 @@ export const SourceVariants: CollectionConfig = {
     useAsTitle: 'sourceUrl',
     defaultColumns: ['sourceUrl', 'gtin', 'pzn', 'sourceProduct', 'variantLabel', 'createdAt'],
     listSearchableFields: ['sourceUrl', 'gtin'],
-    group: 'Source Products',
+    group: 'Products',
     description: 'Individual purchasable variants of source products, each with a unique URL',
   },
   hooks: {},

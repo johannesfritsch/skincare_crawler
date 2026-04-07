@@ -9,7 +9,7 @@ export const SourceReviews: CollectionConfig = {
   admin: {
     useAsTitle: 'title',
     defaultColumns: ['title', 'rating', 'userNickname', 'submittedAt'],
-    group: 'Source Products',
+    group: 'Products',
     description: 'Individual reviews crawled from source stores',
   },
   fields: [
