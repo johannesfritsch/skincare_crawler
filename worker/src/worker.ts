@@ -30,6 +30,9 @@ import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { STAGES, getEnabledStages, getNextStage, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
 import {
   STAGES as AGGREGATION_STAGES,
+  getNextStage as getNextAggregationStage,
+  getEnabledStages as getEnabledAggregationStages,
+  type StageName as AggregationStageName,
   type StageConfig as AggregationStageConfig,
   type StageContext as AggregationStageContext,
   type AggregationWorkItem,
@@ -44,6 +47,8 @@ import {
   type VideoCrawlStageName,
   type VideoCrawlStageContext,
   type VideoCrawlWorkItem,
+  getNextVideoCrawlStage,
+  getEnabledVideoCrawlStages,
 } from '@/lib/video-crawl/stages'
 import { executeMetadata } from '@/lib/video-crawl/stages/metadata'
 import { executeDownload } from '@/lib/video-crawl/stages/download'
@@ -981,6 +986,15 @@ async function processWorkItem(
   } else if (jobType === 'product-crawl' && item.stage_name !== 'execute') {
     // ── Multi-stage: run one stage for one URL ──
     await processProductCrawlStage(jobId, work, item, jlog)
+  } else if (jobType === 'video-crawl' && item.stage_name !== 'execute') {
+    // ── Multi-stage: run one stage for one video URL ──
+    await processVideoCrawlStage(jobId, work, item, jlog)
+  } else if (jobType === 'product-aggregation' && item.stage_name !== 'execute') {
+    // ── Multi-stage: run one stage for one GTIN group ──
+    await processProductAggregationStage(jobId, work, item, jlog)
+  } else if (jobType === 'ingredient-crawl' && item.stage_name !== 'execute') {
+    // ── Per-ingredient: crawl one ingredient ──
+    await processIngredientCrawlStage(jobId, work, item, jlog)
   } else {
     // ── "Execute" stage: run the entire job using the existing batch loop ──
     // The old build→handle→submit cycle runs inside this work item.
@@ -1351,6 +1365,436 @@ async function processProductCrawlStage(
       workItemId: item.id,
       success: false,
       error: `Unknown crawl stage: ${stageName}`,
+    })
+  }
+}
+
+/**
+ * Process a single video-crawl work item (per-URL, multi-stage pipeline).
+ */
+async function processVideoCrawlStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const externalUrl = item.item_key
+  const stageName = item.stage_name as VideoCrawlStageName
+  const enabledStages = getEnabledVideoCrawlStages(work)
+
+  const stageExecutors: Record<VideoCrawlStageName, (ctx: VideoCrawlStageContext, item: VideoCrawlWorkItem) => Promise<{ success: boolean; error?: string; videoId?: number }>> = {
+    metadata: executeMetadata,
+    download: executeDownload,
+    audio: executeAudio,
+  }
+
+  const executor = stageExecutors[stageName]
+  if (!executor) {
+    await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown stage: ${stageName}`, counterUpdates: { errors: 1 } })
+    return
+  }
+
+  // Look up existing video record by externalUrl
+  let videoId: number | undefined
+  const existingVideo = await client.find({ collection: 'videos', where: { externalUrl: { equals: externalUrl } }, limit: 1 })
+  if (existingVideo.docs.length > 0) {
+    videoId = (existingVideo.docs[0] as Record<string, unknown>).id as number
+  }
+
+  const title = videoId
+    ? ((existingVideo.docs[0] as Record<string, unknown>).title as string) ?? externalUrl
+    : externalUrl
+  const itemLabel = title.length > 50 ? `${title.slice(0, 47)}...` : title
+
+  log.banner(`STAGE: ${stageName} — ${itemLabel}`, { videoId: videoId ?? 'new' })
+  jlog.event('stage.started', { pipeline: 'video-crawl', stage: stageName, item: title })
+
+  const stageCtx: VideoCrawlStageContext = {
+    payload: client,
+    config: { jobId },
+    log: jlog,
+    uploadMedia,
+    heartbeat: async () => {
+      await heartbeat(jobId, 'video-crawl')
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+    },
+  }
+
+  const workItem: VideoCrawlWorkItem = { videoId, externalUrl, title }
+  const stageStartMs = Date.now()
+
+  try {
+    const result = await executor(stageCtx, workItem)
+    const durationMs = Date.now() - stageStartMs
+
+    log.bannerEnd(`STAGE: ${stageName} — ${itemLabel}`, result.success, { duration: `${(durationMs / 1000).toFixed(1)}s` })
+    jlog.event('stage.completed', { pipeline: 'video-crawl', stage: stageName, item: title, durationMs, tokens: 0 })
+
+    const nextStage = result.success ? getNextVideoCrawlStage(stageName, enabledStages) : null
+
+    const { done } = await client.workItems.complete({
+      workItemId: item.id,
+      success: result.success,
+      error: result.error,
+      nextStageName: nextStage?.name ?? null,
+      counterUpdates: result.success ? { crawled: 1 } : { errors: 1 },
+      resultData: result.videoId ? { videoId: result.videoId } : undefined,
+    })
+
+    // Accumulate crawled URL on job
+    if (result.success && stageName === 'audio') {
+      try {
+        const job = await client.findByID({ collection: 'video-crawls', id: jobId }) as Record<string, unknown>
+        const existing = ((job.crawledVideoUrls as string) ?? '').split('\n').filter(Boolean)
+        if (!existing.includes(externalUrl)) {
+          await client.update({ collection: 'video-crawls', id: jobId, data: { crawledVideoUrls: [...existing, externalUrl].join('\n') } })
+        }
+      } catch { /* non-critical */ }
+    }
+
+    if (done) {
+      jlog.event('video_crawl.completed', { crawled: 1, errors: 0, durationMs })
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`STAGE: ${stageName} — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'video-crawl', stage: stageName, item: title, durationMs, error })
+
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+      counterUpdates: { errors: 1 },
+    })
+  }
+}
+
+/**
+ * Process a single product-aggregation work item (per-GTIN-group, multi-stage pipeline).
+ */
+async function processProductAggregationStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const progressKey = item.item_key // sorted comma-separated GTINs
+  const gtins = progressKey.split(',')
+  const stageName = item.stage_name as AggregationStageName
+  const enabledStages = getEnabledAggregationStages(work) as Set<AggregationStageName>
+
+  const stageDef = AGGREGATION_STAGES.find((s) => s.name === stageName)
+  if (!stageDef) {
+    await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown stage: ${stageName}`, counterUpdates: { errors: 1 } })
+    return
+  }
+
+  const itemLabel = progressKey.length > 40 ? `${progressKey.slice(0, 37)}...` : progressKey
+  log.banner(`STAGE: ${stageName} — GTINs: ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'product-aggregation', stage: stageName, item: progressKey })
+
+  // Build AggregationWorkItem from GTINs
+  // Look up product ID from previous stage result if available
+  let productId: number | null = null
+
+  // For stages after resolve, we need the product ID. Try to find it from existing products.
+  if (stageName !== 'resolve') {
+    // Look up product-variant by first GTIN to find the product
+    const pv = await client.find({ collection: 'product-variants', where: { gtin: { equals: gtins[0] } }, limit: 1 })
+    if (pv.docs.length > 0) {
+      const pvDoc = pv.docs[0] as Record<string, unknown>
+      const productRef = pvDoc.product as number | Record<string, unknown>
+      productId = typeof productRef === 'number' ? productRef : (productRef as Record<string, unknown>).id as number
+    }
+  }
+
+  // Build per-GTIN sources (same as findSourcesByGtin pattern)
+  const variants: Array<{ gtin: string; sources: Array<Record<string, unknown>> }> = []
+  for (const gtin of gtins) {
+    const svResult = await client.find({ collection: 'source-variants', where: { gtin: { equals: gtin } }, limit: 100 })
+    const sources: Array<Record<string, unknown>> = []
+
+    const variantsBySpId = new Map<number, Record<string, unknown>>()
+    for (const v of svResult.docs) {
+      const sv = v as Record<string, unknown>
+      const spRef = sv.sourceProduct as number | Record<string, unknown>
+      const spId = typeof spRef === 'number' ? spRef : (spRef as Record<string, unknown>).id as number
+      variantsBySpId.set(spId, sv)
+    }
+
+    if (variantsBySpId.size > 0) {
+      const spIds = [...variantsBySpId.keys()]
+      const spResult = await client.find({ collection: 'source-products', where: { id: { in: spIds.join(',') } }, limit: 100, depth: 1 })
+
+      for (const sp of spResult.docs as Record<string, unknown>[]) {
+        const sv = variantsBySpId.get(sp.id as number)!
+        sources.push({
+          sourceProductId: sp.id,
+          sourceVariantId: sv.id,
+          name: (sp.name as string) ?? null,
+          brandName: (sp.sourceBrand as { name?: string } | null)?.name ?? null,
+          source: (sp.source as string) ?? null,
+          sourceBrandId: (sp.sourceBrand as { id?: number } | null)?.id ?? null,
+          sourceBrandImageUrl: (sp.sourceBrand as { imageUrl?: string } | null)?.imageUrl ?? null,
+          ingredientsText: (sv.ingredientsText as string) ?? null,
+          description: (sv.description as string) ?? null,
+          images: sv.images
+            ? (sv.images as Array<{ url?: string; alt?: string | null }>).filter((img) => !!img.url).map((img) => ({ url: img.url!, alt: img.alt ?? null }))
+            : null,
+          labels: sv.labels
+            ? (sv.labels as Array<{ label?: string }>).filter((l) => !!l.label).map((l) => ({ label: l.label! }))
+            : null,
+          amount: (sv.amount as number) ?? null,
+          amountUnit: (sv.amountUnit as string) ?? null,
+          variantLabel: (sv.variantLabel as string) ?? null,
+          variantDimension: (sv.variantDimension as string) ?? null,
+        })
+      }
+    }
+
+    variants.push({ gtin, sources: sources as any })
+  }
+
+  const aggregationWorkItem: AggregationWorkItem = {
+    productId,
+    gtins,
+    variants: variants as any,
+  }
+
+  const stageConfig: AggregationStageConfig = {
+    jobId,
+    language: (work.language as string) ?? 'de',
+    imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
+    brandSourcePriority: (work.brandSourcePriority as string[]) ?? DEFAULT_BRAND_SOURCE_PRIORITY,
+    detectionThreshold: (work.detectionThreshold as number) ?? 0.7,
+    minBoxArea: ((work.minBoxArea as number) ?? 5) / 100,
+    fallbackDetectionThreshold: (work.fallbackDetectionThreshold as boolean) ?? true,
+  }
+
+  const stageCtx: AggregationStageContext = {
+    payload: client,
+    config: stageConfig,
+    log: jlog,
+    uploadMedia,
+    heartbeat: async () => {
+      await heartbeat(jobId, 'product-aggregation')
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+    },
+  }
+
+  const stageStartMs = Date.now()
+
+  try {
+    const result = await stageDef.execute(stageCtx, aggregationWorkItem)
+    const durationMs = Date.now() - stageStartMs
+    const tokens = result.tokensUsed ?? 0
+
+    log.bannerEnd(`STAGE: ${stageName} — GTINs: ${itemLabel}`, result.success, { duration: `${(durationMs / 1000).toFixed(1)}s`, tokens })
+    jlog.event('stage.completed', { pipeline: 'product-aggregation', stage: stageName, item: progressKey, durationMs, tokens })
+
+    const nextStage = result.success ? getNextAggregationStage(stageName, enabledStages) : null
+
+    const { done } = await client.workItems.complete({
+      workItemId: item.id,
+      success: result.success,
+      error: result.error,
+      nextStageName: nextStage?.name ?? null,
+      counterUpdates: {
+        ...(result.success ? { aggregated: 1 } : { errors: 1 }),
+        tokensUsed: tokens,
+      },
+      resultData: { productId: result.productId ?? productId },
+    })
+
+    if (done) {
+      jlog.event('aggregation.completed', { aggregated: 1, errors: 0, durationMs, tokensUsed: tokens, failedProducts: 0 })
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`STAGE: ${stageName} — GTINs: ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'product-aggregation', stage: stageName, item: progressKey, durationMs, error })
+
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+      counterUpdates: { errors: 1 },
+    })
+  }
+}
+
+/**
+ * Process a single ingredient-crawl work item (per-ingredient, single stage).
+ */
+async function processIngredientCrawlStage(
+  jobId: number,
+  _work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const ingredientId = parseInt(item.item_key, 10)
+
+  // Look up ingredient name
+  const ingredient = await client.findByID({ collection: 'ingredients', id: ingredientId }) as Record<string, unknown>
+  const ingredientName = (ingredient.name as string) ?? ''
+  const hasImage = !!(ingredient.image as unknown)
+
+  const itemLabel = ingredientName.length > 50 ? `${ingredientName.slice(0, 47)}...` : ingredientName
+  log.banner(`CRAWL: ingredient — ${itemLabel}`, { ingredientId })
+  jlog.event('stage.started', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName })
+
+  const stageStartMs = Date.now()
+
+  try {
+    // Build URL from ingredient name
+    const slug = ingredientName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    const url = `https://incidecoder.com/ingredients/${slug}`
+
+    // Fetch page
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    })
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        // Expected — most CosIng ingredients don't have an INCIDecoder page
+        jlog.event('ingredient_crawl.not_found', { ingredient: ingredientName })
+        const durationMs = Date.now() - stageStartMs
+        log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, result: '404' })
+        jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: 0 })
+        await client.workItems.complete({ workItemId: item.id, success: true, counterUpdates: { crawled: 1 } })
+        return
+      }
+      throw new Error(`HTTP ${response.status} from ${url}`)
+    }
+
+    const html = await response.text()
+
+    // Extract description
+    const stripHtml = (raw: string): string =>
+      raw
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&micro;/g, '\u00B5').replace(/&nbsp;/g, ' ')
+        .replace(/\[more\]/g, '').replace(/\[less\]/g, '')
+        .replace(/\r\n/g, '\n').replace(/(?:\s*\n){3,}/g, '\n\n')
+        .trim()
+
+    let longDescription = ''
+
+    const detailsMatch = html.match(/id="(?:showmore-section-)?details"[^>]*>[\s\S]*?<div class="content">([\s\S]*?)<\/div>\s*<div class="showmore-link/i)
+      || html.match(/id="details"[^>]*>([\s\S]*?)(?:<div[^>]*class="[^"]*paddingt45[^"]*bold|<\/div>\s*<\/div>\s*$)/i)
+    if (detailsMatch) longDescription = stripHtml(detailsMatch[1])
+
+    if (!longDescription) {
+      const geekyMatch = html.match(/id="geeky[^"]*"[^>]*>([\s\S]*?)(?:<h2|<div[^>]*class="[^"]*showmore-section)/i)
+        || html.match(/Geeky\s*Details<\/h2>([\s\S]*?)(?:<h2|<div[^>]*class="[^"]*showmore-section)/i)
+      if (geekyMatch) longDescription = stripHtml(geekyMatch[1])
+    }
+
+    if (!longDescription) {
+      const quickFactsMatch = html.match(/Quick\s*Facts<\/h2>([\s\S]*?)(?:<h2|<div[^>]*class="[^"]*showmore-section)/i)
+      if (quickFactsMatch) longDescription = stripHtml(quickFactsMatch[1])
+    }
+
+    if (!longDescription) {
+      jlog.event('ingredient_crawl.no_description', { ingredient: ingredientName })
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, result: 'no description' })
+      jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: 0 })
+      await client.workItems.complete({ workItemId: item.id, success: true, counterUpdates: { crawled: 1 } })
+      return
+    }
+
+    // Extract and upload image if missing
+    let imageMediaId: number | undefined
+    if (!hasImage) {
+      const imgMatch = html.match(/<div class="imgcontainer[^"]*"[\s\S]*?<img\s[^>]*src="([^"]+_original\.[^"]+)"/)
+        || html.match(/<div class="imgcontainer[^"]*"[\s\S]*?<img\s[^>]*src="([^"]+)"/)
+      if (imgMatch) {
+        try {
+          const imgRes = await fetch(imgMatch[1], {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+          })
+          if (imgRes.ok) {
+            const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
+            const buffer = Buffer.from(await imgRes.arrayBuffer())
+            const filename = new URL(imgMatch[1]).pathname.split('/').pop() || `${slug}.jpg`
+            const mediaDoc = await client.create({
+              collection: 'ingredient-media',
+              data: { alt: ingredientName },
+              file: { data: buffer, mimetype: contentType, name: filename, size: buffer.length },
+            })
+            imageMediaId = (mediaDoc as { id: number }).id
+          }
+        } catch { /* non-critical */ }
+      }
+    }
+
+    // Generate short description via LLM
+    let shortDescription = ''
+    let tokensUsed = 0
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const { getOpenAI } = await import('@/lib/openai')
+        const openai = getOpenAI()
+        const llmResponse = await openai.chat.completions.create({
+          model: 'gpt-4.1-mini',
+          temperature: 0.7,
+          messages: [
+            { role: 'system', content: 'You are a skincare ingredient expert who writes short, precise but entertaining descriptions of cosmetic ingredients. Write 1-2 sentences max. Be factual and informative but make it engaging and easy to understand for consumers. No fluff, no filler words. Do not start with the ingredient name.' },
+            { role: 'user', content: `Write a short description for the ingredient "${ingredientName}" based on this detailed information:\n\n${longDescription.substring(0, 3000)}` },
+          ],
+        })
+        shortDescription = llmResponse.choices[0]?.message?.content?.trim() || ''
+        tokensUsed = llmResponse.usage?.total_tokens || 0
+      } catch { /* continue without short description */ }
+    }
+
+    // Persist result via submitWork pattern (update ingredient record)
+    const updateData: Record<string, unknown> = { longDescription }
+    if (shortDescription) updateData.shortDescription = shortDescription
+    if (imageMediaId) updateData.image = imageMediaId
+
+    // Add INCIDecoder source entry
+    const existingSources = (ingredient.sources as Array<{ source?: string }>) ?? []
+    const hasInciDecoder = existingSources.some((s) => s.source === 'incidecoder')
+    if (!hasInciDecoder) {
+      const fieldsProvided: string[] = ['longDescription']
+      if (shortDescription) fieldsProvided.push('shortDescription')
+      if (imageMediaId) fieldsProvided.push('image')
+      updateData.sources = [...existingSources, { source: 'incidecoder', sourceUrl: url, fieldsProvided }]
+    }
+
+    await client.update({ collection: 'ingredients', id: ingredientId, data: updateData })
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, tokens: tokensUsed })
+    jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: tokensUsed })
+
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { crawled: 1, tokensUsed },
+    })
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, error })
+
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+      counterUpdates: { errors: 1 },
     })
   }
 }

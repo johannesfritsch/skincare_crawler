@@ -44,7 +44,32 @@ const PRODUCT_CRAWL_STAGES: StageDef[] = [
   { name: 'reviews', jobField: 'stageReviews' },
 ]
 
-// TODO: add PRODUCT_AGGREGATION_STAGES, VIDEO_CRAWL_STAGES, INGREDIENT_CRAWL_STAGES
+/** Video crawl: 3 stages — metadata, download, audio */
+const VIDEO_CRAWL_STAGES: StageDef[] = [
+  { name: 'metadata', jobField: 'stageMetadata' },
+  { name: 'download', jobField: 'stageDownload' },
+  { name: 'audio', jobField: 'stageAudio' },
+]
+
+/** Product aggregation: 11 stages */
+const PRODUCT_AGGREGATION_STAGES: StageDef[] = [
+  { name: 'resolve', jobField: 'stageResolve' },
+  { name: 'classify', jobField: 'stageClassify' },
+  { name: 'match_brand', jobField: 'stageMatchBrand' },
+  { name: 'ingredients', jobField: 'stageIngredients' },
+  { name: 'images', jobField: 'stageImages' },
+  { name: 'object_detection', jobField: 'stageObjectDetection' },
+  { name: 'embed_images', jobField: 'stageEmbedImages' },
+  { name: 'descriptions', jobField: 'stageDescriptions' },
+  { name: 'score_history', jobField: 'stageScoreHistory' },
+  { name: 'review_sentiment', jobField: 'stageReviewSentiment' },
+  { name: 'sentiment_conclusion', jobField: 'stageSentimentConclusion' },
+]
+
+/** Ingredient crawl: 1 stage (always enabled) */
+const INGREDIENT_CRAWL_STAGES: StageDef[] = [
+  { name: 'crawl', jobField: '_always' },
+]
 
 /** All job types that use work items. Multi-stage pipelines have their stages listed.
  *  Single-stage ("execute") types run the whole job as one work item. */
@@ -52,15 +77,14 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   // Multi-stage parallel pipelines
   'video-processings': VIDEO_PROCESSING_STAGES,
   'product-crawls': PRODUCT_CRAWL_STAGES,
+  'video-crawls': VIDEO_CRAWL_STAGES,
+  'product-aggregations': PRODUCT_AGGREGATION_STAGES,
+  'ingredient-crawls': INGREDIENT_CRAWL_STAGES,
   // Single-stage (sequential) — one work item per job
   'product-discoveries': [{ name: 'execute', jobField: '_always' }],
   'product-searches': [{ name: 'execute', jobField: '_always' }],
   'ingredients-discoveries': [{ name: 'execute', jobField: '_always' }],
   'video-discoveries': [{ name: 'execute', jobField: '_always' }],
-  // TODO: migrate these to multi-stage when their parallel seeding is implemented
-  'video-crawls': [{ name: 'execute', jobField: '_always' }],
-  'product-aggregations': [{ name: 'execute', jobField: '_always' }],
-  'ingredient-crawls': [{ name: 'execute', jobField: '_always' }],
 }
 
 /** Get enabled stages for a job document */
@@ -109,11 +133,34 @@ async function seedJobWorkItems(
     for (const url of urls) {
       items.push({ itemKey: url, stageName: firstStage })
     }
+  } else if (collection === 'video-crawls') {
+    // Multi-stage: one work item per video URL at its first enabled stage
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    const urls = await resolveVideoCrawlUrls(payload, db, job)
+    for (const url of urls) {
+      items.push({ itemKey: url, stageName: firstStage })
+    }
+  } else if (collection === 'product-aggregations') {
+    // Multi-stage: one work item per GTIN group at its first enabled stage
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    const groups = await resolveAggregationGtinGroups(payload, db, job)
+    for (const group of groups) {
+      items.push({ itemKey: group, stageName: firstStage })
+    }
+  } else if (collection === 'ingredient-crawls') {
+    // Multi-stage: one work item per ingredient at its first enabled stage
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    const ingredientIds = await resolveIngredientIds(db, job)
+    for (const id of ingredientIds) {
+      items.push({ itemKey: String(id), stageName: firstStage })
+    }
   } else {
     // Single-stage: one work item for the entire job
     items.push({ itemKey: 'job', stageName: 'execute' })
   }
-  // TODO: add multi-stage resolution for product-aggregation, video-crawl, ingredient-crawl
 
   if (items.length === 0) return 0
 
@@ -296,6 +343,183 @@ async function resolveProductCrawlUrls(
   }
 
   return urls
+}
+
+/**
+ * Resolve video external URLs for a video-crawl job based on its type.
+ */
+async function resolveVideoCrawlUrls(
+  payload: Payload,
+  db: any,
+  job: Record<string, unknown>,
+): Promise<string[]> {
+  const urls: string[] = []
+
+  if (job.type === 'selected_urls') {
+    const rawUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...rawUrls)
+  } else if (job.type === 'from_discovery' && job.discovery) {
+    const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
+    const discoveryJob = await payload.findByID({ collection: 'video-discoveries', id: discoveryId, overrideAccess: true }) as unknown as Record<string, unknown>
+    const videoUrls = ((discoveryJob.videoUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...videoUrls)
+  } else {
+    // type: 'all' — query videos
+    const scope = job.scope as string | undefined
+    const statusFilter = (scope === 'recrawl') ? sql`1=1` : sql`v."status" = 'discovered'`
+    const result = await db.execute(sql`
+      SELECT v."external_url"
+      FROM "videos" v
+      WHERE ${statusFilter}
+        AND v."external_url" IS NOT NULL
+      ORDER BY v."id"
+    `)
+    for (const row of (result as { rows: Array<Record<string, unknown>> }).rows) {
+      urls.push(row.external_url as string)
+    }
+  }
+
+  return urls
+}
+
+/**
+ * Resolve GTIN groups for a product-aggregation job.
+ * Returns an array of progress keys (sorted comma-separated GTIN lists).
+ */
+async function resolveAggregationGtinGroups(
+  payload: Payload,
+  db: any,
+  job: Record<string, unknown>,
+): Promise<string[]> {
+  let rawGtins: string[] = []
+
+  if (job.type === 'selected_gtins') {
+    rawGtins = ((job.gtins as string) ?? '').split('\n').map((g: string) => g.trim()).filter(Boolean)
+  } else {
+    // type: 'all' — get all distinct GTINs from source-variants
+    const result = await db.execute(sql`
+      SELECT DISTINCT sv."gtin"
+      FROM "source_variants" sv
+      WHERE sv."gtin" IS NOT NULL AND sv."gtin" != ''
+      ORDER BY sv."gtin"
+    `)
+    rawGtins = (result as { rows: Array<Record<string, unknown>> }).rows
+      .map((r: Record<string, unknown>) => r.gtin as string)
+  }
+
+  if (rawGtins.length === 0) return []
+
+  const includeSisterVariants = job.includeSisterVariants !== false
+
+  if (!includeSisterVariants) {
+    // Each GTIN is its own group
+    return rawGtins.map(g => g)
+  }
+
+  // Sister variant expansion + union-find grouping (server-side)
+  // 1. Expand: find all GTINs that share a source-product with any input GTIN
+  const gtinList = rawGtins.map(g => sql`${g}`)
+  const expandResult = await db.execute(sql`
+    WITH input_gtins AS (
+      SELECT unnest AS gtin FROM unnest(ARRAY[${sql.join(gtinList, sql`, `)}]::text[])
+    ),
+    shared_products AS (
+      SELECT DISTINCT sv2."gtin"
+      FROM "source_variants" sv1
+      INNER JOIN "source_variants" sv2 ON sv1."source_product_id" = sv2."source_product_id"
+      WHERE sv1."gtin" IN (SELECT gtin FROM input_gtins)
+        AND sv2."gtin" IS NOT NULL AND sv2."gtin" != ''
+    )
+    SELECT gtin FROM shared_products
+  `)
+  const expandedGtins = (expandResult as { rows: Array<Record<string, unknown>> }).rows
+    .map((r: Record<string, unknown>) => r.gtin as string)
+
+  if (expandedGtins.length === 0) return rawGtins
+
+  // 2. Get all (gtin, source_product_id) pairs for grouping
+  const allGtinList = expandedGtins.map(g => sql`${g}`)
+  const pairsResult = await db.execute(sql`
+    SELECT sv."gtin", sv."source_product_id"
+    FROM "source_variants" sv
+    WHERE sv."gtin" IN (${sql.join(allGtinList, sql`, `)})
+      AND sv."gtin" IS NOT NULL AND sv."gtin" != ''
+  `)
+  const pairs = (pairsResult as { rows: Array<Record<string, unknown>> }).rows
+
+  // 3. Union-find grouping: GTINs sharing any source_product_id end up in the same group
+  const parent = new Map<string, string>()
+  function find(x: string): string {
+    if (!parent.has(x)) parent.set(x, x)
+    if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!))
+    return parent.get(x)!
+  }
+  function union(a: string, b: string): void {
+    const ra = find(a), rb = find(b)
+    if (ra !== rb) parent.set(ra, rb)
+  }
+
+  // Group by source_product_id — union all GTINs that share a source product
+  const spToGtins = new Map<number, string[]>()
+  for (const row of pairs) {
+    const gtin = row.gtin as string
+    const spId = row.source_product_id as number
+    if (!spToGtins.has(spId)) spToGtins.set(spId, [])
+    spToGtins.get(spId)!.push(gtin)
+  }
+  for (const gtins of spToGtins.values()) {
+    for (let i = 1; i < gtins.length; i++) {
+      union(gtins[0], gtins[i])
+    }
+  }
+
+  // Collect groups
+  const groups = new Map<string, Set<string>>()
+  for (const gtin of expandedGtins) {
+    const root = find(gtin)
+    if (!groups.has(root)) groups.set(root, new Set())
+    groups.get(root)!.add(gtin)
+  }
+
+  // Return sorted progress keys
+  return [...groups.values()].map(group => [...group].sort().join(','))
+}
+
+/**
+ * Resolve ingredient IDs for an ingredient-crawl job.
+ */
+async function resolveIngredientIds(
+  db: any,
+  job: Record<string, unknown>,
+): Promise<number[]> {
+  const ids: number[] = []
+
+  if (job.type === 'selected') {
+    // Selected ingredients — parse from job config
+    // The job stores ingredient IDs; fetch them
+    const result = await db.execute(sql`
+      SELECT ic_rels."ingredients_id" as "id"
+      FROM "ingredient_crawls_rels" ic_rels
+      WHERE ic_rels."parent_id" = ${job.id as number}
+        AND ic_rels."ingredients_id" IS NOT NULL
+    `)
+    for (const row of (result as { rows: Array<Record<string, unknown>> }).rows) {
+      ids.push(row.id as number)
+    }
+  } else {
+    // type: 'all_uncrawled' — ingredients without longDescription
+    const result = await db.execute(sql`
+      SELECT i."id"
+      FROM "ingredients" i
+      WHERE i."long_description" IS NULL OR i."long_description" = ''
+      ORDER BY i."id"
+    `)
+    for (const row of (result as { rows: Array<Record<string, unknown>> }).rows) {
+      ids.push(row.id as number)
+    }
+  }
+
+  return ids
 }
 
 // ---------------------------------------------------------------------------
@@ -510,13 +734,23 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
           const initData: Record<string, unknown> = {
             status: 'in_progress',
             startedAt: new Date().toISOString(),
-            completed: 0,
             errors: 0,
           }
+          // Per-collection counter fields
           if (collection === 'product-crawls') {
             initData.crawled = 0
             initData.crawledGtins = ''
+          } else if (collection === 'video-crawls') {
+            initData.crawled = 0
+            initData.crawledVideoUrls = ''
+          } else if (collection === 'product-aggregations') {
+            initData.aggregated = 0
+            initData.tokensUsed = 0
+          } else if (collection === 'ingredient-crawls') {
+            initData.crawled = 0
+            initData.tokensUsed = 0
           } else {
+            initData.completed = 0
             initData.tokensUsed = 0
           }
           await req.payload.update({
@@ -536,10 +770,11 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
       // Seed work items
       const seeded = await seedJobWorkItems(req.payload, db, collection, jobId)
 
-      // For product-crawls: set total from seeded count
-      if (collection === 'product-crawls' && seeded > 0) {
+      // Set total from seeded count for multi-stage jobs
+      if (isMultiStage && seeded > 0) {
+        const tableName = collection.replace(/-/g, '_')
         await db.execute(sql`
-          UPDATE "product_crawls" SET "total" = ${seeded}
+          UPDATE "${sql.raw(tableName)}" SET "total" = ${seeded}
           WHERE "id" = ${jobId}
         `)
       }
