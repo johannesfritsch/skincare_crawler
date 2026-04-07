@@ -200,6 +200,13 @@ export default buildConfig({
           minWidth: 'medium',
           maxWidth: 'full',
         },
+        {
+          slug: 'changelog',
+          label: 'Changelog',
+          ComponentPath: '/components/dashboard/widgets/Changelog',
+          minWidth: 'medium',
+          maxWidth: 'full',
+        },
       ],
       defaultLayout: [
         { widgetSlug: 'database-overview', width: 'full' },
@@ -215,6 +222,7 @@ export default buildConfig({
         { widgetSlug: 'job-queue', width: 'full' },
         { widgetSlug: 'event-jobs', width: 'large' },
         { widgetSlug: 'event-errors', width: 'full' },
+        { widgetSlug: 'changelog', width: 'full' },
       ],
     },
   },
