@@ -1,6 +1,7 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../../types'
 import type { Page } from 'playwright-core'
 import { launchBrowser } from '@/lib/browser'
+import { captureDebugScreenshot } from '@/lib/debug-screenshot'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger, type Logger } from '@/lib/logger'
@@ -365,10 +366,10 @@ export const muellerDriver: SourceDriver = {
       }
     } finally {
       if (debug) {
-        const page = browser.contexts()[0]?.pages()[0]
-        if (page) {
+        const p = browser.contexts()[0]?.pages()[0]
+        if (p) {
           log.info('Debug mode: browser kept open. Press "Resume" in the Playwright inspector to continue.')
-          await page.pause()
+          await p.pause()
         }
       }
       await browser.close()
@@ -512,7 +513,7 @@ export const muellerDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; debugContext?: { client: import('@/lib/payload-client').PayloadRestClient; jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'; jobId: number } },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
@@ -522,8 +523,9 @@ export const muellerDriver: SourceDriver = {
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
+      let page: Page | undefined
       try {
-        const page = await browser.newPage()
+        page = await browser.newPage()
         await page.goto(sourceUrl, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('h1, [class*="product-info"]', { timeout: 15000 }).catch(() => {})
         await sleep(randomDelay(1000, 2000))
@@ -1103,6 +1105,21 @@ export const muellerDriver: SourceDriver = {
           availability: (scraped.availability as 'available' | 'unavailable') ?? undefined,
           warnings: [],
         }
+      } catch (err) {
+        if (page && options?.debugContext) {
+          const screenshotUrl = await captureDebugScreenshot({
+            page,
+            client: options.debugContext.client,
+            jobCollection: options.debugContext.jobCollection,
+            jobId: options.debugContext.jobId,
+            step: 'error',
+            label: err instanceof Error ? err.message : String(err),
+          }).catch(() => null)
+          if (screenshotUrl && err instanceof Error) {
+            ;(err as any).screenshotUrl = screenshotUrl
+          }
+        }
+        throw err
       } finally {
         await browser.close()
       }

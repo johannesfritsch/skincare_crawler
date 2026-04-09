@@ -9,6 +9,7 @@ import type {
   DiscoveredProduct,
 } from '../../types'
 import { launchBrowser } from '@/lib/browser'
+import { captureDebugScreenshot } from '@/lib/debug-screenshot'
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { createLogger } from '@/lib/logger'
@@ -760,7 +761,7 @@ export const douglasDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: Logger; skipReviews?: boolean },
+    options?: { debug?: boolean; logger?: Logger; skipReviews?: boolean; debugContext?: { client: import('@/lib/payload-client').PayloadRestClient; jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'; jobId: number } },
   ): Promise<ScrapedProductData | null> {
     const debug = options?.debug ?? false
     const jlog = options?.logger || log
@@ -775,9 +776,10 @@ export const douglasDriver: SourceDriver = {
     jlog.info('Scraping Douglas product', { url: sourceUrl, baseProduct, variantCode })
 
     const browser = await launchBrowser({ headless: !debug })
+    let page: Page | undefined
     try {
       const context = await browser.newContext()
-      const page = await context.newPage()
+      page = await context.newPage()
 
       // ── Step 1: Navigate to homepage and fetch structured data via search API ──
       jlog.info('Establishing session for API access')
@@ -992,6 +994,21 @@ export const douglasDriver: SourceDriver = {
       })
 
       return result
+    } catch (err) {
+      if (page && options?.debugContext) {
+        const screenshotUrl = await captureDebugScreenshot({
+          page,
+          client: options.debugContext.client,
+          jobCollection: options.debugContext.jobCollection,
+          jobId: options.debugContext.jobId,
+          step: 'error',
+          label: err instanceof Error ? err.message : String(err),
+        }).catch(() => null)
+        if (screenshotUrl && err instanceof Error) {
+          ;(err as any).screenshotUrl = screenshotUrl
+        }
+      }
+      throw err
     } finally {
       await browser.close()
     }

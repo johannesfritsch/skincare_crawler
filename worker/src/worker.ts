@@ -245,7 +245,7 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
         debug,
         logger: jlog,
         skipReviews,
-        ...(debug && { debugContext: { client, jobCollection: 'product-crawls' as const, jobId } }),
+        debugContext: { client, jobCollection: 'product-crawls' as const, jobId },
       })
       results.push({ ...item, data })
       if (!data) {
@@ -1172,24 +1172,26 @@ async function processProductCrawlStage(
 
     let data: ScrapedProductData | null = null
     let scrapeError: string | undefined
+    let scrapeScreenshotUrl: string | undefined
 
     try {
       data = await driver.scrapeProduct(sourceUrl, {
         debug,
         logger: jlog,
         skipReviews: reviewsEnabled, // skip inline reviews when reviews stage handles them
-        ...(debug && { debugContext: { client, jobCollection: 'product-crawls' as const, jobId } }),
+        debugContext: { client, jobCollection: 'product-crawls' as const, jobId },
       })
       if (!data) scrapeError = 'scrapeProduct returned null'
     } catch (e) {
       scrapeError = e instanceof Error ? e.message : String(e)
-      log.error('Scrape error', { sourceUrl, error: scrapeError })
+      scrapeScreenshotUrl = (e as any)?.screenshotUrl as string | undefined
+      log.error('Scrape error', { sourceUrl, error: scrapeError, screenshotUrl: scrapeScreenshotUrl })
     }
 
     if (!data || scrapeError) {
       const durationMs = Date.now() - stageStartMs
       log.bannerEnd(`CRAWL: ${stageName} — ${itemLabel}`, false, { error: (scrapeError ?? 'null').slice(0, 80) })
-      jlog.event('stage.failed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, error: scrapeError ?? 'null result' })
+      jlog.event('stage.failed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, error: scrapeError ?? 'null result', screenshotUrl: scrapeScreenshotUrl })
       await client.workItems.complete({
         workItemId: item.id,
         success: false,

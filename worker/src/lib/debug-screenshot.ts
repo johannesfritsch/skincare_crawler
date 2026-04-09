@@ -17,9 +17,9 @@ interface DebugScreenshotOptions {
 
 /**
  * Capture a full-page screenshot and upload it to the debug-screenshots collection.
- * Only call this when debug mode is enabled — the caller is responsible for checking.
+ * Returns the screenshot URL on success, or null on failure.
  */
-export async function captureDebugScreenshot(opts: DebugScreenshotOptions): Promise<void> {
+export async function captureDebugScreenshot(opts: DebugScreenshotOptions): Promise<string | null> {
   const { page, client, jobCollection, jobId, step, label } = opts
   const pageUrl = page.url()
 
@@ -27,7 +27,7 @@ export async function captureDebugScreenshot(opts: DebugScreenshotOptions): Prom
     const buffer = await page.screenshot({ fullPage: true, type: 'png' })
     const alt = label ?? `${step} — ${pageUrl}`
 
-    await client.create({
+    const doc = await client.create({
       collection: 'debug-screenshots',
       data: {
         alt,
@@ -43,8 +43,11 @@ export async function captureDebugScreenshot(opts: DebugScreenshotOptions): Prom
       },
     })
 
-    log.debug('Screenshot captured', { jobCollection, jobId, step, url: pageUrl })
+    const screenshotUrl = (doc as Record<string, unknown>).url as string | undefined
+    log.debug('Screenshot captured', { jobCollection, jobId, step, url: pageUrl, screenshotUrl })
+    return screenshotUrl ?? null
   } catch (e) {
     log.warn('Failed to capture debug screenshot', { step, error: e instanceof Error ? e.message : String(e) })
+    return null
   }
 }

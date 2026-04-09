@@ -1,6 +1,8 @@
 import type { SourceDriver, ProductDiscoveryOptions, ProductDiscoveryResult, ProductSearchOptions, ProductSearchResult, ScrapedProductData } from '../../types'
+import type { Page } from 'playwright-core'
 import { launchBrowser } from '@/lib/browser'
 import { stealthFetch } from '@/lib/stealth-fetch'
+import { captureDebugScreenshot } from '@/lib/debug-screenshot'
 
 import { normalizeProductUrl } from '@/lib/source-product-queries'
 import { createLogger } from '@/lib/logger'
@@ -558,7 +560,7 @@ export const rossmannDriver: SourceDriver = {
 
   async scrapeProduct(
     sourceUrl: string,
-    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean },
+    options?: { debug?: boolean; logger?: import('@/lib/logger').Logger; skipReviews?: boolean; debugContext?: { client: import('@/lib/payload-client').PayloadRestClient; jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'; jobId: number } },
   ): Promise<ScrapedProductData | null> {
     const logger = options?.logger
     try {
@@ -568,8 +570,9 @@ export const rossmannDriver: SourceDriver = {
 
       const debug = options?.debug ?? false
       const browser = await launchBrowser({ headless: !debug })
+      let page: Page | undefined
       try {
-        const page = await browser.newPage()
+        page = await browser.newPage()
         await page.goto(sourceUrl, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('.rm-product__title', { timeout: 5000 }).catch(() => {})
 
@@ -796,6 +799,21 @@ export const rossmannDriver: SourceDriver = {
           warnings,
           reviews,
         }
+      } catch (err) {
+        if (page && options?.debugContext) {
+          const screenshotUrl = await captureDebugScreenshot({
+            page,
+            client: options.debugContext.client,
+            jobCollection: options.debugContext.jobCollection,
+            jobId: options.debugContext.jobId,
+            step: 'error',
+            label: err instanceof Error ? err.message : String(err),
+          }).catch(() => null)
+          if (screenshotUrl && err instanceof Error) {
+            ;(err as any).screenshotUrl = screenshotUrl
+          }
+        }
+        throw err
       } finally {
         await browser.close()
       }

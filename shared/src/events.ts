@@ -320,6 +320,7 @@ export interface EventRegistry {
     query: string
     source: string
     error: string
+    screenshotUrl?: string
   }
 
   // ─── Ingredients Discovery ─────────────────────────────────────────────
@@ -507,6 +508,7 @@ export interface EventRegistry {
     item: string
     durationMs: number
     error: string
+    screenshotUrl?: string
   }
 
   // ─── Video Processing ─────────────────────────────────────────────────
