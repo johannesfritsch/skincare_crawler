@@ -995,6 +995,9 @@ async function processWorkItem(
   } else if (jobType === 'ingredient-crawl' && item.stage_name !== 'execute') {
     // ── Per-ingredient: crawl one ingredient ──
     await processIngredientCrawlStage(jobId, work, item, jlog)
+  } else if (jobType === 'product-search' && item.stage_name !== 'execute') {
+    // ── Per-(query, source): search one pair ──
+    await processProductSearchStage(jobId, work, item, jlog)
   } else {
     // ── "Execute" stage: run the entire job using the existing batch loop ──
     // The old build→handle→submit cycle runs inside this work item.
@@ -1789,6 +1792,92 @@ async function processIngredientCrawlStage(
     const error = e instanceof Error ? e.message : String(e)
     log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
     jlog.event('stage.failed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, error })
+
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+      counterUpdates: { errors: 1 },
+    })
+  }
+}
+
+/**
+ * Process a single product-search work item (one query + one source).
+ * item_key format: "query::sourceSlug"
+ */
+async function processProductSearchStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const separatorIdx = item.item_key.lastIndexOf('::')
+  const query = item.item_key.slice(0, separatorIdx)
+  const sourceSlug = item.item_key.slice(separatorIdx + 2)
+
+  const maxResults = (work.maxResults as number) ?? 50
+  const isGtinSearch = (work.isGtinSearch as boolean) ?? true
+  const debug = (work.debug as boolean) ?? false
+
+  const itemLabel = `${query.length > 30 ? query.slice(0, 27) + '...' : query} @ ${sourceSlug}`
+  log.banner(`SEARCH: ${itemLabel}`, { jobId })
+  jlog.event('search.started', { query, sources: sourceSlug, maxResults })
+
+  const stageStartMs = Date.now()
+
+  try {
+    const driver = getSourceDriverBySlug(sourceSlug)
+    if (!driver) {
+      const error = `No driver for source: ${sourceSlug}`
+      log.error('Search driver missing', { jobId, source: sourceSlug })
+      jlog.event('search.error', { query, source: sourceSlug, error })
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`SEARCH: ${itemLabel}`, false, { error })
+      await client.workItems.complete({ workItemId: item.id, success: false, error, counterUpdates: { errors: 1 } })
+      return
+    }
+
+    log.info('Searching', { jobId, query, source: sourceSlug, maxResults, isGtinSearch })
+    const result = await driver.searchProducts({ query, maxResults, isGtinSearch, debug, logger: jlog })
+    const products = result.products
+
+    jlog.event('search.source_complete', { source: sourceSlug, query, results: products.length })
+    log.info('Search results', { jobId, query, source: sourceSlug, products: products.length })
+
+    // Append discovered URLs to job's productUrls field
+    if (products.length > 0) {
+      try {
+        const job = await client.findByID({ collection: 'product-searches', id: jobId }) as Record<string, unknown>
+        const existing = new Set(((job.productUrls as string) ?? '').split('\n').filter(Boolean))
+        const newUrls = products.map(p => p.productUrl).filter(u => !existing.has(u))
+        if (newUrls.length > 0) {
+          const updated = [...existing, ...newUrls].join('\n')
+          await client.update({ collection: 'product-searches', id: jobId, data: { productUrls: updated } })
+        }
+      } catch (e) {
+        log.warn('Failed to update productUrls', { error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`SEARCH: ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, results: products.length })
+
+    const { done } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { discovered: products.length },
+    })
+
+    if (done) {
+      jlog.event('search.completed', { sources: sourceSlug, discovered: products.length, durationMs })
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.error('Search failed', { jobId, query, source: sourceSlug, error })
+    log.bannerEnd(`SEARCH: ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('search.error', { query, source: sourceSlug, error })
 
     await client.workItems.complete({
       workItemId: item.id,

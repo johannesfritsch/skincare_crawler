@@ -316,6 +316,11 @@ export interface EventRegistry {
     discovered: number
     durationMs: number
   }
+  'search.error': {
+    query: string
+    source: string
+    error: string
+  }
 
   // ─── Ingredients Discovery ─────────────────────────────────────────────
   // worker.ts: handler start
@@ -949,6 +954,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
   'search.batch_persisted': {
     type: 'info',
     level: 'info',
+    labels: ['search'],
+  },
+  'search.error': {
+    type: 'error',
+    level: 'error',
     labels: ['search'],
   },
   'search.completed': {

@@ -71,6 +71,11 @@ const INGREDIENT_CRAWL_STAGES: StageDef[] = [
   { name: 'crawl', jobField: '_always' },
 ]
 
+/** Product search: 1 stage per (query, source) pair */
+const PRODUCT_SEARCH_STAGES: StageDef[] = [
+  { name: 'search', jobField: '_always' },
+]
+
 /** All job types that use work items. Multi-stage pipelines have their stages listed.
  *  Single-stage ("execute") types run the whole job as one work item. */
 const JOB_PIPELINES: Record<string, StageDef[]> = {
@@ -80,9 +85,9 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   'video-crawls': VIDEO_CRAWL_STAGES,
   'product-aggregations': PRODUCT_AGGREGATION_STAGES,
   'ingredient-crawls': INGREDIENT_CRAWL_STAGES,
+  'product-searches': PRODUCT_SEARCH_STAGES,
   // Single-stage (sequential) — one work item per job
   'product-discoveries': [{ name: 'execute', jobField: '_always' }],
-  'product-searches': [{ name: 'execute', jobField: '_always' }],
   'ingredients-discoveries': [{ name: 'execute', jobField: '_always' }],
   'video-discoveries': [{ name: 'execute', jobField: '_always' }],
 }
@@ -156,6 +161,14 @@ async function seedJobWorkItems(
     const ingredientIds = await resolveIngredientIds(db, job)
     for (const id of ingredientIds) {
       items.push({ itemKey: String(id), stageName: firstStage })
+    }
+  } else if (collection === 'product-searches') {
+    // One work item per (query, source) pair
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    const searchItems = await resolveProductSearchItems(db, job)
+    for (const itemKey of searchItems) {
+      items.push({ itemKey, stageName: firstStage })
     }
   } else {
     // Single-stage: one work item for the entire job
@@ -522,6 +535,39 @@ async function resolveIngredientIds(
   return ids
 }
 
+/**
+ * Resolve (query, source) pairs for a product-search job.
+ * Returns item keys in format "query::sourceSlug".
+ */
+async function resolveProductSearchItems(
+  db: any,
+  job: Record<string, unknown>,
+): Promise<string[]> {
+  const queries = ((job.query as string) ?? '').split('\n').map((q: string) => q.trim()).filter(Boolean)
+  if (queries.length === 0) return []
+
+  // Read sources from the hasMany select sub-table
+  const sourcesResult = await db.execute(sql`
+    SELECT "value" FROM "product_searches_sources"
+    WHERE "parent_id" = ${job.id as number}
+    ORDER BY "order"
+  `)
+  const sources = (sourcesResult as { rows: Array<Record<string, unknown>> }).rows
+    .map((r: Record<string, unknown>) => r.value as string)
+    .filter(Boolean)
+
+  if (sources.length === 0) return []
+
+  // Create one item per (query, source) pair
+  const items: string[] = []
+  for (const query of queries) {
+    for (const source of sources) {
+      items.push(`${query}::${source}`)
+    }
+  }
+  return items
+}
+
 // ---------------------------------------------------------------------------
 // Internal: Try to claim pending work items (shared SQL logic)
 // ---------------------------------------------------------------------------
@@ -749,6 +795,8 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
           } else if (collection === 'ingredient-crawls') {
             initData.crawled = 0
             initData.tokensUsed = 0
+          } else if (collection === 'product-searches') {
+            initData.discovered = 0
           } else {
             initData.completed = 0
             initData.tokensUsed = 0
