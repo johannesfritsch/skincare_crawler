@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 function MiniStat({
   label,
@@ -52,18 +53,11 @@ export default function VideoPipelineClient() {
 
   if (v.total === 0) {
     return (
-      <div
-        style={{
-          padding: '24px',
-          textAlign: 'center',
-          color: 'var(--theme-elevation-500)',
-          fontSize: '0.875rem',
-          border: '1px solid var(--theme-elevation-150)',
-          backgroundColor: 'var(--theme-elevation-0)',
-        }}
-      >
-        No videos yet
-      </div>
+      <WidgetContainer>
+        <div style={{ padding: '8px 0', textAlign: 'center', color: 'var(--theme-elevation-500)', fontSize: '0.875rem' }}>
+          No videos yet
+        </div>
+      </WidgetContainer>
     )
   }
 
@@ -74,13 +68,7 @@ export default function VideoPipelineClient() {
   const discovered = v.total - v.crawled - v.processed
 
   return (
-    <div
-      style={{
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
       {/* Pipeline progress: discovered → crawled → processed */}
       <div style={{ marginBottom: '16px' }}>
         <div
@@ -223,6 +211,6 @@ export default function VideoPipelineClient() {
           </div>
         </div>
       )}
-    </div>
+    </WidgetContainer>
   )
 }

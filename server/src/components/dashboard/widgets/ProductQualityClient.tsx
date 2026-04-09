@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 interface QualityBarProps {
   label: string
@@ -59,18 +60,11 @@ export default function ProductQualityClient() {
   const { productQuality: q } = snapshot
   if (q.total === 0) {
     return (
-      <div
-        style={{
-          padding: '24px',
-          textAlign: 'center',
-          color: 'var(--theme-elevation-500)',
-          fontSize: '0.875rem',
-          border: '1px solid var(--theme-elevation-150)',
-          backgroundColor: 'var(--theme-elevation-0)',
-        }}
-      >
-        No products yet
-      </div>
+      <WidgetContainer>
+        <div style={{ padding: '8px 0', textAlign: 'center', color: 'var(--theme-elevation-500)', fontSize: '0.875rem' }}>
+          No products yet
+        </div>
+      </WidgetContainer>
     )
   }
 
@@ -88,13 +82,7 @@ export default function ProductQualityClient() {
   )
 
   return (
-    <div
-      style={{
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
       {/* Overall completeness score */}
       <div
         style={{
@@ -159,6 +147,6 @@ export default function ProductQualityClient() {
         total={q.total}
         color="#f59e0b"
       />
-    </div>
+    </WidgetContainer>
   )
 }

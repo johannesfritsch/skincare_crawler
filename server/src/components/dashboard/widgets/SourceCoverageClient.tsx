@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 const SOURCE_LABELS: Record<string, string> = {
   dm: 'dm',
@@ -37,30 +38,17 @@ export default function SourceCoverageClient() {
 
   if (!snapshot || snapshot.sourceCoverage.length === 0) {
     return (
-      <div
-        style={{
-          padding: '24px',
-          textAlign: 'center',
-          color: 'var(--theme-elevation-500)',
-          fontSize: '0.875rem',
-          border: '1px solid var(--theme-elevation-150)',
-          backgroundColor: 'var(--theme-elevation-0)',
-        }}
-      >
-        No source data
-      </div>
+      <WidgetContainer>
+        <div style={{ padding: '8px 0', textAlign: 'center', color: 'var(--theme-elevation-500)', fontSize: '0.875rem' }}>
+          No source data
+        </div>
+      </WidgetContainer>
     )
   }
 
   return (
-    <div
-      style={{
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-        overflowX: 'auto',
-      }}
-    >
+    <WidgetContainer>
+      <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -174,6 +162,7 @@ export default function SourceCoverageClient() {
           })}
         </tbody>
       </table>
-    </div>
+      </div>
+    </WidgetContainer>
   )
 }

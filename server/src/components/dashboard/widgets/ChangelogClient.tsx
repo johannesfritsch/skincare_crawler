@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { WidgetContainer } from './WidgetContainer'
 
 interface Commit {
   hash: string
@@ -69,7 +70,7 @@ export default function ChangelogClient() {
   const hasMore = changelog.commits.length > INITIAL_SHOW
 
   return (
-    <div style={{ padding: '16px' }}>
+    <WidgetContainer>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         marginBottom: '12px',
@@ -200,6 +201,6 @@ export default function ChangelogClient() {
           Show less
         </button>
       )}
-    </div>
+    </WidgetContainer>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 const COLLECTION_LABELS: Record<string, string> = {
   'product-crawls': 'Product Crawls',
@@ -34,30 +35,17 @@ export default function EventJobsClient() {
 
   if (!data || data.byJobCollection.length === 0) {
     return (
-      <div
-        style={{
-          padding: '24px',
-          textAlign: 'center',
-          color: 'var(--theme-elevation-500)',
-          fontSize: '0.875rem',
-          border: '1px solid var(--theme-elevation-150)',
-          backgroundColor: 'var(--theme-elevation-0)',
-        }}
-      >
-        No job activity
-      </div>
+      <WidgetContainer>
+        <div style={{ padding: '8px 0', textAlign: 'center', color: 'var(--theme-elevation-500)', fontSize: '0.875rem' }}>
+          No job activity
+        </div>
+      </WidgetContainer>
     )
   }
 
   return (
-    <div
-      style={{
-        overflowX: 'auto',
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
+      <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -117,6 +105,7 @@ export default function EventJobsClient() {
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </WidgetContainer>
   )
 }

@@ -10,6 +10,7 @@ import {
   Cell,
 } from 'recharts'
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 const DOMAIN_COLORS: Record<string, string> = {
   crawl: '#3b82f6',
@@ -38,18 +39,11 @@ export default function EventDomainsClient() {
 
   if (!data || data.byDomain.length === 0) {
     return (
-      <div
-        style={{
-          padding: '24px',
-          textAlign: 'center',
-          color: 'var(--theme-elevation-500)',
-          fontSize: '0.875rem',
-          border: '1px solid var(--theme-elevation-150)',
-          backgroundColor: 'var(--theme-elevation-0)',
-        }}
-      >
-        No domain data
-      </div>
+      <WidgetContainer>
+        <div style={{ padding: '8px 0', textAlign: 'center', color: 'var(--theme-elevation-500)', fontSize: '0.875rem' }}>
+          No domain data
+        </div>
+      </WidgetContainer>
     )
   }
 
@@ -60,46 +54,40 @@ export default function EventDomainsClient() {
   }))
 
   return (
-    <div
-      style={{
-        width: '100%',
-        height: Math.max(220, chartData.length * 32 + 40),
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} layout="vertical" barCategoryGap="20%">
-          <XAxis
-            type="number"
-            tick={{ fontSize: 11, fill: 'var(--theme-elevation-500)' }}
-            tickLine={false}
-            axisLine={false}
-            allowDecimals={false}
-          />
-          <YAxis
-            type="category"
-            dataKey="domain"
-            tick={{ fontSize: 12, fill: 'var(--theme-text)' }}
-            tickLine={false}
-            axisLine={false}
-            width={120}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: 'var(--theme-elevation-0)',
-              border: '1px solid var(--theme-elevation-150)',
-              fontSize: '0.8125rem',
-            }}
-          />
-          <Bar dataKey="total" radius={[0, 4, 4, 0]}>
-            {chartData.map((entry) => (
-              <Cell key={entry.domain} fill={getDomainColor(entry.domain)} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <WidgetContainer>
+      <div style={{ width: '100%', height: Math.max(220, chartData.length * 32 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} layout="vertical" barCategoryGap="20%">
+            <XAxis
+              type="number"
+              tick={{ fontSize: 11, fill: 'var(--theme-elevation-500)' }}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="domain"
+              tick={{ fontSize: 12, fill: 'var(--theme-text)' }}
+              tickLine={false}
+              axisLine={false}
+              width={120}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'var(--theme-elevation-0)',
+                border: '1px solid var(--theme-elevation-150)',
+                fontSize: '0.8125rem',
+              }}
+            />
+            <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+              {chartData.map((entry) => (
+                <Cell key={entry.domain} fill={getDomainColor(entry.domain)} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </WidgetContainer>
   )
 }

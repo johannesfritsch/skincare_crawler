@@ -121,7 +121,7 @@ export default buildConfig({
           slug: 'event-timeline',
           label: 'Event Timeline',
           ComponentPath: '/components/dashboard/widgets/EventTimeline',
-          minWidth: 'large',
+          minWidth: 'medium',
           maxWidth: 'full',
         },
         {
@@ -156,7 +156,7 @@ export default buildConfig({
           slug: 'event-errors',
           label: 'Recent Errors',
           ComponentPath: '/components/dashboard/widgets/EventErrors',
-          minWidth: 'large',
+          minWidth: 'medium',
           maxWidth: 'full',
         },
         {
@@ -202,6 +202,13 @@ export default buildConfig({
           maxWidth: 'full',
         },
         {
+          slug: 'media-storage',
+          label: 'Media Storage',
+          ComponentPath: '/components/dashboard/widgets/MediaStorage',
+          minWidth: 'medium',
+          maxWidth: 'full',
+        },
+        {
           slug: 'changelog',
           label: 'Changelog',
           ComponentPath: '/components/dashboard/widgets/Changelog',
@@ -210,19 +217,23 @@ export default buildConfig({
         },
       ],
       defaultLayout: [
+        // Full-width overview
         { widgetSlug: 'database-overview', width: 'full' },
         { widgetSlug: 'event-summary', width: 'full' },
         { widgetSlug: 'event-timeline', width: 'full' },
         { widgetSlug: 'event-highlights', width: 'full' },
+        // 2-col pairs
         { widgetSlug: 'source-coverage', width: 'medium' },
         { widgetSlug: 'product-quality', width: 'medium' },
-        { widgetSlug: 'ingredient-stats', width: 'medium' },
         { widgetSlug: 'video-pipeline', width: 'medium' },
+        { widgetSlug: 'ingredient-stats', width: 'medium' },
         { widgetSlug: 'event-sources', width: 'medium' },
         { widgetSlug: 'event-domains', width: 'medium' },
-        { widgetSlug: 'job-queue', width: 'full' },
-        { widgetSlug: 'event-jobs', width: 'large' },
-        { widgetSlug: 'event-errors', width: 'full' },
+        { widgetSlug: 'job-queue', width: 'medium' },
+        { widgetSlug: 'media-storage', width: 'medium' },
+        { widgetSlug: 'event-jobs', width: 'medium' },
+        { widgetSlug: 'event-errors', width: 'medium' },
+        // Full-width bottom
         { widgetSlug: 'changelog', width: 'full' },
       ],
     },

@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 export default function IngredientStatsClient() {
   const { data } = useDashboardState()
@@ -20,13 +21,7 @@ export default function IngredientStatsClient() {
     .reduce((sum, g) => sum + g.ingredients, 0)
 
   return (
-    <div
-      style={{
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
       {/* Header row: total + progress bar */}
       <div style={{ marginBottom: '16px' }}>
         <div
@@ -115,7 +110,7 @@ export default function IngredientStatsClient() {
         <SourceCard label="1 source" count={withOneSource} total={total} color="#f59e0b" />
         <SourceCard label="2+ sources" count={withTwoPlus} total={total} color="#22c55e" />
       </div>
-    </div>
+    </WidgetContainer>
   )
 }
 

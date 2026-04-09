@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 interface EntityCardProps {
   label: string
@@ -53,13 +54,7 @@ export default function DatabaseOverviewClient() {
   const { entities } = snapshot
 
   return (
-    <div
-      style={{
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
       <div
         style={{
           display: 'grid',
@@ -79,6 +74,6 @@ export default function DatabaseOverviewClient() {
         <EntityCard label="Channels" value={entities.channels} color="#14b8a6" />
         <EntityCard label="Media Files" value={entities.mediaFiles} color="#64748b" />
       </div>
-    </div>
+    </WidgetContainer>
   )
 }

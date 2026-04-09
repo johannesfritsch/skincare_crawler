@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 interface MetricProps {
   label: string
@@ -111,19 +112,18 @@ export default function EventHighlightsClient() {
   metrics.push({ icon: '\u23F1\uFE0F', label: 'Avg Batch', value: formatDuration(h.avgBatchDurationMs) })
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
-        gap: '8px',
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
-      {metrics.map((m) => (
-        <Metric key={m.label} icon={m.icon} label={m.label} value={m.value} />
-      ))}
-    </div>
+    <WidgetContainer>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+          gap: '8px',
+        }}
+      >
+        {metrics.map((m) => (
+          <Metric key={m.label} icon={m.icon} label={m.label} value={m.value} />
+        ))}
+      </div>
+    </WidgetContainer>
   )
 }

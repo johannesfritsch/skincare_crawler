@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 interface StatCardProps {
   label: string
@@ -53,22 +54,21 @@ export default function EventSummaryClient() {
   const { summary } = data
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '12px',
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
-      <StatCard label="Total Events" value={summary.totalEvents} />
-      <StatCard label="Errors" value={summary.errors} color="#ef4444" />
-      <StatCard label="Warnings" value={summary.warnings} color="#f59e0b" />
-      <StatCard label="Jobs Started" value={summary.jobsStarted} color="#3b82f6" />
-      <StatCard label="Jobs Completed" value={summary.jobsCompleted} color="#22c55e" />
-      <StatCard label="Jobs Failed" value={summary.jobsFailed} color="#ef4444" />
-    </div>
+    <WidgetContainer>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '12px',
+        }}
+      >
+        <StatCard label="Total Events" value={summary.totalEvents} />
+        <StatCard label="Errors" value={summary.errors} color="#ef4444" />
+        <StatCard label="Warnings" value={summary.warnings} color="#f59e0b" />
+        <StatCard label="Jobs Started" value={summary.jobsStarted} color="#3b82f6" />
+        <StatCard label="Jobs Completed" value={summary.jobsCompleted} color="#22c55e" />
+        <StatCard label="Jobs Failed" value={summary.jobsFailed} color="#ef4444" />
+      </div>
+    </WidgetContainer>
   )
 }

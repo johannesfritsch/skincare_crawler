@@ -58,6 +58,7 @@ import { default as default_c925feff919a3a381391617fafb4590d } from '../../../co
 import { default as default_bf6bd238e8206ba71321b608b9bba97a } from '../../../components/dashboard/widgets/SourceCoverage'
 import { default as default_8c9ecd99e7466f2170429759b098aa4c } from '../../../components/dashboard/widgets/VideoPipeline'
 import { default as default_2b2c8fff53fd1c745a247d113d2dcb79 } from '../../../components/dashboard/widgets/JobQueue'
+import { default as default_0471427a09a173215c8d6c5e58f6a030 } from '../../../components/dashboard/widgets/MediaStorage'
 import { default as default_5f01643d55b2edf75092f92363fa3d91 } from '../../../components/dashboard/widgets/Changelog'
 import { CollectionCards as CollectionCards_ab83ff7e88da8d3530831f296ec4756a } from '@payloadcms/ui/rsc'
 
@@ -122,6 +123,7 @@ export const importMap = {
   "/components/dashboard/widgets/SourceCoverage#default": default_bf6bd238e8206ba71321b608b9bba97a,
   "/components/dashboard/widgets/VideoPipeline#default": default_8c9ecd99e7466f2170429759b098aa4c,
   "/components/dashboard/widgets/JobQueue#default": default_2b2c8fff53fd1c745a247d113d2dcb79,
+  "/components/dashboard/widgets/MediaStorage#default": default_0471427a09a173215c8d6c5e58f6a030,
   "/components/dashboard/widgets/Changelog#default": default_5f01643d55b2edf75092f92363fa3d91,
   "@payloadcms/ui/rsc#CollectionCards": CollectionCards_ab83ff7e88da8d3530831f296ec4756a
 }

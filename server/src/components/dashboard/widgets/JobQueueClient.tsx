@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 const COLLECTION_LABELS: Record<string, string> = {
   'product-crawls': 'Product Crawls',
@@ -58,13 +59,7 @@ export default function JobQueueClient() {
   )
 
   return (
-    <div
-      style={{
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
       {/* Workers section */}
       <div style={{ marginBottom: '16px' }}>
         <div
@@ -278,6 +273,6 @@ export default function JobQueueClient() {
           </table>
         </div>
       )}
-    </div>
+    </WidgetContainer>
   )
 }

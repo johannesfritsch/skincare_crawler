@@ -23,6 +23,13 @@ export interface SnapshotResponse {
     mediaFiles: number
   }
 
+  /** Per-bucket media storage breakdown */
+  mediaByBucket: Array<{
+    bucket: string
+    fileCount: number
+    totalSizeBytes: number
+  }>
+
   /** Product data quality — completeness of unified product records */
   productQuality: {
     total: number
@@ -108,6 +115,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
     channelPlatformRows,
     jobQueueRows,
     workerRows,
+    mediaBucketRows,
   ] = await Promise.all([
     // 1. Entity counts
     db.execute(sql`
@@ -126,7 +134,9 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
           (SELECT count(*) FROM product_media) +
           (SELECT count(*) FROM video_media) +
           (SELECT count(*) FROM profile_media) +
-          (SELECT count(*) FROM detection_media)
+          (SELECT count(*) FROM brand_media) +
+          (SELECT count(*) FROM detection_media) +
+          (SELECT count(*) FROM ingredient_media)
         )::int AS "mediaFiles"
     `),
 
@@ -261,6 +271,17 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       FROM workers
       ORDER BY last_seen_at DESC NULLS LAST
     `),
+
+    // 12. Media storage per bucket
+    db.execute(sql`
+      SELECT 'product-media' as bucket, count(*)::int as file_count, COALESCE(sum(filesize), 0)::bigint as total_size_bytes FROM product_media
+      UNION ALL SELECT 'video-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM video_media
+      UNION ALL SELECT 'profile-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM profile_media
+      UNION ALL SELECT 'brand-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM brand_media
+      UNION ALL SELECT 'detection-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM detection_media
+      UNION ALL SELECT 'ingredient-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM ingredient_media
+      ORDER BY bucket
+    `),
   ])
 
   // ---------------------------------------------------------------------------
@@ -385,6 +406,12 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       status: String(row.status ?? ''),
       lastSeenAt: row.lastSeenAt ? String(row.lastSeenAt) : null,
       capabilities: capsByWorker.get(Number(row.id)) ?? [],
+    })),
+
+    mediaByBucket: (mediaBucketRows.rows as Array<Record<string, unknown>>).map((row) => ({
+      bucket: String(row.bucket),
+      fileCount: Number(row.file_count ?? 0),
+      totalSizeBytes: Number(row.total_size_bytes ?? 0),
     })),
   }
 

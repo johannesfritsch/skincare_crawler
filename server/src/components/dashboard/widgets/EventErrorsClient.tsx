@@ -1,6 +1,7 @@
 'use client'
 
 import { useDashboardState } from '../dashboard-store'
+import { WidgetContainer } from './WidgetContainer'
 
 const COLLECTION_LABELS: Record<string, string> = {
   'product-crawls': 'Crawl',
@@ -48,32 +49,23 @@ export default function EventErrorsClient() {
 
   if (!data || data.recentErrors.length === 0) {
     return (
-      <div
-        style={{
-          padding: '24px',
-          textAlign: 'center',
-          color: 'var(--theme-elevation-500)',
-          fontSize: '0.875rem',
-          border: '1px solid var(--theme-elevation-150)',
-          backgroundColor: 'var(--theme-elevation-0)',
-        }}
-      >
-        No errors in this time range
-      </div>
+      <WidgetContainer>
+        <div style={{ padding: '8px 0', textAlign: 'center', color: 'var(--theme-elevation-500)', fontSize: '0.875rem' }}>
+          No errors in this time range
+        </div>
+      </WidgetContainer>
     )
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-        padding: '16px',
-        border: '1px solid var(--theme-elevation-150)',
-        backgroundColor: 'var(--theme-elevation-0)',
-      }}
-    >
+    <WidgetContainer>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+        }}
+      >
       {data.recentErrors.map((err) => {
         const keyData = extractKeyData(err.data)
         const jobLink =
@@ -202,6 +194,7 @@ export default function EventErrorsClient() {
           </div>
         )
       })}
-    </div>
+      </div>
+    </WidgetContainer>
   )
 }
