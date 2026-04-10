@@ -33,6 +33,7 @@ import { ProductSearches } from './collections/ProductSearches'
 import { ProductCrawls } from './collections/ProductCrawls'
 import { ProductAggregations } from './collections/ProductAggregations'
 import { IngredientCrawls } from './collections/IngredientCrawls'
+import { BotChecks } from './collections/BotChecks'
 import { Events } from './collections/Events'
 import { Creators } from './collections/Creators'
 import { Channels } from './collections/Channels'
@@ -251,6 +252,7 @@ export default buildConfig({
     Ingredients,
     IngredientsDiscoveries,
     IngredientCrawls,
+    BotChecks,
     Products,
     ProductVariants,
     SourceProducts,

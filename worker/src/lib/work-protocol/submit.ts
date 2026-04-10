@@ -230,6 +230,17 @@ interface SubmitProductAggregationBody {
   }>
 }
 
+interface SubmitBotCheckBody {
+  type: 'bot-check'
+  jobId: number
+  url: string
+  screenshotId: number | null
+  resultJson: Record<string, unknown>
+  passed: number
+  failed: number
+  total: number
+}
+
 interface SubmitIngredientCrawlBody {
   type: 'ingredient-crawl'
   jobId: number
@@ -257,6 +268,7 @@ type SubmitBody =
   | SubmitVideoProcessingBody
   | SubmitProductAggregationBody
   | SubmitIngredientCrawlBody
+  | SubmitBotCheckBody
 
 export async function submitWork(
   payload: PayloadRestClient,
@@ -283,6 +295,8 @@ export async function submitWork(
       return submitProductAggregation(payload, body)
     case 'ingredient-crawl':
       return submitIngredientCrawl(payload, body)
+    case 'bot-check':
+      return submitBotCheck(payload, body)
     default:
       return { error: 'Unknown job type' }
   }
@@ -1567,4 +1581,34 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
   }
 
   return { crawled, errors, tokensUsed, done: shouldComplete }
+}
+
+async function submitBotCheck(payload: PayloadRestClient, body: SubmitBotCheckBody) {
+  const { jobId, url, screenshotId, resultJson, passed, failed, total } = body
+  const jlog = log.forJob('bot-checks', jobId)
+
+  const job = await payload.findByID({ collection: 'bot-checks', id: jobId }) as Record<string, unknown>
+  const jobStartedAt = (job.startedAt as string) || (job.claimedAt as string) || (job.createdAt as string)
+  const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+
+  await payload.update({
+    collection: 'bot-checks',
+    id: jobId,
+    data: {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      claimedBy: null,
+      claimedAt: null,
+      passed,
+      failed,
+      total,
+      resultJson,
+      ...(screenshotId ? { screenshot: screenshotId } : {}),
+    },
+  })
+
+  jlog.event('bot_check.completed', { url, passed, failed, total })
+  jlog.event('job.completed', { collection: 'bot-checks', durationMs: jobDurationMs })
+
+  return { passed, failed, total, done: true }
 }

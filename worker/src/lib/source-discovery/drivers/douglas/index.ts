@@ -179,6 +179,15 @@ export async function fetchDouglasReviews(
   return reviews.length > 0 ? reviews : undefined
 }
 
+/** Check if the page is an Access Denied / 403 error page from Akamai. */
+async function isAccessDenied(page: Page): Promise<boolean> {
+  const title = await page.title()
+  if (title.toLowerCase().includes('access denied') || title.toLowerCase().includes('403')) return true
+  // Some Akamai blocks show the text in the body without changing the title
+  const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '')
+  return bodyText.toLowerCase().includes('access denied')
+}
+
 /** Dismiss the cookie consent banner if present. Must be called after page load. */
 async function dismissCookieConsent(page: Page): Promise<void> {
   try {
@@ -249,7 +258,14 @@ async function fetchSearchProduct(
   try {
     const resp: DouglasSearchResponse = await page.evaluate(async (url: string) => {
       const r = await fetch(url, {
-        headers: { 'accept': 'application/json', 'accept-language': 'de' },
+        headers: {
+          'accept': 'application/json',
+          'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
+          'sec-fetch-dest': 'empty',
+          'sec-fetch-mode': 'cors',
+          'sec-fetch-site': 'same-origin',
+        },
+        credentials: 'include',
       })
       if (!r.ok) throw new Error(`Search API returned ${r.status}`)
       return r.json()
@@ -407,13 +423,20 @@ export const douglasDriver: SourceDriver = {
     const browser = await launchBrowser({ headless: !debug })
     let page: Page | undefined
     try {
-      const context = await browser.newContext()
+      const context = await browser.newContext({
+        locale: 'de-DE',
+        timezoneId: 'Europe/Berlin',
+        viewport: { width: 1920, height: 1080 },
+      })
       page = await context.newPage()
 
       // Navigate to Douglas to establish Akamai session cookies
       jlog.info('Navigating to Douglas to establish session', { url: `${BASE_URL}/de` })
       await page.goto(`${BASE_URL}/de`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await sleep(randomDelay(2000, 3000))
+      if (await isAccessDenied(page)) {
+        throw new Error('Access denied on Douglas homepage — Akamai blocked the request')
+      }
       await dismissCookieConsent(page)
 
       const products: DiscoveredProduct[] = []
@@ -435,7 +458,14 @@ export const douglasDriver: SourceDriver = {
 
         const resp: DouglasSearchResponse = await page.evaluate(async (url: string) => {
           const r = await fetch(url, {
-            headers: { 'accept': 'application/json', 'accept-language': 'de' },
+            headers: {
+              'accept': 'application/json',
+              'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
+              'sec-fetch-dest': 'empty',
+              'sec-fetch-mode': 'cors',
+              'sec-fetch-site': 'same-origin',
+            },
+            credentials: 'include',
           })
           if (!r.ok) throw new Error(`Search API returned ${r.status}`)
           return r.json()
@@ -528,7 +558,11 @@ export const douglasDriver: SourceDriver = {
     const browser = await launchBrowser({ headless: !debug })
 
     try {
-      const context = await browser.newContext()
+      const context = await browser.newContext({
+        locale: 'de-DE',
+        timezoneId: 'Europe/Berlin',
+        viewport: { width: 1920, height: 1080 },
+      })
       const page = await context.newPage()
 
       /** Extract subcategory links that go deeper than the current URL path */
@@ -794,13 +828,20 @@ export const douglasDriver: SourceDriver = {
     const browser = await launchBrowser({ headless: !debug })
     let page: Page | undefined
     try {
-      const context = await browser.newContext()
+      const context = await browser.newContext({
+        locale: 'de-DE',
+        timezoneId: 'Europe/Berlin',
+        viewport: { width: 1920, height: 1080 },
+      })
       page = await context.newPage()
 
       // ── Step 1: Navigate to homepage and fetch structured data via search API ──
       jlog.info('Establishing session for API access')
       await page.goto(`${BASE_URL}/de`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await sleep(randomDelay(2000, 3000))
+      if (await isAccessDenied(page)) {
+        throw new Error('Access denied on Douglas homepage — Akamai blocked the request')
+      }
       await dismissCookieConsent(page)
 
       // Search by base product code to get structured product data
@@ -817,6 +858,10 @@ export const douglasDriver: SourceDriver = {
       jlog.info('Loading product page', { url: productUrl })
       await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await sleep(randomDelay(3000, 5000))
+      if (await isAccessDenied(page)) {
+        jlog.warn('Access denied on product page', { url: productUrl })
+        return null
+      }
       await dismissCookieConsent(page)
 
       // Scroll down to trigger lazy-loaded content

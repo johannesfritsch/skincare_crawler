@@ -40,6 +40,9 @@ export async function launchBrowser(options: BrowserOptions = {}): Promise<Brows
     ...(executablePath ? { executablePath } : { channel: 'chrome' }),
     headless,
     ...(proxy && { proxy }),
+    args: [
+      '--disable-blink-features=AutomationControlled',
+    ],
   })
   log.debug('browser launched')
   return browser

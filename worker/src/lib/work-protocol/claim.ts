@@ -35,7 +35,7 @@ import {
   type VideoCrawlStageName,
 } from '@/lib/video-crawl/stages'
 
-export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl'
+export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl' | 'bot-check'
 
 interface ActiveJob {
   type: JobType
@@ -55,6 +55,7 @@ export const JOB_TYPE_TO_COLLECTION = {
   'video-processing': 'video-processings',
   'product-aggregation': 'product-aggregations',
   'ingredient-crawl': 'ingredient-crawls',
+  'bot-check': 'bot-checks',
 } as const
 
 const JOB_TYPE_TO_CAPABILITY = {
@@ -67,6 +68,7 @@ const JOB_TYPE_TO_CAPABILITY = {
   'video-processing': 'video-processing',
   'product-aggregation': 'product-aggregation',
   'ingredient-crawl': 'ingredient-crawl',
+  'bot-check': 'bot-check',
 } as const
 
 const log = createLogger('Claim')
@@ -97,6 +99,7 @@ export async function rebuildJobWork(
     case 'video-processing': return buildVideoProcessingWork(payload, jobId)
     case 'product-aggregation': return buildProductAggregationWork(payload, jobId)
     case 'ingredient-crawl': return buildIngredientCrawlWork(payload, jobId)
+    case 'bot-check': return buildBotCheckWork(payload, jobId)
     default: return { type: 'none' }
   }
 }
@@ -230,6 +233,8 @@ export async function claimWork(
           return buildProductAggregationWork(payload, candidate.id)
         case 'ingredient-crawl':
           return buildIngredientCrawlWork(payload, candidate.id)
+        case 'bot-check':
+          return buildBotCheckWork(payload, candidate.id)
         default:
           return { type: 'none' }
       }
@@ -1553,5 +1558,25 @@ async function buildIngredientCrawlWork(payload: PayloadRestClient, jobId: numbe
     crawlType,
     lastCheckedIngredientId: lastId,
     workItems,
+  }
+}
+
+async function buildBotCheckWork(payload: PayloadRestClient, jobId: number) {
+  const jlog = log.forJob('bot-checks', jobId)
+  const job = await payload.findByID({ collection: 'bot-checks', id: jobId }) as Record<string, unknown>
+
+  if (job.status === 'pending') {
+    await payload.update({
+      collection: 'bot-checks',
+      id: jobId,
+      data: { status: 'in_progress', startedAt: new Date().toISOString() },
+    })
+    jlog.event('job.claimed', { collection: 'bot-checks', jobId, total: 1 })
+  }
+
+  return {
+    type: 'bot-check',
+    jobId,
+    url: (job.url as string) || 'https://bot-detector.rebrowser.net/',
   }
 }

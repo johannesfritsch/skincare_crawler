@@ -80,6 +80,7 @@ export interface Config {
     ingredients: Ingredient;
     'ingredients-discoveries': IngredientsDiscovery;
     'ingredient-crawls': IngredientCrawl;
+    'bot-checks': BotCheck;
     products: Product;
     'product-variants': ProductVariant;
     'source-products': SourceProduct;
@@ -149,6 +150,7 @@ export interface Config {
     ingredients: IngredientsSelect<false> | IngredientsSelect<true>;
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     'ingredient-crawls': IngredientCrawlsSelect<false> | IngredientCrawlsSelect<true>;
+    'bot-checks': BotChecksSelect<false> | BotChecksSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'product-variants': ProductVariantsSelect<false> | ProductVariantsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
@@ -695,6 +697,7 @@ export interface Worker {
     | 'video-processing'
     | 'product-aggregation'
     | 'ingredient-crawl'
+    | 'bot-check'
     | 'event-purge'
   )[];
   status: 'active' | 'disabled';
@@ -764,6 +767,354 @@ export interface IngredientCrawl {
    */
   ingredients?: (number | Ingredient)[] | null;
   lastCheckedIngredientId?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "bot-checks".
+ */
+export interface BotCheck {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * URL to visit for bot detection testing
+   */
+  url: string;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  passed?: number | null;
+  failed?: number | null;
+  total?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Full-page screenshot from the bot check
+   */
+  screenshot?: (number | null) | DebugScreenshot;
+  /**
+   * Detailed test results from the bot detector page
+   */
+  resultJson?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Browser screenshots captured during debug-mode crawls, discoveries, and searches
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "debug-screenshots".
+ */
+export interface DebugScreenshot {
+  id: number;
+  alt: string;
+  job?:
+    | ({
+        relationTo: 'product-crawls';
+        value: number | ProductCrawl;
+      } | null)
+    | ({
+        relationTo: 'product-discoveries';
+        value: number | ProductDiscovery;
+      } | null)
+    | ({
+        relationTo: 'product-searches';
+        value: number | ProductSearch;
+      } | null)
+    | ({
+        relationTo: 'bot-checks';
+        value: number | BotCheck;
+      } | null);
+  /**
+   * Which step produced this screenshot (e.g. "brand_url_extraction", "product_page")
+   */
+  step?: string | null;
+  prefix?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  /**
+   * The page URL at the time of the screenshot
+   */
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-crawls".
+ */
+export interface ProductCrawl {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * Products to crawl per batch.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
+   */
+  crawlVariants?: boolean | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  /**
+   * "All in Database" processes existing source-products. The other options target specific products.
+   */
+  type: 'all' | 'selected_urls' | 'from_discovery' | 'from_search';
+  /**
+   * Which store(s) to crawl products from.
+   */
+  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke') | null;
+  /**
+   * One product URL per line. The store is detected automatically from the URL.
+   */
+  urls?: string | null;
+  /**
+   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
+   */
+  discovery?: (number | null) | ProductDiscovery;
+  /**
+   * Crawl the product URLs found by this search. Covers all stores that the search found.
+   */
+  search?: (number | null) | ProductSearch;
+  /**
+   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
+   */
+  scope?: ('uncrawled_only' | 'recrawl') | null;
+  /**
+   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
+   */
+  minCrawlAge?: number | null;
+  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
+  /**
+   * Scrape product data from store pages.
+   */
+  stageScrape?: boolean | null;
+  /**
+   * Fetch reviews from store review APIs (BazaarVoice/Yotpo).
+   */
+  stageReviews?: boolean | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Total products to crawl
+   */
+  total?: number | null;
+  /**
+   * Products successfully crawled
+   */
+  crawled?: number | null;
+  /**
+   * Products that failed to crawl
+   */
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Last batch summary with sample product data and validation results
+   */
+  crawlSnapshot?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  crawlProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  crawledGtins?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-discoveries".
+ */
+export interface ProductDiscovery {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * Max pages per batch. Empty = unlimited.
+   */
+  itemsPerTick?: number | null;
+  /**
+   * Milliseconds between requests. Default: 2000.
+   */
+  delay?: number | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  productUrls?: string | null;
+  /**
+   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
+   */
+  sourceUrls: string;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Product URLs found
+   */
+  discovered?: number | null;
+  /**
+   * Internal state for resumable discovery
+   */
+  progress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "product-searches".
+ */
+export interface ProductSearch {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * Maximum products to import per source. Default: 50.
+   */
+  maxResults?: number | null;
+  /**
+   * Keep browser visible (non-headless).
+   */
+  debug?: boolean | null;
+  productUrls?: string | null;
+  /**
+   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
+   */
+  isGtinSearch?: boolean | null;
+  /**
+   * One query per line. Each line is searched independently across all selected stores.
+   */
+  query: string;
+  /**
+   * Which stores to search. All selected by default.
+   */
+  sources: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke')[];
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  /**
+   * Product URLs found across all sources
+   */
+  discovered?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1783,243 +2134,6 @@ export interface ProductAggregation {
   createdAt: string;
 }
 /**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-discoveries".
- */
-export interface ProductDiscovery {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  /**
-   * Max pages per batch. Empty = unlimited.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Milliseconds between requests. Default: 2000.
-   */
-  delay?: number | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  productUrls?: string | null;
-  /**
-   * Category or product URLs, one per line. Product URLs (e.g. dm.de/...-p1234.html) create source products directly.
-   */
-  sourceUrls: string;
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Product URLs found
-   */
-  discovered?: number | null;
-  /**
-   * Internal state for resumable discovery
-   */
-  progress?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-searches".
- */
-export interface ProductSearch {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  /**
-   * Maximum products to import per source. Default: 50.
-   */
-  maxResults?: number | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  productUrls?: string | null;
-  /**
-   * When enabled, the query is treated as a GTIN and drivers filter results to only return exact GTIN matches.
-   */
-  isGtinSearch?: boolean | null;
-  /**
-   * One query per line. Each line is searched independently across all selected stores.
-   */
-  query: string;
-  /**
-   * Which stores to search. All selected by default.
-   */
-  sources: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke')[];
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Product URLs found across all sources
-   */
-  discovered?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "product-crawls".
- */
-export interface ProductCrawl {
-  id: number;
-  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
-  /**
-   * Number of times this job has been retried after failures
-   */
-  retryCount?: number | null;
-  /**
-   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
-   */
-  maxRetries?: number | null;
-  schedule?: string | null;
-  scheduleLimit?: number | null;
-  scheduleCount?: number | null;
-  scheduledFor?: string | null;
-  /**
-   * Products to crawl per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
-   * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
-   */
-  crawlVariants?: boolean | null;
-  /**
-   * Keep browser visible (non-headless).
-   */
-  debug?: boolean | null;
-  /**
-   * "All in Database" processes existing source-products. The other options target specific products.
-   */
-  type: 'all' | 'selected_urls' | 'from_discovery' | 'from_search';
-  /**
-   * Which store(s) to crawl products from.
-   */
-  source?: ('all' | 'dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke') | null;
-  /**
-   * One product URL per line. The store is detected automatically from the URL.
-   */
-  urls?: string | null;
-  /**
-   * Crawl the product URLs found by this discovery. Covers all stores that the discovery found.
-   */
-  discovery?: (number | null) | ProductDiscovery;
-  /**
-   * Crawl the product URLs found by this search. Covers all stores that the search found.
-   */
-  search?: (number | null) | ProductSearch;
-  /**
-   * "Only Uncrawled" skips products that were already crawled. "Re-crawl All" resets them and crawls again.
-   */
-  scope?: ('uncrawled_only' | 'recrawl') | null;
-  /**
-   * Only re-crawl products last crawled more than this long ago. Leave empty to re-crawl everything.
-   */
-  minCrawlAge?: number | null;
-  minCrawlAgeUnit?: ('minutes' | 'hours' | 'days' | 'weeks') | null;
-  /**
-   * Scrape product data from store pages.
-   */
-  stageScrape?: boolean | null;
-  /**
-   * Fetch reviews from store review APIs (BazaarVoice/Yotpo).
-   */
-  stageReviews?: boolean | null;
-  /**
-   * When the current worker claimed this job
-   */
-  claimedAt?: string | null;
-  /**
-   * Worker currently processing this job
-   */
-  claimedBy?: (number | null) | Worker;
-  /**
-   * Total products to crawl
-   */
-  total?: number | null;
-  /**
-   * Products successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Products that failed to crawl
-   */
-  errors?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  /**
-   * Last batch summary with sample product data and validation results
-   */
-  crawlSnapshot?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  crawlProgress?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  crawledGtins?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
  * Aggregated per-product topic sentiment counts from source reviews
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -2172,6 +2286,10 @@ export interface Event {
     | ({
         relationTo: 'ingredient-crawls';
         value: number | IngredientCrawl;
+      } | null)
+    | ({
+        relationTo: 'bot-checks';
+        value: number | BotCheck;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -2492,58 +2610,6 @@ export interface VideoProcessing {
   createdAt: string;
 }
 /**
- * Browser screenshots captured during debug-mode crawls, discoveries, and searches
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "debug-screenshots".
- */
-export interface DebugScreenshot {
-  id: number;
-  alt: string;
-  job?:
-    | ({
-        relationTo: 'product-crawls';
-        value: number | ProductCrawl;
-      } | null)
-    | ({
-        relationTo: 'product-discoveries';
-        value: number | ProductDiscovery;
-      } | null)
-    | ({
-        relationTo: 'product-searches';
-        value: number | ProductSearch;
-      } | null);
-  /**
-   * Which step produced this screenshot (e.g. "brand_url_extraction", "product_page")
-   */
-  step?: string | null;
-  prefix?: string | null;
-  updatedAt: string;
-  createdAt: string;
-  /**
-   * The page URL at the time of the screenshot
-   */
-  url?: string | null;
-  thumbnailURL?: string | null;
-  filename?: string | null;
-  mimeType?: string | null;
-  filesize?: number | null;
-  width?: number | null;
-  height?: number | null;
-  focalX?: number | null;
-  focalY?: number | null;
-  sizes?: {
-    thumbnail?: {
-      url?: string | null;
-      width?: number | null;
-      height?: number | null;
-      mimeType?: string | null;
-      filesize?: number | null;
-      filename?: string | null;
-    };
-  };
-}
-/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -2614,6 +2680,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'ingredient-crawls';
         value: number | IngredientCrawl;
+      } | null)
+    | ({
+        relationTo: 'bot-checks';
+        value: number | BotCheck;
       } | null)
     | ({
         relationTo: 'products';
@@ -3174,6 +3244,31 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   completedAt?: T;
   ingredients?: T;
   lastCheckedIngredientId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "bot-checks_select".
+ */
+export interface BotChecksSelect<T extends boolean = true> {
+  status?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
+  url?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  passed?: T;
+  failed?: T;
+  total?: T;
+  startedAt?: T;
+  completedAt?: T;
+  screenshot?: T;
+  resultJson?: T;
   updatedAt?: T;
   createdAt?: T;
 }

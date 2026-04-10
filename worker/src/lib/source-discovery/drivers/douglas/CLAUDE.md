@@ -243,6 +243,21 @@ Douglas uses **Akamai Bot Manager**. Key details:
 - No interactive challenge observed (unlike Mueller's Cloudflare verification) — just cookie-based
 - **Akamai sensor intercepts `fetch()` and `XMLHttpRequest` on product pages** — API calls only work from the homepage context (before the sensor fully initializes)
 
+### Anti-Detection Measures
+
+The driver applies several stealth measures to avoid Akamai detection:
+
+1. **Browser context**: `locale: 'de-DE'`, `timezoneId: 'Europe/Berlin'`, `viewport: 1920x1080` — matches a real German user
+2. **Launch args**: `--disable-blink-features=AutomationControlled` removes the `navigator.webdriver` automation signal
+3. **Proxy session duration**: Must be ≥10 minutes (`sessionduration-10` in Decodo username) — a full scrape with variant fetches can take 2-3 minutes; shorter sessions cause mid-scrape IP rotation that invalidates Akamai cookies
+4. **Fetch headers**: `page.evaluate(fetch)` calls include `sec-fetch-dest`, `sec-fetch-mode`, `sec-fetch-site`, and `credentials: 'include'` to match real browser same-origin fetch behavior
+5. **Access Denied detection**: After every `page.goto()`, the driver checks the page title and body for "Access Denied" / 403 markers. If detected on the homepage → throws (fails the job). If detected on a product page → returns `null` (skips the product, prevents garbage data like scraping "Access Denied" as the product name).
+
+### Known Limitations
+
+- **TLS fingerprint**: Playwright's bundled Chromium has a different TLS fingerprint (JA3/JA4) than real Google Chrome. Akamai may use this for detection. Installing `google-chrome-stable` on the worker machine would provide an authentic TLS fingerprint.
+- **HTTP/2 fingerprint**: Automation tools have known HTTP/2 SETTINGS frame fingerprints that differ from real browsers.
+
 ## Product Detail Page
 
 The product detail page embeds two large JavaScript objects:

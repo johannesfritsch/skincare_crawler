@@ -19,7 +19,7 @@ export const DebugScreenshots: CollectionConfig = {
     {
       name: 'job',
       type: 'relationship',
-      relationTo: ['product-crawls', 'product-discoveries', 'product-searches'],
+      relationTo: ['product-crawls', 'product-discoveries', 'product-searches', 'bot-checks'],
       index: true,
     },
     {

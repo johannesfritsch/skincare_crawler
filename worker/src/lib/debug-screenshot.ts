@@ -4,7 +4,7 @@ import { createLogger } from '@/lib/logger'
 
 const log = createLogger('DebugScreenshot')
 
-type JobCollection = 'product-crawls' | 'product-discoveries' | 'product-searches'
+type JobCollection = 'product-crawls' | 'product-discoveries' | 'product-searches' | 'bot-checks'
 
 interface DebugScreenshotOptions {
   page: Page

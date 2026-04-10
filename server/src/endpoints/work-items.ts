@@ -15,6 +15,7 @@ const JOB_TABLES = [
   'video_discoveries',
   'video_processings',
   'ingredient_crawls',
+  'bot_checks',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,7 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   'product-discoveries': PRODUCT_DISCOVERY_STAGES,
   'video-discoveries': VIDEO_DISCOVERY_STAGES,
   'ingredients-discoveries': INGREDIENTS_DISCOVERY_STAGES,
+  'bot-checks': [{ name: 'execute', jobField: '_always' }],
 }
 
 /** Get enabled stages for a job document */
@@ -846,6 +848,10 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
         } else if (collection === 'ingredient-crawls') {
           initData.crawled = 0
           initData.tokensUsed = 0
+        } else if (collection === 'bot-checks') {
+          initData.passed = 0
+          initData.failed = 0
+          initData.total = 0
         } else {
           // product-searches, product-discoveries, video-discoveries, ingredients-discoveries
           initData.discovered = 0

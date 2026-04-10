@@ -88,8 +88,8 @@ const TABS: NavTab[] = [
         collections: ['product-media', 'video-media', 'profile-media', 'brand-media', 'detection-media', 'ingredient-media'],
       },
       {
-        label: 'Other',
-        collections: ['debug-screenshots'],
+        label: 'Debug',
+        collections: ['bot-checks', 'debug-screenshots'],
       },
     ],
   },
@@ -119,6 +119,7 @@ const COLLECTION_LABELS: Record<string, string> = {
   'users': 'Users',
   'workers': 'Workers',
   'events': 'Events',
+  'bot-checks': 'Bot Checks',
   'debug-screenshots': 'Debug Screenshots',
   'product-media': 'Product Media',
   'video-media': 'Video Media',

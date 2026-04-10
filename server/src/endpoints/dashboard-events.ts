@@ -229,10 +229,11 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
               WHEN video_discoveries_id IS NOT NULL THEN 'video-discoveries'
               WHEN video_processings_id IS NOT NULL THEN 'video-processings'
               WHEN ingredient_crawls_id IS NOT NULL THEN 'ingredient-crawls'
+              WHEN bot_checks_id IS NOT NULL THEN 'bot-checks'
             END AS collection,
             coalesce(product_crawls_id, product_discoveries_id, product_searches_id,
               ingredients_discoveries_id, product_aggregations_id, video_crawls_id,
-              video_discoveries_id, video_processings_id, ingredient_crawls_id) AS job_id
+              video_discoveries_id, video_processings_id, ingredient_crawls_id, bot_checks_id) AS job_id
           FROM events_rels
           WHERE path = 'job'
         ) r ON r.parent_id = e.id
@@ -267,10 +268,11 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
               WHEN video_discoveries_id IS NOT NULL THEN 'video-discoveries'
               WHEN video_processings_id IS NOT NULL THEN 'video-processings'
               WHEN ingredient_crawls_id IS NOT NULL THEN 'ingredient-crawls'
+              WHEN bot_checks_id IS NOT NULL THEN 'bot-checks'
             END AS collection,
             coalesce(product_crawls_id, product_discoveries_id, product_searches_id,
               ingredients_discoveries_id, product_aggregations_id, video_crawls_id,
-              video_discoveries_id, video_processings_id, ingredient_crawls_id) AS job_id
+              video_discoveries_id, video_processings_id, ingredient_crawls_id, bot_checks_id) AS job_id
           FROM events_rels
           WHERE path = 'job'
         ) r ON r.parent_id = e.id

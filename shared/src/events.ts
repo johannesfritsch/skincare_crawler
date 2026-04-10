@@ -55,6 +55,7 @@ export type JobCollection =
   | 'video-crawls'
   | 'video-processings'
   | 'ingredient-crawls'
+  | 'bot-checks'
 
 export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'critical'
@@ -379,6 +380,11 @@ export interface EventRegistry {
     durationMs: number
     withInciDecoder: number
   }
+
+  // ─── Bot Check ──────────────────────────────────────────────────────
+  'bot_check.started': { url: string }
+  'bot_check.completed': { url: string; passed: number; failed: number; total: number }
+  'bot_check.error': { url: string; error: string }
 
   // ─── Video Discovery ──────────────────────────────────────────────────
   // worker.ts: handler start
@@ -1024,6 +1030,11 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     level: 'info',
     labels: ['ingredients'],
   },
+
+  // Bot check
+  'bot_check.started': { type: 'start', level: 'info', labels: ['bot-check'] },
+  'bot_check.completed': { type: 'success', level: 'info', labels: ['bot-check'] },
+  'bot_check.error': { type: 'error', level: 'error', labels: ['bot-check'] },
 
   // Video discovery
   'video_discovery.started': {

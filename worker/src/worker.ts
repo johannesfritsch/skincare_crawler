@@ -25,6 +25,7 @@ import { failJob, retryOrFail } from '@/lib/work-protocol/job-failure'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
 import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
+import { runBotCheck } from '@/lib/bot-check'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { STAGES, getEnabledStages, getNextStage, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
@@ -1007,6 +1008,9 @@ async function processWorkItem(
   } else if (jobType === 'ingredients-discovery') {
     // ── Per-URL: discover ingredients from one source ──
     await processDiscoveryStage(jobId, 'ingredients-discoveries', work, item, jlog, handleIngredientsDiscovery)
+  } else if (jobType === 'bot-check') {
+    // ── Single-shot: run bot detection check ──
+    await processBotCheckStage(jobId, work, item, jlog)
   } else {
     log.error('Unknown job type for work item', { jobType, itemKey: item.item_key, stageName: item.stage_name })
     await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown job type: ${jobType}` })
@@ -1959,6 +1963,65 @@ async function processProductSearchStage(
     if (done) {
       if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
       else jlog.event('job.completed', { collection: 'product-searches', durationMs })
+    }
+  }
+}
+
+// ─── Bot Check ───
+
+async function processBotCheckStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const url = (work.url as string) || 'https://bot-detector.rebrowser.net/'
+  log.banner(`BOT CHECK: ${url}`, { jobId })
+  jlog.event('bot_check.started', { url })
+
+  const stageStartMs = Date.now()
+  try {
+    const result = await runBotCheck(url, client, jobId, jlog)
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`BOT CHECK: ${url}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, passed: result.resultJson.passed, failed: result.resultJson.failed })
+
+    // Extract screenshot ID from the URL (captureDebugScreenshot returns the URL, but we need the ID for the relationship)
+    // We'll pass the resultJson and screenshot info via submitWork instead
+    await submitWork(client, worker, {
+      type: 'bot-check',
+      jobId,
+      url,
+      screenshotId: null, // screenshot is uploaded inside runBotCheck
+      resultJson: result.resultJson,
+      passed: result.resultJson.passed,
+      failed: result.resultJson.failed,
+      total: result.resultJson.total,
+    })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+    })
+    if (done && jobStatus === 'failed') {
+      jlog.event('job.failed', { reason: 'Work item failed' })
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.error('Bot check failed', { jobId, url, error })
+    log.bannerEnd(`BOT CHECK: ${url}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('bot_check.error', { url, error })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+      counterUpdates: { errors: 1 },
+    })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'bot-checks', durationMs })
     }
   }
 }

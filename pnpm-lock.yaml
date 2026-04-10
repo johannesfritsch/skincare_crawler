@@ -4,13 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@payloadcms/plugin-cloud-storage': 3.73.0
-  '@payloadcms/ui>payload': 3.73.0
-
 importers:
 
-  .: {}
+  .:
+    dependencies:
+      undici:
+        specifier: ^7.24.6
+        version: 7.24.7
 
   server:
     dependencies:
@@ -177,15 +177,18 @@ importers:
       openai:
         specifier: ^6.16.0
         version: 6.27.0(ws@8.19.0)(zod@3.25.76)
+      playwright:
+        specifier: npm:rebrowser-playwright@1.52.0
+        version: rebrowser-playwright@1.52.0
       playwright-core:
-        specifier: 1.56.1
-        version: 1.56.1
+        specifier: npm:rebrowser-playwright-core@1.52.0
+        version: rebrowser-playwright-core@1.52.0
       playwright-extra:
         specifier: ^4.3.6
-        version: 4.3.6(playwright-core@1.56.1)(playwright@1.56.1)
+        version: 4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)
       puppeteer-extra-plugin-stealth:
         specifier: ^2.11.2
-        version: 2.11.2(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1))
+        version: 2.11.2(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0))
       sharp:
         specifier: ^0.34.2
         version: 0.34.5
@@ -6033,6 +6036,16 @@ packages:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
 
+  rebrowser-playwright-core@1.52.0:
+    resolution: {integrity: sha512-gjrvLNh0RX6B/tg6pWaPNGf+9+z1Jl2EyAh5MXD5xMa2lputGRZ9V2MJ/uofcC5Np3vSOJ3SdVSRqwteC0FjfQ==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  rebrowser-playwright@1.52.0:
+    resolution: {integrity: sha512-UjpqfwmF9+XtOuCCxGQ2ZlLeuSaSv//4Z6ZQgYPsJovz3d7nWodCd2hSRQigAswAUnsPmVwnQUpSn+TLKaKV+A==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   recast@0.23.11:
     resolution: {integrity: sha512-YTUo+Flmw4ZXiWfQKGcwwc11KnoRAYgzAE2E7mXKCjSviTKShtxBsN6YUUBB2gtaBzKzeKunxhUwNHQuRryhWA==}
     engines: {node: '>= 4'}
@@ -6655,6 +6668,10 @@ packages:
 
   undici@7.18.2:
     resolution: {integrity: sha512-y+8YjDFzWdQlSE9N5nzKMT3g4a5UBX1HKowfdXh0uvAnTaqqwqB92Jt4UXBAeKekDs5IaDKyJFR4X1gYVCgXcw==}
+    engines: {node: '>=20.18.1'}
+
+  undici@7.24.7:
+    resolution: {integrity: sha512-H/nlJ/h0ggGC+uRL3ovD+G0i4bqhvsDOpbDv7At5eFLlj2b41L8QliGbnl2H7SnDiYhENphh1tQFJZf+MyfLsQ==}
     engines: {node: '>=20.18.1'}
 
   unicorn-magic@0.3.0:
@@ -13198,12 +13215,12 @@ snapshots:
 
   playwright-core@1.56.1: {}
 
-  playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1):
+  playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0):
     dependencies:
       debug: 4.4.3
     optionalDependencies:
-      playwright: 1.56.1
-      playwright-core: 1.56.1
+      playwright: rebrowser-playwright@1.52.0
+      playwright-core: rebrowser-playwright-core@1.52.0
     transitivePeerDependencies:
       - supports-color
 
@@ -13314,45 +13331,45 @@ snapshots:
 
   punycode@2.3.1: {}
 
-  puppeteer-extra-plugin-stealth@2.11.2(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1)):
+  puppeteer-extra-plugin-stealth@2.11.2(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)):
     dependencies:
       debug: 4.4.3
-      puppeteer-extra-plugin: 3.2.3(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1))
-      puppeteer-extra-plugin-user-preferences: 2.4.1(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1))
+      puppeteer-extra-plugin: 3.2.3(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0))
+      puppeteer-extra-plugin-user-preferences: 2.4.1(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0))
     optionalDependencies:
-      playwright-extra: 4.3.6(playwright-core@1.56.1)(playwright@1.56.1)
+      playwright-extra: 4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)
     transitivePeerDependencies:
       - supports-color
 
-  puppeteer-extra-plugin-user-data-dir@2.4.1(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1)):
+  puppeteer-extra-plugin-user-data-dir@2.4.1(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)):
     dependencies:
       debug: 4.4.3
       fs-extra: 10.1.0
-      puppeteer-extra-plugin: 3.2.3(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1))
+      puppeteer-extra-plugin: 3.2.3(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0))
       rimraf: 3.0.2
     optionalDependencies:
-      playwright-extra: 4.3.6(playwright-core@1.56.1)(playwright@1.56.1)
+      playwright-extra: 4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)
     transitivePeerDependencies:
       - supports-color
 
-  puppeteer-extra-plugin-user-preferences@2.4.1(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1)):
+  puppeteer-extra-plugin-user-preferences@2.4.1(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)):
     dependencies:
       debug: 4.4.3
       deepmerge: 4.3.1
-      puppeteer-extra-plugin: 3.2.3(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1))
-      puppeteer-extra-plugin-user-data-dir: 2.4.1(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1))
+      puppeteer-extra-plugin: 3.2.3(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0))
+      puppeteer-extra-plugin-user-data-dir: 2.4.1(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0))
     optionalDependencies:
-      playwright-extra: 4.3.6(playwright-core@1.56.1)(playwright@1.56.1)
+      playwright-extra: 4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)
     transitivePeerDependencies:
       - supports-color
 
-  puppeteer-extra-plugin@3.2.3(playwright-extra@4.3.6(playwright-core@1.56.1)(playwright@1.56.1)):
+  puppeteer-extra-plugin@3.2.3(playwright-extra@4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)):
     dependencies:
       '@types/debug': 4.1.12
       debug: 4.4.3
       merge-deep: 3.0.3
     optionalDependencies:
-      playwright-extra: 4.3.6(playwright-core@1.56.1)(playwright@1.56.1)
+      playwright-extra: 4.3.6(rebrowser-playwright-core@1.52.0)(rebrowser-playwright@1.52.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -13546,6 +13563,14 @@ snapshots:
       picomatch: 2.3.1
 
   real-require@0.2.0: {}
+
+  rebrowser-playwright-core@1.52.0: {}
+
+  rebrowser-playwright@1.52.0:
+    dependencies:
+      playwright-core: rebrowser-playwright-core@1.52.0
+    optionalDependencies:
+      fsevents: 2.3.2
 
   recast@0.23.11:
     dependencies:
@@ -14321,6 +14346,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici@7.18.2: {}
+
+  undici@7.24.7: {}
 
   unicorn-magic@0.3.0: {}
 
