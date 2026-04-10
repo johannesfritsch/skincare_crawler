@@ -127,7 +127,7 @@ export const muellerDriver: SourceDriver = {
       return maxPages !== undefined && pagesUsed >= maxPages
     }
 
-    const browser = await launchBrowser({ headless: !debug })
+    const browser = await launchBrowser()
 
     try {
       const page = await browser.newPage()
@@ -388,7 +388,7 @@ export const muellerDriver: SourceDriver = {
 
     log.info('Searching Mueller', { query, maxResults })
 
-    const browser = await launchBrowser({ headless: !debug })
+    const browser = await launchBrowser()
     let page!: Page
     try {
       page = await browser.newPage()
@@ -538,7 +538,7 @@ export const muellerDriver: SourceDriver = {
       logger?.event('scraper.started', { url: sourceUrl, source: 'mueller' })
 
       const debug = options?.debug ?? false
-      const browser = await launchBrowser({ headless: !debug })
+      const browser = await launchBrowser()
       let page: Page | undefined
       try {
         page = await browser.newPage()

@@ -188,6 +188,25 @@ async function isAccessDenied(page: Page): Promise<boolean> {
   return bodyText.toLowerCase().includes('access denied')
 }
 
+/**
+ * Wait for the Akamai sensor to complete its validation POST.
+ * The sensor runs asynchronously on the homepage, collects browser fingerprints,
+ * and POSTs them to Akamai's backend. Until this completes, the _abck cookie
+ * remains in a pre-validation state and subsequent requests get 403.
+ */
+async function waitForAkamaiSensor(page: Page, jlog: Logger | typeof log): Promise<void> {
+  try {
+    await page.waitForResponse(
+      (resp) => resp.url().includes('douglas.de') && resp.request().method() === 'POST' && resp.status() === 200,
+      { timeout: 15_000 },
+    )
+    jlog.info('Akamai sensor POST completed')
+  } catch {
+    jlog.warn('Akamai sensor POST not detected within 15s, proceeding anyway')
+  }
+  await sleep(randomDelay(2000, 3000))
+}
+
 /** Dismiss the cookie consent banner if present. Must be called after page load. */
 async function dismissCookieConsent(page: Page): Promise<void> {
   try {
@@ -253,23 +272,19 @@ async function fetchSearchProduct(
     pageSize: '5',
     query,
   })
-  const apiUrl = `/jsapi/v2/products/search?${params.toString()}`
+  const apiUrl = `${BASE_URL}/jsapi/v2/products/search?${params.toString()}`
 
   try {
-    const resp: DouglasSearchResponse = await page.evaluate(async (url: string) => {
-      const r = await fetch(url, {
-        headers: {
-          'accept': 'application/json',
-          'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
-          'sec-fetch-dest': 'empty',
-          'sec-fetch-mode': 'cors',
-          'sec-fetch-site': 'same-origin',
-        },
-        credentials: 'include',
-      })
-      if (!r.ok) throw new Error(`Search API returned ${r.status}`)
-      return r.json()
-    }, apiUrl)
+    // Navigate to the API URL directly — Akamai blocks fetch() from page.evaluate
+    // (detects debugger eval context) but allows normal page navigations.
+    const response = await page.goto(apiUrl, { waitUntil: 'domcontentloaded', timeout: 15_000 })
+    if (!response || !response.ok()) {
+      const status = response?.status() ?? 0
+      const body = await page.textContent('body').catch(() => '') ?? ''
+      throw new Error(`Search API returned ${status}: ${body.slice(0, 200)}`)
+    }
+    const text = await page.textContent('body') ?? '{}'
+    const resp: DouglasSearchResponse = JSON.parse(text)
 
     return resp.products?.[0] ?? null
   } catch (e) {
@@ -420,15 +435,10 @@ export const douglasDriver: SourceDriver = {
     const { query, maxResults = 50, debug, logger, debugContext } = options
     const jlog = logger || log
 
-    const browser = await launchBrowser({ headless: !debug })
+    const browser = await launchBrowser()
     let page: Page | undefined
     try {
-      const context = await browser.newContext({
-        locale: 'de-DE',
-        timezoneId: 'Europe/Berlin',
-        viewport: { width: 1920, height: 1080 },
-      })
-      page = await context.newPage()
+      page = await browser.newPage()
 
       // Navigate to Douglas to establish Akamai session cookies
       jlog.info('Navigating to Douglas to establish session', { url: `${BASE_URL}/de` })
@@ -437,6 +447,7 @@ export const douglasDriver: SourceDriver = {
       if (await isAccessDenied(page)) {
         throw new Error('Access denied on Douglas homepage — Akamai blocked the request')
       }
+      await waitForAkamaiSensor(page, jlog)
       await dismissCookieConsent(page)
 
       const products: DiscoveredProduct[] = []
@@ -453,23 +464,18 @@ export const douglasDriver: SourceDriver = {
           currentPage: String(currentPage),
         })
 
-        const apiUrl = `/jsapi/v2/products/search?${params.toString()}`
+        const apiUrl = `${BASE_URL}/jsapi/v2/products/search?${params.toString()}`
         jlog.info('Fetching search page', { page: currentPage, query })
 
-        const resp: DouglasSearchResponse = await page.evaluate(async (url: string) => {
-          const r = await fetch(url, {
-            headers: {
-              'accept': 'application/json',
-              'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
-              'sec-fetch-dest': 'empty',
-              'sec-fetch-mode': 'cors',
-              'sec-fetch-site': 'same-origin',
-            },
-            credentials: 'include',
-          })
-          if (!r.ok) throw new Error(`Search API returned ${r.status}`)
-          return r.json()
-        }, apiUrl)
+        // Navigate to API URL directly — Akamai blocks fetch() from page.evaluate
+        const apiResponse = await page.goto(apiUrl, { waitUntil: 'domcontentloaded', timeout: 15_000 })
+        if (!apiResponse || !apiResponse.ok()) {
+          const status = apiResponse?.status() ?? 0
+          jlog.warn('Search API returned non-OK', { page: currentPage, status })
+          break
+        }
+        const apiText = await page.textContent('body') ?? '{}'
+        const resp: DouglasSearchResponse = JSON.parse(apiText)
 
         if (!resp.products?.length) {
           jlog.info('No products in search response', { page: currentPage })
@@ -555,15 +561,10 @@ export const douglasDriver: SourceDriver = {
       return maxPages !== undefined && pagesUsed >= maxPages
     }
 
-    const browser = await launchBrowser({ headless: !debug })
+    const browser = await launchBrowser()
 
     try {
-      const context = await browser.newContext({
-        locale: 'de-DE',
-        timezoneId: 'Europe/Berlin',
-        viewport: { width: 1920, height: 1080 },
-      })
-      const page = await context.newPage()
+      const page = await browser.newPage()
 
       /** Extract subcategory links that go deeper than the current URL path */
       function extractSubcategoryLinks(currentPath: string) {
@@ -825,23 +826,56 @@ export const douglasDriver: SourceDriver = {
 
     jlog.info('Scraping Douglas product', { url: sourceUrl, baseProduct, variantCode })
 
-    const browser = await launchBrowser({ headless: !debug })
+    const browser = await launchBrowser()
     let page: Page | undefined
     try {
-      const context = await browser.newContext({
-        locale: 'de-DE',
-        timezoneId: 'Europe/Berlin',
-        viewport: { width: 1920, height: 1080 },
+      page = await browser.newPage()
+
+      // ── Diagnostic: log POST requests + console errors to debug Akamai sensor ──
+      page.on('request', (req) => {
+        if (req.method() === 'POST' && req.url().includes('douglas.de')) {
+          jlog.info('POST request detected', { url: req.url().slice(0, 120) })
+        }
       })
-      page = await context.newPage()
+      page.on('response', (resp) => {
+        if (resp.request().method() === 'POST' && resp.url().includes('douglas.de')) {
+          jlog.info('POST response', { url: resp.url().slice(0, 120), status: resp.status() })
+        }
+      })
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          jlog.debug('Console error', { text: msg.text().slice(0, 200) })
+        }
+      })
+      page.on('pageerror', (err) => {
+        jlog.debug('Page error', { error: err.message.slice(0, 200) })
+      })
 
       // ── Step 1: Navigate to homepage and fetch structured data via search API ──
       jlog.info('Establishing session for API access')
-      await page.goto(`${BASE_URL}/de`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      const homepageResponse = await page.goto(`${BASE_URL}/de`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await sleep(randomDelay(2000, 3000))
+
+      // ── Diagnostic: log what the homepage returned ──
+      const homepageStatus = homepageResponse?.status() ?? 0
+      const homepageTitle = await page.title()
+      const cookies = await page.context().cookies()
+      const abckCookie = cookies.find(c => c.name === '_abck')
+      const akBmscCookie = cookies.find(c => c.name === 'ak_bmsc')
+      jlog.info('Homepage loaded', {
+        status: homepageStatus,
+        title: homepageTitle.slice(0, 80),
+        hasCookies: cookies.length,
+        hasAbck: !!abckCookie,
+        abckLength: abckCookie?.value?.length ?? 0,
+        abckPrefix: abckCookie?.value?.slice(0, 20) ?? '',
+        hasAkBmsc: !!akBmscCookie,
+      })
+
       if (await isAccessDenied(page)) {
         throw new Error('Access denied on Douglas homepage — Akamai blocked the request')
       }
+      await waitForAkamaiSensor(page, jlog)
       await dismissCookieConsent(page)
 
       // Search by base product code to get structured product data
@@ -889,9 +923,6 @@ export const douglasDriver: SourceDriver = {
 
       if (otherVariantCodes.length > 0) {
         jlog.info('Fetching GTINs for sibling variants', { count: otherVariantCodes.length })
-        // Navigate back to homepage for API access
-        await page.goto(`${BASE_URL}/de`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-        await sleep(randomDelay(1500, 2500))
 
         for (const code of otherVariantCodes) {
           const variantProduct = await fetchSearchProduct(page, code, jlog)

@@ -788,7 +788,7 @@ export const dmDriver: SourceDriver = {
       //   </h1>
       let brandUrl: string | undefined
       try {
-        const browser = await launchBrowser({ headless: true })
+        const browser = await launchBrowser()
         try {
           const page = await browser.newPage()
           // DM is an SPA — navigate and wait for the brand link to render

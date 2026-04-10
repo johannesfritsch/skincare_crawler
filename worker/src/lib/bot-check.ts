@@ -25,12 +25,7 @@ export async function runBotCheck(
 ): Promise<BotCheckResult> {
   const browser = await launchBrowser()
   try {
-    const context = await browser.newContext({
-      locale: 'de-DE',
-      timezoneId: 'Europe/Berlin',
-      viewport: { width: 1920, height: 1080 },
-    })
-    const page = await context.newPage()
+    const page = await browser.newPage()
 
     jlog.info('Navigating to bot detector', { url })
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })

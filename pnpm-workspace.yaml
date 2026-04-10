@@ -2,3 +2,5 @@ packages:
   - server
   - worker
   - shared
+
+onlyBuiltDependencies: sharp,esbuild,unrs-resolver,onnxruntime-node,better-sqlite3

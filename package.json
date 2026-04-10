@@ -6,7 +6,8 @@
       "sharp",
       "esbuild",
       "unrs-resolver",
-      "onnxruntime-node"
+      "onnxruntime-node",
+      "better-sqlite3"
     ]
   },
   "overrides": {
