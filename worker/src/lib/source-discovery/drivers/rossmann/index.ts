@@ -433,14 +433,15 @@ export const rossmannDriver: SourceDriver = {
   async searchProducts(
     options: ProductSearchOptions,
   ): Promise<ProductSearchResult> {
-    const { query, maxResults = 50, isGtinSearch = false, debug = false, logger } = options
+    const { query, maxResults = 50, isGtinSearch = false, debug = false, logger, debugContext } = options
     const products: import('../../types').DiscoveredProduct[] = []
 
     log.info('Searching Rossmann', { query, maxResults, isGtinSearch })
 
     const browser = await launchBrowser({ headless: !debug })
+    let page!: Page
     try {
-      const page = await browser.newPage()
+      page = await browser.newPage()
 
       // Navigate to search page
       const searchUrl = `https://www.rossmann.de/de/search?text=${encodeURIComponent(query)}`
@@ -549,6 +550,21 @@ export const rossmannDriver: SourceDriver = {
         log.info('Debug mode: browser kept open. Press "Resume" in the Playwright inspector to continue.')
         await page.pause()
       }
+    } catch (err) {
+      if (page && debugContext) {
+        const screenshotUrl = await captureDebugScreenshot({
+          page,
+          client: debugContext.client,
+          jobCollection: debugContext.jobCollection,
+          jobId: debugContext.jobId,
+          step: 'search-error',
+          label: err instanceof Error ? err.message : String(err),
+        }).catch(() => null)
+        if (screenshotUrl && err instanceof Error) {
+          ;(err as any).screenshotUrl = screenshotUrl
+        }
+      }
+      throw err
     } finally {
       await browser.close()
     }

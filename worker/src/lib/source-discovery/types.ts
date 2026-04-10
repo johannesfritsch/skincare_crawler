@@ -97,6 +97,12 @@ export interface ProductSearchOptions {
   isGtinSearch?: boolean
   /** Job-scoped logger for event emission */
   logger?: import('@/lib/logger').Logger
+  /** Debug context for screenshot-on-error */
+  debugContext?: {
+    client: import('@/lib/payload-client').PayloadRestClient
+    jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'
+    jobId: number
+  }
 }
 
 export interface ProductSearchResult {

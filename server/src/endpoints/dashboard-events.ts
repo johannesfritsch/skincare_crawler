@@ -154,16 +154,15 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
   const [summaryRows, timelineRows, domainRows, sourceRows, jobCollectionRows, errorRows, highlightRows, ingredientStatsRows, ingredientSourceGroupRows] =
     await Promise.all([
       // 1. Summary
-      // Note: job completion events are domain-specific (crawl.completed, search.completed, etc.)
-      // not job.completed. job.completed_empty is emitted for jobs that finish with no work.
-      // job.claimed is the universal "started" event. job.failed/job.failed_max_retries are universal failures.
+      // job.started is the universal run start. job.completed is the universal success.
+      // job.failed/job.failed_max_retries are universal failures.
       db.execute(sql`
         SELECT
           count(*)::int AS "totalEvents",
           count(*) FILTER (WHERE type = 'error')::int AS errors,
           count(*) FILTER (WHERE type = 'warning')::int AS warnings,
-          count(*) FILTER (WHERE name = 'job.claimed')::int AS "jobsStarted",
-          count(*) FILTER (WHERE name LIKE '%.completed' OR name = 'job.completed_empty')::int AS "jobsCompleted",
+          count(*) FILTER (WHERE name IN ('job.started', 'job.claimed'))::int AS "jobsStarted",
+          count(*) FILTER (WHERE name IN ('job.completed', 'job.completed_empty'))::int AS "jobsCompleted",
           count(*) FILTER (WHERE name IN ('job.failed', 'job.failed_max_retries'))::int AS "jobsFailed"
         FROM events
         WHERE created_at >= ${cutoffISO}::timestamptz
@@ -213,8 +212,8 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
       db.execute(sql`
         SELECT
           collection,
-          count(*) FILTER (WHERE e.name = 'job.claimed')::int AS started,
-          count(*) FILTER (WHERE e.name LIKE '%.completed' OR e.name = 'job.completed_empty')::int AS completed,
+          count(*) FILTER (WHERE e.name IN ('job.started', 'job.claimed'))::int AS started,
+          count(*) FILTER (WHERE e.name IN ('job.completed', 'job.completed_empty'))::int AS completed,
           count(*) FILTER (WHERE e.name IN ('job.failed', 'job.failed_max_retries'))::int AS failed,
           count(*) FILTER (WHERE e.name = 'job.retrying')::int AS retrying
         FROM events e
@@ -239,8 +238,8 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
         ) r ON r.parent_id = e.id
         WHERE r.collection IS NOT NULL
           AND e.created_at >= ${cutoffISO}::timestamptz
-          AND (e.name = 'job.claimed' OR e.name LIKE '%.completed' OR e.name = 'job.completed_empty'
-               OR e.name IN ('job.failed', 'job.failed_max_retries', 'job.retrying'))
+          AND e.name IN ('job.started', 'job.claimed', 'job.completed', 'job.completed_empty',
+               'job.failed', 'job.failed_max_retries', 'job.retrying')
         GROUP BY collection
         ORDER BY started DESC
       `),

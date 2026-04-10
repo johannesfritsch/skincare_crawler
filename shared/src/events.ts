@@ -84,6 +84,7 @@ export interface EventRegistry {
   // claim.ts: job claimed & initialized, early completions
   // job-failure.ts: failures & retries
 
+  'job.started': { collection: string; jobId: number; total?: number }
   'job.claimed': { collection: string; jobId: number; total?: number }
   'job.completed': { collection: string; durationMs?: number }
   'job.completed_empty': { collection: string; reason: string }
@@ -773,6 +774,7 @@ export interface EventRegistry {
  */
 export const EVENT_META: Record<EventName, EventMeta> = {
   // Job lifecycle
+  'job.started': { type: 'start', level: 'info' },
   'job.claimed': { type: 'start', level: 'info' },
   'job.completed': { type: 'success', level: 'info' },
   'job.completed_empty': { type: 'success', level: 'info' },

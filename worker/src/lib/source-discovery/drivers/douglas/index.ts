@@ -401,13 +401,14 @@ export const douglasDriver: SourceDriver = {
   },
 
   async searchProducts(options: ProductSearchOptions): Promise<ProductSearchResult> {
-    const { query, maxResults = 50, debug, logger } = options
+    const { query, maxResults = 50, debug, logger, debugContext } = options
     const jlog = logger || log
 
     const browser = await launchBrowser({ headless: !debug })
+    let page: Page | undefined
     try {
       const context = await browser.newContext()
-      const page = await context.newPage()
+      page = await context.newPage()
 
       // Navigate to Douglas to establish Akamai session cookies
       jlog.info('Navigating to Douglas to establish session', { url: `${BASE_URL}/de` })
@@ -485,6 +486,21 @@ export const douglasDriver: SourceDriver = {
       logger?.event('search.source_complete', { source: 'douglas', query, results: products.length })
 
       return { products }
+    } catch (err) {
+      if (page && debugContext) {
+        const screenshotUrl = await captureDebugScreenshot({
+          page,
+          client: debugContext.client,
+          jobCollection: debugContext.jobCollection,
+          jobId: debugContext.jobId,
+          step: 'search-error',
+          label: err instanceof Error ? err.message : String(err),
+        }).catch(() => null)
+        if (screenshotUrl && err instanceof Error) {
+          ;(err as any).screenshotUrl = screenshotUrl
+        }
+      }
+      throw err
     } finally {
       await browser.close()
     }

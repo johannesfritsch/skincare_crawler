@@ -74,7 +74,7 @@ function buildGroups(events: FullJobEvent[]): EventGroupData[] {
   const subGroupCounts = new Map<string, number>()
 
   for (const event of events) {
-    const isRunStart = event.name === 'job.claimed'
+    const isRunStart = event.name === 'job.started'
     const isStageStart = event.name === 'stage.started'
 
     // job.claimed starts a new run group

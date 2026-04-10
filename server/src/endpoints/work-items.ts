@@ -76,6 +76,21 @@ const PRODUCT_SEARCH_STAGES: StageDef[] = [
   { name: 'search', jobField: '_always' },
 ]
 
+/** Product discovery: 1 stage per source URL */
+const PRODUCT_DISCOVERY_STAGES: StageDef[] = [
+  { name: 'discover', jobField: '_always' },
+]
+
+/** Video discovery: 1 stage per channel URL */
+const VIDEO_DISCOVERY_STAGES: StageDef[] = [
+  { name: 'discover', jobField: '_always' },
+]
+
+/** Ingredients discovery: 1 stage per source URL */
+const INGREDIENTS_DISCOVERY_STAGES: StageDef[] = [
+  { name: 'discover', jobField: '_always' },
+]
+
 /** All job types that use work items. Multi-stage pipelines have their stages listed.
  *  Single-stage ("execute") types run the whole job as one work item. */
 const JOB_PIPELINES: Record<string, StageDef[]> = {
@@ -86,10 +101,9 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   'product-aggregations': PRODUCT_AGGREGATION_STAGES,
   'ingredient-crawls': INGREDIENT_CRAWL_STAGES,
   'product-searches': PRODUCT_SEARCH_STAGES,
-  // Single-stage (sequential) — one work item per job
-  'product-discoveries': [{ name: 'execute', jobField: '_always' }],
-  'ingredients-discoveries': [{ name: 'execute', jobField: '_always' }],
-  'video-discoveries': [{ name: 'execute', jobField: '_always' }],
+  'product-discoveries': PRODUCT_DISCOVERY_STAGES,
+  'video-discoveries': VIDEO_DISCOVERY_STAGES,
+  'ingredients-discoveries': INGREDIENTS_DISCOVERY_STAGES,
 }
 
 /** Get enabled stages for a job document */
@@ -169,6 +183,24 @@ async function seedJobWorkItems(
     const searchItems = await resolveProductSearchItems(db, job)
     for (const itemKey of searchItems) {
       items.push({ itemKey, stageName: firstStage })
+    }
+  } else if (collection === 'product-discoveries') {
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    for (const url of resolveProductDiscoveryUrls(job)) {
+      items.push({ itemKey: url, stageName: firstStage })
+    }
+  } else if (collection === 'video-discoveries') {
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    for (const url of resolveVideoDiscoveryUrls(job)) {
+      items.push({ itemKey: url, stageName: firstStage })
+    }
+  } else if (collection === 'ingredients-discoveries') {
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    for (const url of resolveIngredientsDiscoveryUrls(job)) {
+      items.push({ itemKey: url, stageName: firstStage })
     }
   } else {
     // Single-stage: one work item for the entire job
@@ -568,6 +600,29 @@ async function resolveProductSearchItems(
   return items
 }
 
+/**
+ * Resolve source URLs for a product-discovery job.
+ */
+function resolveProductDiscoveryUrls(job: Record<string, unknown>): string[] {
+  return ((job.sourceUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+}
+
+/**
+ * Resolve channel URL for a video-discovery job.
+ */
+function resolveVideoDiscoveryUrls(job: Record<string, unknown>): string[] {
+  const url = ((job.channelUrl as string) ?? '').trim()
+  return url ? [url] : []
+}
+
+/**
+ * Resolve source URL for an ingredients-discovery job.
+ */
+function resolveIngredientsDiscoveryUrls(job: Record<string, unknown>): string[] {
+  const url = ((job.sourceUrl as string) ?? '').trim()
+  return url ? [url] : []
+}
+
 // ---------------------------------------------------------------------------
 // Internal: Try to claim pending work items (shared SQL logic)
 // ---------------------------------------------------------------------------
@@ -771,55 +826,60 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
         WHERE "job_collection" = ${collection} AND "job_id" = ${jobId}
       `)
 
-      const stages = JOB_PIPELINES[collection]
-      const isMultiStage = stages && stages.length > 1
-
-      if (isMultiStage) {
-        // Multi-stage jobs: server handles initialization
-        try {
-          const initData: Record<string, unknown> = {
-            status: 'in_progress',
-            startedAt: new Date().toISOString(),
-            errors: 0,
-          }
-          // Per-collection counter fields
-          if (collection === 'product-crawls') {
-            initData.crawled = 0
-            initData.crawledGtins = ''
-          } else if (collection === 'video-crawls') {
-            initData.crawled = 0
-            initData.crawledVideoUrls = ''
-          } else if (collection === 'product-aggregations') {
-            initData.aggregated = 0
-            initData.tokensUsed = 0
-          } else if (collection === 'ingredient-crawls') {
-            initData.crawled = 0
-            initData.tokensUsed = 0
-          } else if (collection === 'product-searches') {
-            initData.discovered = 0
-          } else {
-            initData.completed = 0
-            initData.tokensUsed = 0
-          }
-          await req.payload.update({
-            collection: collection as any,
-            id: jobId,
-            data: initData,
-            overrideAccess: true,
-          })
-        } catch {
-          continue // another worker/request already initialized it
+      // Initialize job: status → in_progress, reset counters
+      try {
+        const initData: Record<string, unknown> = {
+          status: 'in_progress',
+          startedAt: new Date().toISOString(),
+          errors: 0,
         }
+        // Per-collection counter fields
+        if (collection === 'product-crawls') {
+          initData.crawled = 0
+          initData.crawledGtins = ''
+        } else if (collection === 'video-crawls') {
+          initData.crawled = 0
+          initData.crawledVideoUrls = ''
+        } else if (collection === 'product-aggregations') {
+          initData.aggregated = 0
+          initData.tokensUsed = 0
+        } else if (collection === 'ingredient-crawls') {
+          initData.crawled = 0
+          initData.tokensUsed = 0
+        } else {
+          // product-searches, product-discoveries, video-discoveries, ingredients-discoveries
+          initData.discovered = 0
+        }
+        await req.payload.update({
+          collection: collection as any,
+          id: jobId,
+          data: initData,
+          overrideAccess: true,
+        })
+      } catch {
+        continue // another worker/request already initialized it
       }
-      // Single-stage ("execute") jobs: leave status as pending so the worker's
-      // buildXxxWork() can run its full initialization (e.g. resetProducts,
-      // clear crawlProgress, count totals). The worker sets in_progress itself.
 
       // Seed work items
       const seeded = await seedJobWorkItems(req.payload, db, collection, jobId)
 
-      // Set total from seeded count for multi-stage jobs
-      if (isMultiStage && seeded > 0) {
+      // Emit job.started event (run delimiter for event viewer)
+      await req.payload.create({
+        collection: 'events',
+        data: {
+          type: 'start',
+          name: 'job.started',
+          level: 'info',
+          component: 'server',
+          message: `[work-items] job.started`,
+          data: { collection, jobId, total: seeded },
+          job: { relationTo: collection as any, value: jobId },
+        },
+        overrideAccess: true,
+      }).catch(() => {}) // non-fatal
+
+      // Set total from seeded count
+      if (seeded > 0) {
         const tableName = collection.replace(/-/g, '_')
         await db.execute(sql`
           UPDATE "${sql.raw(tableName)}" SET "total" = ${seeded}
@@ -977,6 +1037,7 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
   const remaining = Number(((remainingResult as { rows?: Array<Record<string, unknown>> }).rows ?? [])[0]?.remaining ?? 1)
 
   let jobDone = false
+  let jobStatus: 'completed' | 'failed' | null = null
   if (remaining === 0) {
     const failedResult = await db.execute(sql`
       SELECT COUNT(*) as "cnt" FROM "work_items"
@@ -999,6 +1060,7 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
           "claimed_by_id" = NULL, "claimed_at" = NULL
         WHERE "id" = ${jobId} AND "status" = 'in_progress'
       `)
+      jobStatus = 'failed'
     } else {
       await db.execute(sql`
         UPDATE "${sql.raw(tableName)}" SET
@@ -1006,11 +1068,12 @@ export const workItemsCompleteHandler: PayloadHandler = async (req) => {
           "claimed_by_id" = NULL, "claimed_at" = NULL
         WHERE "id" = ${jobId} AND "status" = 'in_progress'
       `)
+      jobStatus = 'completed'
     }
     jobDone = true
   }
 
-  return Response.json({ done: jobDone, remaining })
+  return Response.json({ done: jobDone, remaining, jobStatus })
 }
 
 // ---------------------------------------------------------------------------

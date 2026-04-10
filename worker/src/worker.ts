@@ -980,49 +980,36 @@ async function processWorkItem(
 ): Promise<void> {
   const jobId = work.id as number
 
-  if (jobType === 'video-processing' && item.stage_name !== 'execute') {
+  if (jobType === 'video-processing') {
     // ── Multi-stage: run one stage for one video ──
     await processVideoStage(jobId, work, item, jlog)
-  } else if (jobType === 'product-crawl' && item.stage_name !== 'execute') {
+  } else if (jobType === 'product-crawl') {
     // ── Multi-stage: run one stage for one URL ──
     await processProductCrawlStage(jobId, work, item, jlog)
-  } else if (jobType === 'video-crawl' && item.stage_name !== 'execute') {
+  } else if (jobType === 'video-crawl') {
     // ── Multi-stage: run one stage for one video URL ──
     await processVideoCrawlStage(jobId, work, item, jlog)
-  } else if (jobType === 'product-aggregation' && item.stage_name !== 'execute') {
+  } else if (jobType === 'product-aggregation') {
     // ── Multi-stage: run one stage for one GTIN group ──
     await processProductAggregationStage(jobId, work, item, jlog)
-  } else if (jobType === 'ingredient-crawl' && item.stage_name !== 'execute') {
+  } else if (jobType === 'ingredient-crawl') {
     // ── Per-ingredient: crawl one ingredient ──
     await processIngredientCrawlStage(jobId, work, item, jlog)
-  } else if (jobType === 'product-search' && item.stage_name !== 'execute') {
+  } else if (jobType === 'product-search') {
     // ── Per-(query, source): search one pair ──
     await processProductSearchStage(jobId, work, item, jlog)
+  } else if (jobType === 'product-discovery') {
+    // ── Per-URL: discover products from one source URL ──
+    await processDiscoveryStage(jobId, 'product-discoveries', work, item, jlog, handleProductDiscovery)
+  } else if (jobType === 'video-discovery') {
+    // ── Per-channel: discover videos from one channel ──
+    await processDiscoveryStage(jobId, 'video-discoveries', work, item, jlog, handleVideoDiscovery)
+  } else if (jobType === 'ingredients-discovery') {
+    // ── Per-URL: discover ingredients from one source ──
+    await processDiscoveryStage(jobId, 'ingredients-discoveries', work, item, jlog, handleIngredientsDiscovery)
   } else {
-    // ── "Execute" stage: run the entire job using the existing batch loop ──
-    // The old build→handle→submit cycle runs inside this work item.
-    // submitWork() updates progress; buildXxxWork() finds more batches.
-    // When no more work → loop exits → work item completed.
-    let batchWork = await rebuildJobWork(client, jobType, jobId)
-    while (batchWork.type !== 'none') {
-      switch (jobType) {
-        case 'product-crawl': await handleProductCrawl(batchWork); break
-        case 'product-discovery': await handleProductDiscovery(batchWork); break
-        case 'product-search': await handleProductSearch(batchWork); break
-        case 'ingredients-discovery': await handleIngredientsDiscovery(batchWork); break
-        case 'video-discovery': await handleVideoDiscovery(batchWork); break
-        case 'video-crawl': await handleVideoCrawl(batchWork); break
-        case 'product-aggregation': await handleProductAggregation(batchWork); break
-        case 'ingredient-crawl': await handleIngredientCrawl(batchWork); break
-        default: batchWork = { type: 'none' }; continue
-      }
-      await heartbeat(jobId, jobType)
-      await client.workItems.heartbeat([item.id]).catch(() => {})
-      batchWork = await rebuildJobWork(client, jobType, jobId)
-    }
-
-    // Job is done — mark work item complete
-    await client.workItems.complete({ workItemId: item.id, success: true })
+    log.error('Unknown job type for work item', { jobType, itemKey: item.item_key, stageName: item.stage_name })
+    await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown job type: ${jobType}` })
   }
 }
 
@@ -1123,6 +1110,66 @@ async function processVideoStage(
       tokensSentiment,
     },
   })
+}
+
+/**
+ * Generic discovery stage handler. Runs the existing discovery handler in a
+ * build→handle→submit loop inside a single work item, then reports completion.
+ * Discovery jobs are sequential (cursor-based pagination) but use the per-item
+ * system for lifecycle events and retry.
+ */
+async function processDiscoveryStage(
+  jobId: number,
+  collection: string,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+  handler: (work: Record<string, unknown>) => Promise<void>,
+): Promise<void> {
+  const itemLabel = item.item_key.length > 50 ? `…${item.item_key.slice(-47)}` : item.item_key
+  log.banner(`DISCOVER: ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: collection, stage: 'discover', item: item.item_key })
+
+  const stageStartMs = Date.now()
+
+  try {
+    // Run the existing handler in a loop — it reads/writes progress on the job
+    let batchWork = await rebuildJobWork(client, Object.entries(JOB_TYPE_TO_COLLECTION).find(([, col]) => col === collection)?.[0] as JobType, jobId)
+    while (batchWork.type !== 'none') {
+      await handler(batchWork)
+      await heartbeat(jobId, collection)
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+      batchWork = await rebuildJobWork(client, Object.entries(JOB_TYPE_TO_COLLECTION).find(([, col]) => col === collection)?.[0] as JobType, jobId)
+    }
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`DISCOVER: ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s` })
+    jlog.event('stage.completed', { pipeline: collection, stage: 'discover', item: item.item_key, durationMs, tokens: 0 })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+    })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection, durationMs })
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`DISCOVER: ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: collection, stage: 'discover', item: item.item_key, durationMs, error })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+    })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection, durationMs })
+    }
+  }
 }
 
 /**
@@ -1300,7 +1347,7 @@ async function processProductCrawlStage(
     jlog.event('stage.completed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, tokens: 0 })
 
     // Report completion
-    const { done } = await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: true,
       nextStageName: nextStage?.name ?? null,
@@ -1312,6 +1359,8 @@ async function processProductCrawlStage(
 
     // Emit job completion event if this was the last work item
     if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection: 'product-crawls', durationMs })
       jlog.event('crawl.completed', { source, crawled: 1, errors: 0, durationMs })
     }
   } else if (stageName === 'reviews') {
@@ -1354,7 +1403,7 @@ async function processProductCrawlStage(
     })
     jlog.event('stage.completed', { pipeline: 'product-crawl', stage: stageName, item: sourceUrl, durationMs, tokens: 0 })
 
-    const { done } = await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: reviewResult.success,
       error: reviewResult.error,
@@ -1362,6 +1411,8 @@ async function processProductCrawlStage(
     })
 
     if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection: 'product-crawls', durationMs })
       jlog.event('crawl.completed', { source, crawled: 0, errors: 0, durationMs })
     }
   } else {
@@ -1437,7 +1488,7 @@ async function processVideoCrawlStage(
 
     const nextStage = result.success ? getNextVideoCrawlStage(stageName, enabledStages) : null
 
-    const { done } = await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: result.success,
       error: result.error,
@@ -1458,6 +1509,8 @@ async function processVideoCrawlStage(
     }
 
     if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection: 'video-crawls', durationMs })
       jlog.event('video_crawl.completed', { crawled: 1, errors: 0, durationMs })
     }
   } catch (e) {
@@ -1600,7 +1653,7 @@ async function processProductAggregationStage(
 
     const nextStage = result.success ? getNextAggregationStage(stageName, enabledStages) : null
 
-    const { done } = await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: result.success,
       error: result.error,
@@ -1613,6 +1666,8 @@ async function processProductAggregationStage(
     })
 
     if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection: 'product-aggregations', durationMs })
       jlog.event('aggregation.completed', { aggregated: 1, errors: 0, durationMs, tokensUsed: tokens, failedProducts: 0 })
     }
   } catch (e) {
@@ -1784,23 +1839,31 @@ async function processIngredientCrawlStage(
     log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, tokens: tokensUsed })
     jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: tokensUsed })
 
-    await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: true,
       counterUpdates: { crawled: 1, tokensUsed },
     })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection: 'ingredient-crawls', durationMs })
+    }
   } catch (e) {
     const durationMs = Date.now() - stageStartMs
     const error = e instanceof Error ? e.message : String(e)
     log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
     jlog.event('stage.failed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, error })
 
-    await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: false,
       error,
       counterUpdates: { errors: 1 },
     })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'ingredient-crawls', durationMs })
+    }
   }
 }
 
@@ -1841,7 +1904,10 @@ async function processProductSearchStage(
     }
 
     log.info('Searching', { jobId, query, source: sourceSlug, maxResults, isGtinSearch })
-    const result = await driver.searchProducts({ query, maxResults, isGtinSearch, debug, logger: jlog })
+    const result = await driver.searchProducts({
+      query, maxResults, isGtinSearch, debug, logger: jlog,
+      debugContext: { client, jobCollection: 'product-searches' as const, jobId },
+    })
     const products = result.products
 
     jlog.event('search.source_complete', { source: sourceSlug, query, results: products.length })
@@ -1865,28 +1931,35 @@ async function processProductSearchStage(
     const durationMs = Date.now() - stageStartMs
     log.bannerEnd(`SEARCH: ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, results: products.length })
 
-    const { done } = await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: true,
       counterUpdates: { discovered: products.length },
     })
 
     if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else jlog.event('job.completed', { collection: 'product-searches', durationMs })
       jlog.event('search.completed', { sources: sourceSlug, discovered: products.length, durationMs })
     }
   } catch (e) {
     const durationMs = Date.now() - stageStartMs
     const error = e instanceof Error ? e.message : String(e)
-    log.error('Search failed', { jobId, query, source: sourceSlug, error })
+    const screenshotUrl = (e as any)?.screenshotUrl as string | undefined
+    log.error('Search failed', { jobId, query, source: sourceSlug, error, screenshotUrl })
     log.bannerEnd(`SEARCH: ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
-    jlog.event('search.error', { query, source: sourceSlug, error })
+    jlog.event('search.error', { query, source: sourceSlug, error, screenshotUrl })
 
-    await client.workItems.complete({
+    const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: false,
       error,
       counterUpdates: { errors: 1 },
     })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'product-searches', durationMs })
+    }
   }
 }
 
@@ -2028,10 +2101,8 @@ async function main(): Promise<void> {
           } catch (handlerError) {
             const reason = handlerError instanceof Error ? handlerError.message : String(handlerError)
             log.error('Handler threw unrecoverable error', { jobType, jobId, error: reason })
-            // Mark work item as failed
+            // Mark work item as failed — the complete endpoint handles per-item retry
             await client.workItems.complete({ workItemId: item.id, success: false, error: reason }).catch(() => {})
-            // Trigger retryOrFail which emits critical events (job.failed / job.failed_max_retries)
-            await retryOrFail(client, jobCollection as import('@anyskin/shared').JobCollection, jobId, reason).catch(() => {})
           }
         } else {
           log.warn('Unknown job collection for work item', { jobCollection, jobId })

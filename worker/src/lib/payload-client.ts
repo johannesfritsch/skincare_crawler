@@ -268,7 +268,7 @@ export class PayloadRestClient {
       counterUpdates?: Record<string, number>
       spawnItems?: Array<{ itemKey: string; stageName: string }>
       totalDelta?: number
-    }): Promise<{ done: boolean; remaining: number }> => {
+    }): Promise<{ done: boolean; remaining: number; jobStatus?: 'completed' | 'failed' | null }> => {
       return this.request('POST', '/work-items/complete', opts) as Promise<{ done: boolean; remaining: number }>
     },
 
