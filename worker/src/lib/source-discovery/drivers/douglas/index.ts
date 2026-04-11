@@ -158,109 +158,167 @@ function isAccessDenied(html: string): boolean {
 // ─── HTML extraction with cheerio ───────────────────────────────────────────
 
 /** Extract product data from fully rendered product page HTML. */
-function extractProductFromHtml(html: string, variantCode: string | null) {
+function extractProductFromHtml(html: string, baseProductCode: string, variantCode: string | null) {
   const $ = cheerio.load(html)
 
   // ── Product name from h1 ──
   const h1 = $('h1').first().text().trim()
 
-  // ── Brand name — from headline structure or meta ──
-  // Douglas renders brand in the h1 as a separate span/link before the product name
-  const brandEl = $('h1 a, [data-testid="product-headline-content"] a').first()
-  const brandName = brandEl.text().trim() || undefined
+  // ── Brand name — from first span in h1 (before the product line link) ──
+  // H1 structure: <span>Brand Category </span><a>Product Line </a><span data-testid="header-product-name">Name</span>
+  const headlineContent = $('[data-testid="product-headline-content"]').first()
+  const brandSpan = headlineContent.children('span').first().text().trim()
+  // Brand is the first word(s) before the category word in the span
+  // e.g. "Lancôme Gesichtscreme" → brand is "Lancôme"
+  const brandName = brandSpan.split(/\s+/)[0] || undefined
 
-  // ── Description — from accordion sections ──
+  // ── Brand URL — from the link in h1 ──
+  const brandLink = headlineContent.find('a').first()
+  const brandHref = brandLink.attr('href')
+
+  // ── Description — assembled from multiple rendered sections ──
   let description = ''
-  const accordionHeaders = $('[data-testid*="accordion"] [role="heading"], [class*="accordion"] [role="heading"]')
-  accordionHeaders.each((_, el) => {
-    const heading = $(el).text().trim()
-    const content = $(el).closest('[class*="accordion"]').find('[class*="contents"], [class*="content"]').first().text().trim()
-    if (heading && content) {
-      description += `## ${heading}\n\n${content}\n\n`
+
+  // 1. Produktinformationen — bullet points
+  const bullets = $('[data-testid="bullet-points"]').first()
+  if (bullets.length) {
+    const items = bullets.children().map((_, el) => $(el).text().trim()).get().filter(Boolean)
+    if (items.length) {
+      description += '## Produktinformationen\n\n'
+      for (const item of items) description += `- ${item}\n`
+      description += '\n'
+    }
+  }
+
+  // 2. Produktdetails — marketing copy (h2 heading + paragraphs)
+  const detailsEl = $('[data-testid="product-details-description"]').first()
+  if (detailsEl.length) {
+    const heading = detailsEl.find('h2').first().text().trim()
+    const paragraphs = detailsEl.find('p').map((_, el) => $(el).text().trim()).get().filter(Boolean)
+    if (heading || paragraphs.length) {
+      description += '## Produktdetails\n\n'
+      if (heading) description += `### ${heading}\n\n`
+      if (paragraphs.length) description += paragraphs.join('\n\n') + '\n\n'
+    }
+  }
+
+  // 3. Anwendung — from #srchOpt--application section
+  const applicationEl = $('#srchOpt--application').first()
+  if (applicationEl.length) {
+    const appText = applicationEl.text().trim()
+    if (appText.length > 10) {
+      description += '## Anwendung\n\n' + appText + '\n\n'
+    }
+  }
+
+  // 4. Warnhinweise — from #srchOpt--safety-information section
+  const safetyEl = $('#srchOpt--safety-information').first()
+  if (safetyEl.length) {
+    const safetyText = safetyEl.text().trim()
+    if (safetyText.length > 5) {
+      description += '## Warnhinweise\n\n' + safetyText + '\n\n'
+    }
+  }
+
+  // 5. Eigenschaften — from classifications (key-value pairs)
+  const classifications: Array<{ label: string; value: string }> = []
+  $('[data-testid="product-detail-info__classifications"] > div').each((_, el) => {
+    const spans = $(el).find('span')
+    if (spans.length >= 2) {
+      const label = $(spans[0]).text().trim()
+      const value = $(spans[1]).text().trim()
+      if (label && value) classifications.push({ label, value })
     }
   })
+  const propsWithoutArtNr = classifications.filter(c => c.label !== 'Art-Nr.')
+  if (propsWithoutArtNr.length) {
+    description += '## Eigenschaften\n\n'
+    for (const c of propsWithoutArtNr) {
+      description += `${c.label}: ${c.value}\n`
+    }
+  }
   description = description.trim() || undefined as any
 
-  // ── Ingredients (INCI) — search for AQUA in text ──
-  const bodyText = $('body').text()
+  // ── Douglas article number from classifications ──
+  const artNr = classifications.find(c => c.label === 'Art-Nr.')?.value
+
+  // ── Ingredients (INCI) — extract from serialized __INITIAL_DATA_CACHE__ in script tags ──
+  // Accordion content is collapsed and not in the rendered HTML.
+  // INCI lists are quoted strings of comma-separated uppercase ingredient names with / separators.
+  // We find all such patterns and pick the one closest to the product's base code in the HTML.
   let ingredientsText = ''
-  const aquaIdx = bodyText.indexOf('AQUA')
-  if (aquaIdx >= 0) {
-    const slice = bodyText.slice(aquaIdx, aquaIdx + 3000)
-    const endMatch = slice.match(/\.\s*\n/)
-    ingredientsText = endMatch ? slice.slice(0, endMatch.index! + 1) : slice.split('\n')[0]
+  {
+    // Match any long uppercase comma-separated string that looks like an INCI list
+    // (at least 8 comma-separated uppercase terms)
+    const inciRegex = /"((?:[A-Z][A-Z0-9 /\\u002F.()\-]*,\s*){8,}[A-Z][A-Z0-9 /\\u002F.()\-]*)"/g
+    const candidates: Array<{ text: string; index: number }> = []
+    let m: RegExpExecArray | null
+    while ((m = inciRegex.exec(html)) !== null) {
+      candidates.push({ text: m[1], index: m.index })
+    }
+    if (candidates.length > 0) {
+      // Find the candidate closest to the product's base code in the HTML
+      const baseCodeStr = baseProductCode
+      const baseIdx = html.indexOf(`"${baseCodeStr}"`)
+      let best = candidates[0]
+      if (baseIdx >= 0) {
+        let bestDist = Math.abs(candidates[0].index - baseIdx)
+        for (const c of candidates) {
+          const dist = Math.abs(c.index - baseIdx)
+          if (dist < bestDist) { best = c; bestDist = dist }
+        }
+      }
+      ingredientsText = best.text.replace(/\\u002F/g, '/').trim()
+    }
   }
 
-  // ── Price — from price container ──
+  // ── Price — from data-testid price elements ──
   let priceCents: number | undefined
-  let currency = 'EUR'
-  // Try meta tag first
-  const priceMeta = $('meta[itemprop="price"]').attr('content')
-  if (priceMeta) {
-    priceCents = Math.round(parseFloat(priceMeta) * 100)
+  const currency = 'EUR'
+  // Try discount price first (current price when on sale), then strikethrough (original)
+  const discountPrice = $('[data-testid="price-discount"]').first().text().trim()
+  const regularPrice = $('[data-testid="price-type-strikethrough"]').filter((_, el) => {
+    const text = $(el).text().trim()
+    return /\d+,\d{2}\s*€/.test(text)
+  }).first().text().trim()
+  const priceText = discountPrice || regularPrice
+  const priceMatch = priceText.match(/(\d+),(\d{2})/)
+  if (priceMatch) {
+    priceCents = parseInt(priceMatch[1]) * 100 + parseInt(priceMatch[2])
   }
-  // Fallback: find price text
-  if (!priceCents) {
-    const priceText = $('[class*="price"] [class*="current"], [data-testid*="price"]').first().text()
-    const priceMatch = priceText.match(/(\d+)[,.](\d{2})/)
-    if (priceMatch) priceCents = parseInt(priceMatch[1]) * 100 + parseInt(priceMatch[2])
-  }
-  const currencyMeta = $('meta[itemprop="priceCurrency"]').attr('content')
-  if (currencyMeta) currency = currencyMeta
 
-  // ── Per-unit price — from base price text ──
+  // ── Per-unit price — from data-testid="price-base-unit" ──
   let perUnitAmount: number | undefined
   let perUnitQuantity: number | undefined
   let perUnitUnit: string | undefined
-  const basePriceText = $('[class*="base-price"], [class*="basePrice"]').first().text()
-  const perUnitMatch = basePriceText.match(/(\d+[.,]\d+)\s*€\s*(?:je\s+)?(\d+)?\s*(ml|l|g|kg)/i)
+  const basePriceText = $('[data-testid="price-base-unit"]').first().text().trim()
+  // Pattern: "499,80 € / 1 l" or "33,17 € / 100 ml"
+  const perUnitMatch = basePriceText.match(/(\d+[.,]\d+)\s*€\s*\/\s*(\d+)?\s*(ml|l|g|kg)/i)
   if (perUnitMatch) {
-    perUnitAmount = parseFloat(perUnitMatch[1].replace(',', '.'))
+    perUnitAmount = Math.round(parseFloat(perUnitMatch[1].replace(',', '.')) * 100)
     perUnitQuantity = perUnitMatch[2] ? parseInt(perUnitMatch[2]) : 1
     perUnitUnit = perUnitMatch[3].toLowerCase()
   }
 
-  // ── Amount / Unit — from product info ──
-  let amount: number | undefined
-  let amountUnit: string | undefined
-  const amountText = $('[class*="content-unit"], [class*="contentUnit"]').first().text()
-  const amountMatch = amountText.match(/(\d+(?:[.,]\d+)?)\s*(ml|l|g|kg)/i)
-  if (amountMatch) {
-    amount = parseFloat(amountMatch[1].replace(',', '.'))
-    amountUnit = amountMatch[2].toLowerCase()
-  }
-
-  // ── Images — from multiple sources ──
+  // ── Images — product JPGs from media.douglas.de (not SVG logos) ──
   const images: Array<{ url: string; alt?: string | null }> = []
   const seenUrls = new Set<string>()
-  // Try carousel images
-  $('[data-testid*="carousel"] img, [class*="carousel"] img, [class*="gallery"] img').each((_, el) => {
-    const src = $(el).attr('src') || $(el).attr('data-src') || ''
-    if (src && src.includes('media.douglas.de') && !src.includes('blob.png') && !seenUrls.has(src)) {
+  // Preloaded LCP image (highest priority, always the main product image)
+  $('link[rel="preload"][as="image"][data-preload-lcp]').each((_, el) => {
+    const href = $(el).attr('href') || ''
+    if (href && href.includes('media.douglas.de') && href.includes('.jpg') && !seenUrls.has(href)) {
+      seenUrls.add(href)
+      images.push({ url: href.replace(/&grid=true/, '') })
+    }
+  })
+  // All product images (JPGs only, exclude logos/SVGs/blobs)
+  $('img[src*="media.douglas.de"]').each((_, el) => {
+    const src = $(el).attr('src') || ''
+    if (src && src.includes('.jpg') && !src.includes('blob') && !src.includes('-svg-') && !seenUrls.has(src)) {
       seenUrls.add(src)
       images.push({ url: src.replace(/&grid=true/, ''), alt: $(el).attr('alt') })
     }
   })
-  // Fallback: preloaded LCP image
-  if (images.length === 0) {
-    $('link[rel="preload"][as="image"]').each((_, el) => {
-      const href = $(el).attr('href') || ''
-      if (href && href.includes('media.douglas.de') && !seenUrls.has(href)) {
-        seenUrls.add(href)
-        images.push({ url: href.replace(/&grid=true/, '') })
-      }
-    })
-  }
-  // Fallback: any product images
-  if (images.length === 0) {
-    $('img[src*="media.douglas.de"]').each((_, el) => {
-      const src = $(el).attr('src') || ''
-      if (src && !src.includes('blob.png') && !src.includes('brand') && !seenUrls.has(src)) {
-        seenUrls.add(src)
-        images.push({ url: src.replace(/&grid=true/, ''), alt: $(el).attr('alt') })
-      }
-    })
-  }
 
   // ── Variant swatches (color blobs) ──
   const variants: Array<{ code: string; label: string; isSelected: boolean }> = []
@@ -307,29 +365,86 @@ function extractProductFromHtml(html: string, variantCode: string | null) {
   const availText = $('[data-testid="availability-online-stock-status"]').text().trim().toLowerCase()
   const isAvailable = availText.includes('auf lager') || availText.includes('in stock')
 
-  // ── Rating — from BazaarVoice widget or meta ──
-  let rating: number | undefined
-  let ratingCount: number | undefined
-  const ratingEl = $('[class*="avgRating"], [class*="rating-value"]').first().text().trim()
-  if (ratingEl) {
-    const parsed = parseFloat(ratingEl.replace(',', '.'))
-    if (!isNaN(parsed) && parsed > 0 && parsed <= 5) rating = parsed
-  }
-  const reviewCountEl = $('[class*="numReviews"], [class*="review-count"]').first().text().trim()
-  const reviewCountMatch = reviewCountEl.match(/(\d+)/)
-  if (reviewCountMatch) ratingCount = parseInt(reviewCountMatch[1])
+  // ── Serialized data extraction (__INITIAL_DATA_CACHE__) ──
+  // The serialized data has a consistent positional structure around the product name:
+  //   [-1] "Product Name"   (from header-product-name)
+  //   [+0] "EAN/GTIN"       (13-digit)
+  //   [+1] "category_slug"
+  //   [+2] reference
+  //   [+3] "brand_code"
+  //   [+4] "Product Line"   (e.g. "Nutrix")
+  //   [+5] "brand_url"
+  //   [+6] reference
+  //   [+7..+11] benefit texts
+  //   [+12] reference
+  //   [+13] "Full title with amount" (e.g. "Gesichtscreme für Unisex Lancôme Nutrix Face Cream 50 ml")
+  let gtin: string | undefined
+  const headerProductName = $('[data-testid="header-product-name"]').first().text().trim()
+  if (headerProductName) {
+    const escapedName = headerProductName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Find the product name in serialized data and extract comma-separated fields after it
+    const nameIdx = html.search(new RegExp(`"${escapedName}",`))
+    if (nameIdx >= 0) {
+      // Get a chunk after the product name and split by comma-separated quoted strings
+      const afterChunk = html.slice(nameIdx, nameIdx + 3000)
+      const fields = afterChunk.match(/"([^"]*?)"/g)?.map(s => s.slice(1, -1)) ?? []
+      // fields[0] = product name, fields[1] = GTIN, fields[2+] = subsequent fields
 
-  // ── Labels/flags ──
+      // GTIN at index 1
+      if (fields[1]?.match(/^\d{13}$/)) {
+        gtin = fields[1]
+      }
+
+    }
+  }
+  // Fallback: find a 13-digit number near the base product code
+  if (!gtin) {
+    const baseIdx = html.indexOf(`"${baseProductCode}"`)
+    if (baseIdx >= 0) {
+      const chunk = html.slice(baseIdx, baseIdx + 10000)
+      const fallbackMatch = chunk.match(/"(\d{13})"/)
+      if (fallbackMatch) gtin = fallbackMatch[1]
+    }
+  }
+
+  // ── Amount / Unit — from variant-name element (e.g. "50 ml"), fallback to price calc ──
+  let amount: number | undefined
+  let amountUnit: string | undefined
+  const variantNameText = $('[data-testid="variant-name"]').first().text().trim()
+  const variantAmountMatch = variantNameText.match(/(\d+(?:[.,]\d+)?)\s*(ml|l|g|kg)\b/i)
+  if (variantAmountMatch) {
+    amount = parseFloat(variantAmountMatch[1].replace(',', '.'))
+    amountUnit = variantAmountMatch[2].toLowerCase()
+  }
+  if (!amount && priceCents && perUnitAmount && perUnitUnit) {
+    const qty = perUnitQuantity ?? 1
+    const rawAmount = (priceCents / perUnitAmount) * qty
+    if (perUnitUnit === 'l' && rawAmount < 1) {
+      amount = Math.round(rawAmount * 1000)
+      amountUnit = 'ml'
+    } else if (perUnitUnit === 'kg' && rawAmount < 1) {
+      amount = Math.round(rawAmount * 1000)
+      amountUnit = 'g'
+    } else {
+      amount = Math.round(rawAmount * 10) / 10
+      amountUnit = perUnitUnit
+    }
+  }
+
+  // ── Labels/flags from eyecatcher badges ──
   const labels: string[] = []
-  $('[class*="flag"], [class*="badge"], [class*="pill"]').each((_, el) => {
+  $('[data-testid*="eyecatcher"], [data-testid*="flag"]').each((_, el) => {
     const text = $(el).text().trim()
-    if (text && text.length < 30) labels.push(text)
+    if (text && text.length > 1 && text.length < 30 && !labels.includes(text)) labels.push(text)
   })
 
   return {
     h1,
     brandName,
+    brandHref: brandHref ? `${BASE_URL}${brandHref}` : undefined,
     description: description || undefined,
+    artNr,
+    gtin,
     ingredientsText: ingredientsText || undefined,
     priceCents,
     currency,
@@ -343,8 +458,6 @@ function extractProductFromHtml(html: string, variantCode: string | null) {
     variantDimension,
     breadcrumbs,
     isAvailable,
-    rating,
-    ratingCount,
     labels,
   }
 }
@@ -668,7 +781,7 @@ export const douglasDriver: SourceDriver = {
     }
 
     // ── Step 2: Parse HTML with cheerio ──
-    const data = extractProductFromHtml(html, variantCode)
+    const data = extractProductFromHtml(html, baseProduct, variantCode)
 
     if (!data.h1 || data.h1.length < 2) {
       jlog.warn('Could not extract product name from page', { url: productUrl })
@@ -678,10 +791,10 @@ export const douglasDriver: SourceDriver = {
     // ── Step 3: Build ScrapedProductData ──
     const name = data.h1
 
-    // Brand URL from brand name
-    const brandUrl = data.brandName
+    // Brand URL — prefer the actual link from the h1, fall back to constructed URL
+    const brandUrl = data.brandHref || (data.brandName
       ? `${BASE_URL}/de/b/${encodeURIComponent(data.brandName.toLowerCase().replace(/\s+/g, '-').replace(/&/g, ''))}`
-      : undefined
+      : undefined)
 
     // Availability
     const availability: 'available' | 'unavailable' | 'unknown' = data.isAvailable
@@ -718,6 +831,7 @@ export const douglasDriver: SourceDriver = {
 
     const result: ScrapedProductData = {
       name,
+      gtin: data.gtin,
       brandName: data.brandName,
       brandUrl,
       description: data.description,
@@ -732,9 +846,7 @@ export const douglasDriver: SourceDriver = {
       images: data.images,
       variants,
       labels: data.labels,
-      rating: data.rating,
-      ratingCount: data.ratingCount,
-      sourceArticleNumber: currentVariantCode,
+      sourceArticleNumber: data.artNr || currentVariantCode || baseProduct,
       sourceProductArticleNumber: baseProduct,
       categoryBreadcrumbs,
       canonicalUrl,

@@ -55,6 +55,7 @@ export async function siteUnblockerFetch(
     render?: boolean  // Request JS-rendered HTML (default: true)
     geo?: string      // Geo target (default: 'Germany')
     locale?: string   // Locale (default: 'de-de')
+    retries?: number  // Number of retries on 613 errors (default: 3)
   },
 ): Promise<{ body: string; status: number }> {
   const config = getConfig()
@@ -65,6 +66,7 @@ export async function siteUnblockerFetch(
   const render = options?.render ?? true
   const geo = options?.geo ?? 'Germany'
   const locale = options?.locale ?? 'de-de'
+  const maxRetries = options?.retries ?? 3
 
   const dispatcher = new ProxyAgent({
     uri: PROXY_URL,
@@ -81,25 +83,38 @@ export async function siteUnblockerFetch(
     headers['X-SU-Render'] = 'html'
   }
 
-  const startMs = Date.now()
-  try {
-    const res = await fetch(url, { headers, dispatcher } as any)
-    const body = await res.text()
-    const durationMs = Date.now() - startMs
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    const startMs = Date.now()
+    try {
+      const res = await fetch(url, { headers, dispatcher } as any)
+      const body = await res.text()
+      const durationMs = Date.now() - startMs
 
-    // Check for unblocker error responses (JSON with status: "failed")
-    if (body.startsWith('{"status":"failed"')) {
-      const err = JSON.parse(body) as { status_code: number; message: string }
-      log.warn('Site Unblocker failed', { url, statusCode: err.status_code, message: err.message, durationMs })
-      throw new Error(`Site Unblocker error ${err.status_code}: ${err.message}`)
+      // Check for unblocker error responses (JSON with status: "failed")
+      if (body.startsWith('{"status":"failed"')) {
+        const err = JSON.parse(body) as { status_code: number; message: string }
+        if (attempt <= maxRetries) {
+          log.warn('Site Unblocker failed, retrying', { url: url.slice(0, 100), statusCode: err.status_code, attempt, maxRetries, durationMs })
+          await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000))
+          continue
+        }
+        log.warn('Site Unblocker failed, no more retries', { url: url.slice(0, 100), statusCode: err.status_code, message: err.message, durationMs })
+        throw new Error(`Site Unblocker error ${err.status_code}: ${err.message}`)
+      }
+
+      log.debug('Site Unblocker fetch', { url: url.slice(0, 100), status: res.status, durationMs, bodyLength: body.length, attempt })
+      return { body, status: res.status }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Site Unblocker error')) throw e
+      const durationMs = Date.now() - startMs
+      if (attempt <= maxRetries) {
+        log.warn('Site Unblocker request failed, retrying', { url: url.slice(0, 100), error: e instanceof Error ? e.message : String(e), attempt, durationMs })
+        await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000))
+        continue
+      }
+      log.error('Site Unblocker fetch failed', { url: url.slice(0, 100), error: e instanceof Error ? e.message : String(e), durationMs })
+      throw e
     }
-
-    log.debug('Site Unblocker fetch', { url: url.slice(0, 100), status: res.status, durationMs, bodyLength: body.length })
-    return { body, status: res.status }
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Site Unblocker error')) throw e
-    const durationMs = Date.now() - startMs
-    log.error('Site Unblocker fetch failed', { url: url.slice(0, 100), error: e instanceof Error ? e.message : String(e), durationMs })
-    throw e
   }
+  throw new Error('Site Unblocker: unreachable')
 }
