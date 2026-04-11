@@ -115,6 +115,29 @@ function buildGroups(events: FullJobEvent[]): EventGroupData[] {
   // Reverse: newest runs first, newest events first within each
   return groups.reverse().map((g) => {
     const allEvents = g.subGroups.flatMap((s: SubGroup) => s.events)
+
+    // For stages that were retried, only consider the last occurrence of each
+    // stage name when determining run status. A failed stage that succeeds on
+    // retry should not mark the whole run as failed.
+    const lastStageOutcome = new Map<string, 'error' | 'warning' | 'ok'>()
+    for (const sub of g.subGroups) {
+      const stageName = sub.label
+      if (!stageName) continue
+      const hasStageError = sub.events.some((e: FullJobEvent) => e.type === 'error')
+      const hasStageWarning = sub.events.some((e: FullJobEvent) => e.type === 'warning')
+      // Later sub-groups with the same name overwrite earlier ones (last wins)
+      lastStageOutcome.set(stageName, hasStageError ? 'error' : hasStageWarning ? 'warning' : 'ok')
+    }
+    // Non-stage events (no sub-group label) still count directly
+    const nonStageEvents = allEvents.filter((e: FullJobEvent) => {
+      const eName = e.name ?? ''
+      return !eName.startsWith('stage.')
+    })
+    const stageHasErrors = [...lastStageOutcome.values()].some(v => v === 'error')
+    const stageHasWarnings = [...lastStageOutcome.values()].some(v => v === 'warning')
+    const nonStageHasErrors = nonStageEvents.some((e: FullJobEvent) => e.type === 'error')
+    const nonStageHasWarnings = nonStageEvents.some((e: FullJobEvent) => e.type === 'warning')
+
     return {
       key: g.key,
       label: g.label,
@@ -122,8 +145,8 @@ function buildGroups(events: FullJobEvent[]): EventGroupData[] {
         ...s,
         events: s.events.reverse(),
       })),
-      hasErrors: allEvents.some((e: FullJobEvent) => e.type === 'error'),
-      hasWarnings: allEvents.some((e: FullJobEvent) => e.type === 'warning'),
+      hasErrors: stageHasErrors || nonStageHasErrors,
+      hasWarnings: stageHasWarnings || nonStageHasWarnings,
       isCompleted: allEvents.some((e: FullJobEvent) => isCompletionEvent(e.name)),
       firstTime: allEvents[0]?.createdAt ?? '',
       lastTime: allEvents[allEvents.length - 1]?.createdAt ?? '',
