@@ -128,11 +128,13 @@ function VariantDrawerOpener({
 export default function VariantsGallery() {
   const { id } = useDocumentInfo()
   const [variants, setVariants] = useState<Variant[]>([])
+  const [loading, setLoading] = useState(true)
   const [openVariantId, setOpenVariantId] = useState<number | null>(null)
   const [drawerKey, setDrawerKey] = useState(0)
 
   useEffect(() => {
-    if (!id) return
+    if (!id) { setLoading(false); return }
+    setLoading(true)
     fetch(
       `/api/product-variants?where[product][equals]=${id}&depth=1&limit=200&sort=createdAt` +
         `&select[label]=true&select[gtin]=true&select[images]=true`,
@@ -140,6 +142,7 @@ export default function VariantsGallery() {
       .then((res) => res.json())
       .then((data) => setVariants(data.docs ?? []))
       .catch(() => setVariants([]))
+      .finally(() => setLoading(false))
   }, [id])
 
   const handleOpen = useCallback((variantId: number) => {
@@ -150,6 +153,14 @@ export default function VariantsGallery() {
   const handleClose = useCallback(() => {
     setOpenVariantId(null)
   }, [])
+
+  if (loading) {
+    return (
+      <div style={{ padding: '12px 0', color: 'var(--theme-elevation-400)', fontSize: '14px' }}>
+        Loading variants...
+      </div>
+    )
+  }
 
   if (!variants.length) {
     return (
