@@ -31,17 +31,19 @@ const TABS: NavTab[] = [
     sections: [
       {
         label: 'Products',
-        collections: ['products', 'product-variants', 'brands', 'product-types'],
+        collections: ['products', 'product-variants', 'brands', 'product-types', 'product-sentiments', 'product-sentiment-conclusions'],
         jobs: [
-          { label: 'Crawl', slug: 'product-crawls' },
-          { label: 'Discovery', slug: 'product-discoveries' },
-          { label: 'Search', slug: 'product-searches' },
           { label: 'Aggregate', slug: 'product-aggregations' },
         ],
       },
       {
         label: 'Sources',
         collections: ['source-products', 'source-variants', 'source-brands', 'source-reviews', 'source-review-origins'],
+        jobs: [
+          { label: 'Crawl', slug: 'product-crawls' },
+          { label: 'Discovery', slug: 'product-discoveries' },
+          { label: 'Search', slug: 'product-searches' },
+        ],
       },
       {
         label: 'Ingredients',
@@ -50,10 +52,6 @@ const TABS: NavTab[] = [
           { label: 'Discovery', slug: 'ingredients-discoveries' },
           { label: 'Crawl', slug: 'ingredient-crawls' },
         ],
-      },
-      {
-        label: 'Sentiment',
-        collections: ['product-sentiments', 'product-sentiment-conclusions'],
       },
     ],
   },
