@@ -4,31 +4,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNav, useConfig, Link, Hamburger } from '@payloadcms/ui'
 import { usePathname } from 'next/navigation.js'
 
-// ─── Job types ───
+// ─── Section definitions with inline jobs ───
 
-interface JobTypeDef {
+interface JobDef {
   label: string
   slug: string
 }
 
-const JOB_TYPES: JobTypeDef[] = [
-  { label: 'Product Crawl', slug: 'product-crawls' },
-  { label: 'Product Discovery', slug: 'product-discoveries' },
-  { label: 'Product Search', slug: 'product-searches' },
-  { label: 'Product Aggregation', slug: 'product-aggregations' },
-  { label: 'Video Discovery', slug: 'video-discoveries' },
-  { label: 'Video Crawl', slug: 'video-crawls' },
-  { label: 'Video Processing', slug: 'video-processings' },
-  { label: 'Ingredients Discovery', slug: 'ingredients-discoveries' },
-  { label: 'Ingredient Crawl', slug: 'ingredient-crawls' },
-]
-
-// ─── Tab definitions ───
-
 interface NavSection {
-  label?: string // omit for ungrouped items at top
+  label?: string
   collections: string[]
   globals?: string[]
+  jobs?: JobDef[]
 }
 
 interface NavTab {
@@ -45,6 +32,12 @@ const TABS: NavTab[] = [
       {
         label: 'Products',
         collections: ['products', 'product-variants', 'brands', 'product-types'],
+        jobs: [
+          { label: 'Crawl', slug: 'product-crawls' },
+          { label: 'Discovery', slug: 'product-discoveries' },
+          { label: 'Search', slug: 'product-searches' },
+          { label: 'Aggregate', slug: 'product-aggregations' },
+        ],
       },
       {
         label: 'Sources',
@@ -53,6 +46,10 @@ const TABS: NavTab[] = [
       {
         label: 'Ingredients',
         collections: ['ingredients'],
+        jobs: [
+          { label: 'Discovery', slug: 'ingredients-discoveries' },
+          { label: 'Crawl', slug: 'ingredient-crawls' },
+        ],
       },
       {
         label: 'Sentiment',
@@ -67,6 +64,11 @@ const TABS: NavTab[] = [
       {
         label: 'Videos',
         collections: ['videos', 'creators', 'channels'],
+        jobs: [
+          { label: 'Discovery', slug: 'video-discoveries' },
+          { label: 'Crawl', slug: 'video-crawls' },
+          { label: 'Processing', slug: 'video-processings' },
+        ],
       },
       {
         label: 'Data',
@@ -90,12 +92,15 @@ const TABS: NavTab[] = [
       {
         label: 'Debug',
         collections: ['bot-checks', 'debug-screenshots'],
+        jobs: [
+          { label: 'Bot Check', slug: 'bot-checks' },
+        ],
       },
     ],
   },
 ]
 
-// ─── Collection labels ───
+// ─── Collection & global labels ───
 
 const COLLECTION_LABELS: Record<string, string> = {
   'products': 'Products',
@@ -143,23 +148,187 @@ interface JobQueueEntry {
   failed: number
 }
 
-function getJobDotColor(entry: JobQueueEntry | undefined): string {
-  if (!entry) return 'var(--theme-elevation-400)'
+function jobDotColor(entry: JobQueueEntry | undefined): string {
+  if (!entry) return 'var(--theme-elevation-300)'
   if (entry.inProgress > 0) return 'var(--theme-success-500)'
   if (entry.failed > 0) return 'var(--theme-error-500)'
   if (entry.pending > 0) return 'var(--theme-elevation-600)'
-  return 'var(--theme-elevation-400)'
+  return 'var(--theme-elevation-300)'
 }
 
-function getJobDotTitle(entry: JobQueueEntry | undefined): string {
-  if (!entry) return 'No data'
+function jobTitle(entry: JobQueueEntry | undefined): string {
+  if (!entry) return 'Idle'
   if (entry.inProgress > 0) return `${entry.inProgress} running`
   if (entry.failed > 0) return `${entry.failed} failed`
   if (entry.pending > 0) return `${entry.pending} pending`
   return 'Idle'
 }
 
-// ─── Component ───
+/** Aggregate dot color: worst status across a set of jobs */
+function aggregateDotColor(jobs: JobDef[], jobQueue: JobQueueEntry[]): string {
+  let hasRunning = false
+  let hasFailed = false
+  let hasPending = false
+  for (const job of jobs) {
+    const entry = jobQueue.find(e => e.collection === job.slug)
+    if (entry?.inProgress && entry.inProgress > 0) hasRunning = true
+    if (entry?.failed && entry.failed > 0) hasFailed = true
+    if (entry?.pending && entry.pending > 0) hasPending = true
+  }
+  if (hasRunning) return 'var(--theme-success-500)'
+  if (hasFailed) return 'var(--theme-error-500)'
+  if (hasPending) return 'var(--theme-elevation-600)'
+  return 'var(--theme-elevation-300)'
+}
+
+// ─── Section Header with popover ───
+
+function SectionHeader({
+  label,
+  jobs,
+  jobQueue,
+  adminRoute,
+  pathname,
+}: {
+  label: string
+  jobs?: JobDef[]
+  jobQueue: JobQueueEntry[]
+  adminRoute: string
+  pathname: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const hasJobs = jobs && jobs.length > 0
+  const dotColor = hasJobs ? aggregateDotColor(jobs, jobQueue) : undefined
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          userSelect: 'none',
+        }}
+      >
+        <span style={{
+          fontSize: '11px',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          color: 'var(--theme-elevation-450)',
+          flex: 1,
+        }}>
+          {label}
+        </span>
+        {hasJobs && (
+          <>
+            <span style={{
+              width: '6px', height: '6px', borderRadius: '50%',
+              backgroundColor: dotColor, flexShrink: 0,
+              transition: 'background-color 0.2s',
+            }} />
+            <button
+              type="button"
+              onClick={() => setOpen(!open)}
+              title="Jobs"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '20px', height: '20px', borderRadius: '4px',
+                background: open ? 'var(--theme-elevation-100)' : 'transparent',
+                border: 'none', cursor: 'pointer', padding: 0,
+                color: 'var(--theme-elevation-400)',
+                transition: 'background 0.1s, color 0.1s',
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.color = 'var(--theme-text)'; if (!open) (e.currentTarget as HTMLElement).style.background = 'var(--theme-elevation-50)' }}
+              onMouseLeave={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.color = 'var(--theme-elevation-400)'; if (!open) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="3" cy="8" r="1.5" />
+                <circle cx="8" cy="8" r="1.5" />
+                <circle cx="13" cy="8" r="1.5" />
+              </svg>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Popover */}
+      {open && hasJobs && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 4px)',
+          right: 0,
+          zIndex: 100,
+          backgroundColor: 'var(--theme-elevation-0)',
+          border: '1px solid var(--theme-elevation-200)',
+          borderRadius: '6px',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+          padding: '4px',
+          minWidth: '160px',
+        }}>
+          {jobs.map((job) => {
+            const entry = jobQueue.find(e => e.collection === job.slug)
+            const dotColor = jobDotColor(entry)
+            const title = jobTitle(entry)
+            const isActive = pathname.startsWith(`${adminRoute}/collections/${job.slug}`)
+
+            return (
+              <Link
+                key={job.slug}
+                href={`${adminRoute}/collections/${job.slug}`}
+                prefetch={false}
+                onClick={() => setOpen(false)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  borderRadius: '4px',
+                  color: 'var(--theme-text)',
+                  textDecoration: 'none',
+                  fontSize: '13px',
+                  lineHeight: '1.35',
+                  background: isActive ? 'var(--theme-elevation-100)' : 'transparent',
+                  transition: 'background 0.1s',
+                }}
+                title={title}
+                onMouseEnter={(e: React.MouseEvent) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--theme-elevation-50)' }}
+                onMouseLeave={(e: React.MouseEvent) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+              >
+                <span style={{
+                  width: '6px', height: '6px', borderRadius: '50%',
+                  backgroundColor: dotColor, flexShrink: 0,
+                }} />
+                <span style={{ flex: 1 }}>{job.label}</span>
+              </Link>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Component ───
 
 export function CustomNav() {
   const { hydrated, navOpen, navRef, setNavOpen, shouldAnimate } = useNav()
@@ -168,11 +337,8 @@ export function CustomNav() {
   const adminRoute = config.routes.admin
 
   const [activeTab, setActiveTab] = useState('products')
-  const [jobsOpen, setJobsOpen] = useState(false)
   const [jobQueue, setJobQueue] = useState<JobQueueEntry[]>([])
-  const jobsRef = useRef<HTMLDivElement>(null)
 
-  // Auto-select tab based on current path
   useEffect(() => {
     for (const tab of TABS) {
       for (const section of tab.sections) {
@@ -184,6 +350,12 @@ export function CustomNav() {
         }
         for (const slug of section.globals ?? []) {
           if (pathname.startsWith(`${adminRoute}/globals/${slug}`)) {
+            setActiveTab(tab.id)
+            return
+          }
+        }
+        for (const job of section.jobs ?? []) {
+          if (pathname.startsWith(`${adminRoute}/collections/${job.slug}`)) {
             setActiveTab(tab.id)
             return
           }
@@ -203,27 +375,11 @@ export function CustomNav() {
   }, [])
 
   useEffect(() => {
-    if (jobsOpen) fetchJobStatus()
-  }, [jobsOpen, fetchJobStatus])
+    fetchJobStatus()
+    const interval = setInterval(fetchJobStatus, 30_000)
+    return () => clearInterval(interval)
+  }, [fetchJobStatus])
 
-  useEffect(() => {
-    if (!jobsOpen) return
-    const onClick = (e: MouseEvent) => {
-      if (jobsRef.current && !jobsRef.current.contains(e.target as Node)) setJobsOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setJobsOpen(false)
-    }
-    document.addEventListener('mousedown', onClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onClick)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [jobsOpen])
-
-  // Always render the aside shell so the CSS grid layout has its nav column.
-  // Before hydration, render an empty nav to prevent layout shift.
   if (!hydrated) {
     return (
       <aside className="nav">
@@ -234,9 +390,6 @@ export function CustomNav() {
     )
   }
 
-  const hasRunning = jobQueue.some(e => e.inProgress > 0)
-  const hasFailed = jobQueue.some(e => e.failed > 0 && e.inProgress === 0)
-  const btnDotColor = hasRunning ? 'var(--theme-success-500)' : hasFailed ? 'var(--theme-error-500)' : 'var(--theme-elevation-400)'
   const currentTab = TABS.find(t => t.id === activeTab) ?? TABS[0]
 
   const asideClasses = [
@@ -246,7 +399,6 @@ export function CustomNav() {
     hydrated && 'nav--nav-hydrated',
   ].filter(Boolean).join(' ')
 
-  // Render a collection link matching Payload's default nav__link pattern
   const renderLink = (slug: string, href: string, label: string, idPrefix = 'nav') => {
     const isActive = pathname.startsWith(href) && ["/", undefined].includes(pathname[href.length])
     if (pathname === href) {
@@ -269,44 +421,6 @@ export function CustomNav() {
   return (
     <aside className={asideClasses} inert={!navOpen ? true : undefined}>
       <style>{`
-        .cnav-jobs-btn {
-          display: flex; align-items: center; gap: 8px;
-          width: 100%; padding: 9px 12px;
-          background: var(--theme-elevation-50);
-          border: 1px solid var(--theme-elevation-200);
-          border-radius: 6px; color: var(--theme-text);
-          cursor: pointer; font-size: var(--theme-baseline-body-size);
-          font-weight: 600; font-family: inherit; text-align: left;
-          transition: background 0.1s, border-color 0.1s;
-        }
-        .cnav-jobs-btn:hover, .cnav-jobs-btn--open {
-          background: var(--theme-elevation-150);
-          border-color: var(--theme-elevation-300);
-        }
-        .cnav-job-link {
-          flex: 1; display: flex; align-items: center; gap: 8px;
-          padding: 6px 8px; border-radius: 4px;
-          color: var(--theme-text); text-decoration: none;
-          font-size: var(--theme-baseline-body-size);
-          line-height: 1.35; white-space: nowrap;
-          overflow: hidden; text-overflow: ellipsis;
-          transition: background 0.1s;
-        }
-        .cnav-job-link:hover { background: var(--theme-elevation-50); }
-        .cnav-job-link--active, .cnav-job-link--active:hover {
-          background: var(--theme-elevation-100);
-        }
-        .cnav-job-create {
-          display: flex; align-items: center; justify-content: center;
-          width: 26px; height: 26px; border-radius: 4px;
-          color: var(--theme-elevation-450); text-decoration: none;
-          font-size: 16px; line-height: 1; flex-shrink: 0;
-          transition: background 0.1s, color 0.1s;
-        }
-        .cnav-job-create:hover {
-          background: var(--theme-elevation-100);
-          color: var(--theme-text);
-        }
         .cnav-header-btn {
           display: flex; align-items: center; justify-content: center;
           width: 32px; height: 32px; border-radius: 6px;
@@ -321,87 +435,6 @@ export function CustomNav() {
       `}</style>
       <div className="nav__scroll" ref={navRef}>
         <nav className="nav__wrap">
-
-          {/* ── Jobs Button ── */}
-          <div ref={jobsRef} style={{
-            position: 'relative',
-            width: 'calc(100% + var(--base) * 2)',
-            marginLeft: 'calc(-1 * var(--base))',
-            marginBottom: '10px',
-            padding: '0 var(--base)',
-            boxSizing: 'border-box',
-          }}>
-            <button
-              type="button"
-              onClick={() => setJobsOpen(!jobsOpen)}
-              className={`cnav-jobs-btn ${jobsOpen ? 'cnav-jobs-btn--open' : ''}`}
-            >
-              <span style={{
-                width: '7px', height: '7px', borderRadius: '50%',
-                backgroundColor: btnDotColor, flexShrink: 0,
-              }} />
-              <span style={{ flex: 1 }}>Jobs</span>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-                style={{
-                  transform: jobsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.15s', flexShrink: 0, opacity: 0.5,
-                }}>
-                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-
-            {/* Jobs dropdown — aligned with the button */}
-            {jobsOpen && (
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                left: 'var(--base)', right: 'var(--base)',
-                zIndex: 100,
-                backgroundColor: 'var(--theme-elevation-0)',
-                border: '1px solid var(--theme-elevation-200)',
-                borderRadius: '6px',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                padding: '4px',
-                maxHeight: '55vh',
-                overflowY: 'auto',
-              }}>
-                {JOB_TYPES.map((job) => {
-                  const entry = jobQueue.find(e => e.collection === job.slug)
-                  const dotColor = getJobDotColor(entry)
-                  const dotTitle = getJobDotTitle(entry)
-                  const isActive = pathname.startsWith(`${adminRoute}/collections/${job.slug}`)
-
-                  return (
-                    <div key={job.slug} className="cnav-job-row" style={{
-                      display: 'flex', alignItems: 'center',
-                    }}>
-                      <Link
-                        href={`${adminRoute}/collections/${job.slug}`}
-                        onClick={() => setJobsOpen(false)}
-                        prefetch={false}
-                        className={`cnav-job-link ${isActive ? 'cnav-job-link--active' : ''}`}
-                      >
-                        <span title={dotTitle} style={{
-                          width: '6px', height: '6px', borderRadius: '50%',
-                          backgroundColor: dotColor, flexShrink: 0,
-                        }} />
-                        <span>{job.label}</span>
-                      </Link>
-                      <Link
-                        href={`${adminRoute}/collections/${job.slug}/create`}
-                        onClick={() => setJobsOpen(false)}
-                        prefetch={false}
-                        title={`New ${job.label}`}
-                        className="cnav-job-create"
-                      >
-                        +
-                      </Link>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
 
           {/* ── Tabs ── */}
           <div style={{
@@ -443,21 +476,19 @@ export function CustomNav() {
             })}
           </div>
 
-          {/* ── Collection Links (grouped by section) ── */}
+          {/* ── Sections ── */}
           <div style={{ width: '100%' }}>
           {currentTab.sections.map((section, si) => (
-            <div key={si}>
+            <div key={si} style={{ marginTop: si > 0 ? '4px' : '0' }}>
               {section.label && (
-                <div style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  color: 'var(--theme-elevation-450)',
-                  padding: '10px 0 4px',
-                  marginTop: si > 0 ? '4px' : '0',
-                }}>
-                  {section.label}
+                <div style={{ padding: '10px 0 4px' }}>
+                  <SectionHeader
+                    label={section.label}
+                    jobs={section.jobs}
+                    jobQueue={jobQueue}
+                    adminRoute={adminRoute}
+                    pathname={pathname}
+                  />
                 </div>
               )}
               {section.collections.map((slug) => {
@@ -474,7 +505,6 @@ export function CustomNav() {
           ))}
           </div>
 
-          {/* ── Controls ── */}
           <div className="nav__controls" />
 
         </nav>
@@ -486,7 +516,6 @@ export function CustomNav() {
             height: '100%',
             padding: '0 var(--gutter-h)',
           }}>
-            {/* Left: mobile close */}
             <button
               className="nav__mobile-close"
               onClick={() => setNavOpen(false)}
@@ -496,15 +525,8 @@ export function CustomNav() {
               <Hamburger isActive={true} />
             </button>
 
-            {/* Right: action buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: 'auto' }}>
-              {/* Dashboard */}
-              <Link
-                href={`${adminRoute}/`}
-                prefetch={false}
-                className="cnav-header-btn"
-                title="Dashboard"
-              >
+              <Link href={`${adminRoute}/`} prefetch={false} className="cnav-header-btn" title="Dashboard">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
                   <rect x="14" y="3" width="7" height="7" rx="1" />
@@ -512,27 +534,13 @@ export function CustomNav() {
                   <rect x="14" y="14" width="7" height="7" rx="1" />
                 </svg>
               </Link>
-
-              {/* Changelog */}
-              <Link
-                href={`${adminRoute}/globals/changelog`}
-                prefetch={false}
-                className="cnav-header-btn"
-                title="Changelog"
-              >
+              <Link href={`${adminRoute}/globals/changelog`} prefetch={false} className="cnav-header-btn" title="Changelog">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 8v4l3 3" />
                   <circle cx="12" cy="12" r="9" />
                 </svg>
               </Link>
-
-              {/* Logout */}
-              <Link
-                href={`${adminRoute}/logout`}
-                prefetch={false}
-                className="cnav-header-btn"
-                title="Logout"
-              >
+              <Link href={`${adminRoute}/logout`} prefetch={false} className="cnav-header-btn" title="Logout">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                   <polyline points="16 17 21 12 16 7" />
