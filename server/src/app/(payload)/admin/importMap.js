@@ -7,6 +7,7 @@ import { default as default_859576117eb3b21c8e17eaf7aa851f41 } from '@/component
 import { default as default_e39615a0661f0ac7437b50897c7f0fe8 } from '@/components/EventsView'
 import { default as default_e2edb969952553bb4cc96730d0ad8a01 } from '@/components/JobSaveButton'
 import { default as default_08dec3a07bca142ab23f35696e56534e } from '@/components/BotCheckResults'
+import { default as default_9bc6f972eafa35ee249ba247e1869ae0 } from '@/components/TestSuiteRecentRuns'
 import { default as default_90075a117a0bef1716074b0b677b73c4 } from '@/components/TestSuiteSaveButton'
 import { default as default_50e47a860110d3885cb93ff8552aea43 } from '@/components/TestSuitePhaseStatus'
 import { default as default_9a7df22e3082faf90a1e72c493ebdb46 } from '../../../components/ProductImageCell'
@@ -75,6 +76,7 @@ export const importMap = {
   "@/components/EventsView#default": default_e39615a0661f0ac7437b50897c7f0fe8,
   "@/components/JobSaveButton#default": default_e2edb969952553bb4cc96730d0ad8a01,
   "@/components/BotCheckResults#default": default_08dec3a07bca142ab23f35696e56534e,
+  "@/components/TestSuiteRecentRuns#default": default_9bc6f972eafa35ee249ba247e1869ae0,
   "@/components/TestSuiteSaveButton#default": default_90075a117a0bef1716074b0b677b73c4,
   "@/components/TestSuitePhaseStatus#default": default_50e47a860110d3885cb93ff8552aea43,
   "/components/ProductImageCell#default": default_9a7df22e3082faf90a1e72c493ebdb46,

@@ -1136,7 +1136,7 @@ export interface TestSuite {
          */
         maxResults?: number | null;
         /**
-         * JSON Schema (draft-07) to validate the job record after completion
+         * JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, etc.
          */
         checkSchema?:
           | {
@@ -1160,7 +1160,7 @@ export interface TestSuite {
          */
         sourceUrl: string;
         /**
-         * JSON Schema (draft-07) to validate the job record after completion
+         * JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, progress (JSON), etc.
          */
         checkSchema?:
           | {
@@ -1188,7 +1188,7 @@ export interface TestSuite {
          */
         crawlVariants?: boolean | null;
         /**
-         * JSON Schema (draft-07) to validate the source-variant record after crawl
+         * JSON Schema (draft-07) to validate the source-variant record (depth=2, relations resolved). Single URL → validates the variant object. Multiple URLs → validates { variants: [...] }. Fields include: gtin, description, ingredientsText, amount, amountUnit, priceHistory, sourceProduct (resolved with name, source, categoryBreadcrumb), etc.
          */
         checkSchema?:
           | {
@@ -1212,7 +1212,7 @@ export interface TestSuite {
          */
         gtins: string;
         /**
-         * JSON Schema (draft-07) to validate the product-variant record after aggregation
+         * JSON Schema (draft-07) to validate the product-variant record (depth=2, relations resolved). Single GTIN → validates the variant object. Multiple GTINs → validates { variants: [...] }. Fields include: gtin, label, product (resolved with name, brand, productType, description, ingredients, etc.), images, sourceVariants, etc.
          */
         checkSchema?:
           | {

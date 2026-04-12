@@ -16,6 +16,7 @@ interface FindArgs {
 interface FindByIDArgs {
   collection: string
   id: number
+  depth?: number
 }
 
 interface CreateArgs {
@@ -140,7 +141,8 @@ export class PayloadRestClient {
   }
 
   async findByID<T = Record<string, unknown>>(args: FindByIDArgs): Promise<T> {
-    const result = await this.request('GET', `/${args.collection}/${args.id}`)
+    const depthParam = args.depth !== undefined ? `?depth=${args.depth}` : ''
+    const result = await this.request('GET', `/${args.collection}/${args.id}${depthParam}`)
     return result as T
   }
 

@@ -274,37 +274,46 @@ async function validatePhase(
       switch (phase) {
         case 'searches':
         case 'discoveries': {
-          // Validate the job record itself
+          // Validate the job record with productUrls split into an array
           if (jobIds[i]) {
-            const job = await client.findByID({ collection, id: jobIds[i] })
-            record = job as unknown as Record<string, unknown>
+            const job = await client.findByID({ collection, id: jobIds[i] }) as Record<string, unknown>
+            const productUrls = ((job.productUrls as string) ?? '').split('\n').filter(Boolean)
+            record = { ...job, productUrls }
           }
           break
         }
         case 'crawls': {
-          // Query source-variant by first URL
-          const url = (entry.urls as string)?.split('\n')[0]?.trim()
-          if (url) {
+          // For each URL in the entry, fetch the source-variant with resolved relations (depth=2)
+          // and include all source-variants for the same source-product
+          const urls = (entry.urls as string)?.split('\n').map(u => u.trim()).filter(Boolean) ?? []
+          const allVariants: Record<string, unknown>[] = []
+          for (const url of urls) {
             const variants = await client.find({
               collection: 'source-variants',
               where: { sourceUrl: { equals: url } },
               limit: 1,
+              depth: 2,
             })
-            record = (variants.docs[0] as unknown as Record<string, unknown>) ?? null
+            if (variants.docs[0]) allVariants.push(variants.docs[0] as unknown as Record<string, unknown>)
           }
+          // Validate against the full array if multiple URLs, or the single record
+          record = allVariants.length === 1 ? allVariants[0] : (allVariants.length > 0 ? { variants: allVariants } as any : null)
           break
         }
         case 'aggregations': {
-          // Query product-variant by first GTIN
-          const gtin = (entry.gtins as string)?.split('\n')[0]?.trim()
-          if (gtin) {
+          // For each GTIN, fetch product-variant with resolved relations (depth=2)
+          const gtins = (entry.gtins as string)?.split('\n').map(g => g.trim()).filter(Boolean) ?? []
+          const allVariants: Record<string, unknown>[] = []
+          for (const gtin of gtins) {
             const variants = await client.find({
               collection: 'product-variants',
               where: { gtin: { equals: gtin } },
               limit: 1,
+              depth: 2,
             })
-            record = (variants.docs[0] as unknown as Record<string, unknown>) ?? null
+            if (variants.docs[0]) allVariants.push(variants.docs[0] as unknown as Record<string, unknown>)
           }
+          record = allVariants.length === 1 ? allVariants[0] : (allVariants.length > 0 ? { variants: allVariants } as any : null)
           break
         }
       }

@@ -27,6 +27,15 @@ export const TestSuites: CollectionConfig = {
       },
     },
     {
+      name: 'recentRuns',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/TestSuiteRecentRuns',
+        },
+      },
+    },
+    {
       name: 'description',
       type: 'textarea',
       admin: {
@@ -69,7 +78,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the job record after completion' },
+                  admin: { description: 'JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, etc.' },
                 },
               ],
             },
@@ -95,7 +104,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the job record after completion' },
+                  admin: { description: 'JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, progress (JSON), etc.' },
                 },
               ],
             },
@@ -127,7 +136,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the source-variant record after crawl' },
+                  admin: { description: 'JSON Schema (draft-07) to validate the source-variant record (depth=2, relations resolved). Single URL → validates the variant object. Multiple URLs → validates { variants: [...] }. Fields include: gtin, description, ingredientsText, amount, amountUnit, priceHistory, sourceProduct (resolved with name, source, categoryBreadcrumb), etc.' },
                 },
               ],
             },
@@ -153,7 +162,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the product-variant record after aggregation' },
+                  admin: { description: 'JSON Schema (draft-07) to validate the product-variant record (depth=2, relations resolved). Single GTIN → validates the variant object. Multiple GTINs → validates { variants: [...] }. Fields include: gtin, label, product (resolved with name, brand, productType, description, ingredients, etc.), images, sourceVariants, etc.' },
                 },
               ],
             },
