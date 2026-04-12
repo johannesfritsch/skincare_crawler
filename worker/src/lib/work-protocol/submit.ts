@@ -309,7 +309,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
   log.info('Product crawl batch received', { jobId, stage, results: results.length, reviewResults: reviewResults?.length ?? 0 })
 
   const job = await payload.findByID({ collection: 'product-crawls', id: jobId }) as Record<string, unknown>
-  let crawled = (job.crawled as number) ?? 0
+  let crawled = (job.completed as number) ?? 0
   let errors = (job.errors as number) ?? 0
   const enabledStages = new Set(enabledStagesArr) as Set<CrawlStageName>
   const crawlProgress: CrawlProgress = getCrawlProgress(job)
@@ -374,7 +374,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
         await payload.update({
           collection: 'product-crawls',
           id: jobId,
-          data: { crawled, errors, crawlProgress },
+          data: { completed: crawled, errors, crawlProgress },
         })
       }
     } else {
@@ -382,7 +382,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       await payload.update({
         collection: 'product-crawls',
         id: jobId,
-        data: { crawled, errors, crawlProgress },
+        data: { completed: crawled, errors, crawlProgress },
       })
     }
 
@@ -514,7 +514,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
       id: jobId,
       data: {
         status: 'completed',
-        crawled,
+        completed: crawled,
         errors,
         completedAt: new Date().toISOString(),
         crawlProgress,
@@ -527,7 +527,7 @@ async function submitProductCrawl(payload: PayloadRestClient, body: SubmitProduc
     await payload.update({
       collection: 'product-crawls',
       id: jobId,
-      data: { crawled, errors, crawlProgress },
+      data: { completed: crawled, errors, crawlProgress },
     })
     jlog.event('crawl.batch_done', {
       source,
@@ -648,7 +648,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
   }
 
   // Just accumulate discovered URLs — no source-product creation
-  let discovered = (job.discovered as number) ?? 0
+  let discovered = (job.completed as number) ?? 0
 
   const productUrls: string[] = ((job.productUrls as string) ?? '').split('\n').filter(Boolean)
   const seenProductUrls = new Set<string>(productUrls)
@@ -684,7 +684,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
       id: jobId,
       data: {
         status: 'completed',
-        discovered,
+        completed: discovered,
         productUrls: productUrls.join('\n'),
         progress: null,
         completedAt: new Date().toISOString(),
@@ -698,7 +698,7 @@ async function submitProductDiscovery(payload: PayloadRestClient, body: SubmitPr
       id: jobId,
       data: {
         status: 'in_progress',
-        discovered,
+        completed: discovered,
         productUrls: productUrls.join('\n'),
         progress: { currentUrlIndex, driverProgress },
         ...(!job.startedAt ? { startedAt: new Date().toISOString() } : {}),
@@ -739,7 +739,7 @@ async function submitProductSearch(payload: PayloadRestClient, body: SubmitProdu
     id: jobId,
     data: {
       status: 'completed',
-      discovered,
+      completed: discovered,
       productUrls: productUrls.join('\n'),
       completedAt: new Date().toISOString(),
     },
@@ -759,7 +759,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
   const job = await payload.findByID({ collection: 'ingredients-discoveries', id: jobId }) as Record<string, unknown>
   let created = (job.created as number) ?? 0
   let existing = (job.existing as number) ?? 0
-  let discovered = (job.discovered as number) ?? 0
+  let discovered = (job.completed as number) ?? 0
   let errors = (job.errors as number) ?? 0
 
   let batchPersisted = 0
@@ -795,7 +795,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
       id: jobId,
       data: {
         status: 'completed',
-        discovered,
+        completed: discovered,
         created,
         existing,
         errors,
@@ -816,7 +816,7 @@ async function submitIngredientsDiscovery(payload: PayloadRestClient, body: Subm
       id: jobId,
       data: {
         status: 'in_progress',
-        discovered,
+        completed: discovered,
         created,
         existing,
         errors,
@@ -852,7 +852,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
     batchNew++
   }
 
-  const totalDiscovered = ((job.discovered as number) ?? 0) + batchNew
+  const totalDiscovered = ((job.completed as number) ?? 0) + batchNew
 
   // Done if: yt-dlp returned fewer videos than requested (end of channel),
   // or we've hit the maxVideos limit
@@ -869,7 +869,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
       id: jobId,
       data: {
         status: 'completed',
-        discovered: totalDiscovered,
+        completed: totalDiscovered,
         videoUrls: existingUrls.join('\n'),
         progress: null,
         completedAt: new Date().toISOString(),
@@ -884,7 +884,7 @@ async function submitVideoDiscovery(payload: PayloadRestClient, body: SubmitVide
       collection: 'video-discoveries',
       id: jobId,
       data: {
-        discovered: totalDiscovered,
+        completed: totalDiscovered,
         videoUrls: existingUrls.join('\n'),
         progress: { currentOffset: nextOffset },
       },
@@ -901,7 +901,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
   log.info('Video crawl batch received (stage-based)', { jobId, stageExecs: results.length })
 
   const job = await payload.findByID({ collection: 'video-crawls', id: jobId }) as Record<string, unknown>
-  let crawled = (job.crawled as number) ?? 0
+  let crawled = (job.completed as number) ?? 0
   let errors = (job.errors as number) ?? 0
 
   const maxRetries = (job.maxRetries as number) ?? 3
@@ -1021,7 +1021,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
       await payload.update({
         collection: 'video-crawls',
         id: jobId,
-        data: { crawlProgress: progress, crawled, errors, crawledVideoUrls: updatedCrawledUrls },
+        data: { crawlProgress: progress, completed: crawled, errors, crawledVideoUrls: updatedCrawledUrls },
       })
       await retryOrFail(payload, 'video-crawls', jobId, `Batch of ${batchErrors} items all failed`)
       return { crawled, errors, remaining: totalRemaining }
@@ -1038,7 +1038,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
         id: jobId,
         data: {
           status: 'failed',
-          crawled,
+          completed: crawled,
           errors,
           crawledVideoUrls: updatedCrawledUrls,
           crawlProgress: progress,
@@ -1055,7 +1055,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
         id: jobId,
         data: {
           status: 'completed',
-          crawled,
+          completed: crawled,
           errors,
           crawledVideoUrls: updatedCrawledUrls,
           crawlProgress: progress,
@@ -1071,7 +1071,7 @@ async function submitVideoCrawl(payload: PayloadRestClient, body: SubmitVideoCra
       collection: 'video-crawls',
       id: jobId,
       data: {
-        crawled,
+        completed: crawled,
         errors,
         crawledVideoUrls: updatedCrawledUrls,
         crawlProgress: progress,
@@ -1286,7 +1286,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
   log.info('Product aggregation batch received (stage-based)', { jobId, stageExecs: results.length })
 
   const job = await payload.findByID({ collection: 'product-aggregations', id: jobId }) as Record<string, unknown>
-  let aggregated = (job.aggregated as number) ?? 0
+  let aggregated = (job.completed as number) ?? 0
   let errors = (job.errors as number) ?? 0
   let tokensUsed = (job.tokensUsed as number) ?? 0
 
@@ -1409,7 +1409,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         id: jobId,
         data: {
           status: 'failed',
-          aggregated,
+          completed: aggregated,
           errors,
           tokensUsed,
           products: [...productIds],
@@ -1428,7 +1428,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
         id: jobId,
         data: {
           status: 'completed',
-          aggregated,
+          completed: aggregated,
           errors,
           tokensUsed,
           products: [...productIds],
@@ -1446,7 +1446,7 @@ async function submitProductAggregation(payload: PayloadRestClient, body: Submit
       collection: 'product-aggregations',
       id: jobId,
       data: {
-        aggregated,
+        completed: aggregated,
         errors,
         tokensUsed,
         products: [...productIds],
@@ -1469,7 +1469,7 @@ async function submitIngredientCrawl(payload: PayloadRestClient, body: SubmitIng
   log.info('Ingredient crawl batch received', { jobId, results: results.length, crawlType })
 
   const job = await payload.findByID({ collection: 'ingredient-crawls', id: jobId }) as Record<string, unknown>
-  let crawled = (job.crawled as number) ?? 0
+  let crawled = (job.completed as number) ?? 0
   let errors = (job.errors as number) ?? 0
   let tokensUsed = (job.tokensUsed as number) ?? 0
 
@@ -1599,8 +1599,8 @@ async function submitBotCheck(payload: PayloadRestClient, body: SubmitBotCheckBo
       completedAt: new Date().toISOString(),
       claimedBy: null,
       claimedAt: null,
-      passed,
-      failed,
+      completed: passed,
+      errors: failed,
       total,
       resultJson,
       ...(screenshotId ? { screenshot: screenshotId } : {}),

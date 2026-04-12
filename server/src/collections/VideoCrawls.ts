@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFieldsNoMax, jobClaimProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
+import { jobRetryFieldsNoMax, jobClaimProgressFields, jobProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -27,7 +27,7 @@ export const VideoCrawls: CollectionConfig = {
       computeScheduledFor,
       createResetJobOnPending({
         total: null,
-        crawled: 0,
+        completed: 0,
         errors: 0,
         crawledVideoUrls: null,
         crawlProgress: null,
@@ -177,71 +177,7 @@ export const VideoCrawls: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
-            {
-              name: 'total',
-              type: 'number',
-              label: 'Total',
-              admin: {
-                readOnly: true,
-                description: 'Total videos to crawl',
-              },
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'crawled',
-                  type: 'number',
-                  label: 'Crawled',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Videos successfully crawled',
-                    width: '50%',
-                  },
-                },
-                {
-                  name: 'errors',
-                  type: 'number',
-                  label: 'Errors',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Videos that failed to crawl',
-                    width: '50%',
-                  },
-                },
-              ],
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-              ],
-            },
+            ...jobProgressFields,
           ],
         },
         {

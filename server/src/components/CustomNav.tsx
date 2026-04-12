@@ -89,9 +89,10 @@ const TABS: NavTab[] = [
       },
       {
         label: 'Debug',
-        collections: ['bot-checks', 'debug-screenshots'],
+        collections: ['bot-checks', 'debug-screenshots', 'test-suites'],
         jobs: [
           { label: 'Bot Check', slug: 'bot-checks' },
+          { label: 'Test Runs', slug: 'test-suite-runs' },
         ],
       },
     ],
@@ -123,6 +124,8 @@ const COLLECTION_LABELS: Record<string, string> = {
   'workers': 'Workers',
   'events': 'Events',
   'bot-checks': 'Bot Checks',
+  'test-suites': 'Test Suites',
+  'test-suite-runs': 'Test Suite Runs',
   'debug-screenshots': 'Debug Screenshots',
   'product-media': 'Product Media',
   'video-media': 'Video Media',

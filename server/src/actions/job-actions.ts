@@ -19,6 +19,8 @@ const JOB_COLLECTIONS = [
   'video-processings',
   'ingredient-crawls',
   'ingredients-discoveries',
+  'bot-checks',
+  'test-suite-runs',
 ] as const
 
 type JobCollection = (typeof JOB_COLLECTIONS)[number]
@@ -496,4 +498,21 @@ export async function bulkCrawlIngredients(ids: number[]): Promise<JobResult> {
   })
 
   return { success: true, jobId: job.id }
+}
+
+export async function startTestSuiteRun(testSuiteId: number): Promise<JobResult> {
+  const payload = await getPayload({ config })
+
+  await payload.findByID({ collection: 'test-suites', id: testSuiteId })
+
+  const run = await payload.create({
+    collection: 'test-suite-runs',
+    data: {
+      testSuite: testSuiteId,
+      status: 'pending',
+      currentPhase: 'pending',
+    },
+  })
+
+  return { success: true, jobId: run.id }
 }

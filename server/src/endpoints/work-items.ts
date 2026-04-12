@@ -16,6 +16,7 @@ const JOB_TABLES = [
   'video_processings',
   'ingredient_crawls',
   'bot_checks',
+  'test_suite_runs',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,7 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   'video-discoveries': VIDEO_DISCOVERY_STAGES,
   'ingredients-discoveries': INGREDIENTS_DISCOVERY_STAGES,
   'bot-checks': [{ name: 'execute', jobField: '_always' }],
+  'test-suite-runs': [{ name: 'execute', jobField: '_always' }],
 }
 
 /** Get enabled stages for a job document */
@@ -837,24 +839,28 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
         }
         // Per-collection counter fields
         if (collection === 'product-crawls') {
-          initData.crawled = 0
+          initData.completed = 0
           initData.crawledGtins = ''
         } else if (collection === 'video-crawls') {
-          initData.crawled = 0
+          initData.completed = 0
           initData.crawledVideoUrls = ''
         } else if (collection === 'product-aggregations') {
-          initData.aggregated = 0
+          initData.completed = 0
           initData.tokensUsed = 0
         } else if (collection === 'ingredient-crawls') {
-          initData.crawled = 0
+          initData.completed = 0
           initData.tokensUsed = 0
         } else if (collection === 'bot-checks') {
+          initData.completed = 0
+          initData.errors = 0
+          initData.total = 0
+        } else if (collection === 'test-suite-runs') {
           initData.passed = 0
           initData.failed = 0
-          initData.total = 0
+          initData.currentPhase = 'pending'
         } else {
           // product-searches, product-discoveries, video-discoveries, ingredients-discoveries
-          initData.discovered = 0
+          initData.completed = 0
         }
         await req.payload.update({
           collection: collection as any,
@@ -884,13 +890,17 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
         overrideAccess: true,
       }).catch(() => {}) // non-fatal
 
-      // Set total from seeded count
+      // Set total from seeded count (some collections don't have a total column — skip those)
       if (seeded > 0) {
         const tableName = collection.replace(/-/g, '_')
-        await db.execute(sql`
-          UPDATE "${sql.raw(tableName)}" SET "total" = ${seeded}
-          WHERE "id" = ${jobId}
-        `)
+        try {
+          await db.execute(sql`
+            UPDATE "${sql.raw(tableName)}" SET "total" = ${seeded}
+            WHERE "id" = ${jobId}
+          `)
+        } catch {
+          // Collection doesn't have a total column — ignore
+        }
       }
     }
   }

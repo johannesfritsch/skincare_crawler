@@ -35,7 +35,7 @@ import {
   type VideoCrawlStageName,
 } from '@/lib/video-crawl/stages'
 
-export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl' | 'bot-check'
+export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl' | 'bot-check' | 'test-suite-run'
 
 interface ActiveJob {
   type: JobType
@@ -56,6 +56,7 @@ export const JOB_TYPE_TO_COLLECTION = {
   'product-aggregation': 'product-aggregations',
   'ingredient-crawl': 'ingredient-crawls',
   'bot-check': 'bot-checks',
+  'test-suite-run': 'test-suite-runs',
 } as const
 
 const JOB_TYPE_TO_CAPABILITY = {
@@ -69,6 +70,7 @@ const JOB_TYPE_TO_CAPABILITY = {
   'product-aggregation': 'product-aggregation',
   'ingredient-crawl': 'ingredient-crawl',
   'bot-check': 'bot-check',
+  'test-suite-run': 'test-suite-run',
 } as const
 
 const log = createLogger('Claim')
@@ -100,6 +102,7 @@ export async function rebuildJobWork(
     case 'product-aggregation': return buildProductAggregationWork(payload, jobId)
     case 'ingredient-crawl': return buildIngredientCrawlWork(payload, jobId)
     case 'bot-check': return buildBotCheckWork(payload, jobId)
+    case 'test-suite-run': return buildTestSuiteRunWork(payload, jobId)
     default: return { type: 'none' }
   }
 }
@@ -235,6 +238,8 @@ export async function claimWork(
           return buildIngredientCrawlWork(payload, candidate.id)
         case 'bot-check':
           return buildBotCheckWork(payload, candidate.id)
+        case 'test-suite-run':
+          return buildTestSuiteRunWork(payload, candidate.id)
         default:
           return { type: 'none' }
       }
@@ -1578,5 +1583,31 @@ async function buildBotCheckWork(payload: PayloadRestClient, jobId: number) {
     type: 'bot-check',
     jobId,
     url: (job.url as string) || 'https://bot-detector.rebrowser.net/',
+  }
+}
+
+async function buildTestSuiteRunWork(payload: PayloadRestClient, jobId: number) {
+  const jlog = log.forJob('test-suite-runs', jobId)
+  const job = await payload.findByID({ collection: 'test-suite-runs', id: jobId }) as Record<string, unknown>
+
+  if (job.status === 'pending') {
+    await payload.update({
+      collection: 'test-suite-runs',
+      id: jobId,
+      data: { status: 'in_progress', startedAt: new Date().toISOString() },
+    })
+    jlog.event('job.claimed', { collection: 'test-suite-runs', jobId, total: 1 })
+  }
+
+  // Fetch the linked test suite template
+  const testSuiteId = typeof job.testSuite === 'object' ? (job.testSuite as any)?.id : job.testSuite
+  const suite = await payload.findByID({ collection: 'test-suites', id: testSuiteId }) as Record<string, unknown>
+
+  return {
+    type: 'test-suite-run',
+    jobId,
+    suite,
+    phases: job.phases || null,
+    currentPhase: job.currentPhase || 'pending',
   }
 }

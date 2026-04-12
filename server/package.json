@@ -27,6 +27,8 @@
     "@payloadcms/storage-s3": "3.73.0",
     "@payloadcms/ui": "3.73.0",
     "@tailwindcss/postcss": "^4.2.1",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "croner": "^10.0.1",

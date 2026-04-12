@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 import { SOURCE_OPTIONS, ALL_SOURCE_SLUGS } from './shared/store-fields'
@@ -24,7 +24,7 @@ export const ProductSearches: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
-      discovered: 0, productUrls: '',
+      completed: 0, errors: 0, productUrls: '',
     })],
     afterChange: [rescheduleOnComplete],
   },
@@ -106,45 +106,7 @@ export const ProductSearches: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
-            {
-              name: 'discovered',
-              type: 'number',
-              label: 'URLs Discovered',
-              defaultValue: 0,
-              admin: {
-                readOnly: true,
-                description: 'Product URLs found across all sources',
-              },
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-              ],
-            },
+            ...jobProgressFields,
           ],
         },
         {

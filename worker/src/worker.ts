@@ -26,6 +26,7 @@ import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
 import { getSourceDriverBySlug, getSourceDriver, DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from '@/lib/source-discovery/driver'
 
 import { runBotCheck } from '@/lib/bot-check'
+import { handleTestSuiteRun } from '@/lib/test-suite-run'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
 import { STAGES, getEnabledStages, getNextStage, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
@@ -1011,6 +1012,9 @@ async function processWorkItem(
   } else if (jobType === 'bot-check') {
     // ── Single-shot: run bot detection check ──
     await processBotCheckStage(jobId, work, item, jlog)
+  } else if (jobType === 'test-suite-run') {
+    // ── Single-shot: orchestrate test suite phases ──
+    await processTestSuiteRunStage(jobId, work, item, jlog)
   } else {
     log.error('Unknown job type for work item', { jobType, itemKey: item.item_key, stageName: item.stage_name })
     await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown job type: ${jobType}` })
@@ -1357,7 +1361,7 @@ async function processProductCrawlStage(
       nextStageName: nextStage?.name ?? null,
       spawnItems: spawnItems.length > 0 ? spawnItems : undefined,
       totalDelta: spawnItems.length > 0 ? spawnItems.length : undefined,
-      counterUpdates: { crawled: 1 },
+      counterUpdates: { completed: 1 },
       resultData: { gtins: [...gtins], sourceProductId: persistResult.productId },
     })
 
@@ -1497,7 +1501,7 @@ async function processVideoCrawlStage(
       success: result.success,
       error: result.error,
       nextStageName: nextStage?.name ?? null,
-      counterUpdates: result.success ? { crawled: 1 } : { errors: 1 },
+      counterUpdates: result.success ? { completed: 1 } : { errors: 1 },
       resultData: result.videoId ? { videoId: result.videoId } : undefined,
     })
 
@@ -1663,7 +1667,7 @@ async function processProductAggregationStage(
       error: result.error,
       nextStageName: nextStage?.name ?? null,
       counterUpdates: {
-        ...(result.success ? { aggregated: 1 } : { errors: 1 }),
+        ...(result.success ? { completed: 1 } : { errors: 1 }),
         tokensUsed: tokens,
       },
       resultData: { productId: result.productId ?? productId },
@@ -1731,7 +1735,7 @@ async function processIngredientCrawlStage(
         const durationMs = Date.now() - stageStartMs
         log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, result: '404' })
         jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: 0 })
-        await client.workItems.complete({ workItemId: item.id, success: true, counterUpdates: { crawled: 1 } })
+        await client.workItems.complete({ workItemId: item.id, success: true, counterUpdates: { completed: 1 } })
         return
       }
       throw new Error(`HTTP ${response.status} from ${url}`)
@@ -1773,7 +1777,7 @@ async function processIngredientCrawlStage(
       const durationMs = Date.now() - stageStartMs
       log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, result: 'no description' })
       jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: 0 })
-      await client.workItems.complete({ workItemId: item.id, success: true, counterUpdates: { crawled: 1 } })
+      await client.workItems.complete({ workItemId: item.id, success: true, counterUpdates: { completed: 1 } })
       return
     }
 
@@ -1846,7 +1850,7 @@ async function processIngredientCrawlStage(
     const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: true,
-      counterUpdates: { crawled: 1, tokensUsed },
+      counterUpdates: { completed: 1, tokensUsed },
     })
     if (done) {
       if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
@@ -1938,7 +1942,7 @@ async function processProductSearchStage(
     const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: true,
-      counterUpdates: { discovered: products.length },
+      counterUpdates: { completed: products.length },
     })
 
     if (done) {
@@ -2017,11 +2021,55 @@ async function processBotCheckStage(
       workItemId: item.id,
       success: false,
       error,
-      counterUpdates: { errors: 1 },
+      counterUpdates: { failed: 1 },
     })
     if (done) {
       if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
       else jlog.event('job.completed', { collection: 'bot-checks', durationMs })
+    }
+  }
+}
+
+// ─── Test Suite Run ───
+
+async function processTestSuiteRunStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const stageStartMs = Date.now()
+  try {
+    const hb = async () => {
+      await client.workItems.heartbeat([item.id])
+      await client.update({ collection: 'workers', id: worker.id, data: { lastSeenAt: new Date().toISOString() } }).catch(() => {})
+    }
+
+    await handleTestSuiteRun(client, { jobId }, hb)
+
+    const durationMs = Date.now() - stageStartMs
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+    })
+    if (done && jobStatus === 'failed') {
+      jlog.event('job.failed', { reason: 'Work item failed' })
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.error('Test suite run failed', { jobId, error })
+    jlog.event('test_suite.error', { error })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+      counterUpdates: { failed: 1 },
+    })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'test-suite-runs', durationMs })
     }
   }
 }

@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFieldsNoMax, jobClaimProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
+import { jobRetryFieldsNoMax, jobClaimProgressFields, jobProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from './shared/store-fields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
@@ -28,7 +28,7 @@ export const ProductAggregations: CollectionConfig = {
       computeScheduledFor,
       createResetJobOnPending({
         total: null,
-        aggregated: 0,
+        completed: 0,
         errors: 0,
         tokensUsed: 0,
         aggregationProgress: null,
@@ -45,30 +45,6 @@ export const ProductAggregations: CollectionConfig = {
     jobStatusField,
     ...jobRetryFieldsNoMax,
     ...jobScheduleFields,
-    {
-      name: 'startedAt',
-      type: 'date',
-      label: 'Started At',
-      admin: {
-        readOnly: true,
-        position: 'sidebar',
-        date: {
-          pickerAppearance: 'dayAndTime',
-        },
-      },
-    },
-    {
-      name: 'completedAt',
-      type: 'date',
-      label: 'Completed At',
-      admin: {
-        readOnly: true,
-        position: 'sidebar',
-        date: {
-          pickerAppearance: 'dayAndTime',
-        },
-      },
-    },
     {
       type: 'tabs',
       tabs: [
@@ -372,52 +348,16 @@ export const ProductAggregations: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
+            ...jobProgressFields,
             {
-              name: 'total',
+              name: 'tokensUsed',
               type: 'number',
-              label: 'Total',
+              label: 'Tokens Used',
+              defaultValue: 0,
               admin: {
                 readOnly: true,
-                description: 'Total products to aggregate',
+                description: 'Total LLM tokens consumed',
               },
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'aggregated',
-                  type: 'number',
-                  label: 'Aggregated',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Stage-executions successfully completed',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'errors',
-                  type: 'number',
-                  label: 'Errors',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Stage-executions that failed',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'tokensUsed',
-                  type: 'number',
-                  label: 'Tokens Used',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Total LLM tokens consumed',
-                    width: '33%',
-                  },
-                },
-              ],
             },
             {
               name: 'aggregationProgress',

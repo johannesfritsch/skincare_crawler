@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -23,7 +23,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
-      discovered: 0, created: 0, existing: 0, errors: 0,
+      completed: 0, errors: 0, total: null, created: 0, existing: 0,
       currentTerm: '', currentPage: null, totalPagesForTerm: null, termQueue: null,
     })],
     afterChange: [rescheduleOnComplete],
@@ -60,19 +60,10 @@ export const IngredientsDiscoveries: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
+            ...jobProgressFields,
             {
               type: 'row',
               fields: [
-                {
-                  name: 'discovered',
-                  type: 'number',
-                  label: 'Discovered',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    width: '25%',
-                  },
-                },
                 {
                   name: 'created',
                   type: 'number',
@@ -80,7 +71,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    width: '25%',
+                    width: '33%',
                   },
                 },
                 {
@@ -90,17 +81,7 @@ export const IngredientsDiscoveries: CollectionConfig = {
                   defaultValue: 0,
                   admin: {
                     readOnly: true,
-                    width: '25%',
-                  },
-                },
-                {
-                  name: 'errors',
-                  type: 'number',
-                  label: 'Errors',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    width: '25%',
+                    width: '33%',
                   },
                 },
               ],
@@ -133,35 +114,6 @@ export const IngredientsDiscoveries: CollectionConfig = {
                   admin: {
                     readOnly: true,
                     width: '33%',
-                  },
-                },
-              ],
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
                   },
                 },
               ],

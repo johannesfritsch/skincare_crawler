@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFieldsNoMax, jobClaimProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
+import { jobRetryFieldsNoMax, jobClaimProgressFields, jobProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -44,30 +44,6 @@ export const VideoProcessings: CollectionConfig = {
     jobStatusField,
     ...jobRetryFieldsNoMax,
     ...jobScheduleFields,
-    {
-      name: 'startedAt',
-      type: 'date',
-      label: 'Started At',
-      admin: {
-        readOnly: true,
-        position: 'sidebar',
-        date: {
-          pickerAppearance: 'dayAndTime',
-        },
-      },
-    },
-    {
-      name: 'completedAt',
-      type: 'date',
-      label: 'Completed At',
-      admin: {
-        readOnly: true,
-        position: 'sidebar',
-        date: {
-          pickerAppearance: 'dayAndTime',
-        },
-      },
-    },
     {
       type: 'tabs',
       tabs: [
@@ -383,43 +359,7 @@ export const VideoProcessings: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'total',
-                  type: 'number',
-                  label: 'Total',
-                  admin: {
-                    readOnly: true,
-                    description: 'Total stage-executions to process',
-                    width: '34%',
-                  },
-                },
-                {
-                  name: 'completed',
-                  type: 'number',
-                  label: 'Completed',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Stage-executions successfully completed',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'errors',
-                  type: 'number',
-                  label: 'Errors',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Stage-executions that failed',
-                    width: '33%',
-                  },
-                },
-              ],
-            },
+            ...jobProgressFields,
             {
               type: 'row',
               fields: [

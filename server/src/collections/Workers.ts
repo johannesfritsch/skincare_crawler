@@ -37,6 +37,7 @@ export const Workers: CollectionConfig = {
         { label: 'Product Aggregation', value: 'product-aggregation' },
         { label: 'Ingredient Crawl', value: 'ingredient-crawl' },
         { label: 'Bot Check', value: 'bot-check' },
+        { label: 'Test Suite Run', value: 'test-suite-run' },
         { label: 'Event Purge', value: 'event-purge' },
       ],
     },

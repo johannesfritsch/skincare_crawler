@@ -56,6 +56,7 @@ export type JobCollection =
   | 'video-processings'
   | 'ingredient-crawls'
   | 'bot-checks'
+  | 'test-suite-runs'
 
 export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'critical'
@@ -385,6 +386,16 @@ export interface EventRegistry {
   'bot_check.started': { url: string }
   'bot_check.completed': { url: string; passed: number; failed: number; total: number }
   'bot_check.error': { url: string; error: string }
+
+  // ─── Test Suite Run ────────────────────────────────────────────────
+  'test_suite.started': { suiteName: string; phases: number }
+  'test_suite.phase_started': { phase: string; jobs: number }
+  'test_suite.phase_passed': { phase: string }
+  'test_suite.phase_failed': { phase: string; error: string }
+  'test_suite.phase_skipped': { phase: string }
+  'test_suite.validation_failed': { phase: string; entry: number; errors: string }
+  'test_suite.completed': { passed: number; failed: number; durationMs: number }
+  'test_suite.error': { error: string }
 
   // ─── Video Discovery ──────────────────────────────────────────────────
   // worker.ts: handler start
@@ -1030,6 +1041,16 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     level: 'info',
     labels: ['ingredients'],
   },
+
+  // Test suite run
+  'test_suite.started': { type: 'start', level: 'info', labels: ['test-suite'] },
+  'test_suite.phase_started': { type: 'info', level: 'info', labels: ['test-suite'] },
+  'test_suite.phase_passed': { type: 'success', level: 'info', labels: ['test-suite'] },
+  'test_suite.phase_failed': { type: 'error', level: 'error', labels: ['test-suite'] },
+  'test_suite.phase_skipped': { type: 'info', level: 'info', labels: ['test-suite'] },
+  'test_suite.validation_failed': { type: 'error', level: 'error', labels: ['test-suite'] },
+  'test_suite.completed': { type: 'success', level: 'info', labels: ['test-suite'] },
+  'test_suite.error': { type: 'error', level: 'error', labels: ['test-suite'] },
 
   // Bot check
   'bot_check.started': { type: 'start', level: 'info', labels: ['bot-check'] },

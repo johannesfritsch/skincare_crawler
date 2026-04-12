@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 import { SOURCE_OPTIONS_WITH_ALL } from './shared/store-fields'
@@ -24,7 +24,7 @@ export const ProductCrawls: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
-      total: null, crawled: 0, errors: 0, crawlSnapshot: null, crawlProgress: null, crawledGtins: '',
+      total: null, completed: 0, errors: 0, crawlSnapshot: null, crawlProgress: null, crawledGtins: '',
     })],
     afterChange: [rescheduleOnComplete],
   },
@@ -218,71 +218,7 @@ export const ProductCrawls: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
-            {
-              name: 'total',
-              type: 'number',
-              label: 'Total',
-              admin: {
-                readOnly: true,
-                description: 'Total products to crawl',
-              },
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'crawled',
-                  type: 'number',
-                  label: 'Crawled',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products successfully crawled',
-                    width: '50%',
-                  },
-                },
-                {
-                  name: 'errors',
-                  type: 'number',
-                  label: 'Errors',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Products that failed to crawl',
-                    width: '50%',
-                  },
-                },
-              ],
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: {
-                      pickerAppearance: 'dayAndTime',
-                    },
-                  },
-                },
-              ],
-            },
+            ...jobProgressFields,
           ],
         },
         {

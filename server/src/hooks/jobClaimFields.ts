@@ -99,6 +99,65 @@ export const batchSizeField: Field = {
 }
 
 /**
+ * Standardized progress fields for all job collections.
+ * Every job gets: total, completed, errors, startedAt, completedAt.
+ * Worker sends counterUpdates: { completed: 1 } or { errors: 1 } everywhere.
+ */
+export const jobProgressFields: Field[] = [
+  {
+    type: 'row',
+    fields: [
+      {
+        name: 'total',
+        type: 'number',
+        label: 'Total',
+        defaultValue: 0,
+        admin: { readOnly: true, width: '33%' },
+      },
+      {
+        name: 'completed',
+        type: 'number',
+        label: 'Completed',
+        defaultValue: 0,
+        admin: { readOnly: true, width: '33%' },
+      },
+      {
+        name: 'errors',
+        type: 'number',
+        label: 'Errors',
+        defaultValue: 0,
+        admin: { readOnly: true, width: '33%' },
+      },
+    ],
+  },
+  {
+    type: 'row',
+    fields: [
+      {
+        name: 'startedAt',
+        type: 'date',
+        label: 'Started At',
+        admin: {
+          readOnly: true,
+          width: '50%',
+          date: { pickerAppearance: 'dayAndTime' },
+        },
+      },
+      {
+        name: 'completedAt',
+        type: 'date',
+        label: 'Completed At',
+        admin: {
+          readOnly: true,
+          width: '50%',
+          date: { pickerAppearance: 'dayAndTime' },
+        },
+      },
+    ],
+  },
+]
+
+/**
  * Failure fields for job collections. Place these inside the Output tab
  * so failure info is visible alongside job results.
  */

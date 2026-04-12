@@ -5,15 +5,15 @@ import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hoo
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
-export const BotChecks: CollectionConfig = {
-  slug: 'bot-checks',
+export const TestSuiteRuns: CollectionConfig = {
+  slug: 'test-suite-runs',
   labels: {
-    singular: 'Bot Check',
-    plural: 'Bot Checks',
+    singular: 'Test Suite Run',
+    plural: 'Test Suite Runs',
   },
   admin: {
-    useAsTitle: 'url',
-    defaultColumns: ['url', 'status', 'passed', 'failed', 'total', 'createdAt'],
+    useAsTitle: 'id',
+    defaultColumns: ['testSuite', 'status', 'currentPhase', 'startedAt', 'completedAt'],
     group: 'System',
     components: {
       edit: {
@@ -23,7 +23,9 @@ export const BotChecks: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
-      completed: 0, errors: 0, total: 0,
+      currentPhase: 'pending',
+      completed: 0,
+      errors: 0,
     })],
     afterChange: [rescheduleOnComplete],
   },
@@ -32,23 +34,38 @@ export const BotChecks: CollectionConfig = {
     ...jobRetryFields,
     ...jobScheduleFields,
     {
+      name: 'testSuite',
+      type: 'relationship',
+      relationTo: 'test-suites',
+      required: true,
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'currentPhase',
+      type: 'select',
+      defaultValue: 'pending',
+      options: [
+        { label: 'Pending', value: 'pending' },
+        { label: 'Searches', value: 'searches' },
+        { label: 'Discoveries', value: 'discoveries' },
+        { label: 'Crawls', value: 'crawls' },
+        { label: 'Aggregations', value: 'aggregations' },
+        { label: 'Done', value: 'done' },
+      ],
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'phaseStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/TestSuitePhaseStatus',
+        },
+      },
+    },
+    {
       type: 'tabs',
       tabs: [
-        {
-          label: 'Source',
-          fields: [
-            {
-              name: 'url',
-              type: 'text',
-              label: 'URL',
-              required: true,
-              defaultValue: 'https://bot-detector.rebrowser.net/',
-              admin: {
-                description: 'URL to visit for bot detection testing',
-              },
-            },
-          ],
-        },
         {
           label: 'Progress',
           fields: [
@@ -60,31 +77,20 @@ export const BotChecks: CollectionConfig = {
           label: 'Results',
           fields: [
             {
-              name: 'botCheckResults',
-              type: 'ui',
-              admin: {
-                components: {
-                  Field: '@/components/BotCheckResults',
-                },
-              },
-            },
-            {
-              name: 'screenshot',
-              type: 'upload',
-              relationTo: 'debug-screenshots',
-              label: 'Screenshot',
-              admin: {
-                readOnly: true,
-                description: 'Full-page screenshot from the bot check',
-              },
-            },
-            {
-              name: 'resultJson',
+              name: 'phases',
               type: 'json',
-              label: 'Raw Results',
+              label: 'Phase Details',
               admin: {
                 readOnly: true,
-                description: 'Detailed test results from the bot detector page',
+                description: 'Per-phase status, job IDs, and validation results',
+              },
+            },
+            {
+              name: 'failureReason',
+              type: 'textarea',
+              admin: {
+                readOnly: true,
+                description: 'Details of why the run failed (if applicable)',
               },
             },
           ],

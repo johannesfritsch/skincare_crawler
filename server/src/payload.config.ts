@@ -34,6 +34,8 @@ import { ProductCrawls } from './collections/ProductCrawls'
 import { ProductAggregations } from './collections/ProductAggregations'
 import { IngredientCrawls } from './collections/IngredientCrawls'
 import { BotChecks } from './collections/BotChecks'
+import { TestSuites } from './collections/TestSuites'
+import { TestSuiteRuns } from './collections/TestSuiteRuns'
 import { Events } from './collections/Events'
 import { Creators } from './collections/Creators'
 import { Channels } from './collections/Channels'
@@ -55,6 +57,7 @@ import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
 import { embeddingsWriteHandler, embeddingsSearchHandler, embeddingsDeleteHandler } from './endpoints/embeddings'
 import { workItemsSeedHandler, workItemsClaimHandler, workItemsCompleteHandler, workItemsHeartbeatHandler } from './endpoints/work-items'
+import { handleStartTestSuiteRun } from './endpoints/test-suite-start'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -253,6 +256,8 @@ export default buildConfig({
     IngredientsDiscoveries,
     IngredientCrawls,
     BotChecks,
+    TestSuites,
+    TestSuiteRuns,
     Products,
     ProductVariants,
     SourceProducts,
@@ -325,6 +330,11 @@ export default buildConfig({
       path: '/work-items/heartbeat',
       method: 'post',
       handler: workItemsHeartbeatHandler,
+    },
+    {
+      path: '/start-test-suite-run',
+      method: 'post',
+      handler: handleStartTestSuiteRun,
     },
   ],
   editor: lexicalEditor(),

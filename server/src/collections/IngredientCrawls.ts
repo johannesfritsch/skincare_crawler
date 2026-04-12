@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { enforceJobClaim } from '@/hooks/enforceJobClaim'
 import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
-import { jobRetryFields, jobClaimProgressFields } from '@/hooks/jobClaimFields'
+import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
 
@@ -23,7 +23,7 @@ export const IngredientCrawls: CollectionConfig = {
   },
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
-      total: null, crawled: 0, errors: 0, tokensUsed: 0, lastCheckedIngredientId: 0,
+      total: null, completed: 0, errors: 0, tokensUsed: 0, lastCheckedIngredientId: 0,
     })],
     afterChange: [rescheduleOnComplete],
   },
@@ -76,77 +76,16 @@ export const IngredientCrawls: CollectionConfig = {
           label: 'Progress',
           fields: [
             ...jobClaimProgressFields,
+            ...jobProgressFields,
             {
-              name: 'total',
+              name: 'tokensUsed',
               type: 'number',
-              label: 'Total',
+              label: 'Tokens Used',
+              defaultValue: 0,
               admin: {
                 readOnly: true,
-                description: 'Total ingredients to crawl',
+                description: 'Total LLM tokens spent',
               },
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'crawled',
-                  type: 'number',
-                  label: 'Crawled',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Ingredients successfully crawled',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'errors',
-                  type: 'number',
-                  label: 'Errors',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Ingredients that failed',
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'tokensUsed',
-                  type: 'number',
-                  label: 'Tokens Used',
-                  defaultValue: 0,
-                  admin: {
-                    readOnly: true,
-                    description: 'Total LLM tokens spent',
-                    width: '33%',
-                  },
-                },
-              ],
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'startedAt',
-                  type: 'date',
-                  label: 'Started At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: { pickerAppearance: 'dayAndTime' },
-                  },
-                },
-                {
-                  name: 'completedAt',
-                  type: 'date',
-                  label: 'Completed At',
-                  admin: {
-                    readOnly: true,
-                    width: '50%',
-                    date: { pickerAppearance: 'dayAndTime' },
-                  },
-                },
-              ],
             },
           ],
         },

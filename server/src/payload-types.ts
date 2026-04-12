@@ -81,6 +81,8 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscovery;
     'ingredient-crawls': IngredientCrawl;
     'bot-checks': BotCheck;
+    'test-suites': TestSuite;
+    'test-suite-runs': TestSuiteRun;
     products: Product;
     'product-variants': ProductVariant;
     'source-products': SourceProduct;
@@ -151,6 +153,8 @@ export interface Config {
     'ingredients-discoveries': IngredientsDiscoveriesSelect<false> | IngredientsDiscoveriesSelect<true>;
     'ingredient-crawls': IngredientCrawlsSelect<false> | IngredientCrawlsSelect<true>;
     'bot-checks': BotChecksSelect<false> | BotChecksSelect<true>;
+    'test-suites': TestSuitesSelect<false> | TestSuitesSelect<true>;
+    'test-suite-runs': TestSuiteRunsSelect<false> | TestSuiteRunsSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     'product-variants': ProductVariantsSelect<false> | ProductVariantsSelect<true>;
     'source-products': SourceProductsSelect<false> | SourceProductsSelect<true>;
@@ -656,15 +660,16 @@ export interface IngredientsDiscovery {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  discovered?: number | null;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   created?: number | null;
   existing?: number | null;
-  errors?: number | null;
   currentTerm?: string | null;
   currentPage?: number | null;
   totalPagesForTerm?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
   /**
    * Remaining search terms to process
    */
@@ -698,6 +703,7 @@ export interface Worker {
     | 'product-aggregation'
     | 'ingredient-crawl'
     | 'bot-check'
+    | 'test-suite-run'
     | 'event-purge'
   )[];
   status: 'active' | 'disabled';
@@ -744,24 +750,15 @@ export interface IngredientCrawl {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Total ingredients to crawl
-   */
   total?: number | null;
-  /**
-   * Ingredients successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Ingredients that failed
-   */
+  completed?: number | null;
   errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   /**
    * Total LLM tokens spent
    */
   tokensUsed?: number | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
   /**
    * Ingredients enriched by this crawl
    */
@@ -801,9 +798,9 @@ export interface BotCheck {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  passed?: number | null;
-  failed?: number | null;
   total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
   /**
@@ -957,17 +954,8 @@ export interface ProductCrawl {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Total products to crawl
-   */
   total?: number | null;
-  /**
-   * Products successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Products that failed to crawl
-   */
+  completed?: number | null;
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -1040,10 +1028,11 @@ export interface ProductDiscovery {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Product URLs found
-   */
-  discovered?: number | null;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   /**
    * Internal state for resumable discovery
    */
@@ -1056,8 +1045,6 @@ export interface ProductDiscovery {
     | number
     | boolean
     | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1109,12 +1096,189 @@ export interface ProductSearch {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Product URLs found across all sources
-   */
-  discovered?: number | null;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "test-suites".
+ */
+export interface TestSuite {
+  id: number;
+  /**
+   * Name for this test suite (e.g. "DM Smoke Test")
+   */
+  name: string;
+  /**
+   * Optional description of what this test suite validates
+   */
+  description?: string | null;
+  /**
+   * Product search jobs to run in the first phase
+   */
+  searches?:
+    | {
+        /**
+         * Search query text
+         */
+        query: string;
+        /**
+         * Stores to search (leave empty for all)
+         */
+        sources?: ('dm' | 'rossmann' | 'mueller' | 'purish' | 'douglas' | 'shopapotheke')[] | null;
+        /**
+         * Max results per source
+         */
+        maxResults?: number | null;
+        /**
+         * JSON Schema (draft-07) to validate the job record after completion
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Product discovery jobs to run in the second phase
+   */
+  discoveries?:
+    | {
+        /**
+         * Category or store URL to discover products from
+         */
+        sourceUrl: string;
+        /**
+         * JSON Schema (draft-07) to validate the job record after completion
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Product crawl jobs to run in the third phase
+   */
+  crawls?:
+    | {
+        /**
+         * Product URLs to crawl (one per line)
+         */
+        urls: string;
+        /**
+         * Also crawl variant URLs discovered on each product page
+         */
+        crawlVariants?: boolean | null;
+        /**
+         * JSON Schema (draft-07) to validate the source-variant record after crawl
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Product aggregation jobs to run in the fourth phase
+   */
+  aggregations?:
+    | {
+        /**
+         * GTINs to aggregate (one per line)
+         */
+        gtins: string;
+        /**
+         * JSON Schema (draft-07) to validate the product-variant record after aggregation
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "test-suite-runs".
+ */
+export interface TestSuiteRun {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  testSuite: number | TestSuite;
+  currentPhase?: ('pending' | 'searches' | 'discoveries' | 'crawls' | 'aggregations' | 'done') | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Per-phase status, job IDs, and validation results
+   */
+  phases?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Details of why the run failed (if applicable)
+   */
+  failureReason?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1966,8 +2130,6 @@ export interface ProductAggregation {
   scheduleLimit?: number | null;
   scheduleCount?: number | null;
   scheduledFor?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
   type: 'all' | 'selected_gtins';
   /**
    * GTINs to aggregate, one per line
@@ -2085,18 +2247,11 @@ export interface ProductAggregation {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Total products to aggregate
-   */
   total?: number | null;
-  /**
-   * Stage-executions successfully completed
-   */
-  aggregated?: number | null;
-  /**
-   * Stage-executions that failed
-   */
+  completed?: number | null;
   errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   /**
    * Total LLM tokens consumed
    */
@@ -2290,6 +2445,10 @@ export interface Event {
     | ({
         relationTo: 'bot-checks';
         value: number | BotCheck;
+      } | null)
+    | ({
+        relationTo: 'test-suite-runs';
+        value: number | TestSuiteRun;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -2342,10 +2501,11 @@ export interface VideoDiscovery {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Video URLs found on the channel
-   */
-  discovered?: number | null;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   /**
    * Internal state for resumable discovery (currentOffset)
    */
@@ -2358,8 +2518,6 @@ export interface VideoDiscovery {
     | number
     | boolean
     | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2422,17 +2580,8 @@ export interface VideoCrawl {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Total videos to crawl
-   */
   total?: number | null;
-  /**
-   * Videos successfully crawled
-   */
-  crawled?: number | null;
-  /**
-   * Videos that failed to crawl
-   */
+  completed?: number | null;
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -2467,8 +2616,6 @@ export interface VideoProcessing {
   scheduleLimit?: number | null;
   scheduleCount?: number | null;
   scheduledFor?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
   type: 'all_unprocessed' | 'single_video' | 'selected_urls' | 'from_crawl';
   /**
    * The video to process
@@ -2566,18 +2713,11 @@ export interface VideoProcessing {
    * Worker currently processing this job
    */
   claimedBy?: (number | null) | Worker;
-  /**
-   * Total stage-executions to process
-   */
   total?: number | null;
-  /**
-   * Stage-executions successfully completed
-   */
   completed?: number | null;
-  /**
-   * Stage-executions that failed
-   */
   errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   /**
    * Total LLM tokens consumed across all steps
    */
@@ -2684,6 +2824,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'bot-checks';
         value: number | BotCheck;
+      } | null)
+    | ({
+        relationTo: 'test-suites';
+        value: number | TestSuite;
+      } | null)
+    | ({
+        relationTo: 'test-suite-runs';
+        value: number | TestSuiteRun;
       } | null)
     | ({
         relationTo: 'products';
@@ -3206,15 +3354,16 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   pagesPerTick?: T;
   claimedAt?: T;
   claimedBy?: T;
-  discovered?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
   created?: T;
   existing?: T;
-  errors?: T;
   currentTerm?: T;
   currentPage?: T;
   totalPagesForTerm?: T;
-  startedAt?: T;
-  completedAt?: T;
   termQueue?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -3237,11 +3386,11 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   total?: T;
-  crawled?: T;
+  completed?: T;
   errors?: T;
-  tokensUsed?: T;
   startedAt?: T;
   completedAt?: T;
+  tokensUsed?: T;
   ingredients?: T;
   lastCheckedIngredientId?: T;
   updatedAt?: T;
@@ -3262,13 +3411,80 @@ export interface BotChecksSelect<T extends boolean = true> {
   url?: T;
   claimedAt?: T;
   claimedBy?: T;
-  passed?: T;
-  failed?: T;
   total?: T;
+  completed?: T;
+  errors?: T;
   startedAt?: T;
   completedAt?: T;
   screenshot?: T;
   resultJson?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "test-suites_select".
+ */
+export interface TestSuitesSelect<T extends boolean = true> {
+  name?: T;
+  description?: T;
+  searches?:
+    | T
+    | {
+        query?: T;
+        sources?: T;
+        maxResults?: T;
+        checkSchema?: T;
+        id?: T;
+      };
+  discoveries?:
+    | T
+    | {
+        sourceUrl?: T;
+        checkSchema?: T;
+        id?: T;
+      };
+  crawls?:
+    | T
+    | {
+        urls?: T;
+        crawlVariants?: T;
+        checkSchema?: T;
+        id?: T;
+      };
+  aggregations?:
+    | T
+    | {
+        gtins?: T;
+        checkSchema?: T;
+        id?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "test-suite-runs_select".
+ */
+export interface TestSuiteRunsSelect<T extends boolean = true> {
+  status?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
+  testSuite?: T;
+  currentPhase?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
+  phases?: T;
+  failureReason?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3515,10 +3731,12 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   sourceUrls?: T;
   claimedAt?: T;
   claimedBy?: T;
-  discovered?: T;
-  progress?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
   startedAt?: T;
   completedAt?: T;
+  progress?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3542,7 +3760,9 @@ export interface ProductSearchesSelect<T extends boolean = true> {
   sources?: T;
   claimedAt?: T;
   claimedBy?: T;
-  discovered?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
   startedAt?: T;
   completedAt?: T;
   updatedAt?: T;
@@ -3576,7 +3796,7 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   total?: T;
-  crawled?: T;
+  completed?: T;
   errors?: T;
   startedAt?: T;
   completedAt?: T;
@@ -3597,8 +3817,6 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
-  startedAt?: T;
-  completedAt?: T;
   type?: T;
   gtins?: T;
   includeSisterVariants?: T;
@@ -3626,8 +3844,10 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   total?: T;
-  aggregated?: T;
+  completed?: T;
   errors?: T;
+  startedAt?: T;
+  completedAt?: T;
   tokensUsed?: T;
   aggregationProgress?: T;
   reviewState?: T;
@@ -3869,10 +4089,12 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   debugMode?: T;
   claimedAt?: T;
   claimedBy?: T;
-  discovered?: T;
-  progress?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
   startedAt?: T;
   completedAt?: T;
+  progress?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3899,7 +4121,7 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   claimedAt?: T;
   claimedBy?: T;
   total?: T;
-  crawled?: T;
+  completed?: T;
   errors?: T;
   startedAt?: T;
   completedAt?: T;
@@ -3919,8 +4141,6 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
-  startedAt?: T;
-  completedAt?: T;
   type?: T;
   video?: T;
   urls?: T;
@@ -3949,6 +4169,8 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   total?: T;
   completed?: T;
   errors?: T;
+  startedAt?: T;
+  completedAt?: T;
   tokensUsed?: T;
   tokensRecognition?: T;
   tokensTranscriptCorrection?: T;
