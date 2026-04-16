@@ -93,10 +93,10 @@ export async function rebuildJobWork(
 
   switch (jobType) {
     case 'product-crawl': return buildProductCrawlWork(payload, jobId)
-    case 'product-discovery': return buildProductDiscoveryWork(payload, jobId)
+    case 'product-discovery': return { type: 'none' } // handled by work-items system
     case 'product-search': return buildProductSearchWork(payload, jobId)
     case 'ingredients-discovery': return { type: 'none' } // handled by work-items system
-    case 'video-discovery': return buildVideoDiscoveryWork(payload, jobId)
+    case 'video-discovery': return { type: 'none' } // handled by work-items system
     case 'video-crawl': return buildVideoCrawlWork(payload, jobId)
     case 'video-processing': return buildVideoProcessingWork(payload, jobId)
     case 'product-aggregation': return buildProductAggregationWork(payload, jobId)
@@ -221,13 +221,13 @@ export async function claimWork(
         case 'product-crawl':
           return buildProductCrawlWork(payload, candidate.id)
         case 'product-discovery':
-          return buildProductDiscoveryWork(payload, candidate.id)
+          return { type: 'none' } // handled by work-items system
         case 'product-search':
           return buildProductSearchWork(payload, candidate.id)
         case 'ingredients-discovery':
           return { type: 'none' } // handled by work-items system
         case 'video-discovery':
-          return buildVideoDiscoveryWork(payload, candidate.id)
+          return { type: 'none' } // handled by work-items system
         case 'video-crawl':
           return buildVideoCrawlWork(payload, candidate.id)
         case 'video-processing':

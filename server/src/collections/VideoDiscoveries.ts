@@ -61,22 +61,12 @@ export const VideoDiscoveries: CollectionConfig = {
               type: 'row',
               fields: [
                 {
-                  name: 'itemsPerTick',
-                  type: 'number',
-                  label: 'Videos per Batch',
-                  min: 1,
-                  admin: {
-                    width: '33%',
-                    description: 'Videos fetched per claim cycle. Default: 50. Empty = 50.',
-                  },
-                },
-                {
                   name: 'maxVideos',
                   type: 'number',
                   label: 'Max Videos',
                   min: 1,
                   admin: {
-                    width: '33%',
+                    width: '50%',
                     description: 'Stop after this many videos. Empty = unlimited (all videos on channel).',
                   },
                 },
@@ -85,7 +75,7 @@ export const VideoDiscoveries: CollectionConfig = {
                   type: 'text',
                   label: 'Date Limit',
                   admin: {
-                    width: '33%',
+                    width: '50%',
                     description: 'Only discover videos newer than this. E.g. "5 days", "2 weeks", "1 month". Empty = no date filter.',
                   },
                 },

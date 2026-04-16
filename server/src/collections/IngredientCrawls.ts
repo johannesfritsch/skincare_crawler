@@ -34,17 +34,6 @@ export const IngredientCrawls: CollectionConfig = {
     ...jobRetryFields,
     ...jobScheduleFields,
     {
-      name: 'itemsPerTick',
-      type: 'number',
-      label: 'Batch Size',
-      defaultValue: 10,
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Ingredients to process per batch.',
-      },
-    },
-    {
       type: 'tabs',
       tabs: [
         {

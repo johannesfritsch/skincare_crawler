@@ -25,7 +25,6 @@ export const IngredientsDiscoveries: CollectionConfig = {
   hooks: {
     beforeChange: [enforceJobClaim, computeScheduledFor, createResetJobOnPending({
       completed: 0, errors: 0, total: null, created: 0, existing: 0,
-      currentTerm: '', currentPage: null, totalPagesForTerm: null, termQueue: null,
     })],
     afterChange: [rescheduleOnComplete],
     afterDelete: [deleteWorkItems('ingredients-discoveries')],
@@ -44,16 +43,6 @@ export const IngredientsDiscoveries: CollectionConfig = {
     jobStatusField,
     ...jobRetryFields,
     ...jobScheduleFields,
-    {
-      name: 'pagesPerTick',
-      type: 'number',
-      label: 'Batch Size',
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Max pages per batch (default: 10).',
-      },
-    },
     // Everything below only shows after creation
     {
       type: 'tabs',
@@ -87,52 +76,6 @@ export const IngredientsDiscoveries: CollectionConfig = {
                   },
                 },
               ],
-            },
-            {
-              type: 'row',
-              fields: [
-                {
-                  name: 'currentTerm',
-                  type: 'text',
-                  label: 'Current Term',
-                  admin: {
-                    readOnly: true,
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'currentPage',
-                  type: 'number',
-                  label: 'Current Page',
-                  admin: {
-                    readOnly: true,
-                    width: '33%',
-                  },
-                },
-                {
-                  name: 'totalPagesForTerm',
-                  type: 'number',
-                  label: 'Total Pages',
-                  admin: {
-                    readOnly: true,
-                    width: '33%',
-                  },
-                },
-              ],
-            },
-          ],
-        },
-        {
-          label: 'Details',
-          fields: [
-            {
-              name: 'termQueue',
-              type: 'json',
-              label: 'Term Queue',
-              admin: {
-                readOnly: true,
-                description: 'Remaining search terms to process',
-              },
             },
           ],
         },

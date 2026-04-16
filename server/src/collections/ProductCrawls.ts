@@ -35,17 +35,6 @@ export const ProductCrawls: CollectionConfig = {
     ...jobRetryFields,
     ...jobScheduleFields,
     {
-      name: 'itemsPerTick',
-      type: 'number',
-      label: 'Batch Size',
-      defaultValue: 10,
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Products to crawl per batch.',
-      },
-    },
-    {
       name: 'crawlVariants',
       type: 'checkbox',
       label: 'Crawl Variants',

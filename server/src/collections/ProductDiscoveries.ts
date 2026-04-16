@@ -33,16 +33,6 @@ export const ProductDiscoveries: CollectionConfig = {
     ...jobRetryFields,
     ...jobScheduleFields,
     {
-      name: 'itemsPerTick',
-      type: 'number',
-      label: 'Batch Size',
-      min: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Max pages per batch. Empty = unlimited.',
-      },
-    },
-    {
       name: 'delay',
       type: 'number',
       label: 'Delay (ms)',

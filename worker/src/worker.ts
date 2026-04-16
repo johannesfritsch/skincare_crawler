@@ -19,7 +19,7 @@ import path from 'path'
 import os from 'os'
 import { PayloadRestClient } from '@/lib/payload-client'
 import { initLogger, createLogger } from '@/lib/logger'
-import { rebuildJobWork, JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
+import { JOB_TYPE_TO_COLLECTION, type JobType } from '@/lib/work-protocol/claim'
 import { submitWork } from '@/lib/work-protocol/submit'
 import { failJob, retryOrFail } from '@/lib/work-protocol/job-failure'
 import type { AuthenticatedWorker } from '@/lib/work-protocol/types'
@@ -272,84 +272,6 @@ async function handleProductCrawl(work: Record<string, unknown>): Promise<void> 
   log.info('Submitted crawl results', { jobId })
 }
 
-async function handleProductDiscovery(work: Record<string, unknown>): Promise<void> {
-  const jobId = work.jobId as number
-  const jlog = log.forJob('product-discoveries', jobId)
-  const sourceUrls = work.sourceUrls as string[]
-  let currentUrlIndex = work.currentUrlIndex as number
-  let driverProgress = work.driverProgress as unknown
-  const maxPages = work.maxPages as number | undefined
-  const delay = work.delay as number
-  const debug = work.debug as boolean
-
-  log.info('Product discovery job', { jobId, urlCount: sourceUrls.length, currentUrlIndex })
-  jlog.event('discovery.started', { urlCount: sourceUrls.length, currentUrlIndex, maxPages: maxPages ?? 0 })
-
-  const discoveredProducts: DiscoveredProduct[] = []
-  let totalPagesUsed = 0
-
-  let pagesRemaining = maxPages
-
-  while (currentUrlIndex < sourceUrls.length) {
-    if (pagesRemaining !== undefined && pagesRemaining <= 0) break
-
-    const url = sourceUrls[currentUrlIndex]
-    const driver = getSourceDriver(url)
-    if (!driver) {
-      log.warn('No driver for URL', { url })
-      currentUrlIndex++
-      driverProgress = null
-      continue
-    }
-
-    log.info('Discovering from URL', { url })
-
-    const result = await driver.discoverProducts({
-      url,
-      onProduct: async (product) => {
-        discoveredProducts.push(product)
-      },
-      onError: () => {},
-      onProgress: async (dp) => {
-        driverProgress = dp
-        // Heartbeat during long-running discovery
-        await heartbeat(jobId, 'product-discovery', { currentUrlIndex, driverProgress: dp })
-      },
-      progress: driverProgress ?? undefined,
-      maxPages: pagesRemaining,
-      delay,
-      debug,
-      logger: jlog,
-    })
-
-    totalPagesUsed += result.pagesUsed
-
-    if (result.done) {
-      currentUrlIndex++
-      driverProgress = null
-      if (pagesRemaining !== undefined) {
-        pagesRemaining -= result.pagesUsed
-      }
-    } else {
-      break
-    }
-  }
-
-  const done = currentUrlIndex >= sourceUrls.length
-
-  await submitWork(client, worker, {
-    type: 'product-discovery',
-    jobId,
-    products: discoveredProducts,
-    currentUrlIndex,
-    driverProgress,
-    done,
-    pagesUsed: totalPagesUsed,
-  } as Parameters<typeof submitWork>[2])
-
-  log.info('Submitted discovery results', { products: discoveredProducts.length, done })
-}
-
 async function handleProductSearch(work: Record<string, unknown>): Promise<void> {
   const jobId = work.jobId as number
   const jlog = log.forJob('product-searches', jobId)
@@ -397,6 +319,210 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
   } as Parameters<typeof submitWork>[2])
 
   log.info('Submitted search results', { products: allProducts.length })
+}
+
+/**
+ * Process a single product-discovery work item (per source URL).
+ * Paginates all pages for the URL and accumulates discovered product URLs.
+ */
+async function processProductDiscoveryItem(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const url = item.item_key
+  const debug = (work.debug as boolean) ?? false
+  const delay = (work.delay as number) ?? 2000
+  const itemLabel = url.length > 60 ? `…${url.slice(-57)}` : url
+
+  log.banner(`DISCOVER: product — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'product-discoveries', stage: 'discover', item: url })
+
+  const stageStartMs = Date.now()
+
+  try {
+    const driver = getSourceDriver(url)
+    if (!driver) throw new Error(`No driver for URL: ${url}`)
+
+    const source = getSourceSlugFromUrl(url)
+    const discoveredProducts: DiscoveredProduct[] = []
+
+    await driver.discoverProducts({
+      url,
+      onProduct: async (product) => { discoveredProducts.push(product) },
+      onError: () => {},
+      onProgress: async () => {
+        await client.workItems.heartbeat([item.id]).catch(() => {})
+      },
+      delay,
+      debug,
+      logger: jlog,
+    })
+
+    // Deduplicate and append URLs to job's productUrls field
+    const job = await client.findByID({ collection: 'product-discoveries', id: jobId }) as Record<string, unknown>
+    const existingUrls = new Set<string>(((job.productUrls as string) ?? '').split('\n').filter(Boolean))
+    let newCount = 0
+    const newUrls: string[] = []
+    for (const product of discoveredProducts) {
+      const normalized = normalizeProductUrl(product.productUrl)
+      if (!existingUrls.has(normalized)) {
+        existingUrls.add(normalized)
+        newUrls.push(normalized)
+        newCount++
+      }
+    }
+    if (newUrls.length > 0) {
+      const allUrls = [...((job.productUrls as string) ?? '').split('\n').filter(Boolean), ...newUrls]
+      await client.update({
+        collection: 'product-discoveries',
+        id: jobId,
+        data: { productUrls: allUrls.join('\n') },
+      })
+    }
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`DISCOVER: product — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, discovered: newCount })
+    jlog.event('stage.completed', { pipeline: 'product-discoveries', stage: 'discover', item: url, durationMs, tokens: 0 })
+    jlog.event('discovery.batch_persisted', {
+      source: source ?? 'unknown',
+      discovered: newCount,
+      batchSize: discoveredProducts.length,
+      batchPersisted: newCount,
+      batchErrors: 0,
+      batchDurationMs: durationMs,
+      pagesUsed: 0,
+    })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { completed: newCount },
+    })
+    if (done) {
+      const jobStartedAt = (job.startedAt as string) || (job.createdAt as string)
+      const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else {
+        jlog.event('discovery.completed', { source: source ?? 'unknown', discovered: (job.completed as number ?? 0) + newCount, durationMs: jobDurationMs })
+        jlog.event('job.completed', { collection: 'product-discoveries', durationMs: jobDurationMs })
+      }
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`DISCOVER: product — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'product-discoveries', stage: 'discover', item: url, durationMs, error })
+    const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'product-discoveries', durationMs })
+    }
+  }
+}
+
+/**
+ * Process a single video-discovery work item (per channel URL).
+ * Paginates all videos for the channel via yt-dlp.
+ */
+async function processVideoDiscoveryItem(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const channelUrl = item.item_key
+  const maxVideos = work.maxVideos as number | undefined
+  const dateLimit = work.dateLimit as string | undefined
+  const debugMode = work.debugMode as boolean | undefined
+  const itemLabel = channelUrl.length > 60 ? `…${channelUrl.slice(-57)}` : channelUrl
+
+  log.banner(`DISCOVER: video — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'video-discoveries', stage: 'discover', item: channelUrl })
+
+  const stageStartMs = Date.now()
+
+  try {
+    const driver = getVideoDriver(channelUrl)
+    if (!driver) throw new Error(`No video driver for URL: ${channelUrl}`)
+
+    const allVideos: import('@/lib/video-discovery/types').DiscoveredVideo[] = []
+    let offset = 0
+    const batchSize = 50
+
+    while (true) {
+      // Respect maxVideos limit
+      let fetchCount = batchSize
+      if (maxVideos !== undefined) {
+        const remaining = maxVideos - offset
+        if (remaining <= 0) break
+        fetchCount = Math.min(batchSize, remaining)
+      }
+
+      const startIndex = offset + 1
+      const endIndex = offset + fetchCount
+
+      const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex, dateLimit, debugMode, logger: jlog, payload: client })
+      allVideos.push(...result.videos)
+      offset += result.videos.length
+
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+
+      if (result.reachedEnd || result.videos.length < fetchCount) break
+    }
+
+    // Deduplicate and append URLs to job's videoUrls field
+    const job = await client.findByID({ collection: 'video-discoveries', id: jobId }) as Record<string, unknown>
+    const existingUrls = new Set<string>(((job.videoUrls as string) ?? '').split('\n').filter(Boolean))
+    let newCount = 0
+    const newUrls: string[] = []
+    for (const video of allVideos) {
+      if (!existingUrls.has(video.externalUrl)) {
+        existingUrls.add(video.externalUrl)
+        newUrls.push(video.externalUrl)
+        newCount++
+      }
+    }
+    if (newUrls.length > 0) {
+      const allUrls = [...((job.videoUrls as string) ?? '').split('\n').filter(Boolean), ...newUrls]
+      await client.update({
+        collection: 'video-discoveries',
+        id: jobId,
+        data: { videoUrls: allUrls.join('\n') },
+      })
+    }
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`DISCOVER: video — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, discovered: newCount })
+    jlog.event('stage.completed', { pipeline: 'video-discoveries', stage: 'discover', item: channelUrl, durationMs, tokens: 0 })
+    jlog.event('video_discovery.batch_persisted', { discovered: newCount, batchSize: allVideos.length, batchDurationMs: durationMs })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { completed: newCount },
+    })
+    if (done) {
+      const jobStartedAt = (job.startedAt as string) || (job.createdAt as string)
+      const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else {
+        jlog.event('video_discovery.completed', { discovered: (job.completed as number ?? 0) + newCount, durationMs: jobDurationMs })
+        jlog.event('job.completed', { collection: 'video-discoveries', durationMs: jobDurationMs })
+      }
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`DISCOVER: video — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'video-discoveries', stage: 'discover', item: channelUrl, durationMs, error })
+    const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'video-discoveries', durationMs })
+    }
+  }
 }
 
 /**
@@ -533,67 +659,6 @@ async function processIngredientsDiscoveryItem(
       else jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs })
     }
   }
-}
-
-async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void> {
-  const jobId = work.jobId as number
-  const channelUrl = work.channelUrl as string
-  const currentOffset = work.currentOffset as number
-  const batchSize = work.batchSize as number
-  const maxVideos = work.maxVideos as number | undefined
-  const dateLimit = work.dateLimit as string | undefined
-  const debugMode = work.debugMode as boolean | undefined
-
-  log.info('Video discovery job', { jobId, channelUrl, currentOffset, batchSize, maxVideos: maxVideos ?? 'unlimited', dateLimit: dateLimit ?? 'none', debugMode: !!debugMode })
-  const jlog = log.forJob('video-discoveries', jobId)
-  jlog.event('video_discovery.started', { currentOffset, batchSize, maxVideos: maxVideos ?? 0 })
-
-  const driver = getVideoDriver(channelUrl)
-  if (!driver) {
-    await failJob(client, 'video-discoveries', jobId, `No video driver for URL: ${channelUrl}`)
-    return
-  }
-
-  // Compute how many videos to fetch this batch (respect maxVideos limit)
-  let fetchCount = batchSize
-  if (maxVideos !== undefined) {
-    const remaining = maxVideos - currentOffset
-    if (remaining <= 0) {
-      log.info('Already at maxVideos limit, nothing to fetch', { maxVideos })
-      await submitWork(client, worker, {
-        type: 'video-discovery',
-        jobId,
-        channelUrl,
-        videos: [],
-        reachedEnd: true,
-        nextOffset: currentOffset,
-        maxVideos,
-      } as Parameters<typeof submitWork>[2])
-      return
-    }
-    fetchCount = Math.min(batchSize, remaining)
-  }
-
-  // yt-dlp uses 1-based indices
-  const startIndex = currentOffset + 1
-  const endIndex = currentOffset + fetchCount
-
-  const result = await driver.discoverVideoPage(channelUrl, { startIndex, endIndex, dateLimit, debugMode, logger: jlog, payload: client })
-  const nextOffset = currentOffset + result.videos.length
-
-  log.info('Fetched videos', { count: result.videos.length, startIndex, endIndex, reachedEnd: result.reachedEnd })
-
-  await submitWork(client, worker, {
-    type: 'video-discovery',
-    jobId,
-    channelUrl,
-    videos: result.videos,
-    reachedEnd: result.reachedEnd,
-    nextOffset,
-    maxVideos,
-  } as Parameters<typeof submitWork>[2])
-
-  log.info('Submitted video discovery results')
 }
 
 async function handleVideoCrawl(work: Record<string, unknown>): Promise<void> {
@@ -1055,10 +1120,10 @@ async function processWorkItem(
     await processProductSearchStage(jobId, work, item, jlog)
   } else if (jobType === 'product-discovery') {
     // ── Per-URL: discover products from one source URL ──
-    await processDiscoveryStage(jobId, 'product-discoveries', work, item, jlog, handleProductDiscovery)
+    await processProductDiscoveryItem(jobId, work, item, jlog)
   } else if (jobType === 'video-discovery') {
     // ── Per-channel: discover videos from one channel ──
-    await processDiscoveryStage(jobId, 'video-discoveries', work, item, jlog, handleVideoDiscovery)
+    await processVideoDiscoveryItem(jobId, work, item, jlog)
   } else if (jobType === 'ingredients-discovery') {
     // ── Per-term: discover ingredients (init seeds terms, discover processes each in parallel) ──
     await processIngredientsDiscoveryItem(jobId, work, item, jlog)
@@ -1173,65 +1238,6 @@ async function processVideoStage(
   })
 }
 
-/**
- * Generic discovery stage handler. Runs the existing discovery handler in a
- * build→handle→submit loop inside a single work item, then reports completion.
- * Discovery jobs are sequential (cursor-based pagination) but use the per-item
- * system for lifecycle events and retry.
- */
-async function processDiscoveryStage(
-  jobId: number,
-  collection: string,
-  work: Record<string, unknown>,
-  item: { id: number; item_key: string; stage_name: string },
-  jlog: ReturnType<typeof log.forJob>,
-  handler: (work: Record<string, unknown>) => Promise<void>,
-): Promise<void> {
-  const itemLabel = item.item_key.length > 50 ? `…${item.item_key.slice(-47)}` : item.item_key
-  log.banner(`DISCOVER: ${itemLabel}`, { jobId })
-  jlog.event('stage.started', { pipeline: collection, stage: 'discover', item: item.item_key })
-
-  const stageStartMs = Date.now()
-
-  try {
-    // Run the existing handler in a loop — it reads/writes progress on the job
-    let batchWork = await rebuildJobWork(client, Object.entries(JOB_TYPE_TO_COLLECTION).find(([, col]) => col === collection)?.[0] as JobType, jobId)
-    while (batchWork.type !== 'none') {
-      await handler(batchWork)
-      await heartbeat(jobId, collection)
-      await client.workItems.heartbeat([item.id]).catch(() => {})
-      batchWork = await rebuildJobWork(client, Object.entries(JOB_TYPE_TO_COLLECTION).find(([, col]) => col === collection)?.[0] as JobType, jobId)
-    }
-
-    const durationMs = Date.now() - stageStartMs
-    log.bannerEnd(`DISCOVER: ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s` })
-    jlog.event('stage.completed', { pipeline: collection, stage: 'discover', item: item.item_key, durationMs, tokens: 0 })
-
-    const { done, jobStatus } = await client.workItems.complete({
-      workItemId: item.id,
-      success: true,
-    })
-    if (done) {
-      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
-      else jlog.event('job.completed', { collection, durationMs })
-    }
-  } catch (e) {
-    const durationMs = Date.now() - stageStartMs
-    const error = e instanceof Error ? e.message : String(e)
-    log.bannerEnd(`DISCOVER: ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
-    jlog.event('stage.failed', { pipeline: collection, stage: 'discover', item: item.item_key, durationMs, error })
-
-    const { done, jobStatus } = await client.workItems.complete({
-      workItemId: item.id,
-      success: false,
-      error,
-    })
-    if (done) {
-      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
-      else jlog.event('job.completed', { collection, durationMs })
-    }
-  }
-}
 
 /**
  * Process a single product-crawl work item (per-URL, multi-stage pipeline).

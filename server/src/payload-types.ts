@@ -649,10 +649,6 @@ export interface IngredientsDiscovery {
   scheduleCount?: number | null;
   scheduledFor?: string | null;
   /**
-   * Max pages per batch (default: 10).
-   */
-  pagesPerTick?: number | null;
-  /**
    * When the current worker claimed this job
    */
   claimedAt?: string | null;
@@ -667,21 +663,6 @@ export interface IngredientsDiscovery {
   completedAt?: string | null;
   created?: number | null;
   existing?: number | null;
-  currentTerm?: string | null;
-  currentPage?: number | null;
-  totalPagesForTerm?: number | null;
-  /**
-   * Remaining search terms to process
-   */
-  termQueue?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -733,10 +714,6 @@ export interface IngredientCrawl {
   scheduleLimit?: number | null;
   scheduleCount?: number | null;
   scheduledFor?: string | null;
-  /**
-   * Ingredients to process per batch.
-   */
-  itemsPerTick?: number | null;
   type: 'all_uncrawled' | 'selected';
   /**
    * Specific ingredients to crawl
@@ -898,10 +875,6 @@ export interface ProductCrawl {
   scheduleCount?: number | null;
   scheduledFor?: string | null;
   /**
-   * Products to crawl per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
    * Also crawl all variant URLs (e.g. Mueller ?itemId= variants). When off, only the default variant per product is crawled.
    */
   crawlVariants?: boolean | null;
@@ -1003,10 +976,6 @@ export interface ProductDiscovery {
   scheduleLimit?: number | null;
   scheduleCount?: number | null;
   scheduledFor?: string | null;
-  /**
-   * Max pages per batch. Empty = unlimited.
-   */
-  itemsPerTick?: number | null;
   /**
    * Milliseconds between requests. Default: 2000.
    */
@@ -2160,10 +2129,6 @@ export interface ProductAggregation {
    */
   includeSisterVariants?: boolean | null;
   /**
-   * Products to aggregate per batch.
-   */
-  itemsPerTick?: number | null;
-  /**
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
@@ -2498,10 +2463,6 @@ export interface VideoDiscovery {
    */
   channelUrl: string;
   /**
-   * Videos fetched per claim cycle. Default: 50. Empty = 50.
-   */
-  itemsPerTick?: number | null;
-  /**
    * Stop after this many videos. Empty = unlimited (all videos on channel).
    */
   maxVideos?: number | null;
@@ -2584,10 +2545,6 @@ export interface VideoCrawl {
    * Extract audio via ffmpeg, upload WAV, update audioFile and set status=crawled.
    */
   stageAudio?: boolean | null;
-  /**
-   * Videos to crawl per batch.
-   */
-  itemsPerTick?: number | null;
   /**
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
@@ -2681,10 +2638,6 @@ export interface VideoProcessing {
    * LLM quote extraction and sentiment scoring.
    */
   stageSentimentAnalysis?: boolean | null;
-  /**
-   * Videos to process per batch.
-   */
-  itemsPerTick?: number | null;
   /**
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
@@ -3371,7 +3324,6 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
-  pagesPerTick?: T;
   claimedAt?: T;
   claimedBy?: T;
   total?: T;
@@ -3381,10 +3333,6 @@ export interface IngredientsDiscoveriesSelect<T extends boolean = true> {
   completedAt?: T;
   created?: T;
   existing?: T;
-  currentTerm?: T;
-  currentPage?: T;
-  totalPagesForTerm?: T;
-  termQueue?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3400,7 +3348,6 @@ export interface IngredientCrawlsSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
-  itemsPerTick?: T;
   type?: T;
   ingredientIds?: T;
   claimedAt?: T;
@@ -3752,7 +3699,6 @@ export interface ProductDiscoveriesSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
-  itemsPerTick?: T;
   delay?: T;
   debug?: T;
   productUrls?: T;
@@ -3808,7 +3754,6 @@ export interface ProductCrawlsSelect<T extends boolean = true> {
   scheduleLimit?: T;
   scheduleCount?: T;
   scheduledFor?: T;
-  itemsPerTick?: T;
   crawlVariants?: T;
   debug?: T;
   type?: T;
@@ -3848,7 +3793,6 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   type?: T;
   gtins?: T;
   includeSisterVariants?: T;
-  itemsPerTick?: T;
   maxRetries?: T;
   language?: T;
   imageSourcePriority?: T;
@@ -4111,7 +4055,6 @@ export interface VideoDiscoveriesSelect<T extends boolean = true> {
   scheduledFor?: T;
   videoUrls?: T;
   channelUrl?: T;
-  itemsPerTick?: T;
   maxVideos?: T;
   dateLimit?: T;
   debugMode?: T;
@@ -4144,7 +4087,6 @@ export interface VideoCrawlsSelect<T extends boolean = true> {
   stageMetadata?: T;
   stageDownload?: T;
   stageAudio?: T;
-  itemsPerTick?: T;
   maxRetries?: T;
   claimedAt?: T;
   claimedBy?: T;
@@ -4181,7 +4123,6 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   stageTranscription?: T;
   stageCompileDetections?: T;
   stageSentimentAnalysis?: T;
-  itemsPerTick?: T;
   maxRetries?: T;
   sceneThreshold?: T;
   clusterThreshold?: T;

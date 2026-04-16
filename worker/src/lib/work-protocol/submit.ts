@@ -279,13 +279,11 @@ export async function submitWork(
   switch (body.type) {
     case 'product-crawl':
       return submitProductCrawl(payload, body)
-    case 'product-discovery':
-      return submitProductDiscovery(payload, body)
+    // 'product-discovery' handled by work-items system (no submit needed)
     case 'product-search':
       return submitProductSearch(payload, body)
     // 'ingredients-discovery' handled by work-items system (no submit needed)
-    case 'video-discovery':
-      return submitVideoDiscovery(payload, body)
+    // 'video-discovery' handled by work-items system (no submit needed)
     case 'video-crawl':
       return submitVideoCrawl(payload, body)
     case 'video-processing':

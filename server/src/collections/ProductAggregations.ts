@@ -91,31 +91,13 @@ export const ProductAggregations: CollectionConfig = {
           label: 'Configuration',
           fields: [
             {
-              type: 'row',
-              fields: [
-                {
-                  name: 'itemsPerTick',
-                  type: 'number',
-                  label: 'Batch Size',
-                  defaultValue: 10,
-                  min: 1,
-                  admin: {
-                    width: '50%',
-                    description: 'Products to aggregate per batch.',
-                  },
-                },
-                {
-                  name: 'maxRetries',
-                  type: 'number',
-                  label: 'Max Retries',
-                  defaultValue: DEFAULT_MAX_RETRIES,
-                  admin: {
-                    width: '50%',
-                    description:
-                      'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
-                  },
-                },
-              ],
+              name: 'maxRetries',
+              type: 'number',
+              label: 'Max Retries',
+              defaultValue: DEFAULT_MAX_RETRIES,
+              admin: {
+                description: 'Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.',
+              },
             },
             {
               name: 'language',
