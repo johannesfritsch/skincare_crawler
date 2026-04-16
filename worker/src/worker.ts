@@ -1784,6 +1784,7 @@ async function processIngredientCrawlStage(
       if (response.status === 404) {
         // Expected — most CosIng ingredients don't have an INCIDecoder page
         jlog.event('ingredient_crawl.not_found', { ingredient: ingredientName })
+        await client.update({ collection: 'ingredients', id: ingredientId, data: { status: 'crawled', crawledAt: new Date().toISOString() } })
         const durationMs = Date.now() - stageStartMs
         log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, result: '404' })
         jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: 0 })
@@ -1826,6 +1827,7 @@ async function processIngredientCrawlStage(
 
     if (!longDescription) {
       jlog.event('ingredient_crawl.no_description', { ingredient: ingredientName })
+      await client.update({ collection: 'ingredients', id: ingredientId, data: { status: 'crawled', crawledAt: new Date().toISOString() } })
       const durationMs = Date.now() - stageStartMs
       log.bannerEnd(`CRAWL: ingredient — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, result: 'no description' })
       jlog.event('stage.completed', { pipeline: 'ingredient-crawl', stage: 'crawl', item: ingredientName, durationMs, tokens: 0 })
@@ -1877,7 +1879,7 @@ async function processIngredientCrawlStage(
     }
 
     // Persist result via submitWork pattern (update ingredient record)
-    const updateData: Record<string, unknown> = { longDescription }
+    const updateData: Record<string, unknown> = { longDescription, status: 'crawled', crawledAt: new Date().toISOString() }
     if (shortDescription) updateData.shortDescription = shortDescription
     if (imageMediaId) updateData.image = imageMediaId
 
