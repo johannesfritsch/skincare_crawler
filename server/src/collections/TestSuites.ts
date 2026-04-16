@@ -9,7 +9,7 @@ export const TestSuites: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'createdAt'],
+    defaultColumns: ['name', 'recentRunStatus', 'createdAt'],
     group: 'System',
     components: {
       edit: {
@@ -27,6 +27,15 @@ export const TestSuites: CollectionConfig = {
       },
     },
     {
+      name: 'recentRunStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Cell: '@/components/TestSuiteRunsCell',
+        },
+      },
+    },
+    {
       name: 'recentRuns',
       type: 'ui',
       admin: {
@@ -40,6 +49,16 @@ export const TestSuites: CollectionConfig = {
       type: 'textarea',
       admin: {
         description: 'Optional description of what this test suite validates',
+      },
+    },
+    {
+      name: 'maxAge',
+      type: 'number',
+      defaultValue: 0,
+      min: 0,
+      admin: {
+        description: 'Reuse existing data if it was fetched within this many minutes. 0 = always re-fetch (default). E.g. 60 = reuse searches/crawls/aggregations completed in the last hour.',
+        width: '50%',
       },
     },
     {
@@ -78,7 +97,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, etc.' },
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, etc.' },
                 },
               ],
             },
@@ -104,7 +123,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, progress (JSON), etc.' },
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the job record after completion. productUrls is split into a string array (not newline-delimited). Fields: status, productUrls (string[]), completed (count), errors, progress (JSON), etc.' },
                 },
               ],
             },
@@ -136,7 +155,7 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the source-variant record (depth=2, relations resolved). Single URL → validates the variant object. Multiple URLs → validates { variants: [...] }. Fields include: gtin, description, ingredientsText, amount, amountUnit, priceHistory, sourceProduct (resolved with name, source, categoryBreadcrumb), etc.' },
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the source-variant record (depth=2, relations resolved). Single URL → validates the variant object. Multiple URLs → validates { variants: [...] }. Fields include: gtin, description, ingredientsText, amount, amountUnit, priceHistory, sourceProduct (resolved with name, source, categoryBreadcrumb), etc.' },
                 },
               ],
             },
@@ -162,7 +181,37 @@ export const TestSuites: CollectionConfig = {
                 {
                   name: 'checkSchema',
                   type: 'json',
-                  admin: { description: 'JSON Schema (draft-07) to validate the product-variant record (depth=2, relations resolved). Single GTIN → validates the variant object. Multiple GTINs → validates { variants: [...] }. Fields include: gtin, label, product (resolved with name, brand, productType, description, ingredients, etc.), images, sourceVariants, etc.' },
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the product-variant record (depth=2, relations resolved). Single GTIN → validates the variant object. Multiple GTINs → validates { variants: [...] }. Fields include: gtin, label, product (resolved with name, brand, productType, description, ingredients, etc.), images, sourceVariants, etc.' },
+                },
+                {
+                  name: 'aiChecks',
+                  type: 'array',
+                  label: 'AI Quality Checks',
+                  admin: {
+                    description: 'Natural-language yes/no questions evaluated by an LLM against the aggregated product data. Each question produces a boolean answer with reasoning.',
+                  },
+                  fields: [
+                    {
+                      name: 'question',
+                      type: 'text',
+                      required: true,
+                      admin: {
+                        description: 'A yes/no question (e.g. "Does the product have a meaningful description of at least 50 characters?")',
+                      },
+                    },
+                  ],
+                },
+                {
+                  name: 'aiCheckThreshold',
+                  type: 'number',
+                  defaultValue: 0.75,
+                  min: 0,
+                  max: 1,
+                  admin: {
+                    description: 'Minimum score (0-1) for AI checks to pass. Score = questions answered "yes" / total questions. Default: 0.75',
+                    step: 0.05,
+                    width: '50%',
+                  },
                 },
               ],
             },

@@ -1119,6 +1119,10 @@ export interface TestSuite {
    */
   description?: string | null;
   /**
+   * Reuse existing data if it was fetched within this many minutes. 0 = always re-fetch (default). E.g. 60 = reuse searches/crawls/aggregations completed in the last hour.
+   */
+  maxAge?: number | null;
+  /**
    * Product search jobs to run in the first phase
    */
   searches?:
@@ -1223,6 +1227,22 @@ export interface TestSuite {
           | number
           | boolean
           | null;
+        /**
+         * Natural-language yes/no questions evaluated by an LLM against the aggregated product data. Each question produces a boolean answer with reasoning.
+         */
+        aiChecks?:
+          | {
+              /**
+               * A yes/no question (e.g. "Does the product have a meaningful description of at least 50 characters?")
+               */
+              question: string;
+              id?: string | null;
+            }[]
+          | null;
+        /**
+         * Minimum score (0-1) for AI checks to pass. Score = questions answered "yes" / total questions. Default: 0.75
+         */
+        aiCheckThreshold?: number | null;
         id?: string | null;
       }[]
     | null;
@@ -3428,6 +3448,7 @@ export interface BotChecksSelect<T extends boolean = true> {
 export interface TestSuitesSelect<T extends boolean = true> {
   name?: T;
   description?: T;
+  maxAge?: T;
   searches?:
     | T
     | {
@@ -3457,6 +3478,13 @@ export interface TestSuitesSelect<T extends boolean = true> {
     | {
         gtins?: T;
         checkSchema?: T;
+        aiChecks?:
+          | T
+          | {
+              question?: T;
+              id?: T;
+            };
+        aiCheckThreshold?: T;
         id?: T;
       };
   updatedAt?: T;

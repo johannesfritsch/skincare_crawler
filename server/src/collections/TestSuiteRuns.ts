@@ -13,7 +13,7 @@ export const TestSuiteRuns: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'id',
-    defaultColumns: ['testSuite', 'status', 'currentPhase', 'startedAt', 'completedAt'],
+    defaultColumns: ['testSuite', 'status', 'phasesOverview', 'currentPhase', 'createdAt'],
     group: 'System',
     components: {
       edit: {
@@ -53,6 +53,15 @@ export const TestSuiteRuns: CollectionConfig = {
         { label: 'Done', value: 'done' },
       ],
       admin: { position: 'sidebar' },
+    },
+    {
+      name: 'phasesOverview',
+      type: 'ui',
+      admin: {
+        components: {
+          Cell: '@/components/TestSuiteRunPhasesCell',
+        },
+      },
     },
     {
       name: 'phaseStatus',
