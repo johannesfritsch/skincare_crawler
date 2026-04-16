@@ -58,6 +58,7 @@ import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
 import { embeddingsWriteHandler, embeddingsSearchHandler, embeddingsDeleteHandler } from './endpoints/embeddings'
 import { workItemsSeedHandler, workItemsClaimHandler, workItemsCompleteHandler, workItemsHeartbeatHandler } from './endpoints/work-items'
 import { ingredientsBulkUpsertHandler } from './endpoints/ingredients-bulk-upsert'
+import { workItemsProgressHandler } from './endpoints/work-items-progress'
 import { handleStartTestSuiteRun } from './endpoints/test-suite-start'
 
 const filename = fileURLToPath(import.meta.url)
@@ -111,7 +112,8 @@ export default buildConfig({
         Logo: '/components/graphics/Logo',
       },
       Nav: '/components/CustomNav#CustomNav',
-      beforeDashboard: ['/components/dashboard/DashboardProvider'],
+      actions: ['@/components/WorkItemsProgress'],
+    beforeDashboard: ['/components/dashboard/DashboardProvider'],
     },
     dashboard: {
       widgets: [
@@ -341,6 +343,11 @@ export default buildConfig({
       path: '/ingredients-bulk-upsert',
       method: 'post',
       handler: ingredientsBulkUpsertHandler,
+    },
+    {
+      path: '/work-items/progress',
+      method: 'get',
+      handler: workItemsProgressHandler,
     },
   ],
   editor: lexicalEditor(),

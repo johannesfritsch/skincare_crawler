@@ -77,7 +77,7 @@ export const ingredientsBulkUpsertHandler: PayloadHandler = async (req) => {
       ...(data.restrictions ? ['restrictions'] : []),
     ]
     const cosIngSource = data.sourceUrl
-      ? { source: 'cosing', sourceUrl: data.sourceUrl, fieldsProvided: cosIngFieldsProvided }
+      ? { source: 'cosing' as const, sourceUrl: data.sourceUrl, fieldsProvided: cosIngFieldsProvided as ('name' | 'casNumber' | 'ecNumber' | 'cosIngId' | 'chemicalDescription' | 'functions' | 'itemType' | 'restrictions')[] }
       : null
 
     const doc = existingMap.get(data.name)

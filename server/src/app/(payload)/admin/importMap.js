@@ -50,6 +50,7 @@ import { default as default_d19f33f1c8d804820952ad0cf2cc4fbe } from '../../../co
 import { CustomNav as CustomNav_1850b0017aaedbc55da15d565ca0bcd7 } from '../../../components/CustomNav'
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
 import { default as default_e577ad08317d2e8977edf3e679038fc8 } from '../../../components/graphics/Logo'
+import { default as default_d457b140189db85be62aa9b0db053733 } from '@/components/WorkItemsProgress'
 import { default as default_3c7210db046870c5915c5f17c14448fe } from '../../../components/dashboard/DashboardProvider'
 import { S3ClientUploadHandler as S3ClientUploadHandler_f97aa6c64367fa259c5bc0567239ef24 } from '@payloadcms/storage-s3/client'
 import { default as default_1737443f6dd3677fc06df984f77cd693 } from '../../../components/dashboard/widgets/EventSummary'
@@ -122,6 +123,7 @@ export const importMap = {
   "/components/CustomNav#CustomNav": CustomNav_1850b0017aaedbc55da15d565ca0bcd7,
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,
   "/components/graphics/Logo#default": default_e577ad08317d2e8977edf3e679038fc8,
+  "@/components/WorkItemsProgress#default": default_d457b140189db85be62aa9b0db053733,
   "/components/dashboard/DashboardProvider#default": default_3c7210db046870c5915c5f17c14448fe,
   "@payloadcms/storage-s3/client#S3ClientUploadHandler": S3ClientUploadHandler_f97aa6c64367fa259c5bc0567239ef24,
   "/components/dashboard/widgets/EventSummary#default": default_1737443f6dd3677fc06df984f77cd693,
