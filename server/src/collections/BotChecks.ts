@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 
 export const BotChecks: CollectionConfig = {
   slug: 'bot-checks',
@@ -26,6 +27,7 @@ export const BotChecks: CollectionConfig = {
       completed: 0, errors: 0, total: 0,
     })],
     afterChange: [rescheduleOnComplete],
+    afterDelete: [deleteWorkItems('bot-checks')],
   },
   fields: [
     jobStatusField,

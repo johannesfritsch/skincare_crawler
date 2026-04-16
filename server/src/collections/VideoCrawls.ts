@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFieldsNoMax, jobClaimProgressFields, jobProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 
 export const VideoCrawls: CollectionConfig = {
   slug: 'video-crawls',
@@ -36,6 +37,7 @@ export const VideoCrawls: CollectionConfig = {
     afterChange: [
       rescheduleOnComplete,
     ],
+    afterDelete: [deleteWorkItems('video-crawls')],
   },
   fields: [
     jobStatusField,

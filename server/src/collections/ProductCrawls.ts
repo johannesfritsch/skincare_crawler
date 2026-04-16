@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 import { SOURCE_OPTIONS_WITH_ALL } from './shared/store-fields'
 
 export const ProductCrawls: CollectionConfig = {
@@ -27,6 +28,7 @@ export const ProductCrawls: CollectionConfig = {
       total: null, completed: 0, errors: 0, crawlSnapshot: null, crawlProgress: null, crawledGtins: '',
     })],
     afterChange: [rescheduleOnComplete],
+    afterDelete: [deleteWorkItems('product-crawls')],
   },
   fields: [
     jobStatusField,

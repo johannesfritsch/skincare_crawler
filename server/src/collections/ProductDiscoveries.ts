@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 export const ProductDiscoveries: CollectionConfig = {
   slug: 'product-discoveries',
   labels: {
@@ -25,6 +26,7 @@ export const ProductDiscoveries: CollectionConfig = {
       completed: 0, errors: 0, progress: null, productUrls: '',
     })],
     afterChange: [rescheduleOnComplete],
+    afterDelete: [deleteWorkItems('product-discoveries')],
   },
   fields: [
     jobStatusField,

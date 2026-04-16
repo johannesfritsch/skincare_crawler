@@ -283,8 +283,7 @@ export async function submitWork(
       return submitProductDiscovery(payload, body)
     case 'product-search':
       return submitProductSearch(payload, body)
-    case 'ingredients-discovery':
-      return submitIngredientsDiscovery(payload, body)
+    // 'ingredients-discovery' handled by work-items system (no submit needed)
     case 'video-discovery':
       return submitVideoDiscovery(payload, body)
     case 'video-crawl':

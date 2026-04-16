@@ -232,6 +232,29 @@ export class PayloadRestClient {
     },
   }
 
+  // ─── Ingredients API ───
+
+  /** Bulk upsert ingredients (find-or-create with backfill) */
+  async bulkUpsertIngredients(
+    ingredients: Array<{
+      name: string
+      casNumber?: string
+      ecNumber?: string
+      cosIngId?: string
+      chemicalDescription?: string
+      functions: string[]
+      itemType?: 'ingredient' | 'substance'
+      restrictions?: string
+      sourceUrl?: string
+    }>,
+  ): Promise<{ created: number; existing: number; errors: number }> {
+    return this.request('POST', '/ingredients-bulk-upsert', { ingredients }) as Promise<{
+      created: number
+      existing: number
+      errors: number
+    }>
+  }
+
   // ─── Work Items API ───
 
   /** Work items sub-client for parallel job processing */

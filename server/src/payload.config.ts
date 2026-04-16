@@ -57,6 +57,7 @@ import { dashboardEventsHandler } from './endpoints/dashboard-events'
 import { dashboardSnapshotHandler } from './endpoints/dashboard-snapshot'
 import { embeddingsWriteHandler, embeddingsSearchHandler, embeddingsDeleteHandler } from './endpoints/embeddings'
 import { workItemsSeedHandler, workItemsClaimHandler, workItemsCompleteHandler, workItemsHeartbeatHandler } from './endpoints/work-items'
+import { ingredientsBulkUpsertHandler } from './endpoints/ingredients-bulk-upsert'
 import { handleStartTestSuiteRun } from './endpoints/test-suite-start'
 
 const filename = fileURLToPath(import.meta.url)
@@ -335,6 +336,11 @@ export default buildConfig({
       path: '/start-test-suite-run',
       method: 'post',
       handler: handleStartTestSuiteRun,
+    },
+    {
+      path: '/ingredients-bulk-upsert',
+      method: 'post',
+      handler: ingredientsBulkUpsertHandler,
     },
   ],
   editor: lexicalEditor(),

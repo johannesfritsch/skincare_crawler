@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 
 export const VideoDiscoveries: CollectionConfig = {
   slug: 'video-discoveries',
@@ -26,6 +27,7 @@ export const VideoDiscoveries: CollectionConfig = {
       completed: 0, errors: 0, progress: null, videoUrls: '',
     })],
     afterChange: [rescheduleOnComplete],
+    afterDelete: [deleteWorkItems('video-discoveries')],
   },
   fields: [
     jobStatusField,

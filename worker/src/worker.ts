@@ -43,6 +43,7 @@ import type { ScrapedProductData, DiscoveredProduct, SourceSlug } from '@/lib/so
 import { executeReviewStage, type ReviewWorkItem } from '@/lib/product-crawl/stages/reviews'
 import { getEnabledCrawlStages, getNextCrawlStage, type CrawlStageName } from '@/lib/product-crawl/stages'
 import { persistCrawlResult } from '@/lib/work-protocol/persist'
+import { stealthFetch } from '@/lib/stealth-fetch'
 import { validateCrawlResult } from '@/lib/validate-crawl-result'
 import { getSourceSlugFromUrl, normalizeProductUrl, normalizeVariantUrl } from '@/lib/source-product-queries'
 import {
@@ -398,83 +399,140 @@ async function handleProductSearch(work: Record<string, unknown>): Promise<void>
   log.info('Submitted search results', { products: allProducts.length })
 }
 
-async function handleIngredientsDiscovery(work: Record<string, unknown>): Promise<void> {
-  const jobId = work.jobId as number
+/**
+ * Process a single ingredients-discovery work item (per-term, parallel).
+ *
+ * - `init` stage: resolve driver, spawn initial term items
+ * - `discover` stage: check term → split (spawn sub-terms) or fetch all pages and persist
+ */
+async function processIngredientsDiscoveryItem(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
   const sourceUrl = work.sourceUrl as string
-  let currentTerm = work.currentTerm as string | null
-  let currentPage = work.currentPage as number
-  let totalPagesForTerm = work.totalPagesForTerm as number
-  let termQueue = work.termQueue as string[]
-  const pagesPerTick = work.pagesPerTick as number | undefined
+  const stageName = item.stage_name
+  const itemLabel = item.item_key.length > 50 ? `…${item.item_key.slice(-47)}` : item.item_key
 
-  log.info('Ingredients discovery job', { jobId })
-  const jlog = log.forJob('ingredients-discoveries', jobId)
-  jlog.event('ingredients_discovery.started', { currentTerm: currentTerm ?? 'none', queueLength: termQueue.length })
+  log.banner(`INGREDIENTS: ${stageName} — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'ingredients-discoveries', stage: stageName, item: item.item_key })
 
-  const driver = getIngredientsDriver(sourceUrl)
-  if (!driver) {
-    await failJob(client, 'ingredients-discoveries', jobId, `No ingredients driver for URL: ${sourceUrl}`)
-    return
-  }
+  const stageStartMs = Date.now()
 
-  const allIngredients: import('@/lib/ingredients-discovery/types').ScrapedIngredientData[] = []
-  let pagesProcessed = 0
+  try {
+    const driver = getIngredientsDriver(sourceUrl)
+    if (!driver) throw new Error(`No ingredients driver for URL: ${sourceUrl}`)
 
-  while (true) {
-    if (pagesPerTick && pagesProcessed >= pagesPerTick) break
+    if (stageName === 'init') {
+      // Bootstrap: spawn initial term items
+      const terms = driver.getInitialTermQueue()
+      log.info('Ingredients init: spawning initial terms', { terms: terms.length })
 
-    // Get next term if needed
-    if (!currentTerm) {
-      if (termQueue.length === 0) break
-      currentTerm = termQueue.shift()!
-      currentPage = 1
-      totalPagesForTerm = 0
+      const { done, jobStatus } = await client.workItems.complete({
+        workItemId: item.id,
+        success: true,
+        spawnItems: terms.map(t => ({ itemKey: t, stageName: 'discover' })),
+        totalDelta: terms.length,
+      })
 
-      // Check term
-      const check = await driver.checkTerm(currentTerm)
-      if (check.split) {
-        termQueue = [...check.subTerms, ...termQueue]
-        currentTerm = null
-        continue
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`INGREDIENTS: ${stageName} — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, terms: terms.length })
+      jlog.event('stage.completed', { pipeline: 'ingredients-discoveries', stage: stageName, item: item.item_key, durationMs, tokens: 0 })
+      if (done) {
+        if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+        else jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs })
       }
-      totalPagesForTerm = check.totalPages
-      if (totalPagesForTerm === 0) {
-        currentTerm = null
-        continue
-      }
+      return
     }
 
-    // Fetch page
-    log.info('Fetching ingredients page', { term: currentTerm, page: currentPage, totalPages: totalPagesForTerm })
-    const ingredients = await driver.fetchPage(currentTerm, currentPage)
-    allIngredients.push(...ingredients)
-    pagesProcessed++
+    // ── discover stage: check term, split or process ──
+    const term = item.item_key
+    const check = await driver.checkTerm(term)
 
-    currentPage++
-    if (currentPage > totalPagesForTerm) {
-      currentTerm = null
-      currentPage = 1
-      totalPagesForTerm = 0
+    if (check.split) {
+      // Term too large — split into sub-terms
+      log.info('Term needs splitting', { term, subTerms: check.subTerms.length })
+      const { done, jobStatus } = await client.workItems.complete({
+        workItemId: item.id,
+        success: true,
+        spawnItems: check.subTerms.map(t => ({ itemKey: t, stageName: 'discover' })),
+        totalDelta: check.subTerms.length,
+      })
+
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`INGREDIENTS: ${stageName} — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, split: check.subTerms.length })
+      jlog.event('stage.completed', { pipeline: 'ingredients-discoveries', stage: stageName, item: term, durationMs, tokens: 0 })
+      if (done) {
+        if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+        else jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs })
+      }
+      return
     }
 
-    // Heartbeat
-    await heartbeat(jobId, 'ingredients-discovery')
+    if (check.totalPages === 0) {
+      // Empty term — nothing to do
+      const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: true })
+      const durationMs = Date.now() - stageStartMs
+      log.bannerEnd(`INGREDIENTS: ${stageName} — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, pages: 0 })
+      jlog.event('stage.completed', { pipeline: 'ingredients-discoveries', stage: stageName, item: term, durationMs, tokens: 0 })
+      if (done) {
+        if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+        else jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs })
+      }
+      return
+    }
+
+    // Process all pages for this term, bulk upsert per page
+    let created = 0, existing = 0, errors = 0, discovered = 0
+    for (let page = 1; page <= check.totalPages; page++) {
+      log.info('Fetching ingredients page', { term, page, totalPages: check.totalPages })
+      const ingredients = await driver.fetchPage(term, page)
+      discovered += ingredients.length
+
+      if (ingredients.length > 0) {
+        const result = await client.bulkUpsertIngredients(ingredients)
+        created += result.created
+        existing += result.existing
+        errors += result.errors
+      }
+
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+    }
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { completed: discovered, created, existing, errors },
+    })
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`INGREDIENTS: ${stageName} — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, discovered, created, existing, errors })
+    jlog.event('stage.completed', { pipeline: 'ingredients-discoveries', stage: stageName, item: term, durationMs, tokens: 0 })
+    jlog.event('ingredients_discovery.batch_persisted', { discovered, created, existing, errors, batchSize: discovered, batchDurationMs: durationMs })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else {
+        jlog.event('ingredients_discovery.completed', { discovered, created, existing, errors, durationMs })
+        jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs })
+      }
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`INGREDIENTS: ${stageName} — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'ingredients-discoveries', stage: stageName, item: item.item_key, durationMs, error })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error,
+    })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'ingredients-discoveries', durationMs })
+    }
   }
-
-  const done = !currentTerm && termQueue.length === 0
-
-  await submitWork(client, worker, {
-    type: 'ingredients-discovery',
-    jobId,
-    ingredients: allIngredients,
-    currentTerm,
-    currentPage,
-    totalPagesForTerm,
-    termQueue,
-    done,
-  } as Parameters<typeof submitWork>[2])
-
-  log.info('Submitted ingredients', { items: allIngredients.length, done })
 }
 
 async function handleVideoDiscovery(work: Record<string, unknown>): Promise<void> {
@@ -764,9 +822,8 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
       log.info('Fetching ingredient page', { url })
 
       // Step 2: Fetch page
-      const response = await fetch(url, {
+      const response = await stealthFetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       })
@@ -868,11 +925,7 @@ async function handleIngredientCrawl(work: Record<string, unknown>): Promise<voi
           const imageUrl = imgMatch[1]
            log.info('Downloading ingredient image', { name: item.ingredientName, imageUrl })
           try {
-            const imgRes = await fetch(imageUrl, {
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-              },
-            })
+            const imgRes = await stealthFetch(imageUrl)
             if (imgRes.ok) {
               const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
               const buffer = Buffer.from(await imgRes.arrayBuffer())
@@ -1007,8 +1060,8 @@ async function processWorkItem(
     // ── Per-channel: discover videos from one channel ──
     await processDiscoveryStage(jobId, 'video-discoveries', work, item, jlog, handleVideoDiscovery)
   } else if (jobType === 'ingredients-discovery') {
-    // ── Per-URL: discover ingredients from one source ──
-    await processDiscoveryStage(jobId, 'ingredients-discoveries', work, item, jlog, handleIngredientsDiscovery)
+    // ── Per-term: discover ingredients (init seeds terms, discover processes each in parallel) ──
+    await processIngredientsDiscoveryItem(jobId, work, item, jlog)
   } else if (jobType === 'bot-check') {
     // ── Single-shot: run bot detection check ──
     await processBotCheckStage(jobId, work, item, jlog)
@@ -1721,9 +1774,8 @@ async function processIngredientCrawlStage(
     const url = `https://incidecoder.com/ingredients/${slug}`
 
     // Fetch page
-    const response = await fetch(url, {
+    const response = await stealthFetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
     })
@@ -1788,9 +1840,7 @@ async function processIngredientCrawlStage(
         || html.match(/<div class="imgcontainer[^"]*"[\s\S]*?<img\s[^>]*src="([^"]+)"/)
       if (imgMatch) {
         try {
-          const imgRes = await fetch(imgMatch[1], {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-          })
+          const imgRes = await stealthFetch(imgMatch[1])
           if (imgRes.ok) {
             const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
             const buffer = Buffer.from(await imgRes.arrayBuffer())

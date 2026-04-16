@@ -88,8 +88,9 @@ const VIDEO_DISCOVERY_STAGES: StageDef[] = [
   { name: 'discover', jobField: '_always' },
 ]
 
-/** Ingredients discovery: 1 stage per source URL */
+/** Ingredients discovery: init seeds term items, discover processes each term in parallel */
 const INGREDIENTS_DISCOVERY_STAGES: StageDef[] = [
+  { name: 'init', jobField: '_always' },
   { name: 'discover', jobField: '_always' },
 ]
 

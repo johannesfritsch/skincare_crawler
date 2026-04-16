@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFields, jobClaimProgressFields, jobProgressFields } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 
 export const TestSuiteRuns: CollectionConfig = {
   slug: 'test-suite-runs',
@@ -28,6 +29,7 @@ export const TestSuiteRuns: CollectionConfig = {
       errors: 0,
     })],
     afterChange: [rescheduleOnComplete],
+    afterDelete: [deleteWorkItems('test-suite-runs')],
   },
   fields: [
     jobStatusField,

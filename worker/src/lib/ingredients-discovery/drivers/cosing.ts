@@ -1,5 +1,6 @@
 import type { DiscoveryDriver, ScrapedIngredientData } from '../types'
 import { createLogger } from '@/lib/logger'
+import { stealthFetch } from '@/lib/stealth-fetch'
 
 const log = createLogger('CosIng')
 
@@ -140,15 +141,13 @@ async function fetchCosIngPage(searchTerm: string, pageNumber: number): Promise<
   ].join('\r\n')
 
   return fetchWithRetry(async () => {
-    const response = await fetch(url, {
+    const response = await stealthFetch(url, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
         'Content-Type': `multipart/form-data; boundary=${BOUNDARY}`,
         Origin: 'https://ec.europa.eu',
         Referer: 'https://ec.europa.eu/',
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
       },
       body,
     })

@@ -5,6 +5,7 @@ import { jobRetryFieldsNoMax, jobClaimProgressFields, jobProgressFields, DEFAULT
 import { DEFAULT_IMAGE_SOURCE_PRIORITY, DEFAULT_BRAND_SOURCE_PRIORITY } from './shared/store-fields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 
 export const ProductAggregations: CollectionConfig = {
   slug: 'product-aggregations',
@@ -40,6 +41,7 @@ export const ProductAggregations: CollectionConfig = {
     afterChange: [
       rescheduleOnComplete,
     ],
+    afterDelete: [deleteWorkItems('product-aggregations')],
   },
   fields: [
     jobStatusField,

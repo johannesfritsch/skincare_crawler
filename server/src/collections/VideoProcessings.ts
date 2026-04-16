@@ -4,6 +4,7 @@ import { createResetJobOnPending } from '@/hooks/resetJobOnPending'
 import { jobRetryFieldsNoMax, jobClaimProgressFields, jobProgressFields, DEFAULT_MAX_RETRIES } from '@/hooks/jobClaimFields'
 import { jobStatusField, jobScheduleFields } from '@/hooks/jobScheduleFields'
 import { computeScheduledFor, rescheduleOnComplete } from '@/hooks/rescheduleOnComplete'
+import { deleteWorkItems } from '@/hooks/deleteWorkItems'
 
 export const VideoProcessings: CollectionConfig = {
   slug: 'video-processings',
@@ -39,6 +40,7 @@ export const VideoProcessings: CollectionConfig = {
     afterChange: [
       rescheduleOnComplete,
     ],
+    afterDelete: [deleteWorkItems('video-processings')],
   },
   fields: [
     jobStatusField,

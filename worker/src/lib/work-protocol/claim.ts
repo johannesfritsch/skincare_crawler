@@ -95,7 +95,7 @@ export async function rebuildJobWork(
     case 'product-crawl': return buildProductCrawlWork(payload, jobId)
     case 'product-discovery': return buildProductDiscoveryWork(payload, jobId)
     case 'product-search': return buildProductSearchWork(payload, jobId)
-    case 'ingredients-discovery': return buildIngredientsDiscoveryWork(payload, jobId)
+    case 'ingredients-discovery': return { type: 'none' } // handled by work-items system
     case 'video-discovery': return buildVideoDiscoveryWork(payload, jobId)
     case 'video-crawl': return buildVideoCrawlWork(payload, jobId)
     case 'video-processing': return buildVideoProcessingWork(payload, jobId)
@@ -225,7 +225,7 @@ export async function claimWork(
         case 'product-search':
           return buildProductSearchWork(payload, candidate.id)
         case 'ingredients-discovery':
-          return buildIngredientsDiscoveryWork(payload, candidate.id)
+          return { type: 'none' } // handled by work-items system
         case 'video-discovery':
           return buildVideoDiscoveryWork(payload, candidate.id)
         case 'video-crawl':
@@ -592,9 +592,10 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
   jlog.info('Building ingredients discovery work', { jobId })
   const job = await payload.findByID({ collection: 'ingredients-discoveries', id: jobId }) as Record<string, unknown>
 
-  // Initialize termQueue: on first run (pending), seed from the driver; otherwise read from job
-  let termQueue: string[]
-  if (job.status === 'pending') {
+  // Initialize termQueue: if empty/missing, seed from the driver (handles both fresh pending
+  // and jobs auto-seeded by work-items endpoint which sets status to in_progress before we get here)
+  let termQueue: string[] = (job.termQueue as string[]) ?? []
+  if (termQueue.length === 0 && !(job.currentTerm as string)) {
     const driver = getIngredientsDriver(job.sourceUrl as string)
     termQueue = driver?.getInitialTermQueue() ?? ['*']
     jlog.info('Initializing ingredients discovery job', { jobId, initialTerms: termQueue.length })
@@ -613,8 +614,6 @@ async function buildIngredientsDiscoveryWork(payload: PayloadRestClient, jobId: 
       },
     })
     jlog.event('job.claimed', { collection: 'ingredients-discoveries', jobId })
-  } else {
-    termQueue = (job.termQueue as string[]) ?? []
   }
 
   jlog.info('Ingredients discovery job loaded', { jobId, sourceUrl: job.sourceUrl as string, currentTerm: (job.currentTerm as string) ?? 'none', termQueueSize: termQueue.length })
