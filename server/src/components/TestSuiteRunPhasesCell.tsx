@@ -1,11 +1,14 @@
 'use client'
 
-const PHASE_ORDER = ['searches', 'discoveries', 'crawls', 'aggregations'] as const
+const PHASE_ORDER = ['searches', 'discoveries', 'crawls', 'aggregations', 'videoDiscoveries', 'videoCrawls', 'videoProcessings'] as const
 const PHASE_ICONS: Record<string, string> = {
   searches: 'S',
   discoveries: 'D',
   crawls: 'C',
   aggregations: 'A',
+  videoDiscoveries: 'VD',
+  videoCrawls: 'VC',
+  videoProcessings: 'VP',
 }
 
 const PHASE_STATUS_COLORS: Record<string, { bg: string; fg: string; border?: string }> = {
@@ -38,8 +41,9 @@ export default function TestSuiteRunPhasesCell({ rowData }: { rowData: Record<st
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: '18px',
+              minWidth: '18px',
               height: '18px',
+              padding: '0 2px',
               borderRadius: '3px',
               fontSize: state.status === 'passed' || state.status === 'failed' ? '12px' : '10px',
               fontWeight: 700,

@@ -65,7 +65,7 @@ export const TestSuites: CollectionConfig = {
       type: 'tabs',
       tabs: [
         {
-          label: 'Searches',
+          label: 'Product Searches',
           fields: [
             {
               name: 'searches',
@@ -104,7 +104,7 @@ export const TestSuites: CollectionConfig = {
           ],
         },
         {
-          label: 'Discoveries',
+          label: 'Product Discoveries',
           fields: [
             {
               name: 'discoveries',
@@ -130,7 +130,7 @@ export const TestSuites: CollectionConfig = {
           ],
         },
         {
-          label: 'Crawls',
+          label: 'Product Crawls',
           fields: [
             {
               name: 'crawls',
@@ -162,7 +162,7 @@ export const TestSuites: CollectionConfig = {
           ],
         },
         {
-          label: 'Aggregations',
+          label: 'Product Aggregations',
           fields: [
             {
               name: 'aggregations',
@@ -212,6 +212,89 @@ export const TestSuites: CollectionConfig = {
                     step: 0.05,
                     width: '50%',
                   },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Video Discoveries',
+          fields: [
+            {
+              name: 'videoDiscoveries',
+              type: 'array',
+              label: 'Video Discoveries',
+              admin: {
+                description: 'Video discovery jobs to run — discovers videos from YouTube channels',
+              },
+              fields: [
+                {
+                  name: 'channelUrl',
+                  type: 'text',
+                  required: true,
+                  admin: { description: 'YouTube channel URL to discover videos from' },
+                },
+                {
+                  name: 'maxVideos',
+                  type: 'number',
+                  admin: { description: 'Maximum videos to discover (empty = unlimited)' },
+                },
+                {
+                  name: 'checkSchema',
+                  type: 'json',
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the job record after completion. videoUrls is split into a string array. Fields: status, videoUrls (string[]), completed (count), errors, etc.' },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Video Crawls',
+          fields: [
+            {
+              name: 'videoCrawls',
+              type: 'array',
+              label: 'Video Crawls',
+              admin: {
+                description: 'Video crawl jobs — downloads video metadata, MP4, and thumbnails',
+              },
+              fields: [
+                {
+                  name: 'urls',
+                  type: 'textarea',
+                  required: true,
+                  admin: { description: 'Video URLs to crawl (one per line)' },
+                },
+                {
+                  name: 'checkSchema',
+                  type: 'json',
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the video record (depth=2, relations resolved). Single URL → validates the video object. Multiple URLs → validates { videos: [...] }. Fields include: title, externalUrl, duration, viewCount, status, channel (resolved), videoFile, thumbnail, videoScenes (join), etc.' },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Video Processing',
+          fields: [
+            {
+              name: 'videoProcessings',
+              type: 'array',
+              label: 'Video Processing',
+              admin: {
+                description: 'Video processing jobs — scene detection, barcode scan, transcription, sentiment analysis',
+              },
+              fields: [
+                {
+                  name: 'urls',
+                  type: 'textarea',
+                  required: true,
+                  admin: { description: 'Video URLs to process (one per line)' },
+                },
+                {
+                  name: 'checkSchema',
+                  type: 'json',
+                  admin: { components: { Field: '@/components/CheckSchemaField' }, description: 'JSON Schema (draft-07) to validate the video record (depth=2, relations resolved). Single URL → validates the video object. Multiple URLs → validates { videos: [...] }. Fields include: title, status, videoScenes (array with transcript, barcodes, objects, recognitions, detections), channel, etc.' },
                 },
               ],
             },

@@ -17,7 +17,7 @@ import { getOpenAI } from '@/lib/openai'
 
 const log = createLogger('TestSuiteRun')
 
-type PhaseName = 'searches' | 'discoveries' | 'crawls' | 'aggregations'
+type PhaseName = 'searches' | 'discoveries' | 'crawls' | 'aggregations' | 'videoDiscoveries' | 'videoCrawls' | 'videoProcessings'
 
 interface AiCheckResult {
   question: string
@@ -32,6 +32,17 @@ interface AiCheckResults {
   results: AiCheckResult[]
 }
 
+interface TestResult {
+  phase: PhaseName
+  entryIndex: number
+  identifier: string
+  passed: boolean
+  checkSchema?: Record<string, unknown>
+  record?: Record<string, unknown>
+  schemaErrors?: string[]
+  aiCheckResults?: AiCheckResults
+}
+
 interface PhaseState {
   status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
   jobIds: number[]
@@ -41,18 +52,24 @@ interface PhaseState {
     passed: boolean
     errors?: string[]
     aiCheckResults?: AiCheckResults
+    checkSchema?: Record<string, unknown>
+    record?: Record<string, unknown>
+    identifier?: string
   }>
 }
 
 type PhasesMap = Record<PhaseName, PhaseState>
 
-const PHASE_ORDER: PhaseName[] = ['searches', 'discoveries', 'crawls', 'aggregations']
+const PHASE_ORDER: PhaseName[] = ['searches', 'discoveries', 'crawls', 'aggregations', 'videoDiscoveries', 'videoCrawls', 'videoProcessings']
 
 const PHASE_TO_COLLECTION: Record<PhaseName, string> = {
   searches: 'product-searches',
   discoveries: 'product-discoveries',
   crawls: 'product-crawls',
   aggregations: 'product-aggregations',
+  videoDiscoveries: 'video-discoveries',
+  videoCrawls: 'video-crawls',
+  videoProcessings: 'video-processings',
 }
 
 function sleep(ms: number): Promise<void> {
@@ -82,6 +99,9 @@ export async function handleTestSuiteRun(
     discoveries: { status: 'pending', jobIds: [], jobCollection: 'product-discoveries', validationResults: [] },
     crawls: { status: 'pending', jobIds: [], jobCollection: 'product-crawls', validationResults: [] },
     aggregations: { status: 'pending', jobIds: [], jobCollection: 'product-aggregations', validationResults: [] },
+    videoDiscoveries: { status: 'pending', jobIds: [], jobCollection: 'video-discoveries', validationResults: [] },
+    videoCrawls: { status: 'pending', jobIds: [], jobCollection: 'video-crawls', validationResults: [] },
+    videoProcessings: { status: 'pending', jobIds: [], jobCollection: 'video-processings', validationResults: [] },
   }
 
   // Count non-empty phases
@@ -97,6 +117,7 @@ export async function handleTestSuiteRun(
 
   let passedCount = 0
   let failedCount = 0
+  const allResults: TestResult[] = []
 
   try {
     for (const phase of PHASE_ORDER) {
@@ -147,7 +168,7 @@ export async function handleTestSuiteRun(
           failedCount++
           const error = `Job ${pollResult.failedJobId} in phase "${phase}" failed`
           jlog.event('test_suite.phase_failed', { phase, error })
-          await failRun(client, jobId, phases, error, passedCount, failedCount)
+          await failRun(client, jobId, phases, error, passedCount, failedCount, allResults)
           log.bannerEnd(`TEST SUITE: ${suiteName}`, false, { phase, error: error.slice(0, 80) })
           return
         }
@@ -157,6 +178,20 @@ export async function handleTestSuiteRun(
       const validationResults = await validatePhase(client, phase, entries, jobIds, collection, jlog)
       phases[phase].validationResults = validationResults
 
+      // Accumulate flat results for the results field
+      for (const vr of validationResults) {
+        allResults.push({
+          phase,
+          entryIndex: vr.entryIndex,
+          identifier: vr.identifier ?? `entry-${vr.entryIndex}`,
+          passed: vr.passed,
+          checkSchema: vr.checkSchema,
+          record: vr.record,
+          schemaErrors: vr.errors,
+          aiCheckResults: vr.aiCheckResults,
+        })
+      }
+
       const allPassed = validationResults.every(r => r.passed)
       if (!allPassed) {
         phases[phase].status = 'failed'
@@ -164,7 +199,7 @@ export async function handleTestSuiteRun(
         const failedChecks = validationResults.filter(r => !r.passed)
         const errorDetails = failedChecks.map(r => `Entry ${r.entryIndex}: ${r.errors?.join('; ')}`).join('\n')
         jlog.event('test_suite.phase_failed', { phase, error: errorDetails.slice(0, 200) })
-        await failRun(client, jobId, phases, `Validation failed in "${phase}":\n${errorDetails}`, passedCount, failedCount)
+        await failRun(client, jobId, phases, `Validation failed in "${phase}":\n${errorDetails}`, passedCount, failedCount, allResults)
         log.bannerEnd(`TEST SUITE: ${suiteName}`, false, { phase, error: 'validation failed' })
         return
       }
@@ -177,7 +212,7 @@ export async function handleTestSuiteRun(
       await client.update({
         collection: 'test-suite-runs',
         id: jobId,
-        data: { phases, passed: passedCount },
+        data: { phases, passed: passedCount, results: allResults },
       })
 
       await heartbeat()
@@ -192,6 +227,7 @@ export async function handleTestSuiteRun(
         status: 'completed',
         currentPhase: 'done',
         phases,
+        results: allResults,
         passed: passedCount,
         failed: failedCount,
         completedAt: new Date().toISOString(),
@@ -204,7 +240,7 @@ export async function handleTestSuiteRun(
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     jlog.event('test_suite.error', { error })
-    await failRun(client, jobId, phases, error, passedCount, failedCount + 1)
+    await failRun(client, jobId, phases, error, passedCount, failedCount + 1, allResults)
     log.bannerEnd(`TEST SUITE: ${suiteName}`, false, { error: error.slice(0, 80) })
     throw e
   }
@@ -237,6 +273,24 @@ function buildJobData(phase: PhaseName, entry: Record<string, unknown>): Record<
       return {
         type: 'selected_gtins',
         gtins: entry.gtins,
+        status: 'pending',
+      }
+    case 'videoDiscoveries':
+      return {
+        channelUrl: entry.channelUrl,
+        maxVideos: entry.maxVideos ?? undefined,
+        status: 'pending',
+      }
+    case 'videoCrawls':
+      return {
+        type: 'selected_urls',
+        urls: entry.urls,
+        status: 'pending',
+      }
+    case 'videoProcessings':
+      return {
+        type: 'selected_urls',
+        urls: entry.urls,
         status: 'pending',
       }
   }
@@ -274,6 +328,18 @@ async function pollJobsUntilDone(
   return { failed: true, failedJobId: jobIds[0] } // timeout
 }
 
+function getIdentifier(phase: PhaseName, entry: Record<string, unknown>): string {
+  switch (phase) {
+    case 'searches': return (entry.query as string) ?? 'entry'
+    case 'discoveries': return (entry.sourceUrl as string) ?? 'entry'
+    case 'crawls': return (entry.urls as string)?.split('\n')[0]?.trim() ?? 'entry'
+    case 'aggregations': return (entry.gtins as string)?.split('\n')[0]?.trim() ?? 'entry'
+    case 'videoDiscoveries': return (entry.channelUrl as string) ?? 'entry'
+    case 'videoCrawls':
+    case 'videoProcessings': return (entry.urls as string)?.split('\n')[0]?.trim() ?? 'entry'
+  }
+}
+
 async function validatePhase(
   client: PayloadRestClient,
   phase: PhaseName,
@@ -294,7 +360,7 @@ async function validatePhase(
     const aiCheckThreshold = (phase === 'aggregations' ? (entry.aiCheckThreshold as number) ?? 0.75 : 0.75)
 
     if (!checkSchema && (!aiChecks || aiChecks.length === 0)) {
-      results.push({ entryIndex: i, passed: true })
+      results.push({ entryIndex: i, passed: true, identifier: getIdentifier(phase, entry) })
       continue
     }
 
@@ -346,6 +412,32 @@ async function validatePhase(
           record = allVariants.length === 1 ? allVariants[0] : (allVariants.length > 0 ? { variants: allVariants } as any : null)
           break
         }
+        case 'videoDiscoveries': {
+          // Same pattern as searches/discoveries — validate the job record
+          if (jobIds[i]) {
+            const job = await client.findByID({ collection, id: jobIds[i] }) as Record<string, unknown>
+            const videoUrls = ((job.videoUrls as string) ?? '').split('\n').filter(Boolean)
+            record = { ...job, videoUrls }
+          }
+          break
+        }
+        case 'videoCrawls':
+        case 'videoProcessings': {
+          // For each URL, fetch the video record with resolved relations (depth=2)
+          const urls = (entry.urls as string)?.split('\n').map(u => u.trim()).filter(Boolean) ?? []
+          const allVideos: Record<string, unknown>[] = []
+          for (const url of urls) {
+            const videos = await client.find({
+              collection: 'videos',
+              where: { externalUrl: { equals: url } },
+              limit: 1,
+              depth: 2,
+            })
+            if (videos.docs[0]) allVideos.push(videos.docs[0] as unknown as Record<string, unknown>)
+          }
+          record = allVideos.length === 1 ? allVideos[0] : (allVideos.length > 0 ? { videos: allVideos } as any : null)
+          break
+        }
       }
 
       // Schema validation
@@ -374,10 +466,13 @@ async function validatePhase(
         passed,
         errors: schemaPassed ? undefined : schemaErrors,
         aiCheckResults,
+        checkSchema: checkSchema ?? undefined,
+        record: record ?? undefined,
+        identifier: getIdentifier(phase, entry),
       })
     } catch (e) {
       const error = `Validation error: ${e instanceof Error ? e.message : String(e)}`
-      results.push({ entryIndex: i, passed: false, errors: [error] })
+      results.push({ entryIndex: i, passed: false, errors: [error], identifier: getIdentifier(phase, entry) })
     }
   }
 
@@ -458,6 +553,10 @@ async function tryReuseEntry(
       }
       return 0 // sentinel — validatePhase doesn't use jobId for aggregations
     }
+    case 'videoDiscoveries':
+    case 'videoCrawls':
+    case 'videoProcessings':
+      return null // no reuse logic for video phases — always re-run
   }
 }
 
@@ -597,6 +696,7 @@ async function failRun(
   reason: string,
   passed: number,
   failed: number,
+  results?: TestResult[],
 ): Promise<void> {
   await client.update({
     collection: 'test-suite-runs',
@@ -605,6 +705,7 @@ async function failRun(
       status: 'failed',
       currentPhase: 'done',
       phases,
+      results: results ?? null,
       failureReason: reason,
       passed,
       failed,

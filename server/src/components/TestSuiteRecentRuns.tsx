@@ -33,12 +33,15 @@ const STATUS_LABELS: Record<string, string> = {
   failed: '\u2717 Failed',
 }
 
-const PHASE_ORDER = ['searches', 'discoveries', 'crawls', 'aggregations'] as const
+const PHASE_ORDER = ['searches', 'discoveries', 'crawls', 'aggregations', 'videoDiscoveries', 'videoCrawls', 'videoProcessings'] as const
 const PHASE_ICONS: Record<string, string> = {
   searches: 'S',
   discoveries: 'D',
   crawls: 'C',
   aggregations: 'A',
+  videoDiscoveries: 'VD',
+  videoCrawls: 'VC',
+  videoProcessings: 'VP',
 }
 
 const PHASE_STATUS_COLORS: Record<string, string> = {

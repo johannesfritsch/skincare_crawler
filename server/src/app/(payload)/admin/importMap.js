@@ -13,6 +13,7 @@ import { default as default_0874d9a3506d2ae4c5e0e1bb4ed55cc1 } from '@/component
 import { default as default_90075a117a0bef1716074b0b677b73c4 } from '@/components/TestSuiteSaveButton'
 import { default as default_52eff1694e062d4f0256e3a69a2eac59 } from '@/components/TestSuiteRunPhasesCell'
 import { default as default_50e47a860110d3885cb93ff8552aea43 } from '@/components/TestSuitePhaseStatus'
+import { default as default_2d957b124eb744572f118470f0fbc3c7 } from '@/components/HiddenField'
 import { default as default_9a7df22e3082faf90a1e72c493ebdb46 } from '../../../components/ProductImageCell'
 import { default as default_333e9ee345ae96dbf69c8da737b77da2 } from '../../../components/ProductStoresCell'
 import { default as default_1f4dba48f2aca046e64b7054820da12b } from '@/components/ProductJobStatus'
@@ -86,6 +87,7 @@ export const importMap = {
   "@/components/TestSuiteSaveButton#default": default_90075a117a0bef1716074b0b677b73c4,
   "@/components/TestSuiteRunPhasesCell#default": default_52eff1694e062d4f0256e3a69a2eac59,
   "@/components/TestSuitePhaseStatus#default": default_50e47a860110d3885cb93ff8552aea43,
+  "@/components/HiddenField#default": default_2d957b124eb744572f118470f0fbc3c7,
   "/components/ProductImageCell#default": default_9a7df22e3082faf90a1e72c493ebdb46,
   "/components/ProductStoresCell#default": default_333e9ee345ae96dbf69c8da737b77da2,
   "@/components/ProductJobStatus#default": default_1f4dba48f2aca046e64b7054820da12b,

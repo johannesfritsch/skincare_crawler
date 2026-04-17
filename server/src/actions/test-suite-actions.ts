@@ -143,6 +143,41 @@ export async function fetchExampleRecord(
         }
         return { success: true, record: pv }
       }
+      case 'videoDiscoveries': {
+        const results = await payload.find({
+          collection: 'video-discoveries',
+          where: { status: { equals: 'completed' } },
+          sort: '-completedAt',
+          limit: 1,
+          depth: 0,
+        })
+        if (!results.docs[0]) return { success: false, error: 'No completed video discovery found. Run a video discovery first.' }
+        const job = results.docs[0] as unknown as Record<string, unknown>
+        const videoUrls = ((job.videoUrls as string) ?? '').split('\n').filter(Boolean)
+        return { success: true, record: { ...job, videoUrls } }
+      }
+      case 'videoCrawls': {
+        const results = await payload.find({
+          collection: 'videos',
+          where: { status: { equals: 'crawled' } },
+          sort: '-updatedAt',
+          limit: 1,
+          depth: 2,
+        })
+        if (!results.docs[0]) return { success: false, error: 'No crawled video found. Run a video crawl first.' }
+        return { success: true, record: results.docs[0] as unknown as Record<string, unknown> }
+      }
+      case 'videoProcessings': {
+        const results = await payload.find({
+          collection: 'videos',
+          where: { status: { equals: 'processed' } },
+          sort: '-updatedAt',
+          limit: 1,
+          depth: 2,
+        })
+        if (!results.docs[0]) return { success: false, error: 'No processed video found. Run a video processing first.' }
+        return { success: true, record: results.docs[0] as unknown as Record<string, unknown> }
+      }
       default:
         return { success: false, error: `Unknown phase: ${phase}` }
     }
@@ -161,6 +196,12 @@ const PHASE_SCHEMA_DESCRIPTIONS: Record<string, string> = {
   crawls: `A single source-variant record (depth=2, relations resolved). The root object IS the source-variant — there is NO wrapper object. Fields: id (number), gtin (string), variantLabel (string), variantDimension (string), sourceUrl (string), description (string/textarea), ingredientsText (string/textarea), amount (number), amountUnit (string), labels (array of {label: string}), crawledAt (string/date), sourceArticleNumber (string), priceHistory (array of {amount: number in cents, currency: string, perUnitAmount/perUnitQuantity/perUnitUnit, availability: 'available'|'unavailable'|'unknown', createdAt: string}), images (array of {url: string, alt: string}), sourceProduct (resolved object: {id, name, brandName, source: 'dm'|'rossmann'|'mueller'|'purish', sourceUrl, categoryBreadcrumb, averageRating: number 0-10, ratingCount}).`,
 
   aggregations: `A single product-variant record (depth=2, relations resolved). The root object IS the product-variant — there is NO wrapper object. Fields: id (number), gtin (string), label (string), images (array of {image: object with url, visibility: 'public'|'recognition_only', source: string}), sourceVariants (array of resolved source-variant objects with gtin, description, ingredientsText, priceHistory, images), product (resolved object: {id, name, brand: {id, name}, productType: {id, nameEn, nameDe}, description (string), ingredients (array of {ingredient: {name, functions, restrictions}}), attributes (array of {name, value, evidence[]}), claims (array of {name, evidence[]}), warnings (string[]), skinApplicability, phMin/phMax (number), usageInstructions, usageSchedule, scoreHistory (array of {storeScore, creatorScore, overallScore, change, createdAt})}).`,
+
+  videoDiscoveries: `Job record fields: status (string: pending/in_progress/completed/failed), videoUrls (string[] — discovered video URLs, split from newline-delimited text), completed (number), errors (number), channelUrl (string), maxVideos (number).`,
+
+  videoCrawls: `A single video record (depth=2, relations resolved). The root object IS the video — there is NO wrapper object. Fields: id (number), title (string), externalUrl (string), duration (number, seconds), viewCount (number), likeCount (number), publishedAt (string/date), status (string: discovered/crawled/processed), channel (resolved object: {id, name, platform, canonicalUrl, creator: {id, name}}), videoFile (upload object with url), thumbnail (upload object with url), videoScenes (join with docs array).`,
+
+  videoProcessings: `A single video record (depth=2, relations resolved). The root object IS the video — there is NO wrapper object. Fields: id (number), title (string), externalUrl (string), status (string: discovered/crawled/processed), channel (resolved object), videoScenes (join — each scene has: timestampStart, timestampEnd, transcript, barcodes[], objects[], recognitions[], detections[] with confidence/reasoning/sources, image). Video-mentions are separate records linked via videoScene.`,
 }
 
 // ─── Generate JSON Schema via LLM ─────────────────────────────────────────

@@ -52,6 +52,9 @@ export const TestSuiteRuns: CollectionConfig = {
         { label: 'Discoveries', value: 'discoveries' },
         { label: 'Crawls', value: 'crawls' },
         { label: 'Aggregations', value: 'aggregations' },
+        { label: 'Video Discoveries', value: 'videoDiscoveries' },
+        { label: 'Video Crawls', value: 'videoCrawls' },
+        { label: 'Video Processing', value: 'videoProcessings' },
         { label: 'Done', value: 'done' },
       ],
       admin: { position: 'sidebar' },
@@ -75,6 +78,11 @@ export const TestSuiteRuns: CollectionConfig = {
       },
     },
     {
+      name: 'results',
+      type: 'json',
+      admin: { components: { Field: '@/components/HiddenField' } },
+    },
+    {
       type: 'tabs',
       tabs: [
         {
@@ -92,8 +100,7 @@ export const TestSuiteRuns: CollectionConfig = {
               type: 'json',
               label: 'Phase Details',
               admin: {
-                readOnly: true,
-                description: 'Per-phase status, job IDs, and validation results',
+                components: { Field: '@/components/HiddenField' },
               },
             },
             {

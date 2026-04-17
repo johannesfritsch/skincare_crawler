@@ -1215,6 +1215,82 @@ export interface TestSuite {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Video discovery jobs to run — discovers videos from YouTube channels
+   */
+  videoDiscoveries?:
+    | {
+        /**
+         * YouTube channel URL to discover videos from
+         */
+        channelUrl: string;
+        /**
+         * Maximum videos to discover (empty = unlimited)
+         */
+        maxVideos?: number | null;
+        /**
+         * JSON Schema (draft-07) to validate the job record after completion. videoUrls is split into a string array. Fields: status, videoUrls (string[]), completed (count), errors, etc.
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Video crawl jobs — downloads video metadata, MP4, and thumbnails
+   */
+  videoCrawls?:
+    | {
+        /**
+         * Video URLs to crawl (one per line)
+         */
+        urls: string;
+        /**
+         * JSON Schema (draft-07) to validate the video record (depth=2, relations resolved). Single URL → validates the video object. Multiple URLs → validates { videos: [...] }. Fields include: title, externalUrl, duration, viewCount, status, channel (resolved), videoFile, thumbnail, videoScenes (join), etc.
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Video processing jobs — scene detection, barcode scan, transcription, sentiment analysis
+   */
+  videoProcessings?:
+    | {
+        /**
+         * Video URLs to process (one per line)
+         */
+        urls: string;
+        /**
+         * JSON Schema (draft-07) to validate the video record (depth=2, relations resolved). Single URL → validates the video object. Multiple URLs → validates { videos: [...] }. Fields include: title, status, videoScenes (array with transcript, barcodes, objects, recognitions, detections), channel, etc.
+         */
+        checkSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1238,7 +1314,28 @@ export interface TestSuiteRun {
   scheduleCount?: number | null;
   scheduledFor?: string | null;
   testSuite: number | TestSuite;
-  currentPhase?: ('pending' | 'searches' | 'discoveries' | 'crawls' | 'aggregations' | 'done') | null;
+  currentPhase?:
+    | (
+        | 'pending'
+        | 'searches'
+        | 'discoveries'
+        | 'crawls'
+        | 'aggregations'
+        | 'videoDiscoveries'
+        | 'videoCrawls'
+        | 'videoProcessings'
+        | 'done'
+      )
+    | null;
+  results?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   /**
    * When the current worker claimed this job
    */
@@ -1252,9 +1349,6 @@ export interface TestSuiteRun {
   errors?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  /**
-   * Per-phase status, job IDs, and validation results
-   */
   phases?:
     | {
         [k: string]: unknown;
@@ -3434,6 +3528,28 @@ export interface TestSuitesSelect<T extends boolean = true> {
         aiCheckThreshold?: T;
         id?: T;
       };
+  videoDiscoveries?:
+    | T
+    | {
+        channelUrl?: T;
+        maxVideos?: T;
+        checkSchema?: T;
+        id?: T;
+      };
+  videoCrawls?:
+    | T
+    | {
+        urls?: T;
+        checkSchema?: T;
+        id?: T;
+      };
+  videoProcessings?:
+    | T
+    | {
+        urls?: T;
+        checkSchema?: T;
+        id?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -3451,6 +3567,7 @@ export interface TestSuiteRunsSelect<T extends boolean = true> {
   scheduledFor?: T;
   testSuite?: T;
   currentPhase?: T;
+  results?: T;
   claimedAt?: T;
   claimedBy?: T;
   total?: T;
