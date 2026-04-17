@@ -358,6 +358,7 @@ async function processProductDiscoveryItem(
       delay,
       debug,
       logger: jlog,
+      debugContext: debug ? { client, jobCollection: 'product-discoveries', jobId } : undefined,
     })
 
     // Deduplicate and append URLs to job's productUrls field

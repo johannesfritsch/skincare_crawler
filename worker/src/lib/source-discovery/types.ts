@@ -26,6 +26,12 @@ export interface ProductDiscoveryOptions {
   debug?: boolean // keep browser visible (non-headless)
   /** Job-scoped logger for event emission. Drivers use their own console logger if not provided. */
   logger?: import('@/lib/logger').Logger
+  /** Debug context for screenshot capture */
+  debugContext?: {
+    client: import('@/lib/payload-client').PayloadRestClient
+    jobCollection: 'product-crawls' | 'product-discoveries' | 'product-searches'
+    jobId: number
+  }
 }
 
 export interface ProductDiscoveryResult {
@@ -109,7 +115,7 @@ export interface ProductSearchResult {
   products: DiscoveredProduct[]
 }
 
-export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish' | 'douglas' | 'shopapotheke'
+export type SourceSlug = 'dm' | 'mueller' | 'rossmann' | 'purish' | 'douglas' | 'shopapotheke' | 'kaufland'
 
 export interface SourceDriver {
   slug: SourceSlug

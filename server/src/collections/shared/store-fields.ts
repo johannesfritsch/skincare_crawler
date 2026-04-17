@@ -14,6 +14,7 @@ export const STORES = [
   { value: 'purish', label: 'PURISH', hosts: ['purish.com', 'www.purish.com', 'purish.de', 'www.purish.de'] },
   { value: 'douglas', label: 'Douglas', hosts: ['www.douglas.de', 'douglas.de'] },
   { value: 'shopapotheke', label: 'Shop Apotheke', hosts: ['www.shop-apotheke.com', 'shop-apotheke.com'] },
+  { value: 'kaufland', label: 'Kaufland', hosts: ['www.kaufland.de', 'kaufland.de'] },
 ] as const
 
 // ── Derived constants (used by collection configs, components, etc.) ──

@@ -69,6 +69,16 @@ function PurishLogo({ className }: StoreLogoProps) {
   )
 }
 
+/** Kaufland — text wordmark in brand red */
+function KauflandLogo({ className }: StoreLogoProps) {
+  return (
+    <svg className={cn('h-5 w-auto', className)} viewBox="0 0 80 24" xmlns="http://www.w3.org/2000/svg">
+      <rect width="80" height="24" rx="4" fill="#e10915"/>
+      <text x="40" y="17" textAnchor="middle" fill="white" fontSize="14" fontWeight="bold" fontFamily="Arial, sans-serif">Kaufland</text>
+    </svg>
+  )
+}
+
 /**
  * Map of source slug → logo component.
  * When adding a new store, add its logo component above and register it here.
@@ -80,6 +90,7 @@ const LOGO_MAP: Record<string, (props: StoreLogoProps) => React.JSX.Element> = {
   purish: PurishLogo,
   douglas: DouglasLogo,
   shopapotheke: ShopApothekeLogo,
+  kaufland: KauflandLogo,
 }
 
 /** Returns the appropriate store logo/icon for a given source slug */
