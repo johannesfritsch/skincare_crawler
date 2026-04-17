@@ -146,6 +146,16 @@ export const ProductAggregations: CollectionConfig = {
               },
             },
             {
+              name: 'detectionPrompt',
+              type: 'text',
+              label: 'Detection Prompt',
+              defaultValue: 'cosmetics packaging.',
+              admin: {
+                description:
+                  'Grounding DINO text prompt for zero-shot detection on product images. Default: "cosmetics packaging."',
+              },
+            },
+            {
               name: 'fallbackDetectionThreshold',
               type: 'checkbox',
               label: 'Fallback Detection Threshold',

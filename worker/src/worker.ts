@@ -775,6 +775,7 @@ async function handleProductAggregation(work: Record<string, unknown>): Promise<
     imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
     brandSourcePriority: (work.brandSourcePriority as string[]) ?? DEFAULT_BRAND_SOURCE_PRIORITY,
     detectionThreshold: (work.detectionThreshold as number) ?? 0.7,
+    detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
     minBoxArea: ((work.minBoxArea as number) ?? 5) / 100,
     fallbackDetectionThreshold: (work.fallbackDetectionThreshold as boolean) ?? true,
   }
@@ -1694,6 +1695,7 @@ async function processProductAggregationStage(
     imageSourcePriority: (work.imageSourcePriority as string[]) ?? DEFAULT_IMAGE_SOURCE_PRIORITY,
     brandSourcePriority: (work.brandSourcePriority as string[]) ?? DEFAULT_BRAND_SOURCE_PRIORITY,
     detectionThreshold: (work.detectionThreshold as number) ?? 0.7,
+    detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
     minBoxArea: ((work.minBoxArea as number) ?? 5) / 100,
     fallbackDetectionThreshold: (work.fallbackDetectionThreshold as boolean) ?? true,
   }

@@ -53,6 +53,8 @@ export interface StageConfig {
   brandSourcePriority: string[]
   /** Grounding DINO box confidence threshold (0-1). Detections below this are discarded. Default: 0.7. */
   detectionThreshold: number
+  /** Grounding DINO text prompt for zero-shot detection. Default: "cosmetics packaging." */
+  detectionPrompt: string
   /** Minimum detection box area as a fraction (0-1) of the source image area. Default: 0.05 (5%). */
   minBoxArea: number
   /** When true, retry with lower thresholds (50% → 25% → all) if fewer than 3 recognition images qualify. */

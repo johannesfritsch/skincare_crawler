@@ -19,8 +19,6 @@ import sharp from 'sharp'
 import { getDetector } from '@/lib/models/grounding-dino'
 import type { StageContext, StageResult, AggregationWorkItem } from './index'
 
-const DETECTION_PROMPT = 'cosmetics packaging.'
-
 /** Minimum number of recognition images before fallback kicks in */
 const MIN_RECOGNITION_IMAGES = 3
 
@@ -38,6 +36,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
   const { payload, config, log } = ctx
   const jlog = log.forJob('product-aggregations', config.jobId)
   const detectionThreshold = config.detectionThreshold ?? 0.7
+  const detectionPrompt = config.detectionPrompt ?? 'cosmetics packaging.'
   const minBoxArea = config.minBoxArea ?? 0.05
   const fallbackEnabled = config.fallbackDetectionThreshold ?? true
   const productId = workItem.productId
@@ -139,7 +138,7 @@ export async function executeObjectDetection(ctx: StageContext, workItem: Aggreg
         const rawImage = await RawImage.fromBlob(new Blob([imageBuffer]))
 
         const detections = await Promise.race([
-          detector(rawImage, [DETECTION_PROMPT], { threshold: rawThreshold }),
+          detector(rawImage, [detectionPrompt], { threshold: rawThreshold }),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`Object detection timed out after 60s for image ${imgIdx}`)), 60_000),
           ),

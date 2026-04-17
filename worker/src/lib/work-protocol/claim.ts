@@ -1431,6 +1431,7 @@ async function buildProductAggregationWork(payload: PayloadRestClient, jobId: nu
     enabledStages: enabledStagesArr,
     minBoxArea: (job.minBoxArea as number) ?? 5,
     detectionThreshold: (job.detectionThreshold as number) ?? 0.7,
+    detectionPrompt: (job.detectionPrompt as string) ?? 'cosmetics packaging.',
     fallbackDetectionThreshold: (job.fallbackDetectionThreshold as boolean) ?? true,
   }
 }

@@ -2259,6 +2259,10 @@ export interface ProductAggregation {
    */
   detectionThreshold?: number | null;
   /**
+   * Grounding DINO text prompt for zero-shot detection on product images. Default: "cosmetics packaging."
+   */
+  detectionPrompt?: string | null;
+  /**
    * When fewer than 3 recognition images qualify at the configured threshold, automatically retry with progressively lower thresholds (50% → 25% → all detections). Each fallback emits a warning event. Disable to use only the configured threshold with no fallback.
    */
   fallbackDetectionThreshold?: boolean | null;
@@ -3915,6 +3919,7 @@ export interface ProductAggregationsSelect<T extends boolean = true> {
   imageSourcePriority?: T;
   brandSourcePriority?: T;
   detectionThreshold?: T;
+  detectionPrompt?: T;
   fallbackDetectionThreshold?: T;
   reviewSentimentChunkSize?: T;
   reviewSentimentTimeoutSec?: T;
