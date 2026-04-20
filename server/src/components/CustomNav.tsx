@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useNav, useConfig, Link, Hamburger } from '@payloadcms/ui'
 import { usePathname } from 'next/navigation.js'
 
@@ -177,24 +177,19 @@ function jobTitle(entry: JobQueueEntry | undefined): string {
   return 'Idle'
 }
 
-/** Aggregate dot color: worst status across a set of jobs */
-function aggregateDotColor(jobs: JobDef[], jobQueue: JobQueueEntry[]): string {
-  let hasRunning = false
-  let hasFailed = false
-  let hasPending = false
-  for (const job of jobs) {
-    const entry = jobQueue.find(e => e.collection === job.slug)
-    if (entry?.inProgress && entry.inProgress > 0) hasRunning = true
-    if (entry?.failed && entry.failed > 0) hasFailed = true
-    if (entry?.pending && entry.pending > 0) hasPending = true
-  }
-  if (hasRunning) return 'var(--theme-success-500)'
-  if (hasFailed) return 'var(--theme-error-500)'
-  if (hasPending) return 'var(--theme-elevation-600)'
-  return 'var(--theme-elevation-300)'
+// ─── Job abbreviation mapping ───
+
+const JOB_ABBREVS: Record<string, string> = {
+  'Discovery': 'DI',
+  'Crawl': 'CR',
+  'Processing': 'PR',
+  'Search': 'SE',
+  'Aggregate': 'AG',
+  'Bot Check': 'BC',
+  'Test Runs': 'TS',
 }
 
-// ─── Section Header with popover ───
+// ─── Section Header with inline job dots ───
 
 function SectionHeader({
   label,
@@ -209,130 +204,71 @@ function SectionHeader({
   adminRoute: string
   pathname: string
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onClick)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
   const hasJobs = jobs && jobs.length > 0
-  const dotColor = hasJobs ? aggregateDotColor(jobs, jobQueue) : undefined
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          userSelect: 'none',
-        }}
-      >
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'var(--theme-elevation-450)',
-          flex: 1,
-        }}>
-          {label}
-        </span>
-        {hasJobs && (
-          <>
-            <span style={{
-              width: '6px', height: '6px', borderRadius: '50%',
-              backgroundColor: dotColor, flexShrink: 0,
-              transition: 'background-color 0.2s',
-            }} />
-            <button
-              type="button"
-              onClick={() => setOpen(!open)}
-              title="Jobs"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: '20px', height: '20px', borderRadius: '4px',
-                background: open ? 'var(--theme-elevation-100)' : 'transparent',
-                border: 'none', cursor: 'pointer', padding: 0,
-                color: 'var(--theme-elevation-400)',
-                transition: 'background 0.1s, color 0.1s',
-                flexShrink: 0,
-              }}
-              onMouseEnter={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.color = 'var(--theme-text)'; if (!open) (e.currentTarget as HTMLElement).style.background = 'var(--theme-elevation-50)' }}
-              onMouseLeave={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.color = 'var(--theme-elevation-400)'; if (!open) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <circle cx="3" cy="8" r="1.5" />
-                <circle cx="8" cy="8" r="1.5" />
-                <circle cx="13" cy="8" r="1.5" />
-              </svg>
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Popover */}
-      {open && hasJobs && (
-        <div style={{
-          position: 'absolute',
-          top: 'calc(100% + 4px)',
-          right: 0,
-          zIndex: 100,
-          backgroundColor: 'var(--theme-elevation-0)',
-          border: '1px solid var(--theme-elevation-200)',
-          borderRadius: '6px',
-          boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-          padding: '4px',
-          minWidth: '160px',
-        }}>
-          {jobs.map((job) => {
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      userSelect: 'none',
+    }}>
+      <span style={{
+        fontSize: '11px',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        color: 'var(--theme-elevation-450)',
+        flex: 1,
+      }}>
+        {label}
+      </span>
+      {hasJobs && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+          {jobs.map((job, i) => {
             const entry = jobQueue.find(e => e.collection === job.slug)
-            const dotColor = jobDotColor(entry)
-            const title = jobTitle(entry)
+            const color = jobDotColor(entry)
+            const title = `${job.label}: ${jobTitle(entry)}`
+            const abbrev = JOB_ABBREVS[job.label] ?? job.label.slice(0, 2).toUpperCase()
             const isActive = pathname.startsWith(`${adminRoute}/collections/${job.slug}`)
 
             return (
-              <Link
-                key={job.slug}
-                href={`${adminRoute}/collections/${job.slug}`}
-                prefetch={false}
-                onClick={() => setOpen(false)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 10px',
-                  borderRadius: '4px',
-                  color: 'var(--theme-text)',
-                  textDecoration: 'none',
-                  fontSize: '13px',
-                  lineHeight: '1.35',
-                  background: isActive ? 'var(--theme-elevation-100)' : 'transparent',
-                  transition: 'background 0.1s',
-                }}
-                title={title}
-                onMouseEnter={(e: React.MouseEvent) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--theme-elevation-50)' }}
-                onMouseLeave={(e: React.MouseEvent) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-              >
-                <span style={{
-                  width: '6px', height: '6px', borderRadius: '50%',
-                  backgroundColor: dotColor, flexShrink: 0,
-                }} />
-                <span style={{ flex: 1 }}>{job.label}</span>
-              </Link>
+              <React.Fragment key={job.slug}>
+                {i > 0 && (
+                  <span style={{
+                    width: '6px',
+                    height: '1px',
+                    background: 'var(--theme-elevation-250)',
+                    flexShrink: 0,
+                  }} />
+                )}
+                <Link
+                  href={`${adminRoute}/collections/${job.slug}`}
+                  prefetch={false}
+                  title={title}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    textDecoration: 'none',
+                    fontSize: '9px',
+                    fontWeight: 600,
+                    letterSpacing: '0.02em',
+                    color: isActive ? 'var(--theme-text)' : 'var(--theme-elevation-450)',
+                    background: isActive ? 'var(--theme-elevation-100)' : 'transparent',
+                    transition: 'background 0.1s, color 0.1s',
+                  }}
+                >
+                  <span style={{
+                    width: '5px', height: '5px', borderRadius: '50%',
+                    backgroundColor: color, flexShrink: 0,
+                    transition: 'background-color 0.2s',
+                  }} />
+                  {abbrev}
+                </Link>
+              </React.Fragment>
             )
           })}
         </div>

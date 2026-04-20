@@ -1,46 +1,72 @@
 'use client'
 
-import { useFormFields } from '@payloadcms/ui'
-
-function extractYouTubeId(url: string): string | null {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/.*[?&]v=([a-zA-Z0-9_-]{11})/,
-  ]
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match) return match[1]
-  }
-  return null
-}
+import { useState, useEffect } from 'react'
+import { useDocumentInfo } from '@payloadcms/ui'
 
 export default function EmbeddedVideoPlayer() {
-  const externalUrl = useFormFields(([fields]) => fields['externalUrl']?.value as string | undefined)
+  const { id } = useDocumentInfo()
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [externalUrl, setExternalUrl] = useState<string | null>(null)
 
-  if (!externalUrl) {
-    return null
-  }
+  useEffect(() => {
+    if (!id) return
+    fetch(`/api/videos/${id}?depth=1&select[videoFile]=true&select[audioFile]=true&select[externalUrl]=true`)
+      .then((res) => res.json())
+      .then((doc) => {
+        const vf = doc.videoFile
+        if (vf && typeof vf !== 'number') setVideoUrl(vf.url ?? null)
+        const af = doc.audioFile
+        if (af && typeof af !== 'number') setAudioUrl(af.url ?? null)
+        setExternalUrl(doc.externalUrl ?? null)
+      })
+      .catch(() => {})
+  }, [id])
 
-  const videoId = extractYouTubeId(externalUrl)
-  if (!videoId) {
-    return (
-      <div style={{ padding: '12px 0', color: 'var(--theme-elevation-500)', fontSize: '14px' }}>
-        Embedded player only supports YouTube URLs.
-      </div>
-    )
-  }
+  if (!videoUrl && !audioUrl) return null
 
   return (
-    <div style={{ padding: '12px 0' }}>
-      <iframe
-        width="100%"
-        height="315"
-        src={`https://www.youtube.com/embed/${videoId}`}
-        frameBorder="0"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-        style={{ borderRadius: 'var(--style-radius-s)', border: '1px solid var(--theme-elevation-300)' }}
-      />
+    <div style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {videoUrl && (
+        <video
+          src={videoUrl}
+          controls
+          playsInline
+          preload="metadata"
+          style={{
+            width: '100%',
+            maxHeight: '480px',
+            borderRadius: 'var(--style-radius-s)',
+            background: '#000',
+          }}
+        />
+      )}
+      {audioUrl && (
+        <div>
+          <span style={{ fontSize: '12px', color: 'var(--theme-elevation-500)', fontWeight: 500 }}>
+            Audio
+          </span>
+          <audio
+            src={audioUrl}
+            controls
+            preload="metadata"
+            style={{ width: '100%', marginTop: '4px' }}
+          />
+        </div>
+      )}
+      {externalUrl && (
+        <a
+          href={externalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: '12px',
+            color: 'var(--theme-elevation-500)',
+          }}
+        >
+          Open original &rarr;
+        </a>
+      )}
     </div>
   )
 }

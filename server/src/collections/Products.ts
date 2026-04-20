@@ -131,7 +131,7 @@ export const Products: CollectionConfig = {
           ],
         },
         {
-          label: 'In Videos',
+          label: 'Featured In',
           fields: [
             {
               name: 'videoMentions',
@@ -140,6 +140,15 @@ export const Products: CollectionConfig = {
               on: 'product',
               admin: {
                 defaultColumns: ['videoScene', 'confidence', 'overallSentiment', 'overallSentimentScore'],
+              },
+            },
+            {
+              name: 'galleryMentions',
+              type: 'join',
+              collection: 'gallery-mentions',
+              on: 'product',
+              admin: {
+                defaultColumns: ['galleryItem', 'confidence', 'overallSentiment', 'overallSentimentScore'],
               },
             },
           ],

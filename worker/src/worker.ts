@@ -1429,6 +1429,20 @@ async function processVideoStage(
   // Determine next stage (only on success)
   const nextStage = success ? getNextStage(stageName, enabledStages) : null
 
+  // If this was the last stage and it succeeded, set video status to 'processed'
+  if (success && !nextStage) {
+    try {
+      await client.update({
+        collection: 'videos',
+        id: videoId,
+        data: { status: 'processed' },
+      })
+      log.info('Video marked as processed', { videoId })
+    } catch (e) {
+      log.warn('Failed to mark video as processed', { videoId, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
   // Report completion — server handles retry logic, stage advancement, and job completion
   await client.workItems.complete({
     workItemId: item.id,

@@ -123,6 +123,7 @@ export interface Config {
   collectionsJoins: {
     products: {
       videoMentions: 'video-mentions';
+      galleryMentions: 'gallery-mentions';
       aggregations: 'product-aggregations';
     };
     'source-products': {
@@ -1401,6 +1402,11 @@ export interface Product {
   productType?: (number | null) | ProductType;
   videoMentions?: {
     docs?: (number | VideoMention)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  galleryMentions?: {
+    docs?: (number | GalleryMention)[];
     hasNextPage?: boolean;
     totalDocs?: number;
   };
@@ -4170,6 +4176,7 @@ export interface ProductsSelect<T extends boolean = true> {
   brand?: T;
   productType?: T;
   videoMentions?: T;
+  galleryMentions?: T;
   scoreHistory?:
     | T
     | {

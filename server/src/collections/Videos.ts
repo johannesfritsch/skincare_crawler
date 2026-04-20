@@ -9,7 +9,7 @@ export const Videos: CollectionConfig = {
   defaultSort: '-publishedAt',
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'channel', 'publishedAt'],
+    defaultColumns: ['title', 'channel', 'status', 'publishedAt'],
     group: 'Videos',
     components: {
       edit: {
@@ -106,15 +106,6 @@ export const Videos: CollectionConfig = {
 
     // ── Main area ──
     {
-      name: 'embeddedPlayer',
-      type: 'ui',
-      admin: {
-        components: {
-          Field: '/components/EmbeddedVideoPlayer',
-        },
-      },
-    },
-    {
       name: 'processStatus',
       type: 'ui',
       admin: {
@@ -147,6 +138,15 @@ export const Videos: CollectionConfig = {
         {
           label: 'Video Details',
           fields: [
+            {
+              name: 'embeddedPlayer',
+              type: 'ui',
+              admin: {
+                components: {
+                  Field: '/components/EmbeddedVideoPlayer',
+                },
+              },
+            },
             {
               name: 'title',
               type: 'text',
