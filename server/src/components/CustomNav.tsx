@@ -16,6 +16,8 @@ interface NavSection {
   collections: string[]
   globals?: string[]
   jobs?: JobDef[]
+  /** Group jobs into pipeline stages. Jobs within the same group are parallel inputs. Groups flow left-to-right. */
+  pipelineGroups?: string[][]
 }
 
 interface NavTab {
@@ -40,10 +42,11 @@ const TABS: NavTab[] = [
         label: 'Sources',
         collections: ['source-products', 'source-variants', 'source-brands', 'source-reviews', 'source-review-origins'],
         jobs: [
-          { label: 'Crawl', slug: 'product-crawls' },
           { label: 'Discovery', slug: 'product-discoveries' },
           { label: 'Search', slug: 'product-searches' },
+          { label: 'Crawl', slug: 'product-crawls' },
         ],
+        pipelineGroups: [['Discovery'], ['Search'], ['Crawl']],
       },
       {
         label: 'Ingredients',
@@ -65,7 +68,7 @@ const TABS: NavTab[] = [
       },
       {
         label: 'Videos',
-        collections: ['videos', 'video-scenes', 'video-frames', 'video-mentions'],
+        collections: ['videos', 'video-mentions'],
         jobs: [
           { label: 'Discovery', slug: 'video-discoveries' },
           { label: 'Crawl', slug: 'video-crawls' },
@@ -74,7 +77,7 @@ const TABS: NavTab[] = [
       },
       {
         label: 'Galleries',
-        collections: ['galleries', 'gallery-items', 'gallery-mentions'],
+        collections: ['galleries', 'gallery-mentions'],
         jobs: [
           { label: 'Discovery', slug: 'gallery-discoveries' },
           { label: 'Crawl', slug: 'gallery-crawls' },
@@ -191,20 +194,122 @@ const JOB_ABBREVS: Record<string, string> = {
 
 // ─── Section Header with inline job dots ───
 
+function JobChip({
+  job,
+  jobQueue,
+  adminRoute,
+  pathname,
+}: {
+  job: JobDef
+  jobQueue: JobQueueEntry[]
+  adminRoute: string
+  pathname: string
+}) {
+  const entry = jobQueue.find(e => e.collection === job.slug)
+  const color = jobDotColor(entry)
+  const title = `${job.label}: ${jobTitle(entry)}`
+  const abbrev = JOB_ABBREVS[job.label] ?? job.label.slice(0, 2).toUpperCase()
+  const isActive = pathname.startsWith(`${adminRoute}/collections/${job.slug}`)
+
+  return (
+    <Link
+      href={`${adminRoute}/collections/${job.slug}`}
+      prefetch={false}
+      title={title}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '3px',
+        padding: '2px 6px',
+        borderRadius: '9999px',
+        textDecoration: 'none',
+        fontSize: '9px',
+        fontWeight: 600,
+        letterSpacing: '0.02em',
+        color: isActive ? 'var(--theme-text)' : 'var(--theme-elevation-450)',
+        background: isActive ? 'var(--theme-elevation-150)' : 'var(--theme-elevation-50)',
+        border: '1px solid ' + (isActive ? 'var(--theme-elevation-200)' : 'var(--theme-elevation-100)'),
+        transition: 'background 0.1s, color 0.1s, border-color 0.1s',
+      }}
+    >
+      <span style={{
+        width: '5px', height: '5px', borderRadius: '50%',
+        backgroundColor: color, flexShrink: 0,
+        transition: 'background-color 0.2s',
+      }} />
+      {abbrev}
+    </Link>
+  )
+}
+
 function SectionHeader({
   label,
   jobs,
+  pipelineGroups,
   jobQueue,
   adminRoute,
   pathname,
 }: {
   label: string
   jobs?: JobDef[]
+  pipelineGroups?: string[][]
   jobQueue: JobQueueEntry[]
   adminRoute: string
   pathname: string
 }) {
   const hasJobs = jobs && jobs.length > 0
+
+  const renderPipeline = () => {
+    if (!hasJobs) return null
+
+    // Grouped pipeline layout
+    if (pipelineGroups) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+          {pipelineGroups.map((group, gi) => {
+            const groupJobs = group
+              .map((lbl) => jobs.find((j) => j.label === lbl))
+              .filter((j): j is JobDef => j != null)
+
+            return (
+              <React.Fragment key={gi}>
+                {gi > 0 && (
+                  <svg width="8" height="8" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
+                    <path d="M1 4 L5 4 M4 2.5 L6 4 L4 5.5" fill="none" stroke="var(--theme-elevation-300)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {groupJobs.length === 1 ? (
+                  <JobChip job={groupJobs[0]} jobQueue={jobQueue} adminRoute={adminRoute} pathname={pathname} />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
+                    {groupJobs.map((job) => (
+                      <JobChip key={job.slug} job={job} jobQueue={jobQueue} adminRoute={adminRoute} pathname={pathname} />
+                    ))}
+                  </div>
+                )}
+              </React.Fragment>
+            )
+          })}
+        </div>
+      )
+    }
+
+    // Linear pipeline (default)
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+        {jobs.map((job, i) => (
+          <React.Fragment key={job.slug}>
+            {i > 0 && (
+              <svg width="8" height="8" viewBox="0 0 8 8" style={{ flexShrink: 0 }}>
+                <path d="M1 4 L5 4 M4 2.5 L6 4 L4 5.5" fill="none" stroke="var(--theme-elevation-300)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+            <JobChip job={job} jobQueue={jobQueue} adminRoute={adminRoute} pathname={pathname} />
+          </React.Fragment>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -223,56 +328,7 @@ function SectionHeader({
       }}>
         {label}
       </span>
-      {hasJobs && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
-          {jobs.map((job, i) => {
-            const entry = jobQueue.find(e => e.collection === job.slug)
-            const color = jobDotColor(entry)
-            const title = `${job.label}: ${jobTitle(entry)}`
-            const abbrev = JOB_ABBREVS[job.label] ?? job.label.slice(0, 2).toUpperCase()
-            const isActive = pathname.startsWith(`${adminRoute}/collections/${job.slug}`)
-
-            return (
-              <React.Fragment key={job.slug}>
-                {i > 0 && (
-                  <span style={{
-                    width: '6px',
-                    height: '1px',
-                    background: 'var(--theme-elevation-250)',
-                    flexShrink: 0,
-                  }} />
-                )}
-                <Link
-                  href={`${adminRoute}/collections/${job.slug}`}
-                  prefetch={false}
-                  title={title}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                    padding: '2px 5px',
-                    borderRadius: '4px',
-                    textDecoration: 'none',
-                    fontSize: '9px',
-                    fontWeight: 600,
-                    letterSpacing: '0.02em',
-                    color: isActive ? 'var(--theme-text)' : 'var(--theme-elevation-450)',
-                    background: isActive ? 'var(--theme-elevation-100)' : 'transparent',
-                    transition: 'background 0.1s, color 0.1s',
-                  }}
-                >
-                  <span style={{
-                    width: '5px', height: '5px', borderRadius: '50%',
-                    backgroundColor: color, flexShrink: 0,
-                    transition: 'background-color 0.2s',
-                  }} />
-                  {abbrev}
-                </Link>
-              </React.Fragment>
-            )
-          })}
-        </div>
-      )}
+      {renderPipeline()}
     </div>
   )
 }
@@ -434,6 +490,7 @@ export function CustomNav() {
                   <SectionHeader
                     label={section.label}
                     jobs={section.jobs}
+                    pipelineGroups={section.pipelineGroups}
                     jobQueue={jobQueue}
                     adminRoute={adminRoute}
                     pathname={pathname}
