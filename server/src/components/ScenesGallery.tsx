@@ -27,6 +27,11 @@ interface Scene {
   timestampStart?: number | null
   timestampEnd?: number | null
   image?: SceneImage | number | null
+  barcodes?: unknown[] | null
+  objects?: unknown[] | null
+  recognitions?: unknown[] | null
+  llmMatches?: unknown[] | null
+  detections?: unknown[] | null
   videoMentions?: {
     docs?: (Mention | number)[]
   }
@@ -116,6 +121,16 @@ function SceneCard({ scene, onOpen }: { scene: Scene; onOpen: (id: number) => vo
     .slice(0, 3)
 
   const timeRange = formatTimeRange(scene.timestampStart, scene.timestampEnd)
+
+  const counts: [string, number][] = [
+    ['BA', scene.barcodes?.length ?? 0],
+    ['OB', scene.objects?.length ?? 0],
+    ['RE', scene.recognitions?.length ?? 0],
+    ['LLM', scene.llmMatches?.length ?? 0],
+    ['DE', scene.detections?.length ?? 0],
+    ['ME', mentions.length],
+  ]
+  const hasAnyCounts = counts.some(([, n]) => n > 0)
 
   const handleMouseEnter = useCallback(() => {
     setIsHovering(true)
@@ -241,6 +256,30 @@ function SceneCard({ scene, onOpen }: { scene: Scene; onOpen: (id: number) => vo
             {timeRange}
           </span>
         )}
+        {hasAnyCounts && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+            {counts.map(([label, n]) =>
+              n > 0 ? (
+                <span
+                  key={label}
+                  style={{
+                    fontSize: '9px',
+                    lineHeight: 1,
+                    padding: '1px 4px',
+                    borderRadius: '3px',
+                    background: 'var(--theme-elevation-150)',
+                    color: 'var(--theme-elevation-600)',
+                    fontWeight: 500,
+                    fontVariantNumeric: 'tabular-nums',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  {label} {n}
+                </span>
+              ) : null,
+            )}
+          </div>
+        )}
         {mentions.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
             {mentions.map((m) => {
@@ -326,7 +365,9 @@ export default function ScenesGallery() {
     if (!id) return
     fetch(
       `/api/video-scenes?where[video][equals]=${id}&depth=1&limit=200&sort=timestampStart` +
-        `&select[timestampStart]=true&select[timestampEnd]=true&select[image]=true&select[videoMentions]=true`,
+        `&select[timestampStart]=true&select[timestampEnd]=true&select[image]=true` +
+        `&select[barcodes]=true&select[objects]=true&select[recognitions]=true` +
+        `&select[llmMatches]=true&select[detections]=true&select[videoMentions]=true`,
     )
       .then((res) => res.json())
       .then((data) => setScenes(data.docs ?? []))
