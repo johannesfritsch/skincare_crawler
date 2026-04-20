@@ -57,6 +57,9 @@ export type JobCollection =
   | 'ingredient-crawls'
   | 'bot-checks'
   | 'test-suite-runs'
+  | 'gallery-discoveries'
+  | 'gallery-crawls'
+  | 'gallery-processings'
 
 export type EventType = 'start' | 'success' | 'info' | 'warning' | 'error'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'critical'
@@ -775,6 +778,117 @@ export interface EventRegistry {
     claims: number
   }
 
+  // ─── Gallery Discovery ─────────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch persisted, completed
+
+  'gallery_discovery.started': {
+    currentOffset: number
+    batchSize: number
+    maxGalleries: number
+  }
+  'gallery_discovery.batch_persisted': {
+    discovered: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'gallery_discovery.completed': {
+    discovered: number
+    durationMs: number
+  }
+
+  // ─── Gallery Crawl ────────────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch done, completed
+
+  'gallery_crawl.started': {
+    items: number
+  }
+  'gallery_crawl.gallery_crawled': {
+    galleryId: number
+    caption: string
+    durationMs: number
+  }
+  'gallery_crawl.batch_done': {
+    crawled: number
+    errors: number
+    remaining: number
+    batchSize: number
+    batchSuccesses: number
+    batchErrors: number
+    batchDurationMs: number
+  }
+  'gallery_crawl.completed': {
+    crawled: number
+    errors: number
+    durationMs: number
+  }
+
+  // ─── Gallery Processing ───────────────────────────────────────────────
+  // worker.ts: handler start
+  // submit.ts: batch done, completed
+
+  'gallery_processing.started': {
+    galleries: number
+    stages: string
+  }
+  'gallery_processing.batch_done': {
+    completed: number
+    errors: number
+    batchSize: number
+    batchDurationMs: number
+  }
+  'gallery_processing.completed': {
+    completed: number
+    errors: number
+    tokensUsed: number
+    durationMs: number
+    failedGalleries: number
+  }
+  'gallery_processing.error': { galleryId: string; stage?: string; error: string }
+
+  // Per-stage detail events
+  'gallery_processing.barcode_found': {
+    galleryId: number
+    itemId: number
+    barcode: string
+  }
+  'gallery_processing.warning': { galleryId: number; warning: string }
+  'gallery_processing.object_detection_detail': {
+    galleryId: number
+    itemId: number
+    imageWidth: number
+    imageHeight: number
+    rawDetections: number
+    keptDetections: number
+  }
+  'gallery_processing.objects_detected': {
+    galleryId: number
+    items: number
+    detections: number
+    itemsProcessed: number
+    itemsWithDetections: number
+  }
+  'gallery_processing.visual_search_complete': {
+    galleryId: number
+    searched: number
+    matched: number
+    productsFound: number
+    embeddingsFailed: number
+    avgBestDistance: number
+  }
+  'gallery_processing.ocr_extracted': {
+    galleryId: number
+    items: number
+    cropsProcessed: number
+    cropsWithText: number
+    tokens: number
+  }
+  'gallery_processing.sentiment_analyzed': {
+    galleryId: number
+    tokens: number
+  }
+
   // ─── Worker Maintenance ────────────────────────────────────────────────
   // worker.ts: periodic event purge
 
@@ -1473,6 +1587,102 @@ export const EVENT_META: Record<EventName, EventMeta> = {
     labels: ['classification'],
   },
 
+  // Gallery discovery
+  'gallery_discovery.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'gallery_discovery.batch_persisted': {
+    type: 'info',
+    level: 'info',
+    labels: ['discovery'],
+  },
+  'gallery_discovery.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['discovery'],
+  },
+
+  // Gallery crawl
+  'gallery_crawl.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['gallery-crawl'],
+  },
+  'gallery_crawl.gallery_crawled': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-crawl'],
+  },
+  'gallery_crawl.batch_done': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-crawl'],
+  },
+  'gallery_crawl.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['gallery-crawl'],
+  },
+
+  // Gallery processing
+  'gallery_processing.started': {
+    type: 'start',
+    level: 'info',
+    labels: ['gallery'],
+  },
+  'gallery_processing.batch_done': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery'],
+  },
+  'gallery_processing.completed': {
+    type: 'success',
+    level: 'info',
+    labels: ['gallery'],
+  },
+  'gallery_processing.error': {
+    type: 'error',
+    level: 'error',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.barcode_found': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.warning': {
+    type: 'warning',
+    level: 'warn',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.object_detection_detail': {
+    type: 'info',
+    level: 'debug',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.objects_detected': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.visual_search_complete': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.ocr_extracted': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-processing'],
+  },
+  'gallery_processing.sentiment_analyzed': {
+    type: 'info',
+    level: 'info',
+    labels: ['gallery-processing'],
+  },
+
   // Worker maintenance
   'worker.events_purged': {
     type: 'info',
@@ -1506,6 +1716,9 @@ export const EVENT_GROUP_LABELS: Record<string, string> = {
   labels: 'Aggregation',
   description: 'Aggregation',
   stage: 'Aggregation',
+  gallery_discovery: 'Gallery Discovery',
+  gallery_crawl: 'Gallery Crawl',
+  gallery_processing: 'Gallery Processing',
 }
 
 /** Derive a human-readable group label from an event name (prefix before the first dot). */

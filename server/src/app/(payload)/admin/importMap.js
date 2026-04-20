@@ -47,6 +47,7 @@ import { default as default_f6707bda32eb7b214d9675b566b17227 } from '../../../co
 import { default as default_3368fcd293a0b5d5dc7f3b9607258e74 } from '@/components/DetectionFrameField'
 import { default as default_79fd35eb7e4e0cd1100b52e5425f9118 } from '@/components/RecognitionObjectField'
 import { default as default_dc18604f4d78e37a674a0b8d80c9e980 } from '../../../components/VideoMentionsCell'
+import { default as default_eb27a101f916ca1ffb9b5ff8fcb0a821 } from '../../../components/GalleryItemsGrid'
 import { default as default_d19f33f1c8d804820952ad0cf2cc4fbe } from '../../../components/dashboard/widgets/ChangelogClient'
 import { CustomNav as CustomNav_1850b0017aaedbc55da15d565ca0bcd7 } from '../../../components/CustomNav'
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
@@ -121,6 +122,7 @@ export const importMap = {
   "@/components/DetectionFrameField#default": default_3368fcd293a0b5d5dc7f3b9607258e74,
   "@/components/RecognitionObjectField#default": default_79fd35eb7e4e0cd1100b52e5425f9118,
   "/components/VideoMentionsCell#default": default_dc18604f4d78e37a674a0b8d80c9e980,
+  "/components/GalleryItemsGrid#default": default_eb27a101f916ca1ffb9b5ff8fcb0a821,
   "/components/dashboard/widgets/ChangelogClient#default": default_d19f33f1c8d804820952ad0cf2cc4fbe,
   "/components/CustomNav#CustomNav": CustomNav_1850b0017aaedbc55da15d565ca0bcd7,
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,

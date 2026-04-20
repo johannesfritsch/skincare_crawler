@@ -35,7 +35,7 @@ import {
   type VideoCrawlStageName,
 } from '@/lib/video-crawl/stages'
 
-export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl' | 'bot-check' | 'test-suite-run'
+export type JobType = 'product-crawl' | 'product-discovery' | 'product-search' | 'ingredients-discovery' | 'video-discovery' | 'video-crawl' | 'video-processing' | 'product-aggregation' | 'ingredient-crawl' | 'bot-check' | 'test-suite-run' | 'gallery-discovery' | 'gallery-crawl' | 'gallery-processing'
 
 interface ActiveJob {
   type: JobType
@@ -57,6 +57,9 @@ export const JOB_TYPE_TO_COLLECTION = {
   'ingredient-crawl': 'ingredient-crawls',
   'bot-check': 'bot-checks',
   'test-suite-run': 'test-suite-runs',
+  'gallery-discovery': 'gallery-discoveries',
+  'gallery-crawl': 'gallery-crawls',
+  'gallery-processing': 'gallery-processings',
 } as const
 
 const JOB_TYPE_TO_CAPABILITY = {
@@ -71,6 +74,9 @@ const JOB_TYPE_TO_CAPABILITY = {
   'ingredient-crawl': 'ingredient-crawl',
   'bot-check': 'bot-check',
   'test-suite-run': 'test-suite-run',
+  'gallery-discovery': 'gallery-discovery',
+  'gallery-crawl': 'gallery-crawl',
+  'gallery-processing': 'gallery-processing',
 } as const
 
 const log = createLogger('Claim')
@@ -103,6 +109,9 @@ export async function rebuildJobWork(
     case 'ingredient-crawl': return buildIngredientCrawlWork(payload, jobId)
     case 'bot-check': return buildBotCheckWork(payload, jobId)
     case 'test-suite-run': return buildTestSuiteRunWork(payload, jobId)
+    case 'gallery-discovery': return { type: 'none' } // handled by work-items system
+    case 'gallery-crawl': return { type: 'none' } // handled by work-items system
+    case 'gallery-processing': return { type: 'none' } // handled by work-items system
     default: return { type: 'none' }
   }
 }
@@ -240,6 +249,12 @@ export async function claimWork(
           return buildBotCheckWork(payload, candidate.id)
         case 'test-suite-run':
           return buildTestSuiteRunWork(payload, candidate.id)
+        case 'gallery-discovery':
+          return { type: 'none' } // handled by work-items system
+        case 'gallery-crawl':
+          return { type: 'none' } // placeholder — Step 4
+        case 'gallery-processing':
+          return { type: 'none' } // placeholder — Step 5
         default:
           return { type: 'none' }
       }

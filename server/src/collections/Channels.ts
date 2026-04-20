@@ -25,6 +25,11 @@ export const Channels: CollectionConfig = {
           where: { channel: { equals: id } },
           req,
         })
+        await req.payload.delete({
+          collection: 'galleries',
+          where: { channel: { equals: id } },
+          req,
+        })
       },
     ],
   },
@@ -81,6 +86,12 @@ export const Channels: CollectionConfig = {
       name: 'videos',
       type: 'join',
       collection: 'videos',
+      on: 'channel',
+    },
+    {
+      name: 'galleries',
+      type: 'join',
+      collection: 'galleries',
       on: 'channel',
     },
   ],

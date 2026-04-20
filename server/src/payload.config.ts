@@ -47,6 +47,14 @@ import { VideoDiscoveries } from './collections/VideoDiscoveries'
 import { VideoCrawls } from './collections/VideoCrawls'
 import { VideoProcessings } from './collections/VideoProcessings'
 
+import { GalleryMedia } from './collections/GalleryMedia'
+import { Galleries } from './collections/Galleries'
+import { GalleryItems } from './collections/GalleryItems'
+import { GalleryMentions } from './collections/GalleryMentions'
+import { GalleryDiscoveries } from './collections/GalleryDiscoveries'
+import { GalleryCrawls } from './collections/GalleryCrawls'
+import { GalleryProcessings } from './collections/GalleryProcessings'
+
 import { Workers } from './collections/Workers'
 import { DebugScreenshots } from './collections/DebugScreenshots'
 
@@ -82,6 +90,7 @@ if (process.env.STORAGE_ADAPTER === 's3') {
         'profile-media': { prefix: pfx('profile-media') },
         'brand-media': { prefix: pfx('brand-media') },
         'detection-media': { prefix: pfx('detection-media') },
+        'gallery-media': { prefix: pfx('gallery-media') },
         'debug-screenshots': { prefix: pfx('debug-screenshots') },
       },
       bucket: process.env.S3_BUCKET || '',
@@ -284,6 +293,13 @@ export default buildConfig({
     VideoDiscoveries,
     VideoCrawls,
     VideoProcessings,
+    GalleryMedia,
+    Galleries,
+    GalleryItems,
+    GalleryMentions,
+    GalleryDiscoveries,
+    GalleryCrawls,
+    GalleryProcessings,
     Workers,
     DebugScreenshots,
   ],

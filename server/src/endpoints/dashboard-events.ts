@@ -70,6 +70,9 @@ export interface DashboardResponse {
     videosCrawled: number
     videosProcessed: number
     videosDiscovered: number
+    galleriesDiscovered: number
+    galleriesCrawled: number
+    galleriesProcessed: number
     priceChanges: number
     priceDrops: number
     priceIncreases: number
@@ -230,10 +233,14 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
               WHEN video_processings_id IS NOT NULL THEN 'video-processings'
               WHEN ingredient_crawls_id IS NOT NULL THEN 'ingredient-crawls'
               WHEN bot_checks_id IS NOT NULL THEN 'bot-checks'
+              WHEN gallery_discoveries_id IS NOT NULL THEN 'gallery-discoveries'
+              WHEN gallery_crawls_id IS NOT NULL THEN 'gallery-crawls'
+              WHEN gallery_processings_id IS NOT NULL THEN 'gallery-processings'
             END AS collection,
             coalesce(product_crawls_id, product_discoveries_id, product_searches_id,
               ingredients_discoveries_id, product_aggregations_id, video_crawls_id,
-              video_discoveries_id, video_processings_id, ingredient_crawls_id, bot_checks_id) AS job_id
+              video_discoveries_id, video_processings_id, ingredient_crawls_id, bot_checks_id,
+              gallery_discoveries_id, gallery_crawls_id, gallery_processings_id) AS job_id
           FROM events_rels
           WHERE path = 'job'
         ) r ON r.parent_id = e.id
@@ -269,10 +276,14 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
               WHEN video_processings_id IS NOT NULL THEN 'video-processings'
               WHEN ingredient_crawls_id IS NOT NULL THEN 'ingredient-crawls'
               WHEN bot_checks_id IS NOT NULL THEN 'bot-checks'
+              WHEN gallery_discoveries_id IS NOT NULL THEN 'gallery-discoveries'
+              WHEN gallery_crawls_id IS NOT NULL THEN 'gallery-crawls'
+              WHEN gallery_processings_id IS NOT NULL THEN 'gallery-processings'
             END AS collection,
             coalesce(product_crawls_id, product_discoveries_id, product_searches_id,
               ingredients_discoveries_id, product_aggregations_id, video_crawls_id,
-              video_discoveries_id, video_processings_id, ingredient_crawls_id, bot_checks_id) AS job_id
+              video_discoveries_id, video_processings_id, ingredient_crawls_id, bot_checks_id,
+              gallery_discoveries_id, gallery_crawls_id, gallery_processings_id) AS job_id
           FROM events_rels
           WHERE path = 'job'
         ) r ON r.parent_id = e.id
@@ -293,13 +304,16 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
           coalesce(sum((data->>'batchSuccesses')::int) FILTER (WHERE name = 'video_crawl.batch_done'), 0)::int AS "videosCrawled",
           coalesce(sum((data->>'completed')::int) FILTER (WHERE name = 'video_processing.batch_done'), 0)::int AS "videosProcessed",
           coalesce(sum((data->>'batchSize')::int) FILTER (WHERE name = 'video_discovery.batch_persisted'), 0)::int AS "videosDiscovered",
+          coalesce(sum((data->>'batchPersisted')::int) FILTER (WHERE name = 'gallery_discovery.batch_persisted'), 0)::int AS "galleriesDiscovered",
+          coalesce(sum((data->>'batchSuccesses')::int) FILTER (WHERE name = 'gallery_crawl.batch_done'), 0)::int AS "galleriesCrawled",
+          coalesce(sum((data->>'completed')::int) FILTER (WHERE name = 'gallery_processing.batch_done'), 0)::int AS "galleriesProcessed",
           count(*) FILTER (WHERE name = 'persist.price_changed')::int AS "priceChanges",
           count(*) FILTER (WHERE name = 'persist.price_changed' AND data->>'change' = 'drop')::int AS "priceDrops",
           count(*) FILTER (WHERE name = 'persist.price_changed' AND data->>'change' = 'increase')::int AS "priceIncreases",
           coalesce(sum((data->>'markedUnavailable')::int) FILTER (WHERE name = 'persist.variants_disappeared'), 0)::int AS "variantsDisappeared",
           count(*) FILTER (WHERE name = 'scraper.bot_check_detected')::int AS "botChecks",
           coalesce(sum((data->>'tokensUsed')::int) FILTER (WHERE name IN (
-            'crawl.completed', 'aggregation.completed', 'video_processing.completed', 'ingredient_crawl.completed'
+            'crawl.completed', 'aggregation.completed', 'video_processing.completed', 'ingredient_crawl.completed', 'gallery_processing.completed'
           )), 0)::int AS "tokensUsed",
           round(avg((data->>'batchDurationMs')::numeric) FILTER (WHERE name LIKE '%.batch_done'), 0)::int AS "avgBatchDurationMs"
         FROM events
@@ -403,6 +417,9 @@ export const dashboardEventsHandler: PayloadHandler = async (req) => {
       videosCrawled: Number(highlights.videosCrawled ?? 0),
       videosProcessed: Number(highlights.videosProcessed ?? 0),
       videosDiscovered: Number(highlights.videosDiscovered ?? 0),
+      galleriesDiscovered: Number(highlights.galleriesDiscovered ?? 0),
+      galleriesCrawled: Number(highlights.galleriesCrawled ?? 0),
+      galleriesProcessed: Number(highlights.galleriesProcessed ?? 0),
       priceChanges: Number(highlights.priceChanges ?? 0),
       priceDrops: Number(highlights.priceDrops ?? 0),
       priceIncreases: Number(highlights.priceIncreases ?? 0),

@@ -93,6 +93,12 @@ export default function EventHighlightsClient() {
     metrics.push({ icon: '\uD83C\uDFAC', label: 'Videos Processed', value: fmt(h.videosProcessed) })
   if (h.videosDiscovered > 0)
     metrics.push({ icon: '\uD83D\uDCF9', label: 'Videos Discovered', value: fmt(h.videosDiscovered) })
+  if (h.galleriesDiscovered > 0)
+    metrics.push({ icon: '\uD83D\uDDBC\uFE0F', label: 'Galleries Disc.', value: fmt(h.galleriesDiscovered) })
+  if (h.galleriesCrawled > 0)
+    metrics.push({ icon: '\uD83D\uDCE5', label: 'Galleries Crawled', value: fmt(h.galleriesCrawled) })
+  if (h.galleriesProcessed > 0)
+    metrics.push({ icon: '\uD83D\uDD0D', label: 'Galleries Processed', value: fmt(h.galleriesProcessed) })
 
   // Price section
   if (h.priceChanges > 0) {

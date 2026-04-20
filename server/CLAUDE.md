@@ -1807,7 +1807,7 @@ The admin dashboard uses Payload's experimental `admin.dashboard` feature with 1
 ### Architecture
 
 - **Events endpoint**: `GET /api/dashboard/events?range=1h|24h|7d|30d` (`src/endpoints/dashboard-events.ts`) — runs 9 parallel SQL queries via Drizzle raw SQL, returns aggregated event data including ingredient stats. Auth via `req.user`. Default range: `1h`.
-- **Snapshot endpoint**: `GET /api/dashboard/snapshot` (`src/endpoints/dashboard-snapshot.ts`) — runs 12 parallel SQL queries against data tables (products, source-products, source-variants, videos, etc.). Returns entity counts, data quality metrics, source coverage, video pipeline stats, job queue status, and active workers. Not time-scoped. Auth via `req.user`.
+- **Snapshot endpoint**: `GET /api/dashboard/snapshot` (`src/endpoints/dashboard-snapshot.ts`) — runs 13 parallel SQL queries against data tables (products, source-products, source-variants, videos, galleries, etc.). Returns entity counts, data quality metrics, source coverage, video pipeline stats, gallery pipeline stats, job queue status, and active workers. Not time-scoped. Auth via `req.user`.
 - **DashboardProvider**: `src/components/dashboard/DashboardProvider.tsx` — `'use client'` component rendered via `beforeDashboard`. Fetches from both endpoints, polls every 30s, provides a range selector UI (4 tabs: 1h/24h/7d/30d) and a "last updated" indicator. Writes data into a module-level pub/sub store.
 - **Dashboard store**: `src/components/dashboard/dashboard-store.ts` — module-level pub/sub (same pattern as `BulkJobBar.tsx`'s `getJobState`/`setJobState`). State holds both `data` (DashboardResponse) and `snapshot` (SnapshotResponse). Exports `useDashboardState()` hook via `useSyncExternalStore`. Widget client components subscribe to this store.
 - **Widgets**: 13 pairs of server shell + client component, registered in `payload.config.ts` under `admin.dashboard.widgets`. Each server shell just renders its client component.
@@ -1828,6 +1828,7 @@ interface DashboardResponse {
   highlights: {
     productsCrawled, productsDiscovered, productsAggregated, productsSearched,
     ingredientsCrawled, ingredientsDiscovered, videosCrawled, videosProcessed, videosDiscovered,
+    galleriesDiscovered, galleriesCrawled, galleriesProcessed,
     priceChanges, priceDrops, priceIncreases, variantsDisappeared, botChecks,
     tokensUsed, avgBatchDurationMs
   }
@@ -1851,6 +1852,9 @@ interface SnapshotResponse {
   sourceCoverage: Array<{
     source, total, crawled, uncrawled, withGtin, variants, avgRating, avgRatingCount
   }>
+  galleryPipeline: {
+    total, crawled, processed, totalItems, totalMentions
+  }
   videoPipeline: {
     total, crawled, processed, unprocessed, withTranscript, totalScenes,
     // Uses status field: "processed" = status='processed', "crawled" = status='crawled', "unprocessed" = status != 'processed'
@@ -2024,6 +2028,10 @@ Events ending in `.batch_persisted` (discovery, search, ingredients_discovery, v
 | `aggregation.completed` | #7 | Tokens used (IN list) |
 | `video_processing.completed` | #7 | Tokens used (IN list) |
 | `ingredient_crawl.completed` | #7 | Tokens used (IN list) |
+| `gallery_processing.completed` | #7 | Tokens used (IN list) |
+| `gallery_discovery.batch_persisted` | #7 | Galleries discovered (batchPersisted) |
+| `gallery_crawl.batch_done` | #7 | Galleries crawled (batchSuccesses) |
+| `gallery_processing.batch_done` | #7 | Galleries processed (completed) |
 | `%.batch_done` (LIKE) | #7 | Avg batch duration |
 
 #### Quick reference: CASE WHEN FK columns in events_rels (queries #5 and #6)
@@ -2041,6 +2049,9 @@ Both queries #5 (line 213) and #6 (line 250) have identical CASE WHEN subqueries
 | `video_discoveries_id` | `video-discoveries` |
 | `video_processings_id` | `video-processings` |
 | `ingredient_crawls_id` | `ingredient-crawls` |
+| `gallery_discoveries_id` | `gallery-discoveries` |
+| `gallery_crawls_id` | `gallery-crawls` |
+| `gallery_processings_id` | `gallery-processings` |
 
 When adding a new job collection, add a new WHEN clause to **both** CASE blocks and add the new FK column to **both** `coalesce(...)` expressions.
 

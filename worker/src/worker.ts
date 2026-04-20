@@ -29,6 +29,7 @@ import { runBotCheck } from '@/lib/bot-check'
 import { handleTestSuiteRun } from '@/lib/test-suite-run'
 import { getDriver as getIngredientsDriver } from '@/lib/ingredients-discovery/driver'
 import { getVideoDriver } from '@/lib/video-discovery/driver'
+import { getGalleryDriver } from '@/lib/gallery-discovery/driver'
 import { STAGES, getEnabledStages, getNextStage, type StageName, type StageConfig, type StageContext } from '@/lib/video-processing/stages'
 import {
   STAGES as AGGREGATION_STAGES,
@@ -42,6 +43,14 @@ import {
 import type { ScrapedProductData, DiscoveredProduct, SourceSlug } from '@/lib/source-discovery/types'
 import { executeReviewStage, type ReviewWorkItem } from '@/lib/product-crawl/stages/reviews'
 import { getEnabledCrawlStages, getNextCrawlStage, type CrawlStageName } from '@/lib/product-crawl/stages'
+import {
+  GALLERY_STAGES,
+  getEnabledGalleryStages,
+  getNextGalleryStage,
+  type GalleryStageName,
+  type GalleryStageConfig,
+  type GalleryStageContext,
+} from '@/lib/gallery-processing/stages'
 import { persistCrawlResult } from '@/lib/work-protocol/persist'
 import { stealthFetch } from '@/lib/stealth-fetch'
 import { validateCrawlResult } from '@/lib/validate-crawl-result'
@@ -56,6 +65,7 @@ import {
 import { executeMetadata } from '@/lib/video-crawl/stages/metadata'
 import { executeDownload } from '@/lib/video-crawl/stages/download'
 import { executeAudio } from '@/lib/video-crawl/stages/audio'
+import { crawlGallery } from '@/lib/gallery-crawl/crawl-gallery'
 
 
 // ─── Config ───
@@ -522,6 +532,193 @@ async function processVideoDiscoveryItem(
     if (done) {
       if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
       else jlog.event('job.completed', { collection: 'video-discoveries', durationMs })
+    }
+  }
+}
+
+/**
+ * Process a single gallery-discovery work item (per channel URL).
+ * Paginates all image/carousel posts for the channel via gallery-dl.
+ */
+async function processGalleryDiscoveryItem(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const channelUrl = item.item_key
+  const maxGalleries = work.maxGalleries as number | undefined
+  const dateLimit = work.dateLimit as string | undefined
+  const itemLabel = channelUrl.length > 60 ? `…${channelUrl.slice(-57)}` : channelUrl
+
+  log.banner(`DISCOVER: gallery — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'gallery-discoveries', stage: 'discover', item: channelUrl })
+
+  const stageStartMs = Date.now()
+
+  try {
+    const driver = getGalleryDriver(channelUrl)
+    if (!driver) throw new Error(`No gallery driver for URL: ${channelUrl}`)
+
+    const allGalleries: import('@/lib/gallery-discovery/types').DiscoveredGallery[] = []
+    let offset = 0
+    const batchSize = 50
+
+    while (true) {
+      // Respect maxGalleries limit
+      let fetchCount = batchSize
+      if (maxGalleries !== undefined) {
+        const remaining = maxGalleries - offset
+        if (remaining <= 0) break
+        fetchCount = Math.min(batchSize, remaining)
+      }
+
+      const startIndex = offset + 1
+      const endIndex = offset + fetchCount
+
+      const result = await driver.discoverGalleryPage(channelUrl, { startIndex, endIndex, dateLimit, logger: jlog, payload: client })
+      allGalleries.push(...result.galleries)
+      offset += result.galleries.length
+
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+
+      if (result.reachedEnd || result.galleries.length < fetchCount) break
+    }
+
+    // Deduplicate and append URLs to job's galleryUrls field
+    const job = await client.findByID({ collection: 'gallery-discoveries', id: jobId }) as Record<string, unknown>
+    const existingUrls = new Set<string>(((job.galleryUrls as string) ?? '').split('\n').filter(Boolean))
+    let newCount = 0
+    const newUrls: string[] = []
+    for (const gallery of allGalleries) {
+      if (!existingUrls.has(gallery.externalUrl)) {
+        existingUrls.add(gallery.externalUrl)
+        newUrls.push(gallery.externalUrl)
+        newCount++
+      }
+    }
+    if (newUrls.length > 0) {
+      const allUrls = [...((job.galleryUrls as string) ?? '').split('\n').filter(Boolean), ...newUrls]
+      await client.update({
+        collection: 'gallery-discoveries',
+        id: jobId,
+        data: { galleryUrls: allUrls.join('\n') },
+      })
+    }
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`DISCOVER: gallery — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, discovered: newCount })
+    jlog.event('stage.completed', { pipeline: 'gallery-discoveries', stage: 'discover', item: channelUrl, durationMs, tokens: 0 })
+    jlog.event('gallery_discovery.batch_persisted', { discovered: newCount, batchSize: allGalleries.length, batchDurationMs: durationMs })
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { completed: newCount },
+    })
+    if (done) {
+      const jobStartedAt = (job.startedAt as string) || (job.createdAt as string)
+      const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else {
+        jlog.event('gallery_discovery.completed', { discovered: (job.completed as number ?? 0) + newCount, durationMs: jobDurationMs })
+        jlog.event('job.completed', { collection: 'gallery-discoveries', durationMs: jobDurationMs })
+      }
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`DISCOVER: gallery — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'gallery-discoveries', stage: 'discover', item: channelUrl, durationMs, error })
+    const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'gallery-discoveries', durationMs })
+    }
+  }
+}
+
+/**
+ * Process a single gallery-crawl work item (per-URL).
+ *
+ * Fetches gallery metadata via gallery-dl, resolves/creates channel + creator,
+ * downloads images, uploads to gallery-media, creates Gallery + GalleryItem records.
+ */
+async function processGalleryCrawlItem(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const galleryUrl = item.item_key
+  const itemLabel = galleryUrl.length > 60 ? `…${galleryUrl.slice(-57)}` : galleryUrl
+
+  log.banner(`CRAWL: gallery — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl })
+
+  const stageStartMs = Date.now()
+
+  try {
+    const result = await crawlGallery(
+      galleryUrl,
+      client,
+      jlog,
+      uploadMedia,
+      () => client.workItems.heartbeat([item.id]).then(() => {}),
+    )
+
+    const durationMs = Date.now() - stageStartMs
+
+    if (!result.success) {
+      log.bannerEnd(`CRAWL: gallery — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: (result.error ?? '').slice(0, 80) })
+      jlog.event('stage.failed', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl, durationMs, error: result.error ?? 'Unknown error' })
+      const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error: result.error, counterUpdates: { errors: 1 } })
+      if (done) {
+        if (jobStatus === 'failed') jlog.event('job.failed', { reason: result.error ?? 'All work items failed' })
+        else jlog.event('job.completed', { collection: 'gallery-crawls', durationMs })
+      }
+      return
+    }
+
+    log.bannerEnd(`CRAWL: gallery — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, galleryId: result.galleryId, items: result.itemCount })
+    jlog.event('stage.completed', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl, durationMs, tokens: 0 })
+    jlog.event('gallery_crawl.gallery_crawled', { galleryId: result.galleryId ?? 0, caption: '', durationMs })
+
+    // Append crawled URL to job's accumulated list
+    const job = await client.findByID({ collection: 'gallery-crawls', id: jobId }) as Record<string, unknown>
+    const existingUrls = ((job.crawledGalleryUrls as string) ?? '').split('\n').filter(Boolean)
+    if (!existingUrls.includes(galleryUrl)) {
+      existingUrls.push(galleryUrl)
+      await client.update({
+        collection: 'gallery-crawls',
+        id: jobId,
+        data: { crawledGalleryUrls: existingUrls.join('\n') },
+      }).catch(() => {})
+    }
+
+    const { done, jobStatus } = await client.workItems.complete({
+      workItemId: item.id,
+      success: true,
+      counterUpdates: { completed: 1 },
+    })
+    if (done) {
+      const jobStartedAt = (job.startedAt as string) || (job.createdAt as string)
+      const jobDurationMs = jobStartedAt ? Date.now() - new Date(jobStartedAt).getTime() : 0
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: 'All work items failed' })
+      else {
+        jlog.event('gallery_crawl.completed', { crawled: (job.completed as number ?? 0) + 1, errors: (job.errors as number ?? 0), durationMs: jobDurationMs })
+        jlog.event('job.completed', { collection: 'gallery-crawls', durationMs: jobDurationMs })
+      }
+    }
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    const error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`CRAWL: gallery — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl, durationMs, error })
+    const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error, counterUpdates: { errors: 1 } })
+    if (done) {
+      if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })
+      else jlog.event('job.completed', { collection: 'gallery-crawls', durationMs })
     }
   }
 }
@@ -1135,6 +1332,15 @@ async function processWorkItem(
   } else if (jobType === 'test-suite-run') {
     // ── Single-shot: orchestrate test suite phases ──
     await processTestSuiteRunStage(jobId, work, item, jlog)
+  } else if (jobType === 'gallery-discovery') {
+    // ── Per-channel: discover gallery posts from one channel ──
+    await processGalleryDiscoveryItem(jobId, work, item, jlog)
+  } else if (jobType === 'gallery-crawl') {
+    // ── Per-URL: crawl one gallery post ──
+    await processGalleryCrawlItem(jobId, work, item, jlog)
+  } else if (jobType === 'gallery-processing') {
+    // ── Per-gallery: process one gallery processing stage ──
+    await processGalleryProcessingStage(jobId, work, item, jlog)
   } else {
     log.error('Unknown job type for work item', { jobType, itemKey: item.item_key, stageName: item.stage_name })
     await client.workItems.complete({ workItemId: item.id, success: false, error: `Unknown job type: ${jobType}` })
@@ -1235,6 +1441,112 @@ async function processVideoStage(
       tokensUsed: tokens,
       tokensRecognition,
       tokensTranscriptCorrection,
+      tokensSentiment,
+    },
+  })
+}
+
+
+/**
+ * Process a single gallery-processing stage (multi-stage pipeline).
+ */
+async function processGalleryProcessingStage(
+  jobId: number,
+  work: Record<string, unknown>,
+  item: { id: number; item_key: string; stage_name: string },
+  jlog: ReturnType<typeof log.forJob>,
+): Promise<void> {
+  const galleryId = parseInt(item.item_key, 10)
+  const stageName = item.stage_name as GalleryStageName
+
+  const enabledStages = getEnabledGalleryStages(work) as Set<GalleryStageName>
+
+  const stageDef = GALLERY_STAGES.find((s) => s.name === stageName)
+  if (!stageDef) {
+    await client.workItems.complete({
+      workItemId: item.id,
+      success: false,
+      error: `Unknown gallery stage: ${stageName}`,
+    })
+    return
+  }
+
+  const stageConfig: GalleryStageConfig = {
+    jobId,
+    minBoxArea: ((work.minBoxArea as number) ?? 25) / 100,
+    detectionThreshold: (work.detectionThreshold as number) ?? 0.3,
+    detectionPrompt: (work.detectionPrompt as string) ?? 'cosmetics packaging.',
+    searchThreshold: (work.searchThreshold as number) ?? 0.8,
+    searchLimit: (work.searchLimit as number) ?? 3,
+  }
+
+  const stageCtx: GalleryStageContext = {
+    payload: client,
+    config: stageConfig,
+    log: jlog,
+    heartbeat: async () => {
+      await heartbeat(jobId, 'gallery-processing')
+      await client.workItems.heartbeat([item.id]).catch(() => {})
+    },
+  }
+
+  const itemLabel = `gallery #${galleryId}`
+  log.banner(`STAGE: ${stageName} — ${itemLabel}`, { galleryId })
+  jlog.event('stage.started', { pipeline: 'gallery-processing', stage: stageName, item: String(galleryId) })
+
+  const stageStartMs = Date.now()
+  let success = false
+  let error: string | undefined
+  let tokens = 0
+  let tokensRecognition = 0
+  let tokensSentiment = 0
+
+  try {
+    const result = await stageDef.execute(stageCtx, galleryId)
+    success = result.success
+    error = result.error
+    tokens = result.tokens?.total ?? 0
+    tokensRecognition = result.tokens?.recognition ?? 0
+    tokensSentiment = result.tokens?.sentiment ?? 0
+
+    const durationMs = Date.now() - stageStartMs
+    log.bannerEnd(`STAGE: ${stageName} — ${itemLabel}`, success, { duration: `${(durationMs / 1000).toFixed(1)}s`, tokens })
+    jlog.event('stage.completed', { pipeline: 'gallery-processing', stage: stageName, item: String(galleryId), durationMs, tokens })
+  } catch (e) {
+    const durationMs = Date.now() - stageStartMs
+    error = e instanceof Error ? e.message : String(e)
+    log.bannerEnd(`STAGE: ${stageName} — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'gallery-processing', stage: stageName, item: String(galleryId), durationMs, error })
+  }
+
+  // Determine next stage (only on success)
+  const nextStage = success ? getNextGalleryStage(stageName, enabledStages) : null
+
+  // If this was the last stage and it succeeded, set gallery status to 'processed'
+  if (success && !nextStage) {
+    try {
+      await client.update({
+        collection: 'galleries',
+        id: galleryId,
+        data: { status: 'processed' },
+      })
+      log.info('Gallery marked as processed', { galleryId })
+    } catch (e) {
+      log.warn('Failed to update gallery status', { galleryId, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  // Report completion — server handles retry logic, stage advancement, and job completion
+  await client.workItems.complete({
+    workItemId: item.id,
+    success,
+    error,
+    resultData: { tokensUsed: tokens },
+    nextStageName: nextStage?.name ?? null,
+    counterUpdates: {
+      ...(success ? { completed: 1 } : { errors: 1 }),
+      tokensUsed: tokens,
+      tokensRecognition,
       tokensSentiment,
     },
   })

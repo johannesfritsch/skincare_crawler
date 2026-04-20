@@ -17,6 +17,9 @@ const JOB_TABLES = [
   'ingredient_crawls',
   'bot_checks',
   'test_suite_runs',
+  'gallery_discoveries',
+  'gallery_crawls',
+  'gallery_processings',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -94,6 +97,21 @@ const INGREDIENTS_DISCOVERY_STAGES: StageDef[] = [
   { name: 'discover', jobField: '_always' },
 ]
 
+/** Gallery discovery: 1 stage per channel URL */
+const GALLERY_DISCOVERY_STAGES: StageDef[] = [
+  { name: 'discover', jobField: '_always' },
+]
+
+/** Gallery processing: 6 stages in order (no scene_detection or transcription — image-only) */
+const GALLERY_PROCESSING_STAGES: StageDef[] = [
+  { name: 'barcode_scan', jobField: 'stageBarcodeScan' },
+  { name: 'object_detection', jobField: 'stageObjectDetection' },
+  { name: 'visual_search', jobField: 'stageVisualSearch' },
+  { name: 'ocr_extraction', jobField: 'stageOcrExtraction' },
+  { name: 'compile_detections', jobField: 'stageCompileDetections' },
+  { name: 'sentiment_analysis', jobField: 'stageSentimentAnalysis' },
+]
+
 /** All job types that use work items. Multi-stage pipelines have their stages listed.
  *  Single-stage ("execute") types run the whole job as one work item. */
 const JOB_PIPELINES: Record<string, StageDef[]> = {
@@ -109,6 +127,9 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   'ingredients-discoveries': INGREDIENTS_DISCOVERY_STAGES,
   'bot-checks': [{ name: 'execute', jobField: '_always' }],
   'test-suite-runs': [{ name: 'execute', jobField: '_always' }],
+  'gallery-discoveries': GALLERY_DISCOVERY_STAGES,
+  'gallery-crawls': [{ name: 'execute', jobField: '_always' }],
+  'gallery-processings': GALLERY_PROCESSING_STAGES,
 }
 
 /** Get enabled stages for a job document */
@@ -206,6 +227,26 @@ async function seedJobWorkItems(
     if (!firstStage) return 0
     for (const url of resolveIngredientsDiscoveryUrls(job)) {
       items.push({ itemKey: url, stageName: firstStage })
+    }
+  } else if (collection === 'gallery-discoveries') {
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    for (const url of resolveGalleryDiscoveryUrls(job)) {
+      items.push({ itemKey: url, stageName: firstStage })
+    }
+  } else if (collection === 'gallery-crawls') {
+    // Per-URL: one work item per gallery URL
+    const galleryCrawlUrls = await resolveGalleryCrawlUrls(payload, db, job)
+    for (const url of galleryCrawlUrls) {
+      items.push({ itemKey: url, stageName: 'execute' })
+    }
+  } else if (collection === 'gallery-processings') {
+    // Multi-stage: one work item per gallery at its first enabled stage
+    const firstStage = getFirstEnabledStage(stages, job)
+    if (!firstStage) return 0
+    const galleryIds = await resolveGalleryIds(payload, job)
+    for (const gid of galleryIds) {
+      items.push({ itemKey: String(gid), stageName: firstStage })
     }
   } else {
     // Single-stage: one work item for the entire job
@@ -628,6 +669,98 @@ function resolveIngredientsDiscoveryUrls(job: Record<string, unknown>): string[]
   return url ? [url] : []
 }
 
+/**
+ * Resolve channel URL for a gallery-discovery job.
+ */
+function resolveGalleryDiscoveryUrls(job: Record<string, unknown>): string[] {
+  const url = ((job.channelUrl as string) ?? '').trim()
+  return url ? [url] : []
+}
+
+/**
+ * Resolve gallery URLs for a gallery-crawl job based on its type.
+ */
+async function resolveGalleryCrawlUrls(
+  payload: Payload,
+  db: any,
+  job: Record<string, unknown>,
+): Promise<string[]> {
+  const urls: string[] = []
+
+  if (job.type === 'selected_urls') {
+    const rawUrls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...rawUrls)
+  } else if (job.type === 'from_discovery' && job.discovery) {
+    const discoveryId = typeof job.discovery === 'number' ? job.discovery : (job.discovery as Record<string, number>).id
+    const discoveryJob = await payload.findByID({ collection: 'gallery-discoveries' as any, id: discoveryId, overrideAccess: true }) as unknown as Record<string, unknown>
+    const galleryUrls = ((discoveryJob.galleryUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    urls.push(...galleryUrls)
+  } else {
+    // type: 'all' — query galleries
+    const scope = job.scope as string | undefined
+    const statusFilter = (scope === 'recrawl') ? sql`1=1` : sql`g."status" = 'discovered'`
+    const result = await db.execute(sql`
+      SELECT g."external_url"
+      FROM "galleries" g
+      WHERE ${statusFilter}
+        AND g."external_url" IS NOT NULL
+      ORDER BY g."id"
+    `)
+    for (const row of (result as { rows: Array<Record<string, unknown>> }).rows) {
+      urls.push(row.external_url as string)
+    }
+  }
+
+  return urls
+}
+
+/**
+ * Resolve gallery IDs for a gallery-processing job based on its type.
+ */
+async function resolveGalleryIds(payload: Payload, job: Record<string, unknown>): Promise<number[]> {
+  const ids: number[] = []
+
+  if (job.type === 'selected_urls') {
+    const urls = ((job.urls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    for (const url of urls) {
+      const found = await payload.find({ collection: 'galleries' as any, where: { externalUrl: { equals: url } }, limit: 1, overrideAccess: true })
+      if (found.docs.length > 0) ids.push((found.docs[0] as unknown as Record<string, unknown>).id as number)
+    }
+  } else if (job.type === 'from_crawl' && job.crawl) {
+    const crawlId = typeof job.crawl === 'number' ? job.crawl : (job.crawl as Record<string, number>).id
+    const crawlJob = await payload.findByID({ collection: 'gallery-crawls' as any, id: crawlId, overrideAccess: true }) as unknown as Record<string, unknown>
+    const crawlUrls = ((crawlJob.crawledGalleryUrls as string) ?? '').split('\n').map((u: string) => u.trim()).filter(Boolean)
+    for (const url of crawlUrls) {
+      const found = await payload.find({ collection: 'galleries' as any, where: { externalUrl: { equals: url } }, limit: 1, overrideAccess: true })
+      if (found.docs.length > 0) ids.push((found.docs[0] as unknown as Record<string, unknown>).id as number)
+    }
+  } else if (job.type === 'single_gallery' && job.gallery) {
+    const galleryId = typeof job.gallery === 'number' ? job.gallery : (job.gallery as Record<string, number>).id
+    ids.push(galleryId)
+  } else {
+    // all_unprocessed — fetch all crawled galleries
+    let hasMore = true
+    let page = 1
+    while (hasMore) {
+      const result = await payload.find({
+        collection: 'galleries' as any,
+        where: { status: { equals: 'crawled' } },
+        limit: 100,
+        page,
+        sort: 'createdAt',
+        overrideAccess: true,
+      })
+      for (const doc of result.docs) {
+        ids.push((doc as unknown as Record<string, unknown>).id as number)
+      }
+      hasMore = result.hasNextPage ?? false
+      page++
+    }
+  }
+
+  return ids
+}
+
 // ---------------------------------------------------------------------------
 // Internal: Try to claim pending work items (shared SQL logic)
 // ---------------------------------------------------------------------------
@@ -851,6 +984,9 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
         } else if (collection === 'ingredient-crawls') {
           initData.completed = 0
           initData.tokensUsed = 0
+        } else if (collection === 'gallery-crawls') {
+          initData.completed = 0
+          initData.crawledGalleryUrls = ''
         } else if (collection === 'bot-checks') {
           initData.completed = 0
           initData.errors = 0
@@ -875,6 +1011,17 @@ export const workItemsClaimHandler: PayloadHandler = async (req) => {
 
       // Seed work items
       const seeded = await seedJobWorkItems(req.payload, db, collection, jobId)
+
+      // If zero items seeded, mark job as completed immediately (no work to do)
+      if (seeded === 0) {
+        await req.payload.update({
+          collection: collection as any,
+          id: jobId,
+          data: { status: 'completed', completedAt: new Date().toISOString() },
+          overrideAccess: true,
+        }).catch(() => {})
+        continue
+      }
 
       // Emit job.started event (run delimiter for event viewer)
       await req.payload.create({

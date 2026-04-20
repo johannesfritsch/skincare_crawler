@@ -106,6 +106,13 @@ export interface Config {
     'video-discoveries': VideoDiscovery;
     'video-crawls': VideoCrawl;
     'video-processings': VideoProcessing;
+    'gallery-media': GalleryMedia;
+    galleries: Gallery;
+    'gallery-items': GalleryItem;
+    'gallery-mentions': GalleryMention;
+    'gallery-discoveries': GalleryDiscovery;
+    'gallery-crawls': GalleryCrawl;
+    'gallery-processings': GalleryProcessing;
     workers: Worker;
     'debug-screenshots': DebugScreenshot;
     'payload-kv': PayloadKv;
@@ -130,6 +137,7 @@ export interface Config {
     };
     channels: {
       videos: 'videos';
+      galleries: 'galleries';
     };
     videos: {
       videoScenes: 'video-scenes';
@@ -137,6 +145,13 @@ export interface Config {
     'video-scenes': {
       frames: 'video-frames';
       videoMentions: 'video-mentions';
+    };
+    galleries: {
+      galleryItems: 'gallery-items';
+      galleryMentions: 'gallery-mentions';
+    };
+    'gallery-items': {
+      galleryMentions: 'gallery-mentions';
     };
   };
   collectionsSelect: {
@@ -178,6 +193,13 @@ export interface Config {
     'video-discoveries': VideoDiscoveriesSelect<false> | VideoDiscoveriesSelect<true>;
     'video-crawls': VideoCrawlsSelect<false> | VideoCrawlsSelect<true>;
     'video-processings': VideoProcessingsSelect<false> | VideoProcessingsSelect<true>;
+    'gallery-media': GalleryMediaSelect<false> | GalleryMediaSelect<true>;
+    galleries: GalleriesSelect<false> | GalleriesSelect<true>;
+    'gallery-items': GalleryItemsSelect<false> | GalleryItemsSelect<true>;
+    'gallery-mentions': GalleryMentionsSelect<false> | GalleryMentionsSelect<true>;
+    'gallery-discoveries': GalleryDiscoveriesSelect<false> | GalleryDiscoveriesSelect<true>;
+    'gallery-crawls': GalleryCrawlsSelect<false> | GalleryCrawlsSelect<true>;
+    'gallery-processings': GalleryProcessingsSelect<false> | GalleryProcessingsSelect<true>;
     workers: WorkersSelect<false> | WorkersSelect<true>;
     'debug-screenshots': DebugScreenshotsSelect<false> | DebugScreenshotsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -683,6 +705,9 @@ export interface Worker {
     | 'video-processing'
     | 'product-aggregation'
     | 'ingredient-crawl'
+    | 'gallery-discovery'
+    | 'gallery-crawl'
+    | 'gallery-processing'
     | 'bot-check'
     | 'test-suite-run'
     | 'event-purge'
@@ -1715,6 +1740,11 @@ export interface Channel {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
+  galleries?: {
+    docs?: (number | Gallery)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1736,28 +1766,214 @@ export interface Creator {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "video-frames".
+ * via the `definition` "galleries".
  */
-export interface VideoFrame {
+export interface Gallery {
   id: number;
-  scene: number | VideoScene;
-  image: number | VideoMedia;
   /**
-   * Zero-based index of this frame within its scene (after dedup)
+   * Lifecycle status: discovered → crawled → processed. Managed by the worker.
    */
-  frameIndex?: number | null;
+  status?: ('discovered' | 'crawled' | 'processed') | null;
+  channel: number | Channel;
+  externalUrl?: string | null;
+  externalId?: string | null;
+  publishedAt?: string | null;
+  likeCount?: number | null;
+  commentCount?: number | null;
+  caption?: string | null;
+  thumbnail?: (number | null) | GalleryMedia;
+  galleryItems?: {
+    docs?: (number | GalleryItem)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  comments?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  galleryMentions?: {
+    docs?: (number | GalleryMention)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Gallery images (Instagram/TikTok posts)
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-media".
+ */
+export interface GalleryMedia {
+  id: number;
+  alt: string;
+  prefix?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+  sizes?: {
+    thumbnail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+    detail?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-items".
+ */
+export interface GalleryItem {
+  id: number;
+  gallery: number | Gallery;
+  position?: number | null;
+  image?: (number | null) | GalleryMedia;
   /**
-   * Approximate timestamp in the video (seconds from start)
+   * Barcodes found in this gallery item by zbarimg scanning. Each entry is a barcode detection with optional product resolution.
    */
-  videoTime?: number | null;
+  barcodes?:
+    | {
+        /**
+         * EAN-13/EAN-8 barcode value
+         */
+        barcode: string;
+        /**
+         * Resolved product-variant by GTIN lookup
+         */
+        productVariant?: (number | null) | ProductVariant;
+        /**
+         * Resolved product from the product-variant
+         */
+        product?: (number | null) | Product;
+        id?: string | null;
+      }[]
+    | null;
   /**
-   * Whether this frame was selected as a cluster representative for product recognition and object detection
+   * Object detection results from Grounding DINO. Each entry is a cropped region with bounding box, confidence score, and OCR text (set by ocr_extraction stage).
    */
-  isClusterRepresentative?: boolean | null;
+  objects?:
+    | {
+        crop: number | DetectionMedia;
+        /**
+         * Grounding DINO detection confidence (0-1)
+         */
+        score?: number | null;
+        boxXMin?: number | null;
+        boxYMin?: number | null;
+        boxXMax?: number | null;
+        boxYMax?: number | null;
+        /**
+         * Brand name read from packaging via OCR (set by ocr_extraction stage)
+         */
+        ocrBrand?: string | null;
+        /**
+         * Product name read from packaging via OCR (set by ocr_extraction stage)
+         */
+        ocrProductName?: string | null;
+        /**
+         * All visible text read from packaging via OCR (set by ocr_extraction stage)
+         */
+        ocrText?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   /**
-   * 128x128 color thumbnail used for LLM product classification
+   * DINOv2 visual similarity search results. Each entry matches a detected object to a product via embedding cosine distance.
    */
-  clusterThumbnail?: (number | null) | VideoMedia;
+  recognitions?:
+    | {
+        /**
+         * Stable ID of the detected object in this item's objects[] array
+         */
+        object?: string | null;
+        product?: (number | null) | Product;
+        productVariant?: (number | null) | ProductVariant;
+        /**
+         * GTIN of the matched product-variant
+         */
+        gtin?: string | null;
+        /**
+         * DINOv2 cosine distance (lower = better, 0 = identical)
+         */
+        distance?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Unified product detections consolidated by LLM from all sources (barcode, visual search, OCR, caption). One entry per unique product.
+   */
+  detections?:
+    | {
+        product: number | Product;
+        /**
+         * Confidence score (0-1). Barcode matches = 1.0, others assigned by LLM consolidation.
+         */
+        confidence?: number | null;
+        /**
+         * Which detection methods contributed evidence for this product
+         */
+        sources?: ('barcode' | 'object_detection' | 'vision_llm' | 'ocr' | 'caption')[] | null;
+        /**
+         * EAN barcode if detected via barcode source
+         */
+        barcodeValue?: string | null;
+        /**
+         * Best DINOv2 cosine distance if detected via visual search
+         */
+        clipDistance?: number | null;
+        /**
+         * Brand name from LLM recognition
+         */
+        llmBrand?: string | null;
+        /**
+         * Product name from LLM recognition
+         */
+        llmProductName?: string | null;
+        /**
+         * LLM consolidation reasoning for this detection (not set for barcode matches)
+         */
+        reasoning?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  galleryMentions?: {
+    docs?: (number | GalleryMention)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -2200,6 +2416,89 @@ export interface SourceReviewOrigin {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-mentions".
+ */
+export interface GalleryMention {
+  id: number;
+  galleryItem: number | GalleryItem;
+  gallery?: (number | null) | Gallery;
+  product: number | Product;
+  /**
+   * Synthesized detection confidence (0-1)
+   */
+  confidence?: number | null;
+  /**
+   * Which detection methods contributed evidence for this product
+   */
+  sources?: ('barcode' | 'object_detection' | 'vision_llm' | 'ocr' | 'caption')[] | null;
+  /**
+   * EAN barcode if detected via barcode source
+   */
+  barcodeValue?: string | null;
+  /**
+   * Best DINOv2 cosine distance if detected via visual search
+   */
+  clipDistance?: number | null;
+  /**
+   * Quotes about this product extracted from the gallery caption
+   */
+  quotes?:
+    | {
+        text: string;
+        /**
+         * Short key takeaways from the quote, true to original wording
+         */
+        summary?:
+          | {
+              text: string;
+              id?: string | null;
+            }[]
+          | null;
+        sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
+        /**
+         * Score from 0 (very negative) to 10 (very positive)
+         */
+        sentimentScore?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  overallSentiment?: ('positive' | 'neutral' | 'negative' | 'mixed') | null;
+  /**
+   * Aggregate score from 0 (very negative) to 10 (very positive)
+   */
+  overallSentimentScore?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "video-frames".
+ */
+export interface VideoFrame {
+  id: number;
+  scene: number | VideoScene;
+  image: number | VideoMedia;
+  /**
+   * Zero-based index of this frame within its scene (after dedup)
+   */
+  frameIndex?: number | null;
+  /**
+   * Approximate timestamp in the video (seconds from start)
+   */
+  videoTime?: number | null;
+  /**
+   * Whether this frame was selected as a cluster representative for product recognition and object detection
+   */
+  isClusterRepresentative?: boolean | null;
+  /**
+   * 128x128 color thumbnail used for LLM product classification
+   */
+  clusterThumbnail?: (number | null) | VideoMedia;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "product-aggregations".
  */
 export interface ProductAggregation {
@@ -2532,6 +2831,18 @@ export interface Event {
     | ({
         relationTo: 'test-suite-runs';
         value: number | TestSuiteRun;
+      } | null)
+    | ({
+        relationTo: 'gallery-discoveries';
+        value: number | GalleryDiscovery;
+      } | null)
+    | ({
+        relationTo: 'gallery-crawls';
+        value: number | GalleryCrawl;
+      } | null)
+    | ({
+        relationTo: 'gallery-processings';
+        value: number | GalleryProcessing;
       } | null);
   updatedAt: string;
   createdAt: string;
@@ -2822,6 +3133,244 @@ export interface VideoProcessing {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-discoveries".
+ */
+export interface GalleryDiscovery {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  galleryUrls?: string | null;
+  /**
+   * The channel URL to discover galleries from (e.g. https://www.instagram.com/xskincare/, https://www.tiktok.com/@xskincare/posts)
+   */
+  channelUrl: string;
+  /**
+   * Stop after this many galleries. Empty = unlimited (all galleries on channel).
+   */
+  maxGalleries?: number | null;
+  /**
+   * Only discover galleries newer than this. E.g. "5 days", "2 weeks", "1 month". Empty = no date filter.
+   */
+  dateLimit?: string | null;
+  /**
+   * When enabled, publishes each line of stdout/stderr from gallery-dl as a separate event (visible in the Events tab).
+   */
+  debugMode?: boolean | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Internal state for resumable discovery (currentOffset)
+   */
+  progress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-crawls".
+ */
+export interface GalleryCrawl {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  /**
+   * "All Uncrawled" finds galleries with status=discovered. "From Discovery" uses URLs accumulated by a discovery job.
+   */
+  type: 'all' | 'selected_urls' | 'from_discovery';
+  /**
+   * "Only Uncrawled" skips galleries already crawled. "Re-crawl All" re-downloads everything.
+   */
+  scope?: ('uncrawled_only' | 'recrawl') | null;
+  /**
+   * One gallery URL per line.
+   */
+  urls?: string | null;
+  /**
+   * Crawl the gallery URLs found by this discovery job.
+   */
+  discovery?: (number | null) | GalleryDiscovery;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Per-gallery stage progress map. Keys are galleryId strings or url:<externalUrl>. Values are last completed stage name.
+   */
+  crawlProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  crawledGalleryUrls?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-processings".
+ */
+export interface GalleryProcessing {
+  id: number;
+  status?: ('pending' | 'scheduled' | 'in_progress' | 'completed' | 'failed') | null;
+  /**
+   * Number of times this job has been retried after failures
+   */
+  retryCount?: number | null;
+  schedule?: string | null;
+  scheduleLimit?: number | null;
+  scheduleCount?: number | null;
+  scheduledFor?: string | null;
+  type: 'all_unprocessed' | 'single_gallery' | 'selected_urls' | 'from_crawl';
+  /**
+   * The gallery to process
+   */
+  gallery?: (number | null) | Gallery;
+  /**
+   * Gallery or channel URLs to process, one per line
+   */
+  urls?: string | null;
+  /**
+   * Process the galleries crawled by this crawl job.
+   */
+  crawl?: (number | null) | GalleryCrawl;
+  /**
+   * Scan images for EAN barcodes, resolve to products.
+   */
+  stageBarcodeScan?: boolean | null;
+  /**
+   * Grounding DINO zero-shot object detection on gallery images.
+   */
+  stageObjectDetection?: boolean | null;
+  /**
+   * Read text from detection crops via GPT-4.1-mini vision.
+   */
+  stageOcrExtraction?: boolean | null;
+  /**
+   * DINOv2 visual similarity search against product embeddings (top-N candidates per crop).
+   */
+  stageVisualSearch?: boolean | null;
+  /**
+   * Synthesize all detection sources into unified detections.
+   */
+  stageCompileDetections?: boolean | null;
+  /**
+   * LLM quote extraction and sentiment scoring from captions.
+   */
+  stageSentimentAnalysis?: boolean | null;
+  /**
+   * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
+   */
+  maxRetries?: number | null;
+  /**
+   * Grounding DINO confidence threshold (0-1). Detections below this score are discarded. Default: 0.3.
+   */
+  detectionThreshold?: number | null;
+  /**
+   * Minimum detection box area as a percentage of the image area. Detections smaller than this are discarded as background noise. Default: 25%.
+   */
+  minBoxArea?: number | null;
+  /**
+   * Grounding DINO text prompt for zero-shot object detection. Default: "cosmetics packaging."
+   */
+  detectionPrompt?: string | null;
+  /**
+   * Maximum cosine distance for DINOv2 similarity search (0-2). Pre-filter on pgvector query. Default: 0.8.
+   */
+  searchThreshold?: number | null;
+  /**
+   * Number of nearest neighbor candidates to store per detection crop. All candidates are passed to the LLM consolidation stage. Default: 3.
+   */
+  searchLimit?: number | null;
+  /**
+   * When the current worker claimed this job
+   */
+  claimedAt?: string | null;
+  /**
+   * Worker currently processing this job
+   */
+  claimedBy?: (number | null) | Worker;
+  total?: number | null;
+  completed?: number | null;
+  errors?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /**
+   * Total LLM tokens consumed across all steps
+   */
+  tokensUsed?: number | null;
+  tokensRecognition?: number | null;
+  tokensSentiment?: number | null;
+  /**
+   * Maps gallery IDs to last completed stage name. Example: { "42": "barcode_scan", "43": "compile_detections" }
+   */
+  galleryProgress?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -2995,6 +3544,34 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'video-processings';
         value: number | VideoProcessing;
+      } | null)
+    | ({
+        relationTo: 'gallery-media';
+        value: number | GalleryMedia;
+      } | null)
+    | ({
+        relationTo: 'galleries';
+        value: number | Gallery;
+      } | null)
+    | ({
+        relationTo: 'gallery-items';
+        value: number | GalleryItem;
+      } | null)
+    | ({
+        relationTo: 'gallery-mentions';
+        value: number | GalleryMention;
+      } | null)
+    | ({
+        relationTo: 'gallery-discoveries';
+        value: number | GalleryDiscovery;
+      } | null)
+    | ({
+        relationTo: 'gallery-crawls';
+        value: number | GalleryCrawl;
+      } | null)
+    | ({
+        relationTo: 'gallery-processings';
+        value: number | GalleryProcessing;
       } | null)
     | ({
         relationTo: 'workers';
@@ -4021,6 +4598,7 @@ export interface ChannelsSelect<T extends boolean = true> {
   externalUrl?: T;
   canonicalUrl?: T;
   videos?: T;
+  galleries?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -4267,6 +4845,264 @@ export interface VideoProcessingsSelect<T extends boolean = true> {
   tokensTranscriptCorrection?: T;
   tokensSentiment?: T;
   videoProgress?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-media_select".
+ */
+export interface GalleryMediaSelect<T extends boolean = true> {
+  alt?: T;
+  prefix?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+  sizes?:
+    | T
+    | {
+        thumbnail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+        detail?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "galleries_select".
+ */
+export interface GalleriesSelect<T extends boolean = true> {
+  status?: T;
+  channel?: T;
+  externalUrl?: T;
+  externalId?: T;
+  publishedAt?: T;
+  likeCount?: T;
+  commentCount?: T;
+  caption?: T;
+  thumbnail?: T;
+  galleryItems?: T;
+  comments?: T;
+  galleryMentions?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-items_select".
+ */
+export interface GalleryItemsSelect<T extends boolean = true> {
+  gallery?: T;
+  position?: T;
+  image?: T;
+  barcodes?:
+    | T
+    | {
+        barcode?: T;
+        productVariant?: T;
+        product?: T;
+        id?: T;
+      };
+  objects?:
+    | T
+    | {
+        crop?: T;
+        score?: T;
+        boxXMin?: T;
+        boxYMin?: T;
+        boxXMax?: T;
+        boxYMax?: T;
+        ocrBrand?: T;
+        ocrProductName?: T;
+        ocrText?: T;
+        id?: T;
+      };
+  recognitions?:
+    | T
+    | {
+        object?: T;
+        product?: T;
+        productVariant?: T;
+        gtin?: T;
+        distance?: T;
+        id?: T;
+      };
+  detections?:
+    | T
+    | {
+        product?: T;
+        confidence?: T;
+        sources?: T;
+        barcodeValue?: T;
+        clipDistance?: T;
+        llmBrand?: T;
+        llmProductName?: T;
+        reasoning?: T;
+        id?: T;
+      };
+  galleryMentions?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-mentions_select".
+ */
+export interface GalleryMentionsSelect<T extends boolean = true> {
+  galleryItem?: T;
+  gallery?: T;
+  product?: T;
+  confidence?: T;
+  sources?: T;
+  barcodeValue?: T;
+  clipDistance?: T;
+  quotes?:
+    | T
+    | {
+        text?: T;
+        summary?:
+          | T
+          | {
+              text?: T;
+              id?: T;
+            };
+        sentiment?: T;
+        sentimentScore?: T;
+        id?: T;
+      };
+  overallSentiment?: T;
+  overallSentimentScore?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-discoveries_select".
+ */
+export interface GalleryDiscoveriesSelect<T extends boolean = true> {
+  status?: T;
+  retryCount?: T;
+  maxRetries?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
+  galleryUrls?: T;
+  channelUrl?: T;
+  maxGalleries?: T;
+  dateLimit?: T;
+  debugMode?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
+  progress?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-crawls_select".
+ */
+export interface GalleryCrawlsSelect<T extends boolean = true> {
+  status?: T;
+  retryCount?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
+  type?: T;
+  scope?: T;
+  urls?: T;
+  discovery?: T;
+  maxRetries?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
+  crawlProgress?: T;
+  crawledGalleryUrls?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-processings_select".
+ */
+export interface GalleryProcessingsSelect<T extends boolean = true> {
+  status?: T;
+  retryCount?: T;
+  schedule?: T;
+  scheduleLimit?: T;
+  scheduleCount?: T;
+  scheduledFor?: T;
+  type?: T;
+  gallery?: T;
+  urls?: T;
+  crawl?: T;
+  stageBarcodeScan?: T;
+  stageObjectDetection?: T;
+  stageOcrExtraction?: T;
+  stageVisualSearch?: T;
+  stageCompileDetections?: T;
+  stageSentimentAnalysis?: T;
+  maxRetries?: T;
+  detectionThreshold?: T;
+  minBoxArea?: T;
+  detectionPrompt?: T;
+  searchThreshold?: T;
+  searchLimit?: T;
+  claimedAt?: T;
+  claimedBy?: T;
+  total?: T;
+  completed?: T;
+  errors?: T;
+  startedAt?: T;
+  completedAt?: T;
+  tokensUsed?: T;
+  tokensRecognition?: T;
+  tokensSentiment?: T;
+  galleryProgress?: T;
   updatedAt?: T;
   createdAt?: T;
 }

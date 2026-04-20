@@ -6,7 +6,7 @@ Standalone Node.js process that claims jobs from the server and processes them. 
 
 ```
 worker/src/
-├── worker.ts                         # Main loop + 9 job handlers (video-processing + product-aggregation are ~80-line stage dispatchers)
+├── worker.ts                         # Main loop + 12 job handlers (video-processing, product-aggregation, gallery-processing are ~80-line stage dispatchers)
 └── lib/
     ├── payload-client.ts             # REST client mirroring Payload's local API
     ├── openai.ts                     # Centralized OpenAI client singleton (getOpenAI()) — reads OPENAI_API_KEY + OPENAI_BASE_URL
@@ -70,6 +70,24 @@ worker/src/
     │       ├── transcription.ts      # Stage 5: Deepgram full-audio STT + LLM correction → scene.transcript
     │       ├── compile-detections.ts # Stage 6: matchProduct() for OCR text + LLM consolidation → scene.detections[]
     │       └── sentiment-analysis.ts # Stage 7: LLM quote extraction + sentiment → video-mentions
+    │
+    ├── gallery-discovery/
+    │   ├── types.ts                  # GalleryDiscoveryDriver, DiscoveredGallery
+    │   ├── driver.ts                 # getGalleryDriver(url)
+    │   └── drivers/instagram.ts      # Instagram gallery discovery via gallery-dl
+    │
+    ├── gallery-crawl/
+    │   └── crawl-gallery.ts          # Gallery crawl logic (download images via gallery-dl, create gallery + items)
+    │
+    ├── gallery-processing/
+    │   └── stages/                   # Stage-based pipeline (same pattern as video processing, minus scene_detection/transcription)
+    │       ├── index.ts              # Stage registry, types, ordering
+    │       ├── barcode-scan.ts       # Stage 0: Barcode scanning on gallery-item images
+    │       ├── object-detection.ts   # Stage 1: Grounding DINO detection on gallery-item images
+    │       ├── visual-search.ts      # Stage 2: DINOv2 visual similarity search
+    │       ├── ocr-extraction.ts     # Stage 3: OCR text extraction from detection crops
+    │       ├── compile-detections.ts # Stage 4: LLM consolidation of all evidence → detections[]
+    │       └── sentiment-analysis.ts # Stage 5: LLM quote extraction + sentiment → gallery-mentions
     │
     ├── models/
     │   ├── grounding-dino.ts         # Shared Grounding DINO singleton (zero-shot object detection)
@@ -293,7 +311,7 @@ When a work item completes, the server inserts the next stage's work item automa
 | ~~`persistVideoProcessingResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `video-processing/stages/` persists its own results inline (video-scenes, video-mentions, transcripts, media uploads). |
 | ~~`persistProductAggregationResult()`~~ | **Deprecated** — still exists for backward compatibility but no longer called by stage-based pipeline. Each stage in `product-aggregation/stages/` persists its own results inline (product creation/merging, classification, brand matching, ingredients, images, descriptions, score history). |
 
-## 9 Job Types — Detailed
+## 12 Job Types — Detailed
 
 ### 1. product-crawl
 
@@ -502,6 +520,43 @@ The product aggregation pipeline is a **stage-based architecture** (same pattern
 
 **Persistence**: Inline in submit handler — updates `ingredients` record with `longDescription` and `shortDescription`. Also adds `{ source: 'incidecoder', sourceUrl, fieldsProvided }` to the `sources` array when INCIDecoder had data (longDescription present) — `fieldsProvided` lists which fields were actually set (e.g. `['longDescription', 'shortDescription', 'image']`); backfills `fieldsProvided` on existing entries missing it. Tracks `withInciDecoder` counter in batch and completion events.
 
+### 10. gallery-discovery
+
+**Handler**: Uses work-items system (not legacy claimWork loop)
+**Flow**: For each channel URL → `getGalleryDriver(url)` → `driver.discoverGalleries()` → accumulate URLs → submit
+
+**Persistence**: Accumulates discovered gallery URLs in the job's `galleryUrls` textarea field (deduplicated). No gallery records are created during discovery.
+
+**Events**: `gallery_discovery.started`, `gallery_discovery.batch_persisted`, `gallery_discovery.completed`
+
+### 11. gallery-crawl
+
+**Handler**: Uses work-items system
+**Flow**: For each gallery URL → download metadata + images via gallery-dl → resolve/create channel + creator → upload images to gallery-media → create gallery + gallery-items → set `status: 'crawled'`
+
+**Crawl types**: `all` (all discovered galleries), `selected_urls` (specific URLs), `from_discovery` (URLs from linked gallery-discovery job)
+
+**Events**: `gallery_crawl.started`, `gallery_crawl.gallery_crawled`, `gallery_crawl.batch_done`, `gallery_crawl.completed`
+
+### 12. gallery-processing
+
+**Handler**: Uses work-items system — stage dispatcher
+
+**6 stages** (in order):
+
+| # | Stage name | What it does | Data outputs |
+|---|------------|--------------|-------------|
+| 0 | `barcode_scan` | Scans gallery-item images for barcodes | Gallery item barcode data |
+| 1 | `object_detection` | Grounding DINO detection on gallery-item images, crop + upload to detection-media | Gallery item objects[] |
+| 2 | `visual_search` | DINOv2-base embeddings for detection crops → cosine search vs product embeddings | Gallery item recognitions[] |
+| 3 | `ocr_extraction` | Read text from detection crops via gpt-4.1-mini vision | Gallery item objects[].ocrText |
+| 4 | `compile_detections` | matchProduct() on OCR text + LLM consolidation → unified detections[] | Gallery item detections[] |
+| 5 | `sentiment_analysis` | LLM quote extraction + sentiment from gallery caption → gallery-mentions | `gallery-mentions` |
+
+**Progress tracking**: Progress is tracked on the job's `galleryProgress` JSON field — same pattern as video processing's `videoProgress`.
+
+**Events**: `gallery_processing.started`, `gallery_processing.batch_done`, `gallery_processing.completed`, `gallery_processing.error`
+
 ## Source Drivers
 
 ### Interface (`source-discovery/types.ts`)
@@ -693,7 +748,7 @@ Source drivers accept an optional `logger` in their options (`scrapeProduct`, `d
 
 ### Job collections
 
-The `JobCollection` type (imported from `@anyskin/shared`) covers all 9 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-crawls`, `video-discoveries`, `video-processings`, `ingredient-crawls`.
+The `JobCollection` type (imported from `@anyskin/shared`) covers all 12 job collections: `product-discoveries`, `product-searches`, `product-crawls`, `ingredients-discoveries`, `product-aggregations`, `video-crawls`, `video-discoveries`, `video-processings`, `ingredient-crawls`, `gallery-discoveries`, `gallery-crawls`, `gallery-processings`.
 
 ### Configuration
 
@@ -752,6 +807,22 @@ All events below are emitted to the server's `events` collection (visible in adm
 | `Job error, will retry` | Transient failure, retrying | `retryCount`, `maxRetries`, `reason` | `job-retry` |
 | `Job failed` | Permanent failure | `reason` | `job-failure` |
 | `Job failed: max retries exceeded` | Retries exhausted | `retryCount`, `maxRetries`, `reason` | `job-failure`, `max-retries` |
+
+### Event coverage — gallery discovery/crawl/processing
+
+| Event | When | Key data fields | Labels |
+|-------|------|----------------|--------|
+| `gallery_discovery.started` | Discovery begins | `channelUrl`, `items` | `discovery` |
+| `gallery_discovery.batch_persisted` | After each discovery batch | `discovered`, `batchSize`, `batchDurationMs` | `discovery` |
+| `gallery_discovery.completed` | Discovery done | `discovered`, `durationMs` | `discovery` |
+| `gallery_crawl.started` | Crawl begins | `items` | `gallery-crawl` |
+| `gallery_crawl.gallery_crawled` | Per gallery crawled | `url`, `items`, `durationMs` | `gallery-crawl` |
+| `gallery_crawl.batch_done` | After each batch | `crawled`, `errors`, `remaining`, `batchSize`, `batchSuccesses`, `batchErrors`, `batchDurationMs` | `gallery-crawl` |
+| `gallery_crawl.completed` | Crawl done | `crawled`, `errors`, `durationMs` | `gallery-crawl` |
+| `gallery_processing.started` | Processing begins | `items` | `gallery` |
+| `gallery_processing.batch_done` | After each batch | `completed`, `errors`, `batchSize`, `batchDurationMs` | `gallery` |
+| `gallery_processing.completed` | Processing done | `completed`, `errors`, `tokensUsed`, `durationMs`, `failedGalleries` | `gallery` |
+| `gallery_processing.error` | Processing error | `galleryId`, `stage`, `error` | `gallery` |
 
 ## Key Patterns
 

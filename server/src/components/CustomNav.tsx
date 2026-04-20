@@ -56,12 +56,16 @@ const TABS: NavTab[] = [
     ],
   },
   {
-    id: 'videos',
-    label: 'Videos',
+    id: 'social',
+    label: 'Social',
     sections: [
       {
+        label: 'Social Media',
+        collections: ['creators', 'channels'],
+      },
+      {
         label: 'Videos',
-        collections: ['videos', 'creators', 'channels'],
+        collections: ['videos', 'video-scenes', 'video-frames', 'video-mentions'],
         jobs: [
           { label: 'Discovery', slug: 'video-discoveries' },
           { label: 'Crawl', slug: 'video-crawls' },
@@ -69,8 +73,13 @@ const TABS: NavTab[] = [
         ],
       },
       {
-        label: 'Data',
-        collections: ['video-scenes', 'video-frames', 'video-mentions'],
+        label: 'Galleries',
+        collections: ['galleries', 'gallery-items', 'gallery-mentions'],
+        jobs: [
+          { label: 'Discovery', slug: 'gallery-discoveries' },
+          { label: 'Crawl', slug: 'gallery-crawls' },
+          { label: 'Processing', slug: 'gallery-processings' },
+        ],
       },
     ],
   },
@@ -85,7 +94,7 @@ const TABS: NavTab[] = [
       },
       {
         label: 'Media',
-        collections: ['product-media', 'video-media', 'profile-media', 'brand-media', 'detection-media', 'ingredient-media'],
+        collections: ['product-media', 'video-media', 'gallery-media', 'profile-media', 'brand-media', 'detection-media', 'ingredient-media'],
       },
       {
         label: 'Debug',
@@ -120,6 +129,9 @@ const COLLECTION_LABELS: Record<string, string> = {
   'video-scenes': 'Video Scenes',
   'video-frames': 'Video Frames',
   'video-mentions': 'Video Mentions',
+  'galleries': 'Galleries',
+  'gallery-items': 'Gallery Items',
+  'gallery-mentions': 'Gallery Mentions',
   'users': 'Users',
   'workers': 'Workers',
   'events': 'Events',

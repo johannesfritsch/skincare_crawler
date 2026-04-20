@@ -52,6 +52,15 @@ export interface SnapshotResponse {
     avgRatingCount: number | null
   }>
 
+  /** Gallery pipeline stats */
+  galleryPipeline: {
+    total: number
+    crawled: number
+    processed: number
+    totalItems: number
+    totalMentions: number
+  }
+
   /** Video pipeline stats */
   videoPipeline: {
     total: number
@@ -109,6 +118,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
     sourceCoverageRows,
     sourceGtinRows,
     sourceVariantCountRows,
+    galleryPipelineRows,
     videoPipelineRows,
     sceneRows,
     mentionRows,
@@ -136,7 +146,8 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
           (SELECT count(*) FROM profile_media) +
           (SELECT count(*) FROM brand_media) +
           (SELECT count(*) FROM detection_media) +
-          (SELECT count(*) FROM ingredient_media)
+          (SELECT count(*) FROM ingredient_media) +
+          (SELECT count(*) FROM gallery_media)
         )::int AS "mediaFiles"
     `),
 
@@ -189,6 +200,17 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       FROM source_variants sv
       INNER JOIN source_products sp ON sv.source_product_id = sp.id
       GROUP BY sp.source
+    `),
+
+    // 6a. Gallery pipeline stats
+    db.execute(sql`
+      SELECT
+        count(*)::int AS total,
+        count(*) FILTER (WHERE status = 'crawled')::int AS crawled,
+        count(*) FILTER (WHERE status = 'processed')::int AS processed,
+        (SELECT count(*)::int FROM gallery_items) AS "totalItems",
+        (SELECT count(*)::int FROM gallery_mentions) AS "totalMentions"
+      FROM galleries
     `),
 
     // 6. Video pipeline stats (uses status field: discovered → crawled → processed)
@@ -260,6 +282,12 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
         SELECT 'video-discoveries', status::text, claimed_by_id, claimed_at FROM video_discoveries
         UNION ALL
         SELECT 'video-processings', status::text, claimed_by_id, claimed_at FROM video_processings
+        UNION ALL
+        SELECT 'gallery-discoveries', status::text, claimed_by_id, claimed_at FROM gallery_discoveries
+        UNION ALL
+        SELECT 'gallery-crawls', status::text, claimed_by_id, claimed_at FROM gallery_crawls
+        UNION ALL
+        SELECT 'gallery-processings', status::text, claimed_by_id, claimed_at FROM gallery_processings
       ) jobs
       GROUP BY collection, status
       ORDER BY collection
@@ -280,6 +308,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       UNION ALL SELECT 'brand-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM brand_media
       UNION ALL SELECT 'detection-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM detection_media
       UNION ALL SELECT 'ingredient-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM ingredient_media
+      UNION ALL SELECT 'gallery-media', count(*)::int, COALESCE(sum(filesize), 0)::bigint FROM gallery_media
       ORDER BY bucket
     `),
   ])
@@ -290,6 +319,7 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
 
   const entities = entityRows.rows[0] as Record<string, number>
   const quality = productQualityRows.rows[0] as Record<string, number>
+  const galleryStats = galleryPipelineRows.rows[0] as Record<string, number>
   const videoStats = videoPipelineRows.rows[0] as Record<string, number>
   const sceneStats = sceneRows.rows[0] as Record<string, number>
   const mentionStats = mentionRows.rows[0] as Record<string, number>
@@ -375,6 +405,14 @@ export const dashboardSnapshotHandler: PayloadHandler = async (req) => {
       avgRating: row.avgRating != null ? Number(row.avgRating) : null,
       avgRatingCount: row.avgRatingCount != null ? Number(row.avgRatingCount) : null,
     })),
+
+    galleryPipeline: {
+      total: Number(galleryStats.total ?? 0),
+      crawled: Number(galleryStats.crawled ?? 0),
+      processed: Number(galleryStats.processed ?? 0),
+      totalItems: Number(galleryStats.totalItems ?? 0),
+      totalMentions: Number(galleryStats.totalMentions ?? 0),
+    },
 
     videoPipeline: {
       total: Number(videoStats.total ?? 0),

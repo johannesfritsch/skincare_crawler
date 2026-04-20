@@ -105,7 +105,7 @@ OPENAI_BASE_URL=...              # optional: custom OpenAI-compatible endpoint (
 DEEPGRAM_API_KEY=...             # for full-audio transcription with word timestamps (nova-3)
 ```
 
-## Database Schema (29 Collections)
+## Database Schema (36 Collections)
 
 ### Core Data
 
@@ -132,6 +132,14 @@ DEEPGRAM_API_KEY=...             # for full-audio transcription with word timest
 | `creators` | Social media creators |
 | `channels` | Creator channels (platform: youtube/instagram/tiktok, image (upload → profile-media), canonicalUrl for dedup) |
 
+### Gallery Data
+
+| Collection | Purpose |
+| --- | --- |
+| `galleries` | Instagram/social image galleries with lifecycle status (status: discovered/crawled/processed, caption, channel ref, externalUrl, externalId, publishedAt, likeCount, commentCount, galleryItems (join)). Status managed by the worker: discovery sets `discovered`, crawl sets `crawled`, processing sets `processed`. |
+| `gallery-items` | Individual images/slides within a gallery (gallery ref, image upload → gallery-media, orderIndex, altText). One gallery has multiple items (carousel posts). |
+| `gallery-mentions` | Product mention records for gallery items (galleryItem ref, product ref, quotes with sentiment scores, confidence 0-1, sources select hasMany). Same pattern as video-mentions but for static image content. |
+
 ### Job Collections
 
 All follow status lifecycle: `pending | scheduled` → `pending` → `in_progress` → `completed|failed`
@@ -149,6 +157,9 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `video-processings` | type (all_unprocessed/single_video/selected_urls/from_crawl), stage checkboxes (stageSceneDetection, stageBarcodeScan, stageObjectDetection, stageVisualSearch, stageOcrExtraction, stageTranscription, stageCompileDetections, stageSentimentAnalysis), crawl (relationship → video-crawls), sceneThreshold, clusterThreshold, detectionThreshold (default 0.3 — Grounding DINO confidence threshold), detectionPrompt (default "cosmetics packaging." — Grounding DINO text prompt), minBoxArea (default 25% — minimum detection box area as percentage of screenshot area, foreground-only), searchThreshold (default 0.8 — max cosine distance for DINOv2 search), searchLimit (default 3 — nearest neighbors for matching), transcriptionLanguage, transcriptionModel, videoProgress (JSON map of videoId → last completed stage, e.g. `{ "42": "scene_detection", "43": "transcription" }`), progress (completed/errors/tokens) |
 | `product-aggregations` | type (all/selected_gtins), stage checkboxes (stageResolve, stageClassify, stageMatchBrand, stageIngredients, stageImages, stageObjectDetection, stageEmbedImages, stageDescriptions, stageScoreHistory, stageReviewSentiment), language, imageSourcePriority, detectionThreshold (default 0.3 — Grounding DINO box confidence threshold), includeSisterVariants (default true — groups sibling GTINs sharing a source-product into one product with multiple variants), minBoxArea (default 5% — minimum detection box area as percentage of image area), reviewSentimentChunkSize (default 50 — reviews per LLM call), aggregationProgress (JSON map of progressKey → last completed stage, e.g. `{ "4012345678901": "classify", "pid:4012345678901": "42" }`), reviewState (JSON map of productId → number of reviews already processed), aggregated/errors/tokens |
 | `ingredient-crawls` | type (all_uncrawled/selected), crawled/errors/tokens |
+| `gallery-discoveries` | channelUrl, itemsPerTick, maxItems, progress, discovered count, galleryUrls (hidden, accumulated URLs) |
+| `gallery-crawls` | type (all/selected_urls/from_discovery), scope (uncrawled_only/recrawl), urls, discovery (relationship → gallery-discoveries), progress (crawled/errors), crawledGalleryUrls (hidden, accumulated URLs) |
+| `gallery-processings` | type (all_unprocessed/selected_urls/from_crawl), stage checkboxes (stageBarcodeScan, stageObjectDetection, stageVisualSearch, stageOcrExtraction, stageCompileDetections, stageSentimentAnalysis), crawl (relationship → gallery-crawls), detectionThreshold, detectionPrompt, minBoxArea, searchThreshold, searchLimit, galleryProgress (JSON map of galleryId → last completed stage), progress (completed/errors/tokens) |
 
 ### System
 
@@ -161,6 +172,7 @@ All job collections have shared fields via `jobClaimFields`: `claimedBy` (relati
 | `video-media` | Video files (MP4), thumbnails, screenshots (thumbnail 96x96, card 320x240, detail 780x780) |
 | `profile-media` | Channel avatars, creator images, ingredient images (avatar 128x128, thumbnail 96x96, card 320x240) |
 | `detection-media` | Grounding DINO detection crops — product and video (no image sizes, raw crops only) |
+| `gallery-media` | Gallery item images (thumbnail 96x96, card 320x240, detail 780x780) |
 | `product-sentiments` | Aggregated per-product topic sentiment counts from source reviews. One row per (product, topic, sentiment, reviewOrigin) combination. Fields: product (ref → products, indexed), topic (select: 16 topics, indexed), sentiment (select: positive/neutral/negative), reviewOrigin (ref → source-review-origins, nullable — null for native reviews), amount (number, default 0). The reviewOrigin dimension enables slicing by origin: "All" sums all rows, "Incentivized" filters where origin.incentivized=true, "Organic" filters where origin.incentivized !== true or null. |
 | `recognition_embeddings` | Standalone pgvector table for DINOv2-base (768-dim) embeddings keyed by (product_variant_id, detection_media_id, augmentation_type). Each detection crop produces 8 embeddings (original + 7 synthetic perspective augmentations: rotations, flip, skews). Decoupled from Payload's recognitionImages array to survive array rewrites. HNSW index for cosine similarity search. |
 
@@ -189,6 +201,9 @@ The `product-crawls` collection has a `crawlSnapshot` JSON field that stores a s
 6. Product aggregation runs as 10 independent stages (resolve → classify → match_brand → ingredients → images → object_detection → embed_images → descriptions → score_history → review_sentiment), each persisting immediately. Progress is tracked per-product-group on the job's `aggregationProgress` JSON map (not on the product). Job selects which stages to run via checkboxes. Resolve creates/finds products and product-variants, merging duplicates if needed. Subsequent stages run LLM operations (classification, brand matching, ingredient parsing), data operations (image download, score computation), and ML operations (Grounding DINO object detection on product images, DINOv2-base embedding generation stored in the standalone `recognition_embeddings` table for visual similarity search).
 7. Video crawl downloads video metadata via yt-dlp, resolves/creates channel+creator records, downloads MP4 + thumbnail, uploads to video-media/profile-media, and sets video status to `crawled`.
 8. Video processing runs as 8 sequential stages (scene_detection → barcode_scan → object_detection → visual_search → ocr_extraction → transcription → compile_detections → sentiment_analysis), each persisting immediately. Detection data is stored on video-scenes in tabbed arrays (barcodes[], objects[], recognitions[], detections[]). objects[] entries include OCR text fields (ocrBrand, ocrProductName, ocrText) populated during ocr_extraction. Video-frames are pure frame records (no detection data). Transcription uses Deepgram nova-3 for full-audio STT with word timestamps, splits into per-scene segments, then runs one LLM correction pass; transcripts are stored only on video-scenes (no video-level transcript field). compile_detections calls matchProduct() on OCR text to find/create products, then uses LLM consolidation to synthesize all detection sources (barcode, object_detection, ocr, transcript) into a unified detections[] array; each entry has a confidence score and a `reasoning` field explaining the LLM's decision. sentiment_analysis concatenates scene transcripts on-the-fly to derive the full transcript context, then creates video-mentions with full detection provenance (confidence, sources, barcodeValue, clipDistance). Progress is tracked per-video on the job's `videoProgress` JSON map (not on the video). Job selects which stages to run via checkboxes. The download stage has been moved to the video crawl step.
+9. Gallery discovery uses gallery-dl/Instagram drivers to discover gallery posts from social channels. Accumulates URLs in the job's `galleryUrls` field — no gallery records are created during discovery.
+10. Gallery crawl downloads gallery metadata and images via gallery-dl, resolves/creates channel+creator records, downloads images and uploads to gallery-media, creates gallery + gallery-items records, and sets gallery status to `crawled`.
+11. Gallery processing runs as 6 sequential stages (barcode_scan → object_detection → visual_search → ocr_extraction → compile_detections → sentiment_analysis) on gallery-item images. Same detection pipeline as video processing but without scene_detection or transcription stages (static images, no video segmentation or audio). Detection data is stored on gallery-items. Creates gallery-mentions with product detection provenance. Progress is tracked per-gallery on the job's `galleryProgress` JSON map.
 ```
 
 ## Keeping CLAUDE.md Up to Date
