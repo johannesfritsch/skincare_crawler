@@ -40,6 +40,7 @@ import { default as default_4b4ffd9db6aab146d914cdb41f3a779d } from '@/component
 import { default as default_2c84a15da0249f0b8ee1340cd2e982ca } from '../../../components/ScenesGallery'
 import { default as default_87728572563c6e1da33eadd3a829ec3d } from '../../../components/EmbeddedVideoPlayer'
 import { default as default_efddd0db6825b46b8974231a9cc8f159 } from '@/components/bulk-actions/VideoBulkActions'
+import { default as default_9e56e36347eeea22f9cf5fce98fcd547 } from '@/components/VideosGallery'
 import { default as default_d36a95c7b667f33a72dc38ff7d7f7916 } from '@/components/bulk-actions/VideoBulkStatus'
 import { default as default_8da85ba43770e514d85a6fec69d919f4 } from '@/components/VideoSaveButton'
 import { default as default_f0c1fcae0d28ac4b0ff05d79c223cc23 } from '../../../components/EmbeddedScenePlayer'
@@ -48,6 +49,7 @@ import { default as default_3368fcd293a0b5d5dc7f3b9607258e74 } from '@/component
 import { default as default_79fd35eb7e4e0cd1100b52e5425f9118 } from '@/components/RecognitionObjectField'
 import { default as default_dc18604f4d78e37a674a0b8d80c9e980 } from '../../../components/VideoMentionsCell'
 import { default as default_eb27a101f916ca1ffb9b5ff8fcb0a821 } from '../../../components/GalleryItemsGrid'
+import { default as default_7016a34be292f4e035fa415d82eb0534 } from '@/components/GalleriesGallery'
 import { default as default_d19f33f1c8d804820952ad0cf2cc4fbe } from '../../../components/dashboard/widgets/ChangelogClient'
 import { CustomNav as CustomNav_1850b0017aaedbc55da15d565ca0bcd7 } from '../../../components/CustomNav'
 import { default as default_c6286fbc7f62f2ce3ef9c604e9c02147 } from '../../../components/graphics/Icon'
@@ -115,6 +117,7 @@ export const importMap = {
   "/components/ScenesGallery#default": default_2c84a15da0249f0b8ee1340cd2e982ca,
   "/components/EmbeddedVideoPlayer#default": default_87728572563c6e1da33eadd3a829ec3d,
   "@/components/bulk-actions/VideoBulkActions#default": default_efddd0db6825b46b8974231a9cc8f159,
+  "@/components/VideosGallery#default": default_9e56e36347eeea22f9cf5fce98fcd547,
   "@/components/bulk-actions/VideoBulkStatus#default": default_d36a95c7b667f33a72dc38ff7d7f7916,
   "@/components/VideoSaveButton#default": default_8da85ba43770e514d85a6fec69d919f4,
   "/components/EmbeddedScenePlayer#default": default_f0c1fcae0d28ac4b0ff05d79c223cc23,
@@ -123,6 +126,7 @@ export const importMap = {
   "@/components/RecognitionObjectField#default": default_79fd35eb7e4e0cd1100b52e5425f9118,
   "/components/VideoMentionsCell#default": default_dc18604f4d78e37a674a0b8d80c9e980,
   "/components/GalleryItemsGrid#default": default_eb27a101f916ca1ffb9b5ff8fcb0a821,
+  "@/components/GalleriesGallery#default": default_7016a34be292f4e035fa415d82eb0534,
   "/components/dashboard/widgets/ChangelogClient#default": default_d19f33f1c8d804820952ad0cf2cc4fbe,
   "/components/CustomNav#CustomNav": CustomNav_1850b0017aaedbc55da15d565ca0bcd7,
   "/components/graphics/Icon#default": default_c6286fbc7f62f2ce3ef9c604e9c02147,

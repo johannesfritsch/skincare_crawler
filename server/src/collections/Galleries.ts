@@ -11,6 +11,9 @@ export const Galleries: CollectionConfig = {
     useAsTitle: 'caption',
     defaultColumns: ['caption', 'channel', 'status', 'publishedAt'],
     group: 'Galleries',
+    components: {
+      beforeListTable: ['@/components/GalleriesGallery'],
+    },
   },
   hooks: {
     beforeDelete: [
