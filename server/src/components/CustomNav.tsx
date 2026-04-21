@@ -77,7 +77,7 @@ const TABS: NavTab[] = [
       },
       {
         label: 'Galleries',
-        collections: ['galleries', 'gallery-mentions'],
+        collections: ['galleries', 'gallery-comments', 'gallery-mentions'],
         jobs: [
           { label: 'Discovery', slug: 'gallery-discoveries' },
           { label: 'Crawl', slug: 'gallery-crawls' },
@@ -134,6 +134,7 @@ const COLLECTION_LABELS: Record<string, string> = {
   'video-mentions': 'Video Mentions',
   'galleries': 'Galleries',
   'gallery-items': 'Gallery Items',
+  'gallery-comments': 'Gallery Comments',
   'gallery-mentions': 'Gallery Mentions',
   'users': 'Users',
   'workers': 'Workers',

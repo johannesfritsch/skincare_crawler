@@ -65,7 +65,9 @@ import {
 import { executeMetadata } from '@/lib/video-crawl/stages/metadata'
 import { executeDownload } from '@/lib/video-crawl/stages/download'
 import { executeAudio } from '@/lib/video-crawl/stages/audio'
-import { crawlGallery } from '@/lib/gallery-crawl/crawl-gallery'
+import { crawlGallery, crawlGalleryMetadata, crawlGalleryDownload } from '@/lib/gallery-crawl/crawl-gallery'
+import { fetchInstagramComments } from '@/lib/gallery-crawl/fetch-instagram-comments'
+import { getCookies } from '@/lib/video-discovery/drivers/gallery-dl'
 
 
 // ─── Config ───
@@ -638,11 +640,25 @@ async function processGalleryDiscoveryItem(
   }
 }
 
+const GALLERY_CRAWL_STAGE_ORDER = ['metadata', 'download', 'comments'] as const
+type GalleryCrawlStage = typeof GALLERY_CRAWL_STAGE_ORDER[number]
+
+/** Return the next enabled stage after `current`, or null if none remain. */
+function getNextGalleryCrawlStage(current: string, enabledStages: Set<string>): string | null {
+  const idx = GALLERY_CRAWL_STAGE_ORDER.indexOf(current as GalleryCrawlStage)
+  for (let i = idx + 1; i < GALLERY_CRAWL_STAGE_ORDER.length; i++) {
+    if (enabledStages.has(GALLERY_CRAWL_STAGE_ORDER[i])) return GALLERY_CRAWL_STAGE_ORDER[i]
+  }
+  return null
+}
+
 /**
- * Process a single gallery-crawl work item (per-URL).
+ * Process a single gallery-crawl work item (per-URL, multi-stage).
  *
- * Fetches gallery metadata via gallery-dl, resolves/creates channel + creator,
- * downloads images, uploads to gallery-media, creates Gallery + GalleryItem records.
+ * Stages:
+ *   0. metadata  — gallery-dl metadata, channel/creator resolution, create gallery record
+ *   1. download  — download images, upload to gallery-media, create gallery items
+ *   2. comments  — fetch Instagram comments via API
  */
 async function processGalleryCrawlItem(
   jobId: number,
@@ -651,54 +667,150 @@ async function processGalleryCrawlItem(
   jlog: ReturnType<typeof log.forJob>,
 ): Promise<void> {
   const galleryUrl = item.item_key
+  const stageName = item.stage_name
   const itemLabel = galleryUrl.length > 60 ? `…${galleryUrl.slice(-57)}` : galleryUrl
 
-  log.banner(`CRAWL: gallery — ${itemLabel}`, { jobId })
-  jlog.event('stage.started', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl })
+  log.banner(`CRAWL: gallery [${stageName}] — ${itemLabel}`, { jobId })
+  jlog.event('stage.started', { pipeline: 'gallery-crawls', stage: stageName, item: galleryUrl })
 
   const stageStartMs = Date.now()
 
   try {
-    const result = await crawlGallery(
-      galleryUrl,
-      client,
-      jlog,
-      uploadMedia,
-      () => client.workItems.heartbeat([item.id]).then(() => {}),
+    let success = false
+    let error: string | undefined
+
+    // Fetch job config to compute next enabled stage
+    const job = await client.findByID({ collection: 'gallery-crawls', id: jobId }) as Record<string, unknown>
+    const enabledStages = new Set<string>(
+      GALLERY_CRAWL_STAGE_ORDER.filter(s => {
+        const field = s === 'metadata' ? 'stageMetadata' : s === 'download' ? 'stageDownload' : 'stageComments'
+        return job[field] !== false
+      })
     )
+
+    if (stageName === 'metadata') {
+      const result = await crawlGalleryMetadata(
+        galleryUrl,
+        client,
+        jlog,
+        uploadMedia,
+        () => client.workItems.heartbeat([item.id]).then(() => {}),
+      )
+      success = result.success
+      error = result.error
+
+      if (success) {
+        // Append to crawledGalleryUrls so downstream jobs (gallery-processings) can use it
+        const existingUrls = ((job.crawledGalleryUrls as string) ?? '').split('\n').filter(Boolean)
+        if (!existingUrls.includes(galleryUrl)) {
+          existingUrls.push(galleryUrl)
+          await client.update({
+            collection: 'gallery-crawls',
+            id: jobId,
+            data: { crawledGalleryUrls: existingUrls.join('\n') },
+          }).catch(() => {})
+        }
+      }
+    } else if (stageName === 'download') {
+      const result = await crawlGalleryDownload(
+        galleryUrl,
+        client,
+        jlog,
+        uploadMedia,
+        () => client.workItems.heartbeat([item.id]).then(() => {}),
+      )
+      success = result.success
+      error = result.error
+
+      if (success) {
+        jlog.event('gallery_crawl.gallery_crawled', { galleryId: 0, caption: '', durationMs: Date.now() - stageStartMs })
+      }
+    } else if (stageName === 'comments') {
+      // Find the gallery by externalUrl to get its externalId and commentCount
+      const galleries = await client.find({
+        collection: 'galleries',
+        where: { externalUrl: { equals: galleryUrl } },
+        limit: 1,
+      })
+      const gallery = galleries.docs[0] as Record<string, unknown> | undefined
+
+      if (!gallery) {
+        error = `Gallery not found for URL: ${galleryUrl}`
+      } else {
+        const externalId = (gallery.externalId as string) ?? ''
+
+        if (externalId) {
+          const cookies = await getCookies(client, 'instagram')
+          if (cookies) {
+            const comments = await fetchInstagramComments(externalId, cookies, { limit: 50, logger: jlog })
+            if (comments.length > 0) {
+              let created = 0
+              let skipped = 0
+              for (const comment of comments) {
+                // Find-or-create by externalId to avoid duplicates on re-run
+                if (comment.externalId) {
+                  const existing = await client.find({
+                    collection: 'gallery-comments',
+                    where: { externalId: { equals: comment.externalId } },
+                    limit: 1,
+                  })
+                  if (existing.docs.length > 0) {
+                    skipped++
+                    continue
+                  }
+                }
+                await client.create({
+                  collection: 'gallery-comments',
+                  data: {
+                    gallery: gallery.id as number,
+                    externalId: comment.externalId,
+                    username: comment.username,
+                    text: comment.text,
+                    ...(comment.createdAt ? { createdAt: comment.createdAt } : {}),
+                    ...(comment.likeCount != null ? { likeCount: comment.likeCount } : {}),
+                  },
+                })
+                created++
+              }
+              jlog.info('Stored Instagram comments', { galleryId: gallery.id as number, created, skipped })
+            } else {
+              jlog.debug('No comments fetched', { galleryId: gallery.id as number, externalId })
+            }
+          } else {
+            jlog.debug('No Instagram cookies for comment fetch')
+          }
+        } else {
+          jlog.debug('Skipping comments — no externalId on gallery', { galleryId: gallery.id as number })
+        }
+        success = true
+      }
+    } else {
+      error = `Unknown gallery-crawl stage: ${stageName}`
+    }
 
     const durationMs = Date.now() - stageStartMs
 
-    if (!result.success) {
-      log.bannerEnd(`CRAWL: gallery — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: (result.error ?? '').slice(0, 80) })
-      jlog.event('stage.failed', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl, durationMs, error: result.error ?? 'Unknown error' })
-      const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error: result.error, counterUpdates: { errors: 1 } })
+    if (!success) {
+      log.bannerEnd(`CRAWL: gallery [${stageName}] — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: (error ?? '').slice(0, 80) })
+      jlog.event('stage.failed', { pipeline: 'gallery-crawls', stage: stageName, item: galleryUrl, durationMs, error: error ?? 'Unknown error' })
+      const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error, counterUpdates: { errors: 1 } })
       if (done) {
-        if (jobStatus === 'failed') jlog.event('job.failed', { reason: result.error ?? 'All work items failed' })
+        if (jobStatus === 'failed') jlog.event('job.failed', { reason: error ?? 'All work items failed' })
         else jlog.event('job.completed', { collection: 'gallery-crawls', durationMs })
       }
       return
     }
 
-    log.bannerEnd(`CRAWL: gallery — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s`, galleryId: result.galleryId, items: result.itemCount })
-    jlog.event('stage.completed', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl, durationMs, tokens: 0 })
-    jlog.event('gallery_crawl.gallery_crawled', { galleryId: result.galleryId ?? 0, caption: '', durationMs })
+    log.bannerEnd(`CRAWL: gallery [${stageName}] — ${itemLabel}`, true, { duration: `${(durationMs / 1000).toFixed(1)}s` })
+    jlog.event('stage.completed', { pipeline: 'gallery-crawls', stage: stageName, item: galleryUrl, durationMs, tokens: 0 })
 
-    // Append crawled URL to job's accumulated list
-    const job = await client.findByID({ collection: 'gallery-crawls', id: jobId }) as Record<string, unknown>
-    const existingUrls = ((job.crawledGalleryUrls as string) ?? '').split('\n').filter(Boolean)
-    if (!existingUrls.includes(galleryUrl)) {
-      existingUrls.push(galleryUrl)
-      await client.update({
-        collection: 'gallery-crawls',
-        id: jobId,
-        data: { crawledGalleryUrls: existingUrls.join('\n') },
-      }).catch(() => {})
-    }
+    // Compute next enabled stage (worker-side — server does not filter disabled stages)
+    const nextStage = getNextGalleryCrawlStage(stageName, enabledStages)
 
     const { done, jobStatus } = await client.workItems.complete({
       workItemId: item.id,
       success: true,
+      nextStageName: nextStage,
       counterUpdates: { completed: 1 },
     })
     if (done) {
@@ -713,8 +825,8 @@ async function processGalleryCrawlItem(
   } catch (e) {
     const durationMs = Date.now() - stageStartMs
     const error = e instanceof Error ? e.message : String(e)
-    log.bannerEnd(`CRAWL: gallery — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
-    jlog.event('stage.failed', { pipeline: 'gallery-crawls', stage: 'execute', item: galleryUrl, durationMs, error })
+    log.bannerEnd(`CRAWL: gallery [${stageName}] — ${itemLabel}`, false, { duration: `${(durationMs / 1000).toFixed(1)}s`, error: error.slice(0, 80) })
+    jlog.event('stage.failed', { pipeline: 'gallery-crawls', stage: stageName, item: galleryUrl, durationMs, error })
     const { done, jobStatus } = await client.workItems.complete({ workItemId: item.id, success: false, error, counterUpdates: { errors: 1 } })
     if (done) {
       if (jobStatus === 'failed') jlog.event('job.failed', { reason: error })

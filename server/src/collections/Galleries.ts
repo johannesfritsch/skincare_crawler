@@ -138,9 +138,20 @@ export const Galleries: CollectionConfig = {
           label: 'Comments',
           fields: [
             {
-              name: 'comments',
+              name: 'galleryComments',
+              type: 'join',
+              collection: 'gallery-comments',
+              on: 'gallery',
+              admin: {
+                components: {
+                  Field: '/components/GalleryComments',
+                },
+              },
+            },
+            {
+              name: 'imageSourceUrls',
               type: 'json',
-              label: 'Comments',
+              admin: { hidden: true },
             },
           ],
         },

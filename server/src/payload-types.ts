@@ -109,6 +109,7 @@ export interface Config {
     'gallery-media': GalleryMedia;
     galleries: Gallery;
     'gallery-items': GalleryItem;
+    'gallery-comments': GalleryComment;
     'gallery-mentions': GalleryMention;
     'gallery-discoveries': GalleryDiscovery;
     'gallery-crawls': GalleryCrawl;
@@ -149,6 +150,7 @@ export interface Config {
     };
     galleries: {
       galleryItems: 'gallery-items';
+      galleryComments: 'gallery-comments';
       galleryMentions: 'gallery-mentions';
     };
     'gallery-items': {
@@ -197,6 +199,7 @@ export interface Config {
     'gallery-media': GalleryMediaSelect<false> | GalleryMediaSelect<true>;
     galleries: GalleriesSelect<false> | GalleriesSelect<true>;
     'gallery-items': GalleryItemsSelect<false> | GalleryItemsSelect<true>;
+    'gallery-comments': GalleryCommentsSelect<false> | GalleryCommentsSelect<true>;
     'gallery-mentions': GalleryMentionsSelect<false> | GalleryMentionsSelect<true>;
     'gallery-discoveries': GalleryDiscoveriesSelect<false> | GalleryDiscoveriesSelect<true>;
     'gallery-crawls': GalleryCrawlsSelect<false> | GalleryCrawlsSelect<true>;
@@ -1793,7 +1796,12 @@ export interface Gallery {
     hasNextPage?: boolean;
     totalDocs?: number;
   };
-  comments?:
+  galleryComments?: {
+    docs?: (number | GalleryComment)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  imageSourceUrls?:
     | {
         [k: string]: unknown;
       }
@@ -2475,6 +2483,26 @@ export interface GalleryMention {
   overallSentimentScore?: number | null;
   updatedAt: string;
   createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-comments".
+ */
+export interface GalleryComment {
+  id: number;
+  gallery: number | Gallery;
+  /**
+   * Instagram comment PK — used for deduplication
+   */
+  externalId?: string | null;
+  username: string;
+  text: string;
+  /**
+   * When the comment was posted on Instagram
+   */
+  createdAt: string;
+  likeCount?: number | null;
+  updatedAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -3233,6 +3261,18 @@ export interface GalleryCrawl {
    */
   discovery?: (number | null) | GalleryDiscovery;
   /**
+   * Fetch metadata via gallery-dl, resolve channel/creator, create gallery record.
+   */
+  stageMetadata?: boolean | null;
+  /**
+   * Download images, upload to gallery-media, create gallery items.
+   */
+  stageDownload?: boolean | null;
+  /**
+   * Fetch Instagram comments via API.
+   */
+  stageComments?: boolean | null;
+  /**
    * Maximum number of retries before the job is marked as failed. Set to 0 to disable retries.
    */
   maxRetries?: number | null;
@@ -3562,6 +3602,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'gallery-items';
         value: number | GalleryItem;
+      } | null)
+    | ({
+        relationTo: 'gallery-comments';
+        value: number | GalleryComment;
       } | null)
     | ({
         relationTo: 'gallery-mentions';
@@ -4923,7 +4967,8 @@ export interface GalleriesSelect<T extends boolean = true> {
   caption?: T;
   thumbnail?: T;
   galleryItems?: T;
-  comments?: T;
+  galleryComments?: T;
+  imageSourceUrls?: T;
   galleryMentions?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -4984,6 +5029,19 @@ export interface GalleryItemsSelect<T extends boolean = true> {
   galleryMentions?: T;
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "gallery-comments_select".
+ */
+export interface GalleryCommentsSelect<T extends boolean = true> {
+  gallery?: T;
+  externalId?: T;
+  username?: T;
+  text?: T;
+  createdAt?: T;
+  likeCount?: T;
+  updatedAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -5059,6 +5117,9 @@ export interface GalleryCrawlsSelect<T extends boolean = true> {
   scope?: T;
   urls?: T;
   discovery?: T;
+  stageMetadata?: T;
+  stageDownload?: T;
+  stageComments?: T;
   maxRetries?: T;
   claimedAt?: T;
   claimedBy?: T;

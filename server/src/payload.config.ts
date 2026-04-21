@@ -50,6 +50,7 @@ import { VideoProcessings } from './collections/VideoProcessings'
 import { GalleryMedia } from './collections/GalleryMedia'
 import { Galleries } from './collections/Galleries'
 import { GalleryItems } from './collections/GalleryItems'
+import { GalleryComments } from './collections/GalleryComments'
 import { GalleryMentions } from './collections/GalleryMentions'
 import { GalleryDiscoveries } from './collections/GalleryDiscoveries'
 import { GalleryCrawls } from './collections/GalleryCrawls'
@@ -296,6 +297,7 @@ export default buildConfig({
     GalleryMedia,
     Galleries,
     GalleryItems,
+    GalleryComments,
     GalleryMentions,
     GalleryDiscoveries,
     GalleryCrawls,

@@ -1,11 +1,11 @@
 /**
  * Gallery crawl — crawl a single Instagram gallery post URL.
  *
- * Fetches post metadata via gallery-dl, resolves/creates channel + creator,
- * downloads images, uploads to gallery-media, creates Gallery + GalleryItem records.
+ * Split into two independently callable stages:
+ *   1. crawlGalleryMetadata() — gallery-dl metadata + channel/creator resolution
+ *   2. crawlGalleryDownload() — image download + gallery items creation
  *
- * Mirrors the video crawl metadata stage pattern (channel/creator resolution,
- * avatar download, thumbnail upload).
+ * The combined crawlGallery() wrapper calls both for backward compatibility.
  */
 
 import crypto from 'crypto'
@@ -19,6 +19,18 @@ import type { Logger } from '@/lib/logger'
 export interface CrawlGalleryResult {
   success: boolean
   galleryId?: number
+  itemCount?: number
+  error?: string
+}
+
+export interface CrawlGalleryMetadataResult {
+  success: boolean
+  galleryId?: number
+  error?: string
+}
+
+export interface CrawlGalleryDownloadResult {
+  success: boolean
   itemCount?: number
   error?: string
 }
@@ -89,22 +101,24 @@ function parseGalleryEntries(entries: GalleryDlEntry[]): ParsedGalleryMetadata |
 }
 
 /**
- * Crawl a single gallery post URL.
+ * Stage 1: Fetch gallery-dl metadata and resolve/create channel + creator.
  *
- * 1. Fetch metadata via gallery-dl
- * 2. Resolve/create channel + creator
- * 3. Download images and upload to gallery-media
- * 4. Create Gallery record
- * 5. Create GalleryItem records
+ * - Runs gallery-dl with --no-download (metadata only)
+ * - Resolves or creates channel + creator
+ * - Downloads and uploads avatar
+ * - Creates or updates Gallery record with metadata + imageSourceUrls
+ * - Does NOT set status: 'crawled' — that happens in crawlGalleryDownload()
+ *
+ * Returns { success, galleryId, error? }
  */
-export async function crawlGallery(
+export async function crawlGalleryMetadata(
   galleryUrl: string,
   payload: PayloadRestClient,
   jlog: Logger,
   uploadMedia: (filePath: string, alt: string, mimetype: string, collection?: string) => Promise<number>,
   heartbeat: () => Promise<void>,
-): Promise<CrawlGalleryResult> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-gallery-crawl-'))
+): Promise<CrawlGalleryMetadataResult> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-gallery-meta-'))
 
   try {
     // Step 1: Fetch metadata via gallery-dl
@@ -200,10 +214,108 @@ export async function crawlGallery(
 
     await heartbeat()
 
-    // Step 3: Download images and upload to gallery-media
+    // Step 3: Create or update Gallery record with metadata + imageSourceUrls
+    // Does NOT set status: 'crawled' here — that is set by crawlGalleryDownload()
+    const existingGallery = await payload.find({
+      collection: 'galleries',
+      where: { externalUrl: { equals: galleryUrl } },
+      limit: 1,
+    })
+
+    let galleryId: number
+    const galleryData: Record<string, unknown> = {
+      channel: channelId,
+      externalId: meta.externalId,
+      caption: meta.caption || undefined,
+      ...(meta.publishedAt ? { publishedAt: meta.publishedAt } : {}),
+      ...(meta.likeCount != null ? { likeCount: meta.likeCount } : {}),
+      ...(meta.commentCount != null ? { commentCount: meta.commentCount } : {}),
+      imageSourceUrls: meta.imageUrls,
+    }
+
+    if (existingGallery.docs.length > 0) {
+      galleryId = (existingGallery.docs[0] as Record<string, unknown>).id as number
+      await payload.update({
+        collection: 'galleries',
+        id: galleryId,
+        data: galleryData,
+      })
+    } else {
+      const newGallery = await payload.create({
+        collection: 'galleries',
+        data: {
+          ...galleryData,
+          externalUrl: galleryUrl,
+        },
+      }) as { id: number }
+      galleryId = newGallery.id
+    }
+
+    jlog.info('Gallery metadata fetched', { galleryId, imageCount: meta.imageUrls.length, caption: (meta.caption ?? '').slice(0, 80) })
+
+    return { success: true, galleryId }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    return { success: false, error }
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
+/**
+ * Stage 2: Download images and create gallery-item records.
+ *
+ * - Looks up Gallery by externalUrl
+ * - Reads imageSourceUrls from the Gallery record
+ * - Downloads each image via HTTP, uploads to gallery-media
+ * - Deletes existing gallery-items (for re-crawl), creates new ones
+ * - Sets thumbnail to first uploaded image
+ * - Sets status: 'crawled'
+ *
+ * Returns { success, itemCount, error? }
+ */
+export async function crawlGalleryDownload(
+  galleryUrl: string,
+  payload: PayloadRestClient,
+  jlog: Logger,
+  uploadMedia: (filePath: string, alt: string, mimetype: string, collection?: string) => Promise<number>,
+  heartbeat: () => Promise<void>,
+): Promise<CrawlGalleryDownloadResult> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-gallery-dl-'))
+
+  try {
+    // Look up Gallery by externalUrl
+    const existingGallery = await payload.find({
+      collection: 'galleries',
+      where: { externalUrl: { equals: galleryUrl } },
+      limit: 1,
+    })
+
+    if (existingGallery.docs.length === 0) {
+      return { success: false, error: `Gallery not found for URL: ${galleryUrl} — run metadata stage first` }
+    }
+
+    const gallery = existingGallery.docs[0] as Record<string, unknown>
+    const galleryId = gallery.id as number
+    const imageSourceUrls = (gallery.imageSourceUrls as string[]) ?? []
+
+    if (imageSourceUrls.length === 0) {
+      jlog.warn('No imageSourceUrls on gallery — metadata stage may not have run', { galleryId })
+      // Still mark as crawled with zero items
+      await payload.update({
+        collection: 'galleries',
+        id: galleryId,
+        data: { status: 'crawled' },
+      })
+      return { success: true, itemCount: 0 }
+    }
+
+    // Download images and upload to gallery-media
     const uploadedMediaIds: number[] = []
-    for (let i = 0; i < meta.imageUrls.length; i++) {
-      const imageUrl = meta.imageUrls[i]
+    for (let i = 0; i < imageSourceUrls.length; i++) {
+      const imageUrl = imageSourceUrls[i]
       try {
         const imgRes = await fetch(imageUrl)
         if (!imgRes.ok) {
@@ -228,53 +340,13 @@ export async function crawlGallery(
 
     await heartbeat()
 
-    // Step 4: Create or update Gallery record
-    // Check if gallery already exists (by externalUrl)
-    const existingGallery = await payload.find({
-      collection: 'galleries',
-      where: { externalUrl: { equals: galleryUrl } },
-      limit: 1,
-    })
+    // Delete existing gallery-items (for re-crawl)
+    await payload.delete({
+      collection: 'gallery-items',
+      where: { gallery: { equals: galleryId } },
+    }).catch((e: unknown) => jlog.warn('Failed to delete existing gallery items', { error: String(e) }))
 
-    let galleryId: number
-    const galleryData: Record<string, unknown> = {
-      status: 'crawled',
-      channel: channelId,
-      externalId: meta.externalId,
-      caption: meta.caption || undefined,
-      ...(meta.publishedAt ? { publishedAt: meta.publishedAt } : {}),
-      ...(meta.likeCount != null ? { likeCount: meta.likeCount } : {}),
-      ...(meta.commentCount != null ? { commentCount: meta.commentCount } : {}),
-      ...(uploadedMediaIds.length > 0 ? { thumbnail: uploadedMediaIds[0] } : {}),
-    }
-
-    if (existingGallery.docs.length > 0) {
-      galleryId = (existingGallery.docs[0] as Record<string, unknown>).id as number
-      await payload.update({
-        collection: 'galleries',
-        id: galleryId,
-        data: galleryData,
-      })
-    } else {
-      const newGallery = await payload.create({
-        collection: 'galleries',
-        data: {
-          ...galleryData,
-          externalUrl: galleryUrl,
-        },
-      }) as { id: number }
-      galleryId = newGallery.id
-    }
-
-    // Step 5: Create GalleryItem records (one per image)
-    // Delete existing items first (for re-crawl)
-    if (existingGallery.docs.length > 0) {
-      await payload.delete({
-        collection: 'gallery-items',
-        where: { gallery: { equals: galleryId } },
-      }).catch((e: unknown) => jlog.warn('Failed to delete existing gallery items', { error: String(e) }))
-    }
-
+    // Create gallery-item records
     for (let i = 0; i < uploadedMediaIds.length; i++) {
       await payload.create({
         collection: 'gallery-items',
@@ -286,13 +358,19 @@ export async function crawlGallery(
       })
     }
 
-    jlog.info('Gallery crawled', { galleryId, items: uploadedMediaIds.length, caption: (meta.caption ?? '').slice(0, 80) })
+    // Set thumbnail + status: 'crawled'
+    await payload.update({
+      collection: 'galleries',
+      id: galleryId,
+      data: {
+        status: 'crawled',
+        ...(uploadedMediaIds.length > 0 ? { thumbnail: uploadedMediaIds[0] } : {}),
+      },
+    })
 
-    return {
-      success: true,
-      galleryId,
-      itemCount: uploadedMediaIds.length,
-    }
+    jlog.info('Gallery images downloaded', { galleryId, items: uploadedMediaIds.length })
+
+    return { success: true, itemCount: uploadedMediaIds.length }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     return { success: false, error }
@@ -300,5 +378,34 @@ export async function crawlGallery(
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     } catch {}
+  }
+}
+
+/**
+ * Crawl a single gallery post URL (metadata + download in one call).
+ *
+ * Kept for backward compatibility — calls crawlGalleryMetadata() then crawlGalleryDownload().
+ */
+export async function crawlGallery(
+  galleryUrl: string,
+  payload: PayloadRestClient,
+  jlog: Logger,
+  uploadMedia: (filePath: string, alt: string, mimetype: string, collection?: string) => Promise<number>,
+  heartbeat: () => Promise<void>,
+): Promise<CrawlGalleryResult> {
+  const metaResult = await crawlGalleryMetadata(galleryUrl, payload, jlog, uploadMedia, heartbeat)
+  if (!metaResult.success) {
+    return { success: false, error: metaResult.error }
+  }
+
+  const dlResult = await crawlGalleryDownload(galleryUrl, payload, jlog, uploadMedia, heartbeat)
+  if (!dlResult.success) {
+    return { success: false, galleryId: metaResult.galleryId, error: dlResult.error }
+  }
+
+  return {
+    success: true,
+    galleryId: metaResult.galleryId,
+    itemCount: dlResult.itemCount,
   }
 }

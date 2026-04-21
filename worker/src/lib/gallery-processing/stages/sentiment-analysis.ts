@@ -17,26 +17,27 @@ export async function executeSentimentAnalysis(ctx: GalleryStageContext, gallery
   const { payload, config, log } = ctx
   const jlog = log.forJob('gallery-processings', config.jobId)
 
-  // Fetch the gallery for caption and comments
+  // Fetch the gallery for caption
   const gallery = await payload.findByID({ collection: 'galleries', id: galleryId }) as Record<string, unknown>
   const caption = (gallery.caption as string) ?? ''
 
-  // Build full text context from caption + comments
+  // Build full text context from caption + comments (fetched from gallery-comments collection)
   let commentsText = ''
-  const commentsRaw = gallery.comments
-  if (commentsRaw) {
-    const comments = typeof commentsRaw === 'string' ? JSON.parse(commentsRaw) : commentsRaw
-    if (Array.isArray(comments)) {
-      commentsText = comments
-        .map((c: Record<string, unknown>) => {
-          const user = (c.username as string) ?? (c.user as string) ?? ''
-          const text = (c.text as string) ?? ''
-          return user ? `${user}: ${text}` : text
-        })
-        .filter(Boolean)
-        .join('\n')
-    }
-  }
+  const commentsResult = await payload.find({
+    collection: 'gallery-comments',
+    where: { gallery: { equals: galleryId } },
+    limit: 100,
+    sort: '-likeCount',
+  })
+  const comments = commentsResult.docs as Array<Record<string, unknown>>
+  commentsText = comments
+    .map((c) => {
+      const user = (c.username as string) ?? ''
+      const text = (c.text as string) ?? ''
+      return user ? `${user}: ${text}` : text
+    })
+    .filter(Boolean)
+    .join('\n')
 
   // Fetch all items
   const itemsResult = await payload.find({

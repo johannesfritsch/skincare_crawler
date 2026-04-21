@@ -105,6 +105,46 @@ export const GalleryCrawls: CollectionConfig = {
           ],
         },
         {
+          label: 'Stages',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'stageMetadata',
+                  type: 'checkbox',
+                  label: 'Metadata',
+                  defaultValue: true,
+                  admin: {
+                    width: '33%',
+                    description: 'Fetch metadata via gallery-dl, resolve channel/creator, create gallery record.',
+                  },
+                },
+                {
+                  name: 'stageDownload',
+                  type: 'checkbox',
+                  label: 'Download',
+                  defaultValue: true,
+                  admin: {
+                    width: '33%',
+                    description: 'Download images, upload to gallery-media, create gallery items.',
+                  },
+                },
+                {
+                  name: 'stageComments',
+                  type: 'checkbox',
+                  label: 'Comments',
+                  defaultValue: true,
+                  admin: {
+                    width: '33%',
+                    description: 'Fetch Instagram comments via API.',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
           label: 'Configuration',
           fields: [
             {

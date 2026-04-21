@@ -128,7 +128,7 @@ const JOB_PIPELINES: Record<string, StageDef[]> = {
   'bot-checks': [{ name: 'execute', jobField: '_always' }],
   'test-suite-runs': [{ name: 'execute', jobField: '_always' }],
   'gallery-discoveries': GALLERY_DISCOVERY_STAGES,
-  'gallery-crawls': [{ name: 'execute', jobField: '_always' }],
+  'gallery-crawls': [{ name: 'metadata', jobField: 'stageMetadata' }, { name: 'download', jobField: 'stageDownload' }, { name: 'comments', jobField: 'stageComments' }],
   'gallery-processings': GALLERY_PROCESSING_STAGES,
 }
 
@@ -238,7 +238,7 @@ async function seedJobWorkItems(
     // Per-URL: one work item per gallery URL
     const galleryCrawlUrls = await resolveGalleryCrawlUrls(payload, db, job)
     for (const url of galleryCrawlUrls) {
-      items.push({ itemKey: url, stageName: 'execute' })
+      items.push({ itemKey: url, stageName: getFirstEnabledStage(JOB_PIPELINES['gallery-crawls'], job) ?? 'metadata' })
     }
   } else if (collection === 'gallery-processings') {
     // Multi-stage: one work item per gallery at its first enabled stage
