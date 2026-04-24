@@ -18,6 +18,14 @@ interface VideoDoc {
   } | number | null
 }
 
+interface VideoCounts {
+  scenes: number
+  objects: number
+  recognitions: number
+  detections: number
+  mentions: number
+}
+
 interface SceneImage {
   id: number
   image?: { sizes?: { card?: { url?: string | null } }; url?: string | null } | number | null
@@ -102,7 +110,41 @@ function PlatformIcon({ platform }: { platform: string }) {
   }
 }
 
-function VideoCard({ video, adminRoute }: { video: VideoDoc; adminRoute: string }) {
+function CountBadges({ counts }: { counts: VideoCounts }) {
+  const items: [string, number][] = [
+    ['SC', counts.scenes],
+    ['OB', counts.objects],
+    ['RE', counts.recognitions],
+    ['DE', counts.detections],
+    ['ME', counts.mentions],
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
+      {items.map(([label, n]) => (
+        <span
+          key={label}
+          style={{
+            fontSize: '9px',
+            lineHeight: 1,
+            padding: '2px 4px',
+            borderRadius: '3px',
+            background: n > 0 ? 'var(--theme-elevation-150)' : 'var(--theme-elevation-100)',
+            color: n > 0 ? 'var(--theme-elevation-600)' : 'var(--theme-elevation-350)',
+            fontWeight: 500,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {label} {n > 0 ? n : '–'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+const EMPTY_VIDEO_COUNTS: VideoCounts = { scenes: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0 }
+
+function VideoCard({ video, counts, adminRoute }: { video: VideoDoc; counts?: VideoCounts; adminRoute: string }) {
   const [sceneUrls, setSceneUrls] = useState<string[] | null>(null)
   const [frameIndex, setFrameIndex] = useState(0)
   const [isHovering, setIsHovering] = useState(false)
@@ -294,6 +336,7 @@ function VideoCard({ video, adminRoute }: { video: VideoDoc; adminRoute: string 
                 </span>
               )}
             </div>
+            <CountBadges counts={counts ?? EMPTY_VIDEO_COUNTS} />
           </div>
         </div>
       </div>
@@ -301,16 +344,75 @@ function VideoCard({ video, adminRoute }: { video: VideoDoc; adminRoute: string 
   )
 }
 
+async function fetchVideoCounts(videoIds: number[]): Promise<Record<number, VideoCounts>> {
+  const counts: Record<number, VideoCounts> = {}
+  if (videoIds.length === 0) return counts
+
+  // Fetch scenes with detection array lengths for all videos in one call
+  try {
+    const res = await fetch(
+      `/api/video-scenes?where[video][in]=${videoIds.join(',')}&limit=500&depth=0` +
+      `&select[video]=true&select[objects]=true&select[recognitions]=true&select[detections]=true`,
+    )
+    if (res.ok) {
+      const data = await res.json()
+      for (const scene of data.docs ?? []) {
+        const vid = typeof scene.video === 'number' ? scene.video : scene.video?.id
+        if (!vid) continue
+        if (!counts[vid]) counts[vid] = { scenes: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0 }
+        counts[vid].scenes++
+        counts[vid].objects += (scene.objects?.length ?? 0)
+        counts[vid].recognitions += (scene.recognitions?.length ?? 0)
+        counts[vid].detections += (scene.detections?.length ?? 0)
+      }
+    }
+  } catch { /* non-critical */ }
+
+  // Fetch mention counts
+  try {
+    const res = await fetch(
+      `/api/video-mentions?where[videoScene.video][in]=${videoIds.join(',')}&limit=0&depth=0`,
+    )
+    if (res.ok) {
+      // limit=0 won't give us per-video breakdown, so fetch with grouping
+      const mentionRes = await fetch(
+        `/api/video-mentions?where[videoScene.video][in]=${videoIds.join(',')}&limit=500&depth=1&select[videoScene]=true`,
+      )
+      if (mentionRes.ok) {
+        const mData = await mentionRes.json()
+        for (const m of mData.docs ?? []) {
+          const scene = m.videoScene
+          const vid = scene && typeof scene !== 'number' ? (scene.video as number) : undefined
+          if (!vid) continue
+          if (!counts[vid]) counts[vid] = { scenes: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0 }
+          counts[vid].mentions++
+        }
+      }
+    }
+  } catch { /* non-critical */ }
+
+  return counts
+}
+
 export default function VideosGallery() {
   const { config } = useConfig()
   const adminRoute = config.routes.admin
   const [videos, setVideos] = useState<VideoDoc[]>([])
+  const [videoCounts, setVideoCounts] = useState<Record<number, VideoCounts>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetch(`/api/videos?depth=2&limit=50&sort=-publishedAt`)
       .then((res) => res.json())
-      .then((data) => setVideos(data.docs ?? []))
+      .then(async (data) => {
+        const docs = data.docs ?? []
+        setVideos(docs)
+        const ids = docs.map((v: VideoDoc) => v.id)
+        if (ids.length > 0) {
+          const counts = await fetchVideoCounts(ids)
+          setVideoCounts(counts)
+        }
+      })
       .catch(() => setVideos([]))
       .finally(() => setLoading(false))
   }, [])
@@ -331,7 +433,7 @@ export default function VideosGallery() {
         gap: '12px',
       }}>
         {videos.map((video) => (
-          <VideoCard key={video.id} video={video} adminRoute={adminRoute} />
+          <VideoCard key={video.id} video={video} counts={videoCounts[video.id]} adminRoute={adminRoute} />
         ))}
       </div>
       <style>{`

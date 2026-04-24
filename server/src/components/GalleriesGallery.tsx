@@ -22,6 +22,15 @@ interface GalleryDoc {
   }
 }
 
+interface GalleryCounts {
+  items: number
+  objects: number
+  recognitions: number
+  detections: number
+  mentions: number
+  comments: number
+}
+
 const statusColors: Record<string, { bg: string; text: string }> = {
   discovered: { bg: 'var(--theme-elevation-200)', text: 'var(--theme-elevation-600)' },
   crawled: { bg: '#dbeafe', text: '#1e40af' },
@@ -125,7 +134,41 @@ function ImageMosaic({ images }: { images: string[] }) {
   )
 }
 
-function GalleryCard({ gallery, images, adminRoute }: { gallery: GalleryDoc; images: string[]; adminRoute: string }) {
+function CountBadges({ counts }: { counts: GalleryCounts }) {
+  const items: [string, number][] = [
+    ['OB', counts.objects],
+    ['RE', counts.recognitions],
+    ['DE', counts.detections],
+    ['ME', counts.mentions],
+    ['CO', counts.comments],
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
+      {items.map(([label, n]) => (
+        <span
+          key={label}
+          style={{
+            fontSize: '9px',
+            lineHeight: 1,
+            padding: '2px 4px',
+            borderRadius: '3px',
+            background: n > 0 ? 'var(--theme-elevation-150)' : 'var(--theme-elevation-100)',
+            color: n > 0 ? 'var(--theme-elevation-600)' : 'var(--theme-elevation-350)',
+            fontWeight: 500,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {label} {n > 0 ? n : '–'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+const EMPTY_GALLERY_COUNTS: GalleryCounts = { items: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0, comments: 0 }
+
+function GalleryCard({ gallery, images, counts, adminRoute }: { gallery: GalleryDoc; images: string[]; counts?: GalleryCounts; adminRoute: string }) {
   const channel = gallery.channel && typeof gallery.channel !== 'number' ? gallery.channel : null
   const channelAvatar = channel?.image && typeof channel.image !== 'number'
     ? (channel.image.sizes?.avatar?.url ?? channel.image.url ?? null)
@@ -216,6 +259,7 @@ function GalleryCard({ gallery, images, adminRoute }: { gallery: GalleryDoc; ima
                 </span>
               )}
             </div>
+            <CountBadges counts={counts ?? EMPTY_GALLERY_COUNTS} />
           </div>
         </div>
       </div>
@@ -223,11 +267,78 @@ function GalleryCard({ gallery, images, adminRoute }: { gallery: GalleryDoc; ima
   )
 }
 
+async function fetchGalleryCounts(galleryIds: number[]): Promise<Record<number, GalleryCounts>> {
+  const counts: Record<number, GalleryCounts> = {}
+  if (galleryIds.length === 0) return counts
+
+  // Fetch gallery-items with detection arrays
+  try {
+    const res = await fetch(
+      `/api/gallery-items?where[gallery][in]=${galleryIds.join(',')}&limit=500&depth=0` +
+      `&select[gallery]=true&select[objects]=true&select[recognitions]=true&select[detections]=true`,
+    )
+    if (res.ok) {
+      const data = await res.json()
+      for (const item of data.docs ?? []) {
+        const gid = typeof item.gallery === 'number' ? item.gallery : item.gallery?.id
+        if (!gid) continue
+        if (!counts[gid]) counts[gid] = { items: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0, comments: 0 }
+        counts[gid].items++
+        counts[gid].objects += (item.objects?.length ?? 0)
+        counts[gid].recognitions += (item.recognitions?.length ?? 0)
+        counts[gid].detections += (item.detections?.length ?? 0)
+      }
+    }
+  } catch { /* non-critical */ }
+
+  // Fetch mention counts
+  try {
+    const res = await fetch(
+      `/api/gallery-mentions?where[galleryItem.gallery][in]=${galleryIds.join(',')}&limit=500&depth=1&select[galleryItem]=true`,
+    )
+    if (res.ok) {
+      const data = await res.json()
+      for (const m of data.docs ?? []) {
+        const item = m.galleryItem
+        const gid = item && typeof item !== 'number' ? (item.gallery as number) : undefined
+        if (!gid) continue
+        if (!counts[gid]) counts[gid] = { items: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0, comments: 0 }
+        counts[gid].mentions++
+      }
+    }
+  } catch { /* non-critical */ }
+
+  // Fetch comment counts
+  try {
+    const res = await fetch(
+      `/api/gallery-comments?where[gallery][in]=${galleryIds.join(',')}&limit=0&depth=0`,
+    )
+    if (res.ok) {
+      // limit=0 gives totalDocs but no breakdown per gallery; fetch with gallery select
+      const cRes = await fetch(
+        `/api/gallery-comments?where[gallery][in]=${galleryIds.join(',')}&limit=500&depth=0&select[gallery]=true`,
+      )
+      if (cRes.ok) {
+        const cData = await cRes.json()
+        for (const c of cData.docs ?? []) {
+          const gid = typeof c.gallery === 'number' ? c.gallery : c.gallery?.id
+          if (!gid) continue
+          if (!counts[gid]) counts[gid] = { items: 0, objects: 0, recognitions: 0, detections: 0, mentions: 0, comments: 0 }
+          counts[gid].comments++
+        }
+      }
+    }
+  } catch { /* non-critical */ }
+
+  return counts
+}
+
 export default function GalleriesGallery() {
   const { config } = useConfig()
   const adminRoute = config.routes.admin
   const [galleries, setGalleries] = useState<GalleryDoc[]>([])
   const [itemImages, setItemImages] = useState<Record<number, string[]>>({})
+  const [galleryCounts, setGalleryCounts] = useState<Record<number, GalleryCounts>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -237,7 +348,7 @@ export default function GalleriesGallery() {
         const docs = data.docs ?? []
         setGalleries(docs)
 
-        // Fetch gallery-items images in parallel
+        // Fetch gallery-items images and counts in parallel
         const ids = docs.map((g: GalleryDoc) => g.id)
         if (ids.length > 0) {
           try {
@@ -261,6 +372,12 @@ export default function GalleriesGallery() {
             }
             setItemImages(byGallery)
           } catch { /* non-critical */ }
+
+          // Fetch counts
+          try {
+            const cts = await fetchGalleryCounts(ids)
+            setGalleryCounts(cts)
+          } catch { /* non-critical */ }
         }
       })
       .catch(() => setGalleries([]))
@@ -283,7 +400,7 @@ export default function GalleriesGallery() {
         gap: '12px',
       }}>
         {galleries.map((gallery) => (
-          <GalleryCard key={gallery.id} gallery={gallery} images={itemImages[gallery.id] ?? []} adminRoute={adminRoute} />
+          <GalleryCard key={gallery.id} gallery={gallery} images={itemImages[gallery.id] ?? []} counts={galleryCounts[gallery.id]} adminRoute={adminRoute} />
         ))}
       </div>
       <style>{`
