@@ -215,7 +215,9 @@ export async function persistCrawlResult(
   const jlog = log.forJob('product-crawls', crawlId)
   log.info('persistCrawlResult: starting', { crawlId, sourceVariantId: sourceVariantId ?? 'none (first crawl)', sourceProductId: sourceProductId ?? 'none (will create)', source })
 
-  // If no sourceProductId, create the source-product now (crawl is the sole creator)
+  // If no sourceProductId, find-or-create the source-product.
+  // Dedup strategy: (1) match by normalized URL, (2) match by GTIN + source via source-variants,
+  // (3) create new. GTIN-based fallback handles URL changes (e.g. DM switched from GTIN-based to DAN-based URLs).
   if (!sourceProductId) {
     const productUrl = normalizeProductUrl(input.sourceUrl)
     const existingProduct = await payload.find({
@@ -225,7 +227,44 @@ export async function persistCrawlResult(
     })
     if (existingProduct.docs.length > 0) {
       sourceProductId = (existingProduct.docs[0] as Record<string, unknown>).id as number
-    } else {
+    } else if (data.gtin) {
+      // URL not found — check if a source-variant with the same GTIN exists for this source
+      const existingVariant = await payload.find({
+        collection: 'source-variants',
+        where: {
+          and: [
+            { gtin: { equals: data.gtin } },
+          ],
+        },
+        limit: 1,
+      })
+      if (existingVariant.docs.length > 0) {
+        const variant = existingVariant.docs[0] as Record<string, unknown>
+        const parentId = typeof variant.sourceProduct === 'number'
+          ? variant.sourceProduct
+          : (variant.sourceProduct as Record<string, unknown>)?.id as number | undefined
+        if (parentId) {
+          // Verify the parent source-product has the same source
+          const parentProduct = await payload.find({
+            collection: 'source-products',
+            where: { and: [{ id: { equals: parentId } }, { source: { equals: source } }] },
+            limit: 1,
+          })
+          if (parentProduct.docs.length > 0) {
+            sourceProductId = parentId
+            // Update the source-product's URL to the new canonical URL
+            await payload.update({
+              collection: 'source-products',
+              id: sourceProductId,
+              data: { sourceUrl: productUrl },
+            })
+            log.info('persistCrawlResult: reused source-product via GTIN dedup, updated URL', { sourceProductId, gtin: data.gtin, oldUrl: String((parentProduct.docs[0] as Record<string, unknown>).sourceUrl ?? ''), newUrl: productUrl })
+          }
+        }
+      }
+    }
+
+    if (!sourceProductId) {
       const newProduct = await payload.create({
         collection: 'source-products',
         data: { source, sourceUrl: productUrl },
