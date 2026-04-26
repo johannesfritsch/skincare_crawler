@@ -8,6 +8,7 @@ import { createLogger } from '@/lib/logger'
 const log = createLogger('DM')
 
 const DM_PRODUCT_API = 'https://products.dm.de/product/products/detail/DE/gtin'
+const DM_PRODUCT_API_DAN = 'https://products.dm.de/product/products/detail/DE/dan'
 const DM_REFERER = 'https://www.dm.de/'
 
 // Common headers for all DM API calls (browser sends these from www.dm.de)
@@ -311,11 +312,22 @@ function parsePerUnitPrice(infos?: string[]): { amount: number; quantity: number
   return null
 }
 
-// Extract GTIN from a DM product URL like /produkt-name-p12345.html
+// Extract GTIN from a DM product URL like /produkt-name-p12345.html (legacy format)
 function extractGtinFromDmUrl(url: string): string | null {
   try {
     const pathname = new URL(url).pathname
     const match = pathname.match(/-p(\d+)\.html/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
+// Extract DAN from a DM product URL like /p/d/3124768/product-slug (new format)
+function extractDanFromDmUrl(url: string): string | null {
+  try {
+    const pathname = new URL(url).pathname
+    const match = pathname.match(/\/p\/d\/(\d+)\//)
     return match ? match[1] : null
   } catch {
     return null
@@ -668,16 +680,24 @@ export const dmDriver: SourceDriver = {
       const warnings: string[] = []
       logger?.event('scraper.started', { url: sourceUrl, source: 'dm' })
 
-      // Extract GTIN from URL to call DM API
+      // Extract GTIN or DAN from URL to call DM API
+      let apiUrl: string
       const gtin = extractGtinFromDmUrl(sourceUrl)
-      if (!gtin) {
-        log.info('Could not extract GTIN from URL', { sourceUrl })
-        logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: 'No GTIN in URL', reason: 'no_gtin' })
-        return null
+      if (gtin) {
+        apiUrl = `${DM_PRODUCT_API}/${gtin}`
+      } else {
+        const dan = extractDanFromDmUrl(sourceUrl)
+        if (dan) {
+          apiUrl = `${DM_PRODUCT_API_DAN}/${dan}`
+        } else {
+          log.info('Could not extract GTIN or DAN from URL', { sourceUrl })
+          logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: 'No GTIN or DAN in URL', reason: 'no_gtin' })
+          return null
+        }
       }
 
       // Fetch product details from DM API
-      const res = await stealthFetch(`${DM_PRODUCT_API}/${gtin}`, { headers: DM_HEADERS })
+      const res = await stealthFetch(apiUrl, { headers: DM_HEADERS })
       if (!res.ok) {
         log.info('API returned error', { status: res.status, gtin })
         logger?.event('scraper.failed', { url: sourceUrl, source: 'dm', error: 'API error', status: res.status })

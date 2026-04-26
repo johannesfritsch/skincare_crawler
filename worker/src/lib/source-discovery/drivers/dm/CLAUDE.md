@@ -161,11 +161,17 @@ Uses the product search API directly:
 
 ## URL Patterns
 
+DM changed their URL format in April 2026. Both old and new formats are supported:
+
 | Type | Pattern | Example |
 |------|---------|---------|
-| Product page | `www.dm.de/produktname-p{GTIN}.html` | `www.dm.de/alverde-naturkosmetik-tagescreme-p4058172936791.html` |
-| Product API | `products.dm.de/product/products/detail/DE/gtin/{GTIN}` | `products.dm.de/product/products/detail/DE/gtin/4058172936791` |
+| Product page (new) | `www.dm.de/p/d/{DAN}/{slug}` | `www.dm.de/p/d/3124768/maybelline-new-york-mascara-sky-high-tubes-very-black` |
+| Product page (legacy) | `www.dm.de/produktname-p{GTIN}.html` | `www.dm.de/alverde-naturkosmetik-tagescreme-p4058172936791.html` |
+| Product API (GTIN) | `products.dm.de/product/products/detail/DE/gtin/{GTIN}` | `products.dm.de/product/products/detail/DE/gtin/4058172936791` |
+| Product API (DAN) | `products.dm.de/product/products/detail/DE/dan/{DAN}` | `products.dm.de/product/products/detail/DE/dan/3124768` |
 | Category page | `www.dm.de/pflege/koerperpflege` | `www.dm.de/make-up/augen` |
+
+The driver tries GTIN extraction from the URL first (legacy `-p{GTIN}.html` pattern), then falls back to DAN extraction from the new `/p/d/{DAN}/` pattern. Both API endpoints return the same `DmProductDetail` response shape including `data.gtin` and `data.dan`.
 
 - `sourceUrl` on source-products: product page URL (normalized, used as dedup key)
 - `sourceUrl` on source-variants: same as source-products URL (DM product URL = variant URL, since variants are separate products with separate GTINs/DANs)
