@@ -273,6 +273,26 @@ export async function persistCrawlResult(
       log.info('persistCrawlResult: created source-product', { sourceProductId, url: productUrl })
     }
   }
+
+  // Update source-product URL to canonical if it changed (e.g. store changed URL format)
+  if (sourceProductId && data.canonicalUrl) {
+    const canonicalProductUrl = normalizeProductUrl(data.canonicalUrl)
+    const currentProductUrl = normalizeProductUrl(input.sourceUrl)
+    if (canonicalProductUrl !== currentProductUrl) {
+      try {
+        await payload.update({
+          collection: 'source-products',
+          id: sourceProductId,
+          data: { sourceUrl: canonicalProductUrl },
+        })
+        log.info('persistCrawlResult: updated source-product URL to canonical', { sourceProductId, from: currentProductUrl, to: canonicalProductUrl })
+      } catch (e) {
+        // May fail if canonical URL already exists on another source-product (unique constraint)
+        log.warn('persistCrawlResult: could not update source-product URL', { sourceProductId, canonicalProductUrl, error: String(e) })
+      }
+    }
+  }
+
   const warnings = [...data.warnings]
 
   // Build category breadcrumb string
